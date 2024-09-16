@@ -1,7 +1,6 @@
 # Copyright (c) 2021, Frappe and contributors
 # For license information, please see LICENSE
 
-from typing import Dict, List, Optional, Tuple
 
 import frappe
 import requests

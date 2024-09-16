@@ -1,7 +1,6 @@
 import json
 from collections import defaultdict
 from datetime import date, datetime
-from typing import List
 
 import frappe
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_sales_return
@@ -155,7 +154,7 @@ def create_credit_note(invoice_name):
 
 	for tax in credit_note.taxes:
 		tax.item_wise_tax_detail = json.loads(tax.item_wise_tax_detail)
-		for item, tax_distribution in tax.item_wise_tax_detail.items():
+		for _item, tax_distribution in tax.item_wise_tax_detail.items():
 			tax_distribution[1] *= -1
 		tax.item_wise_tax_detail = json.dumps(tax.item_wise_tax_detail)
 

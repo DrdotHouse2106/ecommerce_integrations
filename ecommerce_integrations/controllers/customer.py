@@ -1,5 +1,3 @@
-from typing import Dict
-
 import frappe
 from frappe import _
 from frappe.utils.nestedset import get_root_of

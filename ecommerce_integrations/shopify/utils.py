@@ -1,6 +1,5 @@
 # Copyright (c) 2021, Frappe and contributors
 # For license information, please see LICENSE
-from typing import List
 
 import frappe
 from frappe import _, _dict

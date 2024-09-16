@@ -1,7 +1,7 @@
 import base64
 import json
 from collections import defaultdict
-from typing import Any, Dict, List, NewType, Optional
+from typing import Any, NewType
 
 import frappe
 import requests

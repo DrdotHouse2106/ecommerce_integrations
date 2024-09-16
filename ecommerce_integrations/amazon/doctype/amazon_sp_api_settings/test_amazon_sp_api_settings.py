@@ -6,6 +6,7 @@ import json
 import os
 import time
 import unittest
+from typing import ClassVar
 
 import frappe
 import responses
@@ -39,7 +40,7 @@ with open(file_path) as json_file:
 
 class TestSPAPI(SPAPI):
 	# Expected response after hitting the URL.
-	expected_response = {}
+	expected_response: ClassVar = {}
 
 	@responses.activate
 	def make_request(

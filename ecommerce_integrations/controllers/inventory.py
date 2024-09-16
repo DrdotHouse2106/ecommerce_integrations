@@ -1,5 +1,3 @@
-from typing import List, Tuple
-
 import frappe
 from frappe import _dict
 from frappe.utils import now

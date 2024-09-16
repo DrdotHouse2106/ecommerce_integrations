@@ -1,4 +1,4 @@
-from typing import List, NewType
+from typing import NewType
 
 import frappe
 from frappe import _

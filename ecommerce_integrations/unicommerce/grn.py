@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import List
 
 import frappe
 from erpnext.stock.doctype.batch.batch import Batch

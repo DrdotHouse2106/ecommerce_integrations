@@ -1,4 +1,4 @@
-from typing import Dict, List, NewType
+from typing import NewType
 
 from frappe.model.document import Document
 

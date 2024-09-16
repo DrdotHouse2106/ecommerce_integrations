@@ -1,8 +1,6 @@
 # Copyright (c) 2021, Frappe and contributors
 # For license information, please see LICENSE
 
-from typing import Dict, Optional
-
 import frappe
 from erpnext import get_default_company
 from frappe import _

@@ -3,7 +3,6 @@ import functools
 import hashlib
 import hmac
 import json
-from typing import List
 
 import frappe
 from frappe import _
