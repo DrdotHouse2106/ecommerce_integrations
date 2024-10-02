@@ -6,10 +6,11 @@ frappe.pages["shopify-import-products"].on_page_load = function (wrapper) {
 		title: "Import Shopify Products",
 		single_column: true,
 	});
-
+	// eslint-disable-next-line no-undef
 	new shopify.ProductImporter(wrapper);
 };
 
+// eslint-disable-next-line no-undef
 shopify.ProductImporter = class {
 	constructor(wrapper) {
 		this.wrapper = $(wrapper).find(".layout-main-section");
