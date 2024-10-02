@@ -61,7 +61,6 @@ frappe.ui.form.on("Zenoti Settings", {
 						}
 					},
 				});
-				d.hide();
 			});
 		}
 	},
