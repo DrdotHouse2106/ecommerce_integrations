@@ -6,7 +6,7 @@ from frappe.utils import now
 from frappe.utils.nestedset import get_descendants_of
 
 
-def get_inventory_levels(warehouses: Tuple[str], integration: str) -> List[_dict]:
+def get_inventory_levels(warehouses: tuple[str], integration: str) -> list[_dict]:
 	"""
 	Get list of dict containing items for which the inventory needs to be updated on Integeration.
 

@@ -130,9 +130,7 @@ def upload_grn(doc, method=None):
 		msg += _("Confirm the status on Import Log in Uniware.")
 		frappe.msgprint(msg, title="Success")
 	elif response.successful and errors:
-		frappe.msgprint(
-			"Partial success, unicommerce reported errors:<br>{}".format("<br>".join(errors))
-		)
+		frappe.msgprint("Partial success, unicommerce reported errors:<br>{}".format("<br>".join(errors)))
 
 
 def _prepare_grn_import_csv(stock_entry) -> str:
@@ -190,8 +188,7 @@ def _prepare_grn_import_csv(stock_entry) -> str:
 	return file.file_name
 
 
-def _get_csv_content(rows: List[GRNItemRow]) -> bytes:
-
+def _get_csv_content(rows: list[GRNItemRow]) -> bytes:
 	writer = UnicodeWriter()
 
 	for row in rows:
@@ -208,7 +205,7 @@ def _get_unicommerce_format_date(date) -> str:
 
 
 def create_auto_grn_import(csv_filename: str, facility_code: str, client=None):
-	""" Create new import job for Auto GRN items"""
+	"""Create new import job for Auto GRN items"""
 	if client is None:
 		client = UnicommerceAPIClient()
 	resp = client.create_import_job(

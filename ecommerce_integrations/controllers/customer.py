@@ -50,7 +50,7 @@ class EcommerceCustomer:
 		except frappe.DoesNotExistError:
 			return None
 
-	def create_customer_address(self, address: Dict[str, str]) -> None:
+	def create_customer_address(self, address: dict[str, str]) -> None:
 		"""Create address from dictionary containing fields used in Address doctype of ERPNext."""
 
 		customer_doc = self.get_customer_doc()
@@ -63,7 +63,7 @@ class EcommerceCustomer:
 			}
 		).insert(ignore_mandatory=True)
 
-	def create_customer_contact(self, contact: Dict[str, str]) -> None:
+	def create_customer_contact(self, contact: dict[str, str]) -> None:
 		"""Create contact from dictionary containing fields used in Address doctype of ERPNext."""
 
 		customer_doc = self.get_customer_doc()

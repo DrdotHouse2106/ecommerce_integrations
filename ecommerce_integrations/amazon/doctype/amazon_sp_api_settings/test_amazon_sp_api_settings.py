@@ -30,7 +30,7 @@ from ecommerce_integrations.amazon.doctype.amazon_sp_api_settings.amazon_sp_api_
 )
 
 file_path = os.path.join(os.path.dirname(__file__), "test_data.json")
-with open(file_path, "r") as json_file:
+with open(file_path) as json_file:
 	try:
 		DATA = json.load(json_file)
 	except json.decoder.JSONDecodeError as e:
@@ -38,13 +38,16 @@ with open(file_path, "r") as json_file:
 
 
 class TestSPAPI(SPAPI):
-
 	# Expected response after hitting the URL.
 	expected_response = {}
 
 	@responses.activate
 	def make_request(
-		self, method: str = "GET", append_to_base_uri: str = "", params: dict = None, data: dict = None,
+		self,
+		method: str = "GET",
+		append_to_base_uri: str = "",
+		params: dict = None,
+		data: dict = None,
 	) -> object:
 		if isinstance(params, dict):
 			params = Util.remove_empty(params)
@@ -132,7 +135,11 @@ class TestOrders(Orders, TestSPAPI):
 
 
 class TestCatalogItems(CatalogItems, TestSPAPI):
-	def get_catalog_item(self, asin: str, marketplace_id: str = None,) -> object:
+	def get_catalog_item(
+		self,
+		asin: str,
+		marketplace_id: str = None,
+	) -> object:
 		self.expected_response = DATA.get("get_catalog_item_200")
 		return super().get_catalog_item(asin, marketplace_id)
 
@@ -163,7 +170,11 @@ class TestAmazonSettings:
 
 		def get_warehouse():
 			warehouse_name = frappe.db.get_value(
-				"Warehouse", {"warehouse_name": "Amazon Test Warehouse",}, "warehouse_name"
+				"Warehouse",
+				{
+					"warehouse_name": "Amazon Test Warehouse",
+				},
+				"warehouse_name",
 			)
 
 			if not warehouse_name:
@@ -181,12 +192,19 @@ class TestAmazonSettings:
 
 		def get_item_group():
 			item_group_name = frappe.db.get_value(
-				"Item Group", {"item_group_name": "Amazon Test Warehouse",}, "item_group_name"
+				"Item Group",
+				{
+					"item_group_name": "Amazon Test Warehouse",
+				},
+				"item_group_name",
 			)
 
 			if not item_group_name:
 				item_group = frappe.get_doc(
-					{"doctype": "Item Group", "item_group_name": "Amazon Test Warehouse",}
+					{
+						"doctype": "Item Group",
+						"item_group_name": "Amazon Test Warehouse",
+					}
 				)
 				item_group.insert(ignore_permissions=True)
 				item_group_name = item_group.item_group_name
