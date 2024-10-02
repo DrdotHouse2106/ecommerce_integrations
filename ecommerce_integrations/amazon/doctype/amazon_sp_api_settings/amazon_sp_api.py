@@ -156,7 +156,7 @@ class AWSSigV4(AuthBase):
 				map(lambda H: H.lower(), request.headers.keys()),
 			)
 		)
-		canonical_headers = "".join(map(lambda h: ":".join((h, request.headers[h])) + "\n", headers_to_sign))
+		canonical_headers = "".join([f"{h}:{request.headers[h]}\n" for h in headers_to_sign])
 		signed_headers = ";".join(headers_to_sign)
 
 		# Combine elements to create canonical request.
