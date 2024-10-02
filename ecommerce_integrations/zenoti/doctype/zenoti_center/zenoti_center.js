@@ -4,7 +4,7 @@
 frappe.ui.form.on("Zenoti Center", {
 	refresh(frm) {
 		frm.add_custom_button(
-			"Employees",
+			__("Employees"),
 			function () {
 				frappe.call({
 					method: "ecommerce_integrations.zenoti.doctype.zenoti_center.zenoti_center.sync",
@@ -20,11 +20,11 @@ frappe.ui.form.on("Zenoti Center", {
 					},
 				});
 			},
-			"Sync"
+			__("Sync")
 		);
 
 		frm.add_custom_button(
-			"Customers",
+			__("Customers"),
 			function () {
 				frappe.call({
 					method: "ecommerce_integrations.zenoti.doctype.zenoti_center.zenoti_center.sync",
@@ -40,11 +40,11 @@ frappe.ui.form.on("Zenoti Center", {
 					},
 				});
 			},
-			"Sync"
+			__("Sync")
 		);
 
 		frm.add_custom_button(
-			"Items",
+			__("Items"),
 			function () {
 				frappe.call({
 					method: "ecommerce_integrations.zenoti.doctype.zenoti_center.zenoti_center.sync",
@@ -60,11 +60,11 @@ frappe.ui.form.on("Zenoti Center", {
 					},
 				});
 			},
-			"Sync"
+			__("Sync")
 		);
 
 		frm.add_custom_button(
-			"Categories",
+			__("Categories"),
 			function () {
 				frappe.call({
 					method: "ecommerce_integrations.zenoti.doctype.zenoti_center.zenoti_center.sync",
@@ -80,11 +80,11 @@ frappe.ui.form.on("Zenoti Center", {
 					},
 				});
 			},
-			"Sync"
+			__("Sync")
 		);
 
 		frm.add_custom_button(
-			"Sales Invoice",
+			__("Sales Invoice"),
 			function () {
 				let d = new frappe.ui.Dialog({
 					title: __("Sync Sales Invoice"),
@@ -125,11 +125,11 @@ frappe.ui.form.on("Zenoti Center", {
 				});
 				d.show();
 			},
-			"Sync"
+			__("Sync")
 		);
 
 		frm.add_custom_button(
-			"Stock Reconciliation",
+			__("Stock Reconciliation"),
 			function () {
 				let d = new frappe.ui.Dialog({
 					title: __("Sync Stock Reconciliation"),
@@ -163,7 +163,7 @@ frappe.ui.form.on("Zenoti Center", {
 				});
 				d.show();
 			},
-			"Sync"
+			__("Sync")
 		);
 	},
 
