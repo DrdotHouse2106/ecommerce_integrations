@@ -102,7 +102,7 @@ def _serialize_items(trans_items) -> str:
 	# serialie date/datetime objects to string
 	for item in trans_items:
 		for k, v in item.items():
-			if isinstance(v, (datetime, date)):
+			if isinstance(v, datetime | date):
 				item[k] = str(v)
 
 	return json.dumps(trans_items)

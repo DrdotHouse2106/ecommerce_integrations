@@ -296,7 +296,7 @@ def _get_facility_code(line_items) -> str:
 	if len(facility_codes) > 1:
 		frappe.throw("Multiple facility codes found in single order")
 
-	return list(facility_codes)[0]
+	return next(iter(facility_codes))
 
 
 def update_shipping_info(doc, method=None):

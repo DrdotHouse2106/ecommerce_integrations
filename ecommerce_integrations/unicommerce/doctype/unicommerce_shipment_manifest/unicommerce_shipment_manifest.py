@@ -80,7 +80,7 @@ class UnicommerceShipmentManifest(Document):
 					",".join(facility_codes)
 				)
 			)
-		return list(facility_codes)[0]
+		return next(iter(facility_codes))
 
 	def create_and_close_manifest_on_unicommerce(self):
 		shipping_packages = [d.shipping_package_code for d in self.manifest_items]

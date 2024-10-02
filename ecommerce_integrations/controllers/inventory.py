@@ -26,7 +26,7 @@ def get_inventory_levels(warehouses: tuple[str], integration: str) -> list[_dict
 				AND bin.modified > ei.inventory_synced_on
 				AND ei.integration = %s
 		""",
-		values=warehouses + (integration,),
+		values=(*warehouses, integration),
 		as_dict=1,
 	)
 
@@ -40,7 +40,7 @@ def get_inventory_levels_of_group_warehouse(warehouse: str, integration: str):
 	leaf warehouses is required"""
 
 	child_warehouse = get_descendants_of("Warehouse", warehouse)
-	all_warehouses = tuple(child_warehouse) + (warehouse,)
+	all_warehouses = (*tuple(child_warehouse), warehouse)
 
 	data = frappe.db.sql(
 		f"""
@@ -61,7 +61,7 @@ def get_inventory_levels_of_group_warehouse(warehouse: str, integration: str):
 			HAVING
 				last_updated > last_synced
 			""",
-		values=all_warehouses + (integration,),
+		values=(*all_warehouses, integration),
 		as_dict=1,
 	)
 

@@ -95,7 +95,7 @@ def get_facility_code(stock_entry, unicommerce_settings) -> str:
 			_("{} only supports one target warehouse (unicommerce facility)").format(GRN_STOCK_ENTRY_TYPE)
 		)
 
-	warehouse = list(target_warehouses)[0]
+	warehouse = next(iter(target_warehouses))
 	warehouse_mapping = unicommerce_settings.get_erpnext_to_integration_wh_mapping(all_wh=True)
 
 	facility = warehouse_mapping.get(warehouse)

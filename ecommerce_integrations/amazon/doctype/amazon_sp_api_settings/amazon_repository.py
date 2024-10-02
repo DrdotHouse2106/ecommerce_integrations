@@ -47,7 +47,7 @@ class AmazonRepository:
 		errors = {}
 		max_retries = self.amz_setting.max_retry_limit
 
-		for x in range(max_retries):
+		for _x in range(max_retries):
 			try:
 				result = sp_api_method(**kwargs)
 				return result.get("payload")
