@@ -3,44 +3,93 @@
     <h2>Ecommerce Integrations for ERPNext</h2>
 
 [![CI](https://github.com/frappe/ecommerce_integrations/actions/workflows/ci.yml/badge.svg)](https://github.com/frappe/ecommerce_integrations/actions/workflows/ci.yml)
-  
+
 </div>
 
-### Currently supported integrations:
+> **Note:** This is an extended fork with Shopware6, RAG (Vector Search) and German E-Invoice support.
 
-- Shopify - [User documentation](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/shopify_integration)
-- Unicommerce - [User Documentation](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/unicommerce_integration)
-- Zenoti - [User documentation](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/zenoti_integration)
-- Amazon - [User documentation](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/amazon_integration)
+### Supported Integrations
+
+| Integration | Description | Documentation |
+|-------------|-------------|---------------|
+| **Shopware 6** | Full bidirectional sync with Shopware 6 | See below |
+| **RAG** | Vector search for products (semantic search) | See below |
+| Shopify | Shopify integration | [User docs](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/shopify_integration) |
+| Unicommerce | Unicommerce integration | [User docs](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/unicommerce_integration) |
+| Zenoti | Zenoti integration | [User docs](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/zenoti_integration) |
+| Amazon | Amazon SP API integration | [User docs](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/amazon_integration) |
+
+
+### Shopware 6 Integration
+
+Full bidirectional sync between ERPNext and Shopware 6:
+
+- **Products**: Items, prices, stock, images, properties, custom fields
+- **Orders**: Import orders from Shopware to ERPNext
+- **Customers**: Sync customer data
+- **Status Sync**: Delivery notes, payments, invoices update Shopware order status
+- **Bulk Sync**: Redis queue for high-performance bulk operations
+- **Flexible Properties**: Key-value table for unlimited product attributes
+
+**Setup:**
+1. Go to `Shopware Setting` in ERPNext
+2. Enter your Shopware 6 API credentials (Admin API)
+3. Configure warehouse and tax mappings
+4. Enable sync options as needed
+
+
+### RAG Integration (Vector Search)
+
+Semantic product search using embeddings:
+
+- Automatic embedding generation for products
+- Vector search for similar products
+- Integration with AI assistants
+
+**Setup:**
+1. Go to `RAG Setting` in ERPNext
+2. Configure your embedding API endpoint
+3. Enable product sync
 
 
 ### Installation
 
-- Frappe Cloud Users can install [from Marketplace](https://frappecloud.com/marketplace/apps/ecommerce_integrations).
-- Self Hosted users can install using Bench:
+**For Shopware6/RAG users (this fork):**
 
 ```bash
-# Production installation
-$ bench get-app ecommerce_integrations --branch main
+# Install from this fork
+$ bench get-app ecommerce_integrations https://github.com/TubaApollo/ecommerce_integrations --branch shopware6-clean
 
-# OR development install
-$ bench get-app ecommerce_integrations  --branch develop
-
-# install on site
+# Install on site
 $ bench --site sitename install-app ecommerce_integrations
 ```
 
-After installation follow user documentation for each integration to set it up.
+**For upstream (Frappe Cloud/standard integrations):**
+
+```bash
+# Production
+$ bench get-app ecommerce_integrations --branch main
+
+# Development
+$ bench get-app ecommerce_integrations --branch develop
+
+# Install on site
+$ bench --site sitename install-app ecommerce_integrations
+```
+
+After installation, follow the documentation for each integration.
+
 
 ### Contributing
 
-- Follow general [ERPNext contribution guideline](https://github.com/frappe/erpnext/wiki/Contribution-Guidelines)
-- Send PRs to `develop` branch only.
+- For Shopware6/RAG: PRs to `shopware6-clean` branch
+- For upstream integrations: Follow [ERPNext contribution guidelines](https://github.com/frappe/erpnext/wiki/Contribution-Guidelines)
 
-### Development setup
 
-- Enable developer mode.
-- If you want to use a tunnel for local development. Set `localtunnel_url` parameter in your site_config file with ngrok / localtunnel URL. This will be used in most places to register webhooks. Likewise, use this parameter wherever you're sending current site URL to integrations in development mode.
+### Development Setup
+
+- Enable developer mode
+- For webhook testing: Set `localtunnel_url` in site_config with ngrok/localtunnel URL
 
 
 #### License
