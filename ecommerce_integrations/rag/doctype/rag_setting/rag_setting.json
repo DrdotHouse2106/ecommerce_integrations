@@ -1,0 +1,261 @@
+{
+  "actions": [],
+  "creation": "2024-01-01 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "enabled",
+    "pinecone_section",
+    "pinecone_api_key",
+    "pinecone_index_name",
+    "column_break_pc",
+    "pinecone_environment",
+    "embedding_section",
+    "embedding_provider",
+    "google_api_key",
+    "openai_api_key",
+    "column_break_emb",
+    "embedding_model",
+    "dimensions",
+    "bulk_sync_section",
+    "enable_bulk_sync",
+    "bulk_sync_threshold",
+    "column_break_bs",
+    "bulk_sync_batch_size",
+    "product_fields_section",
+    "include_item_name",
+    "include_description",
+    "include_item_group",
+    "include_brand",
+    "column_break_pf",
+    "include_custom_fields",
+    "filter_section",
+    "item_group_filter",
+    "sync_only_sellable",
+    "status_section",
+    "last_sync",
+    "items_synced",
+    "column_break_status",
+    "queue_status_html"
+  ],
+  "fields": [
+    {
+      "default": "0",
+      "fieldname": "enabled",
+      "fieldtype": "Check",
+      "label": "Enable RAG Sync"
+    },
+    {
+      "fieldname": "pinecone_section",
+      "fieldtype": "Section Break",
+      "label": "Pinecone Configuration"
+    },
+    {
+      "fieldname": "pinecone_api_key",
+      "fieldtype": "Password",
+      "label": "Pinecone API Key",
+      "mandatory_depends_on": "eval:doc.enabled",
+      "description": "Get your free API key at pinecone.io"
+    },
+    {
+      "fieldname": "pinecone_index_name",
+      "fieldtype": "Data",
+      "label": "Index Name",
+      "mandatory_depends_on": "eval:doc.enabled",
+      "description": "e.g. example-products"
+    },
+    {
+      "fieldname": "column_break_pc",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "pinecone_environment",
+      "fieldtype": "Data",
+      "label": "Environment / Host",
+      "description": "Leave empty for serverless (recommended). For pod-based: e.g. gcp-starter"
+    },
+    {
+      "fieldname": "embedding_section",
+      "fieldtype": "Section Break",
+      "label": "Embedding Configuration"
+    },
+    {
+      "default": "Google",
+      "fieldname": "embedding_provider",
+      "fieldtype": "Select",
+      "label": "Embedding Provider",
+      "options": "Google\nOpenAI\nLocal (sentence-transformers)",
+      "description": "Google is FREE (1500 req/min). OpenAI is very cheap ($0.02/1M tokens)."
+    },
+    {
+      "fieldname": "google_api_key",
+      "fieldtype": "Password",
+      "label": "Google API Key",
+      "mandatory_depends_on": "eval:doc.embedding_provider=='Google'",
+      "depends_on": "eval:doc.embedding_provider=='Google'",
+      "description": "Get free API key at aistudio.google.com"
+    },
+    {
+      "fieldname": "openai_api_key",
+      "fieldtype": "Password",
+      "label": "OpenAI API Key",
+      "mandatory_depends_on": "eval:doc.embedding_provider=='OpenAI'",
+      "depends_on": "eval:doc.embedding_provider=='OpenAI'"
+    },
+    {
+      "fieldname": "column_break_emb",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "text-embedding-004",
+      "fieldname": "embedding_model",
+      "fieldtype": "Select",
+      "label": "Embedding Model",
+      "options": "text-embedding-004\ngemini-embedding-001\ntext-embedding-3-small\ntext-embedding-3-large",
+      "description": "Google: text-embedding-004 (768 dim, FREE) or gemini-embedding-001 (3072 dim, latest). OpenAI: text-embedding-3-small/large."
+    },
+    {
+      "default": "1536",
+      "fieldname": "dimensions",
+      "fieldtype": "Int",
+      "label": "Dimensions",
+      "read_only": 1,
+      "description": "Automatically set based on model"
+    },
+    {
+      "fieldname": "bulk_sync_section",
+      "fieldtype": "Section Break",
+      "label": "Bulk Sync Settings"
+    },
+    {
+      "default": "1",
+      "fieldname": "enable_bulk_sync",
+      "fieldtype": "Check",
+      "label": "Enable Bulk Sync"
+    },
+    {
+      "default": "5",
+      "fieldname": "bulk_sync_threshold",
+      "fieldtype": "Int",
+      "label": "Bulk Sync Threshold",
+      "description": "Requests in 2 seconds to activate bulk mode"
+    },
+    {
+      "fieldname": "column_break_bs",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "100",
+      "fieldname": "bulk_sync_batch_size",
+      "fieldtype": "Int",
+      "label": "Batch Size",
+      "description": "Pinecone supports up to 100 vectors per upsert"
+    },
+    {
+      "fieldname": "product_fields_section",
+      "fieldtype": "Section Break",
+      "label": "Product Fields for Embedding"
+    },
+    {
+      "default": "1",
+      "fieldname": "include_item_name",
+      "fieldtype": "Check",
+      "label": "Include Item Name"
+    },
+    {
+      "default": "1",
+      "fieldname": "include_description",
+      "fieldtype": "Check",
+      "label": "Include Description"
+    },
+    {
+      "default": "1",
+      "fieldname": "include_item_group",
+      "fieldtype": "Check",
+      "label": "Include Item Group"
+    },
+    {
+      "default": "1",
+      "fieldname": "include_brand",
+      "fieldtype": "Check",
+      "label": "Include Brand"
+    },
+    {
+      "fieldname": "column_break_pf",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "include_custom_fields",
+      "fieldtype": "Small Text",
+      "label": "Additional Custom Fields",
+      "description": "Comma-separated field names, e.g.: custom_material,custom_color"
+    },
+    {
+      "fieldname": "filter_section",
+      "fieldtype": "Section Break",
+      "label": "Item Filter"
+    },
+    {
+      "fieldname": "item_group_filter",
+      "fieldtype": "Link",
+      "label": "Only Items from Item Group",
+      "options": "Item Group"
+    },
+    {
+      "default": "1",
+      "fieldname": "sync_only_sellable",
+      "fieldtype": "Check",
+      "label": "Only Sync Sellable Items"
+    },
+    {
+      "fieldname": "status_section",
+      "fieldtype": "Section Break",
+      "label": "Status"
+    },
+    {
+      "fieldname": "last_sync",
+      "fieldtype": "Datetime",
+      "label": "Last Full Sync",
+      "read_only": 1
+    },
+    {
+      "default": "0",
+      "fieldname": "items_synced",
+      "fieldtype": "Int",
+      "label": "Items in RAG",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_status",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "queue_status_html",
+      "fieldtype": "HTML",
+      "label": "Queue Status"
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "issingle": 1,
+  "links": [],
+  "modified": "2024-12-13 23:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "rag",
+  "name": "RAG Setting",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "print": 1,
+      "read": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "track_changes": 1
+}

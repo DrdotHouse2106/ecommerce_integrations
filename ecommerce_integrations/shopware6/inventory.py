@@ -1,0 +1,284 @@
+"""
+Shopware 6 Inventory Sync Module
+
+Handles synchronization of stock levels between ERPNext and Shopware 6.
+"""
+
+from typing import Any, Dict, List, Optional
+
+import frappe
+from frappe import _
+from frappe.utils import flt, now_datetime
+
+from lib_shopware6_api_base import (
+    Shopware6AdminAPIClientBase,
+    Criteria,
+    EqualsFilter,
+    HEADER_index_asynchronously,
+)
+
+from ecommerce_integrations.shopware6.connection import get_shopware_client
+from ecommerce_integrations.shopware6.constants import (
+    MODULE_NAME,
+    SETTING_DOCTYPE,
+)
+from ecommerce_integrations.shopware6.utils import create_shopware_log
+
+
+def sync_inventory_to_shopware():
+    """
+    Scheduled job to sync ERPNext stock levels to Shopware.
+
+    This function is called by the scheduler based on the configured frequency.
+    """
+    setting = frappe.get_doc(SETTING_DOCTYPE)
+
+    if not setting.is_enabled() or not setting.update_erpnext_stock_levels_to_shopware:
+        return
+
+    try:
+        sync_all_inventory()
+
+        # Update last sync time
+        setting.last_inventory_sync = now_datetime()
+        setting.save(ignore_permissions=True)
+        frappe.db.commit()
+
+    except Exception as e:
+        frappe.log_error(
+            f"Shopware inventory sync failed: {e}",
+            "Shopware Inventory Sync Error"
+        )
+
+
+def sync_all_inventory() -> Dict[str, int]:
+    """
+    Sync all synced items' stock levels to Shopware.
+
+    Uses batch updates for efficiency with per-batch commits for resilience.
+    Following Shopify best practice of granular error handling.
+
+    Returns:
+        dict: Sync results with success/error counts
+    """
+    setting = frappe.get_doc(SETTING_DOCTYPE)
+    client = get_shopware_client()
+
+    # Get all synced items
+    ecommerce_items = frappe.get_all(
+        "Ecommerce Item",
+        filters={"integration": MODULE_NAME, "has_variants": 0},
+        fields=["name", "erpnext_item_code", "integration_item_code", "variant_id"],
+    )
+
+    synced = 0
+    errors = 0
+    batch_size = 50
+
+    # Batch stock updates for efficiency
+    stock_updates = []
+
+    for ecom_item in ecommerce_items:
+        try:
+            # Get current stock level from ERPNext
+            stock_qty = get_stock_qty(ecom_item.erpnext_item_code, setting.warehouse)
+
+            # Prepare update payload
+            product_id = ecom_item.integration_item_code
+
+            stock_updates.append({
+                "id": product_id,
+                "stock": int(stock_qty),
+                "item_code": ecom_item.erpnext_item_code,  # For error tracking
+            })
+
+            # Send in batches
+            if len(stock_updates) >= batch_size:
+                batch_result = _send_stock_updates_with_tracking(client, stock_updates)
+                synced += batch_result["success"]
+                errors += batch_result["errors"]
+                stock_updates = []
+                # Commit after each batch for resilience (Shopify pattern)
+                frappe.db.commit()
+
+        except Exception as e:
+            errors += 1
+            frappe.log_error(
+                f"Failed to prepare stock for {ecom_item.erpnext_item_code}: {e}",
+                "Shopware Inventory Sync"
+            )
+
+    # Send remaining updates
+    if stock_updates:
+        batch_result = _send_stock_updates_with_tracking(client, stock_updates)
+        synced += batch_result["success"]
+        errors += batch_result["errors"]
+        frappe.db.commit()
+
+    return {"synced": synced, "errors": errors}
+
+
+def _send_stock_updates_with_tracking(client: Shopware6AdminAPIClientBase, updates: List[Dict]) -> Dict[str, int]:
+    """
+    Send batch stock updates with granular error tracking (Shopify pattern).
+
+    First tries batch update, then falls back to individual updates on failure,
+    tracking success/failure for each item.
+
+    Returns:
+        dict: {"success": count, "errors": count}
+    """
+    success = 0
+    errors = 0
+
+    # Try batch update first
+    try:
+        _send_stock_updates(client, updates)
+        success = len(updates)
+    except Exception as batch_error:
+        # Fall back to individual updates with tracking
+        frappe.log_error(
+            f"Batch stock update failed, falling back to individual: {batch_error}",
+            "Shopware Inventory Sync"
+        )
+        for update in updates:
+            try:
+                client.request_patch(f"product/{update['id']}", {"stock": update["stock"]})
+                success += 1
+            except Exception as e:
+                errors += 1
+                item_code = update.get("item_code", update["id"])
+                frappe.log_error(
+                    f"Failed to update stock for {item_code}: {e}",
+                    "Shopware Inventory Sync"
+                )
+
+    return {"success": success, "errors": errors}
+
+
+def _send_stock_updates(client: Shopware6AdminAPIClientBase, updates: List[Dict]) -> None:
+    """
+    Send batch stock updates to Shopware using the sync API.
+
+    Shopware 6 uses the _action/sync endpoint for bulk updates.
+    """
+    # Prepare sync payload
+    sync_payload = {
+        "write-product": {
+            "entity": "product",
+            "action": "upsert",
+            "payload": []
+        }
+    }
+
+    for update in updates:
+        sync_payload["write-product"]["payload"].append({
+            "id": update["id"],
+            "stock": update["stock"],
+        })
+
+    # Use async indexing for better performance (reduces response time from 30-60s to 1-2s)
+    client.request_post("_action/sync", sync_payload, update_header_fields=HEADER_index_asynchronously)
+
+
+def get_stock_qty(item_code: str, warehouse: str = None) -> float:
+    """
+    Get actual stock quantity for an item.
+
+    Args:
+        item_code: ERPNext Item code
+        warehouse: Optional specific warehouse
+
+    Returns:
+        Stock quantity as float
+    """
+    from erpnext.stock.utils import get_stock_balance
+
+    if warehouse:
+        return flt(get_stock_balance(item_code, warehouse))
+
+    # Get total stock across all warehouses
+    return flt(frappe.db.sql(
+        """
+        SELECT SUM(actual_qty)
+        FROM `tabBin`
+        WHERE item_code = %s
+        """,
+        item_code
+    )[0][0])
+
+
+@frappe.whitelist()
+def sync_single_item_stock(item_code: str) -> Dict[str, Any]:
+    """
+    Sync stock for a single item to Shopware.
+
+    Args:
+        item_code: ERPNext Item code
+
+    Returns:
+        dict: Result of sync operation
+    """
+    setting = frappe.get_doc(SETTING_DOCTYPE)
+
+    if not setting.is_enabled():
+        return {"success": False, "message": _("Shopware integration is not enabled")}
+
+    # Find the ecommerce item
+    ecom_item = frappe.db.get_value(
+        "Ecommerce Item",
+        {"integration": MODULE_NAME, "erpnext_item_code": item_code},
+        ["integration_item_code", "variant_id"],
+        as_dict=True
+    )
+
+    if not ecom_item:
+        return {"success": False, "message": _("Item is not synced with Shopware")}
+
+    try:
+        client = get_shopware_client()
+        stock_qty = get_stock_qty(item_code, setting.warehouse)
+
+        client.request_patch(
+            f"product/{ecom_item.integration_item_code}",
+            {"stock": int(stock_qty)}
+        )
+
+        return {
+            "success": True,
+            "message": _("Stock updated successfully"),
+            "stock": stock_qty,
+        }
+
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+def update_stock_on_stock_entry(doc, method):
+    """
+    Hook to sync stock after Stock Entry submission.
+
+    Add this to hooks.py:
+    doc_events = {
+        "Stock Entry": {
+            "on_submit": "ecommerce_integrations.shopware6.inventory.update_stock_on_stock_entry"
+        }
+    }
+    """
+    setting = frappe.get_doc(SETTING_DOCTYPE)
+
+    if not setting.is_enabled() or not setting.update_erpnext_stock_levels_to_shopware:
+        return
+
+    # Get unique items from the stock entry
+    items = set()
+    for item in doc.items:
+        items.add(item.item_code)
+
+    # Queue stock sync for affected items
+    for item_code in items:
+        frappe.enqueue(
+            "ecommerce_integrations.shopware6.inventory.sync_single_item_stock",
+            queue="short",
+            item_code=item_code,
+        )

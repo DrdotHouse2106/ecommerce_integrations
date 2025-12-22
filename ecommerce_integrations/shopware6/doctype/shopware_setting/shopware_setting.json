@@ -1,0 +1,628 @@
+{
+ "actions": [],
+ "creation": "2024-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "enable_shopware",
+  "column_break_enable",
+  "bulk_sync_section",
+  "enable_bulk_sync",
+  "bulk_sync_threshold",
+  "column_break_bulk_sync",
+  "bulk_sync_batch_size",
+  "bulk_sync_status_html",
+  "section_break_auth",
+  "shop_url",
+  "column_break_auth",
+  "grant_type",
+  "section_break_integration",
+  "client_id",
+  "column_break_integration",
+  "client_secret",
+  "section_break_user_credentials",
+  "api_username",
+  "column_break_user_credentials",
+  "api_password",
+  "section_break_webhook",
+  "webhook_secret",
+  "column_break_webhook",
+  "webhook_url_info",
+  "customer_settings_section",
+  "default_customer",
+  "column_break_customer",
+  "customer_group",
+  "company_dependent_settings_section",
+  "company",
+  "cash_bank_account",
+  "column_break_company",
+  "cost_center",
+  "price_handling_section",
+  "import_prices_as_net",
+  "default_tax_rate",
+  "column_break_price_handling",
+  "price_handling_info_html",
+  "section_break_order",
+  "order_sync_frequency",
+  "last_order_sync",
+  "sales_order_series",
+  "delivery_note_series",
+  "sales_invoice_series",
+  "column_break_order",
+  "sync_delivery_note",
+  "sync_sales_invoice",
+  "section_break_tax",
+  "html_tax_info",
+  "taxes",
+  "section_break_default_tax",
+  "default_sales_tax_account",
+  "column_break_default_tax",
+  "default_shipping_charges_account",
+  "erpnext_to_shopware_sync_section",
+  "upload_erpnext_items",
+  "update_shopware_item_on_update",
+  "column_break_sync",
+  "sync_new_item_as_active",
+  "discount_item",
+  "field_mapping_section",
+  "product_field_mappings",
+  "column_break_field_mapping",
+  "auto_detect_jattr",
+  "field_mapping_info_html",
+  "inventory_sync_section",
+  "warehouse",
+  "update_erpnext_stock_levels_to_shopware",
+  "inventory_sync_frequency",
+  "column_break_inventory",
+  "shopware_warehouse_mapping",
+  "last_inventory_sync",
+  "checkout_services_section",
+  "enable_tel_avis_service",
+  "tel_avis_item",
+  "tel_avis_price",
+  "column_break_checkout_services",
+  "enable_forklift_service",
+  "forklift_item",
+  "forklift_price",
+  "checkout_fields_info_section",
+  "checkout_fields_info_html"
+ ],
+ "fields": [
+  {
+   "default": "0",
+   "fieldname": "enable_shopware",
+   "fieldtype": "Check",
+   "label": "Enable Shopware 6"
+  },
+  {
+   "fieldname": "column_break_enable",
+   "fieldtype": "Column Break"
+  },
+  {
+   "collapsible": 1,
+   "collapsible_depends_on": "eval:!doc.enable_bulk_sync",
+   "depends_on": "eval:doc.enable_shopware && doc.upload_erpnext_items",
+   "fieldname": "bulk_sync_section",
+   "fieldtype": "Section Break",
+   "label": "Bulk Sync Settings (Performance)"
+  },
+  {
+   "default": "1",
+   "description": "Enable bulk sync queue to prevent ERPNext crashes during mass product updates. When enabled, rapid updates are queued and processed in batches.",
+   "fieldname": "enable_bulk_sync",
+   "fieldtype": "Check",
+   "label": "Enable Bulk Sync Queue"
+  },
+  {
+   "default": "5",
+   "depends_on": "eval:doc.enable_bulk_sync",
+   "description": "Number of product updates within 2 seconds to trigger bulk mode",
+   "fieldname": "bulk_sync_threshold",
+   "fieldtype": "Int",
+   "label": "Bulk Mode Threshold"
+  },
+  {
+   "fieldname": "column_break_bulk_sync",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "50",
+   "depends_on": "eval:doc.enable_bulk_sync",
+   "description": "Number of products to process per batch",
+   "fieldname": "bulk_sync_batch_size",
+   "fieldtype": "Int",
+   "label": "Batch Size"
+  },
+  {
+   "depends_on": "eval:doc.enable_bulk_sync",
+   "fieldname": "bulk_sync_status_html",
+   "fieldtype": "HTML",
+   "label": "Bulk Sync Status"
+  },
+  {
+   "fieldname": "section_break_auth",
+   "fieldtype": "Section Break",
+   "label": "Connection Settings"
+  },
+  {
+   "description": "Your Shopware 6 shop URL, e.g., myshop.shopware.store",
+   "fieldname": "shop_url",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Shop URL",
+   "mandatory_depends_on": "eval:doc.enable_shopware"
+  },
+  {
+   "fieldname": "column_break_auth",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "resource_owner",
+   "description": "resource_owner: Use Integration credentials (client_id/secret)<br>user_credentials: Use username/password",
+   "fieldname": "grant_type",
+   "fieldtype": "Select",
+   "label": "Authentication Type",
+   "options": "resource_owner\nuser_credentials"
+  },
+  {
+   "depends_on": "eval:doc.grant_type=='resource_owner'",
+   "fieldname": "section_break_integration",
+   "fieldtype": "Section Break",
+   "label": "Integration Credentials (Admin > Settings > System > Integrations)"
+  },
+  {
+   "depends_on": "eval:doc.grant_type=='resource_owner'",
+   "description": "Access Key ID from Shopware Integration",
+   "fieldname": "client_id",
+   "fieldtype": "Data",
+   "label": "Client ID (Access Key ID)",
+   "mandatory_depends_on": "eval:doc.enable_shopware && doc.grant_type=='resource_owner'"
+  },
+  {
+   "fieldname": "column_break_integration",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.grant_type=='resource_owner'",
+   "description": "Secret Access Key from Shopware Integration",
+   "fieldname": "client_secret",
+   "fieldtype": "Password",
+   "label": "Client Secret (Secret Access Key)",
+   "mandatory_depends_on": "eval:doc.enable_shopware && doc.grant_type=='resource_owner'"
+  },
+  {
+   "depends_on": "eval:doc.grant_type=='user_credentials'",
+   "fieldname": "section_break_user_credentials",
+   "fieldtype": "Section Break",
+   "label": "User Credentials (Admin > Settings > System > Users)"
+  },
+  {
+   "depends_on": "eval:doc.grant_type=='user_credentials'",
+   "description": "Admin username for API access",
+   "fieldname": "api_username",
+   "fieldtype": "Data",
+   "label": "API Username",
+   "mandatory_depends_on": "eval:doc.enable_shopware && doc.grant_type=='user_credentials'"
+  },
+  {
+   "fieldname": "column_break_user_credentials",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.grant_type=='user_credentials'",
+   "description": "Admin password for API access",
+   "fieldname": "api_password",
+   "fieldtype": "Password",
+   "label": "API Password",
+   "mandatory_depends_on": "eval:doc.enable_shopware && doc.grant_type=='user_credentials'"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_webhook",
+   "fieldtype": "Section Break",
+   "label": "Webhook Settings"
+  },
+  {
+   "description": "Secret key to validate incoming webhooks (optional but recommended)",
+   "fieldname": "webhook_secret",
+   "fieldtype": "Password",
+   "label": "Webhook Secret"
+  },
+  {
+   "fieldname": "column_break_webhook",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "webhook_url_info",
+   "fieldtype": "HTML",
+   "label": "Webhook URL Info",
+   "options": "<p class=\"text-muted\">Configure webhooks in Shopware Admin under Settings > Extensions > Webhooks.<br>Use the following URL pattern:<br><code>/api/method/ecommerce_integrations.shopware6.connection.webhook_handler</code></p>"
+  },
+  {
+   "fieldname": "customer_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Customer Settings"
+  },
+  {
+   "description": "Used for guest orders or when customer sync fails",
+   "fieldname": "default_customer",
+   "fieldtype": "Link",
+   "label": "Default Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "column_break_customer",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Customer Group for synced Shopware customers",
+   "fieldname": "customer_group",
+   "fieldtype": "Link",
+   "label": "Customer Group",
+   "mandatory_depends_on": "eval:doc.enable_shopware",
+   "options": "Customer Group"
+  },
+  {
+   "fieldname": "company_dependent_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Company Settings"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "mandatory_depends_on": "eval:doc.enable_shopware",
+   "options": "Company"
+  },
+  {
+   "fieldname": "cash_bank_account",
+   "fieldtype": "Link",
+   "label": "Cash/Bank Account",
+   "mandatory_depends_on": "eval:doc.enable_shopware",
+   "options": "Account",
+   "link_filters": "[[\"Account\",\"account_type\",\"in\",[\"Bank\",\"Cash\"]],[\"Account\",\"is_group\",\"=\",0]]"
+  },
+  {
+   "fieldname": "column_break_company",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Cost Center",
+   "mandatory_depends_on": "eval:doc.enable_shopware",
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "price_handling_section",
+   "fieldtype": "Section Break",
+   "label": "Price Handling (B2B/B2C)"
+  },
+  {
+   "default": "1",
+   "description": "Import prices from Shopware as net prices (excluding VAT). Enable for B2B. Disable for B2C to keep gross prices.",
+   "fieldname": "import_prices_as_net",
+   "fieldtype": "Check",
+   "label": "Import Prices as Net (B2B)"
+  },
+  {
+   "default": "19",
+   "depends_on": "eval:doc.import_prices_as_net",
+   "description": "Default VAT rate for price conversion when tax rate cannot be determined from order data (German standard: 19%)",
+   "fieldname": "default_tax_rate",
+   "fieldtype": "Float",
+   "label": "Default Tax Rate (%)"
+  },
+  {
+   "fieldname": "column_break_price_handling",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "price_handling_info_html",
+   "fieldtype": "HTML",
+   "label": "Price Handling Info",
+   "options": "<div class=\"alert alert-info\"><h5>Price Handling</h5><p><strong>B2B Mode (Net Prices):</strong> Shopware stores gross prices. When importing, gross is converted to net using the tax rate from the order. Taxes are added separately.</p><p><strong>B2C Mode (Gross Prices):</strong> Prices are imported as-is from Shopware (gross/inclusive of VAT).</p><p><strong>German Law:</strong> B2B invoices typically show net prices + VAT. B2C invoices show gross prices including VAT.</p></div>"
+  },
+  {
+   "fieldname": "section_break_order",
+   "fieldtype": "Section Break",
+   "label": "Order Sync Settings"
+  },
+  {
+   "default": "60",
+   "description": "How often to sync orders from Shopware (in minutes)",
+   "fieldname": "order_sync_frequency",
+   "fieldtype": "Select",
+   "label": "Order Sync Frequency (Minutes)",
+   "options": "5\n10\n15\n30\n60"
+  },
+  {
+   "fieldname": "last_order_sync",
+   "fieldtype": "Datetime",
+   "hidden": 1,
+   "label": "Last Order Sync",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sales_order_series",
+   "fieldtype": "Select",
+   "label": "Sales Order Series",
+   "mandatory_depends_on": "eval:doc.enable_shopware"
+  },
+  {
+   "depends_on": "eval:doc.sync_delivery_note==1",
+   "fieldname": "delivery_note_series",
+   "fieldtype": "Select",
+   "label": "Delivery Note Series",
+   "mandatory_depends_on": "eval:doc.sync_delivery_note"
+  },
+  {
+   "depends_on": "eval:doc.sync_sales_invoice==1",
+   "fieldname": "sales_invoice_series",
+   "fieldtype": "Select",
+   "label": "Sales Invoice Series",
+   "mandatory_depends_on": "eval:doc.sync_sales_invoice"
+  },
+  {
+   "fieldname": "column_break_order",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "sync_delivery_note",
+   "fieldtype": "Check",
+   "label": "Create Delivery Notes from Shopware shipments"
+  },
+  {
+   "default": "0",
+   "fieldname": "sync_sales_invoice",
+   "fieldtype": "Check",
+   "label": "Create Sales Invoices for paid orders"
+  },
+  {
+   "fieldname": "section_break_tax",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "html_tax_info",
+   "fieldtype": "HTML",
+   "options": "Map Shopware Tax Rates / Shipping Charges to ERPNext Accounts"
+  },
+  {
+   "fieldname": "taxes",
+   "fieldtype": "Table",
+   "label": "Shopware Tax Accounts",
+   "options": "Shopware Tax Account"
+  },
+  {
+   "fieldname": "section_break_default_tax",
+   "fieldtype": "Section Break",
+   "hide_border": 1
+  },
+  {
+   "description": "Fallback account when no specific tax mapping is found",
+   "fieldname": "default_sales_tax_account",
+   "fieldtype": "Link",
+   "label": "Default Sales Tax Account",
+   "options": "Account",
+   "link_filters": "[[\"Account\",\"account_type\",\"=\",\"Tax\"],[\"Account\",\"is_group\",\"=\",0]]"
+  },
+  {
+   "fieldname": "column_break_default_tax",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Fallback account for shipping charges",
+   "fieldname": "default_shipping_charges_account",
+   "fieldtype": "Link",
+   "label": "Default Shipping Charges Account",
+   "options": "Account",
+   "link_filters": "[[\"Account\",\"account_type\",\"=\",\"Income Account\"],[\"Account\",\"is_group\",\"=\",0]]"
+  },
+  {
+   "fieldname": "erpnext_to_shopware_sync_section",
+   "fieldtype": "Section Break",
+   "label": "ERPNext to Shopware Sync"
+  },
+  {
+   "default": "0",
+   "fieldname": "upload_erpnext_items",
+   "fieldtype": "Check",
+   "label": "Upload new ERPNext Items to Shopware"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.upload_erpnext_items",
+   "fieldname": "update_shopware_item_on_update",
+   "fieldtype": "Check",
+   "label": "Update Shopware Item when ERPNext item is updated"
+  },
+  {
+   "fieldname": "column_break_sync",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "sync_new_item_as_active",
+   "fieldtype": "Check",
+   "label": "Sync new items as Active in Shopware"
+  },
+  {
+   "fieldname": "discount_item",
+   "fieldtype": "Link",
+   "label": "Discount Item",
+   "options": "Item",
+   "description": "ERPNext Item to use for Shopware discounts/promotions. This item will be added with negative amount when promotions are applied."
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:doc.upload_erpnext_items",
+   "fieldname": "field_mapping_section",
+   "fieldtype": "Section Break",
+   "label": "Product Field Mappings",
+   "description": "Configure which ERPNext Item fields are synced to Shopware products"
+  },
+  {
+   "fieldname": "product_field_mappings",
+   "fieldtype": "Table",
+   "label": "Field Mappings",
+   "options": "Shopware Field Mapping",
+   "description": "Map ERPNext Item fields to Shopware product fields (Custom Fields or Properties)"
+  },
+  {
+   "fieldname": "column_break_field_mapping",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "auto_detect_jattr",
+   "fieldtype": "Check",
+   "label": "Auto-detect jattr_* fields",
+   "description": "Automatically sync all jattr_* custom fields as Shopware Properties (filterable)"
+  },
+  {
+   "fieldname": "field_mapping_info_html",
+   "fieldtype": "HTML",
+   "label": "Field Mapping Info",
+   "options": "<div class=\"alert alert-info\"><h5>Field Mapping Types</h5><ul><li><strong>Custom Field:</strong> Synced to Shopware customFields (product detail page, not filterable)</li><li><strong>Property:</strong> Synced as PropertyGroup/Option (filterable in shop frontend)</li><li><strong>Standard Field:</strong> Maps to built-in Shopware product fields</li></ul><p><strong>Tip:</strong> Enable 'Auto-detect jattr_* fields' to automatically sync all JTL attributes as Properties.</p></div>"
+  },
+  {
+   "fieldname": "inventory_sync_section",
+   "fieldtype": "Section Break",
+   "label": "Inventory Sync"
+  },
+  {
+   "description": "Default warehouse for stock operations",
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Default Warehouse",
+   "mandatory_depends_on": "eval:doc.enable_shopware",
+   "options": "Warehouse"
+  },
+  {
+   "default": "0",
+   "fieldname": "update_erpnext_stock_levels_to_shopware",
+   "fieldtype": "Check",
+   "label": "Sync ERPNext stock levels to Shopware"
+  },
+  {
+   "default": "60",
+   "depends_on": "eval:doc.update_erpnext_stock_levels_to_shopware",
+   "fieldname": "inventory_sync_frequency",
+   "fieldtype": "Select",
+   "label": "Inventory Sync Frequency (Minutes)",
+   "options": "5\n10\n15\n30\n60"
+  },
+  {
+   "fieldname": "column_break_inventory",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.update_erpnext_stock_levels_to_shopware",
+   "fieldname": "shopware_warehouse_mapping",
+   "fieldtype": "Table",
+   "label": "Shopware Warehouse Mapping",
+   "options": "Shopware Warehouse Mapping"
+  },
+  {
+   "fieldname": "last_inventory_sync",
+   "fieldtype": "Datetime",
+   "hidden": 1,
+   "label": "Last Inventory Sync",
+   "read_only": 1
+  },
+  {
+   "fieldname": "checkout_services_section",
+   "fieldtype": "Section Break",
+   "label": "Checkout Service Products",
+   "description": "Configure service products that can be added via Shopware checkout custom fields"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_tel_avis_service",
+   "fieldtype": "Check",
+   "label": "Enable Tel. Avis Service",
+   "description": "Auto-add telephone notification service when customer selects it in checkout"
+  },
+  {
+   "depends_on": "eval:doc.enable_tel_avis_service",
+   "fieldname": "tel_avis_item",
+   "fieldtype": "Link",
+   "label": "Tel. Avis Item",
+   "options": "Item",
+   "description": "ERPNext item code for telephone notification service (e.g., SERVICE-TEL-AVIS)"
+  },
+  {
+   "depends_on": "eval:doc.enable_tel_avis_service",
+   "fieldname": "tel_avis_price",
+   "fieldtype": "Currency",
+   "label": "Tel. Avis Default Price",
+   "default": "7.50",
+   "description": "Default price if item doesn't exist (creates line item with this rate)"
+  },
+  {
+   "fieldname": "column_break_checkout_services",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_forklift_service",
+   "fieldtype": "Check",
+   "label": "Enable Forklift/Hebebühne Service",
+   "description": "Auto-add forklift service when customer selects it in checkout"
+  },
+  {
+   "depends_on": "eval:doc.enable_forklift_service",
+   "fieldname": "forklift_item",
+   "fieldtype": "Link",
+   "label": "Forklift Item",
+   "options": "Item",
+   "description": "ERPNext item code for forklift/lifting platform service (e.g., SERVICE-FORKLIFT)"
+  },
+  {
+   "depends_on": "eval:doc.enable_forklift_service",
+   "fieldname": "forklift_price",
+   "fieldtype": "Currency",
+   "label": "Forklift Default Price",
+   "default": "0",
+   "description": "Default price if item doesn't exist (0 = free, or set a custom rate)"
+  },
+  {
+   "fieldname": "checkout_fields_info_section",
+   "fieldtype": "Section Break",
+   "label": "Shopware Checkout Field Mapping",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "checkout_fields_info_html",
+   "fieldtype": "HTML",
+   "label": "Checkout Fields Info",
+   "options": "<div class=\"alert alert-info\"><h5>Required Shopware Custom Fields</h5><p>Add these custom fields to your Shopware checkout (order entity):</p><table class=\"table table-bordered table-sm\"><thead><tr><th>Field Name</th><th>Type</th><th>Description</th></tr></thead><tbody><tr><td><code>custom_po_number</code></td><td>Text</td><td>Customer's internal order reference / commission</td></tr><tr><td><code>custom_tel_avis</code></td><td>Checkbox</td><td>Telephone notification before delivery</td></tr><tr><td><code>custom_forklift_required</code></td><td>Checkbox</td><td>Forklift/lifting platform required</td></tr><tr><td><code>invoice_email</code></td><td>Email</td><td>Alternative email for invoices</td></tr></tbody></table><p><strong>Note:</strong> Custom fields should be added to the Order entity in Shopware Admin > Settings > System > Custom Fields.</p></div>"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "shopware6",
+ "name": "Shopware Setting",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

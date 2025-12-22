@@ -1,0 +1,111 @@
+{
+  "actions": [],
+  "autoname": "RAG-LOG-.#####",
+  "creation": "2024-01-01 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "status",
+    "method",
+    "item_code",
+    "column_break_main",
+    "message",
+    "data_section",
+    "request_data",
+    "column_break_data",
+    "response_data",
+    "exception_section",
+    "exception"
+  ],
+  "fields": [
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Status",
+      "options": "Queued\nSuccess\nError\nSkipped"
+    },
+    {
+      "fieldname": "method",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Method"
+    },
+    {
+      "fieldname": "item_code",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Item",
+      "options": "Item"
+    },
+    {
+      "fieldname": "column_break_main",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "message",
+      "fieldtype": "Small Text",
+      "label": "Message"
+    },
+    {
+      "fieldname": "data_section",
+      "fieldtype": "Section Break",
+      "label": "Data"
+    },
+    {
+      "fieldname": "request_data",
+      "fieldtype": "Code",
+      "label": "Request Data",
+      "options": "JSON"
+    },
+    {
+      "fieldname": "column_break_data",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "response_data",
+      "fieldtype": "Code",
+      "label": "Response Data",
+      "options": "JSON"
+    },
+    {
+      "fieldname": "exception_section",
+      "fieldtype": "Section Break",
+      "collapsible": 1,
+      "collapsible_depends_on": "exception",
+      "label": "Exception"
+    },
+    {
+      "fieldname": "exception",
+      "fieldtype": "Code",
+      "label": "Exception"
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "links": [],
+  "modified": "2024-01-01 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "rag",
+  "name": "RAG Log",
+  "naming_rule": "Expression (old style)",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "track_changes": 0
+}

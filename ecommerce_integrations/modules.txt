@@ -1,5 +1,7 @@
 Ecommerce Integrations
 shopify
+shopware6
 Zenoti
 unicommerce
 Amazon
+rag

@@ -1,0 +1,79 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-01-01 00:00:00.000000",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "property_name",
+  "property_value",
+  "column_break_1",
+  "property_type",
+  "shopware_field_type",
+  "filterable"
+ ],
+ "fields": [
+  {
+   "fieldname": "property_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Property Name",
+   "reqd": 1,
+   "description": "Name of the property (e.g. 'Color', 'Size', 'Accessories')"
+  },
+  {
+   "fieldname": "property_value",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Value",
+   "reqd": 1,
+   "description": "Value of the property (can contain HTML for Custom Fields)"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "property_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Type",
+   "options": "Property\nCustom Field",
+   "default": "Property",
+   "reqd": 1,
+   "description": "Property = filterable in shop, Custom Field = product detail page only"
+  },
+  {
+   "fieldname": "shopware_field_type",
+   "fieldtype": "Select",
+   "label": "Field Type",
+   "options": "text\nhtml\nswitch\nnumber\nselect\ndatetime",
+   "default": "text",
+   "depends_on": "eval:doc.property_type=='Custom Field'",
+   "description": "Data type for Shopware Custom Fields"
+  },
+  {
+   "default": "1",
+   "fieldname": "filterable",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Filterable",
+   "depends_on": "eval:doc.property_type=='Property'",
+   "description": "Show as filter in shop frontend (only for Properties)"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "shopware6",
+ "name": "Item Shopware Property",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

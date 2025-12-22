@@ -76,6 +76,10 @@ doctype_js = {
 
 before_uninstall = "ecommerce_integrations.uninstall.before_uninstall"
 
+# Apply E-Invoice PDF patch on every request
+# This patches frappe.get_print to attach E-Invoice XML to Sales Invoice PDFs
+before_request = ["ecommerce_integrations.einvoice_patch.apply_patch"]
+
 # Desk Notifications
 # ------------------
 # See frappe.core.notifications.get_notification_config
@@ -108,26 +112,68 @@ before_uninstall = "ecommerce_integrations.uninstall.before_uninstall"
 
 doc_events = {
 	"Item": {
-		"after_insert": "ecommerce_integrations.shopify.product.upload_erpnext_item",
-		"on_update": "ecommerce_integrations.shopify.product.upload_erpnext_item",
+		"after_insert": [
+			"ecommerce_integrations.shopify.product.upload_erpnext_item",
+			# Shopware6: Use bulk sync queue to prevent crashes during bulk updates
+			"ecommerce_integrations.shopware6.bulk_sync.queue_item_for_sync",
+			# RAG: Sync items to Vector Search
+			"ecommerce_integrations.rag.bulk_sync.queue_item_for_sync",
+		],
+		"on_update": [
+			"ecommerce_integrations.shopify.product.upload_erpnext_item",
+			# Shopware6: Use bulk sync queue to prevent crashes during bulk updates
+			"ecommerce_integrations.shopware6.bulk_sync.queue_item_for_sync",
+			"ecommerce_integrations.shopware6.bulk_sync.queue_properties_for_sync",
+			# RAG: Sync items to Vector Search
+			"ecommerce_integrations.rag.bulk_sync.queue_item_for_sync",
+		],
+		"on_trash": [
+			# RAG: Delete items from Vector Search
+			"ecommerce_integrations.rag.product_export.delete_item_from_rag",
+		],
 		"validate": [
 			"ecommerce_integrations.utils.taxation.validate_tax_template",
 			"ecommerce_integrations.unicommerce.product.validate_item",
 		],
 	},
+	# Shopware6: Sync Item Group changes (description, shopware_active, SEO) to Shopware categories
+	"Item Group": {
+		"on_update": "ecommerce_integrations.shopware6.bulk_sync.queue_item_group_for_sync",
+	},
 	"Sales Order": {
 		"on_update_after_submit": "ecommerce_integrations.unicommerce.order.update_shipping_info",
-		"on_cancel": "ecommerce_integrations.unicommerce.status_updater.ignore_pick_list_on_sales_order_cancel",
+		"on_cancel": [
+			"ecommerce_integrations.unicommerce.status_updater.ignore_pick_list_on_sales_order_cancel",
+			"ecommerce_integrations.shopware6.status_sync.on_sales_order_cancel",
+		],
+	},
+	"Delivery Note": {
+		"on_submit": "ecommerce_integrations.shopware6.status_sync.on_delivery_note_submit",
+		"on_cancel": "ecommerce_integrations.shopware6.status_sync.on_delivery_note_cancel",
+	},
+	"Payment Entry": {
+		"on_submit": "ecommerce_integrations.shopware6.status_sync.on_payment_entry_submit",
 	},
 	"Stock Entry": {
 		"validate": "ecommerce_integrations.unicommerce.grn.validate_stock_entry_for_grn",
-		"on_submit": "ecommerce_integrations.unicommerce.grn.upload_grn",
+		"on_submit": [
+			"ecommerce_integrations.unicommerce.grn.upload_grn",
+			"ecommerce_integrations.shopware6.inventory.update_stock_on_stock_entry",
+		],
 		"on_cancel": "ecommerce_integrations.unicommerce.grn.prevent_grn_cancel",
 	},
-	"Item Price": {"on_change": "ecommerce_integrations.utils.price_list.discard_item_prices"},
+	"Item Price": {
+		"on_change": [
+			"ecommerce_integrations.utils.price_list.discard_item_prices",
+			"ecommerce_integrations.shopware6.bulk_sync.queue_price_for_sync",
+		],
+	},
 	"Pick List": {"validate": "ecommerce_integrations.unicommerce.pick_list.validate"},
 	"Sales Invoice": {
-		"on_submit": "ecommerce_integrations.unicommerce.invoice.on_submit",
+		"on_submit": [
+			"ecommerce_integrations.unicommerce.invoice.on_submit",
+			"ecommerce_integrations.shopware6.status_sync.on_sales_invoice_submit",
+		],
 		"on_cancel": "ecommerce_integrations.unicommerce.invoice.on_cancel",
 	},
 }
@@ -136,7 +182,15 @@ doc_events = {
 # ---------------
 
 scheduler_events = {
-	"all": ["ecommerce_integrations.shopify.inventory.update_inventory_on_shopify"],
+	"all": [
+		"ecommerce_integrations.shopify.inventory.update_inventory_on_shopify",
+		"ecommerce_integrations.shopware6.inventory.sync_inventory_to_shopware",
+		"ecommerce_integrations.shopware6.order.scheduled_order_sync",
+		# Shopware6: Check and process bulk sync queue
+		"ecommerce_integrations.shopware6.bulk_sync.check_and_process_queue",
+		# RAG: Check and process bulk sync queue
+		"ecommerce_integrations.rag.bulk_sync.check_and_process_queue",
+	],
 	"daily": [],
 	"daily_long": ["ecommerce_integrations.zenoti.doctype.zenoti_settings.zenoti_settings.sync_stocks"],
 	"hourly": [
