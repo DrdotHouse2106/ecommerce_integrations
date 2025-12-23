@@ -42,7 +42,10 @@ doctype_js = {
 		"public/js/unicommerce/sales_invoice.js",
 		"public/js/common/ecommerce_transactions.js",
 	],
-	"Item": "public/js/unicommerce/item.js",
+	"Item": [
+		"public/js/unicommerce/item.js",
+		"public/js/ai_description/item.js",
+	],
 	"Stock Entry": "public/js/unicommerce/stock_entry.js",
 	"Pick List": "public/js/unicommerce/pick_list.js",
 }
@@ -196,6 +199,8 @@ scheduler_events = {
 	"hourly": [
 		"ecommerce_integrations.shopify.order.sync_old_orders",
 		"ecommerce_integrations.amazon.doctype.amazon_sp_api_settings.amazon_sp_api_settings.schedule_get_order_details",
+		# AI Description: Scheduled batch processing
+		"ecommerce_integrations.ai_description.scheduler.process_batch_descriptions",
 	],
 	"hourly_long": [
 		"ecommerce_integrations.zenoti.doctype.zenoti_settings.zenoti_settings.sync_invoices",
@@ -270,4 +275,5 @@ before_tests = "ecommerce_integrations.utils.before_test.before_tests"
 
 default_log_clearing_doctypes = {
 	"Ecommerce Integration Log": 120,
+	"AI Description Log": 90,
 }

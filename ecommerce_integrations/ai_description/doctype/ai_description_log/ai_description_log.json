@@ -1,0 +1,128 @@
+{
+  "actions": [],
+  "autoname": "hash",
+  "creation": "2024-12-23 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "item",
+    "item_name",
+    "status",
+    "column_break_main",
+    "generation_time",
+    "model_used",
+    "tokens_used",
+    "details_section",
+    "prompt_used",
+    "response_section",
+    "response_raw",
+    "error_message"
+  ],
+  "fields": [
+    {
+      "fieldname": "item",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Item",
+      "options": "Item",
+      "reqd": 1
+    },
+    {
+      "fetch_from": "item.item_name",
+      "fieldname": "item_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Item Name",
+      "read_only": 1
+    },
+    {
+      "default": "Pending",
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Status",
+      "options": "Pending\nSuccess\nFailed\nSkipped"
+    },
+    {
+      "fieldname": "column_break_main",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "generation_time",
+      "fieldtype": "Float",
+      "in_list_view": 1,
+      "label": "Generation Time (s)",
+      "precision": "2",
+      "read_only": 1
+    },
+    {
+      "fieldname": "model_used",
+      "fieldtype": "Data",
+      "label": "Model Used",
+      "read_only": 1
+    },
+    {
+      "fieldname": "tokens_used",
+      "fieldtype": "Int",
+      "label": "Tokens Used",
+      "read_only": 1
+    },
+    {
+      "collapsible": 1,
+      "fieldname": "details_section",
+      "fieldtype": "Section Break",
+      "label": "Prompt Details"
+    },
+    {
+      "fieldname": "prompt_used",
+      "fieldtype": "Code",
+      "label": "Prompt Used",
+      "options": "Markdown",
+      "read_only": 1
+    },
+    {
+      "collapsible": 1,
+      "fieldname": "response_section",
+      "fieldtype": "Section Break",
+      "label": "Response"
+    },
+    {
+      "fieldname": "response_raw",
+      "fieldtype": "Code",
+      "label": "Raw Response",
+      "options": "JSON",
+      "read_only": 1
+    },
+    {
+      "fieldname": "error_message",
+      "fieldtype": "Small Text",
+      "label": "Error Message",
+      "read_only": 1
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "links": [],
+  "modified": "2024-12-23 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "ai_description",
+  "name": "AI Description Log",
+  "naming_rule": "Random",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "title_field": "item_name",
+  "track_changes": 0
+}

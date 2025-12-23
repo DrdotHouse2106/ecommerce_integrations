@@ -1,0 +1,261 @@
+{
+  "actions": [],
+  "creation": "2024-12-23 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "enabled",
+    "gemini_section",
+    "gemini_api_key",
+    "gemini_model",
+    "column_break_gemini",
+    "max_tokens",
+    "temperature",
+    "prompt_section",
+    "system_prompt",
+    "user_prompt_template",
+    "output_section",
+    "target_language",
+    "include_seo",
+    "include_benefits",
+    "column_break_output",
+    "include_applications",
+    "include_delivery_scope",
+    "html_format",
+    "batch_section",
+    "enable_batch_processing",
+    "batch_size",
+    "column_break_batch",
+    "process_interval_minutes",
+    "filter_section",
+    "item_group_filter",
+    "only_items_without_description",
+    "column_break_filter",
+    "only_sellable_items",
+    "status_section",
+    "last_batch_run",
+    "items_processed",
+    "column_break_status",
+    "queue_status_html"
+  ],
+  "fields": [
+    {
+      "default": "0",
+      "fieldname": "enabled",
+      "fieldtype": "Check",
+      "label": "Enable AI Description Generation"
+    },
+    {
+      "fieldname": "gemini_section",
+      "fieldtype": "Section Break",
+      "label": "Gemini API Configuration"
+    },
+    {
+      "fieldname": "gemini_api_key",
+      "fieldtype": "Password",
+      "label": "Google Gemini API Key",
+      "mandatory_depends_on": "eval:doc.enabled",
+      "description": "Get your API key at aistudio.google.com"
+    },
+    {
+      "default": "gemini-2.5-flash",
+      "fieldname": "gemini_model",
+      "fieldtype": "Select",
+      "label": "Gemini Model",
+      "options": "gemini-2.5-flash\ngemini-2.5-flash-lite\ngemini-3-flash-preview",
+      "description": "gemini-2.5-flash: Stable default. gemini-3-flash-preview: Latest & fastest (Dec 2025). gemini-2.5-flash-lite: Most cost-effective."
+    },
+    {
+      "fieldname": "column_break_gemini",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "4096",
+      "fieldname": "max_tokens",
+      "fieldtype": "Int",
+      "label": "Max Output Tokens",
+      "description": "Maximum tokens for generated description (default: 4096)"
+    },
+    {
+      "default": "0.7",
+      "fieldname": "temperature",
+      "fieldtype": "Float",
+      "label": "Temperature",
+      "description": "0.0 = deterministic, 1.0 = creative (default: 0.7)"
+    },
+    {
+      "fieldname": "prompt_section",
+      "fieldtype": "Section Break",
+      "label": "Prompt Configuration",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "system_prompt",
+      "fieldtype": "Code",
+      "label": "System Prompt",
+      "options": "Markdown",
+      "description": "Instructions for the AI. Use {company_name} as placeholder."
+    },
+    {
+      "fieldname": "user_prompt_template",
+      "fieldtype": "Code",
+      "label": "User Prompt Template",
+      "options": "Markdown",
+      "description": "Template for each item. Available placeholders: {item_code}, {item_name}, {item_group}, {brand}, {description}, {standard_rate}"
+    },
+    {
+      "fieldname": "output_section",
+      "fieldtype": "Section Break",
+      "label": "Output Configuration"
+    },
+    {
+      "default": "German",
+      "fieldname": "target_language",
+      "fieldtype": "Select",
+      "label": "Target Language",
+      "options": "German\nEnglish\nFrench\nSpanish\nItalian\nDutch"
+    },
+    {
+      "default": "1",
+      "fieldname": "include_seo",
+      "fieldtype": "Check",
+      "label": "Generate SEO Title & Description"
+    },
+    {
+      "default": "1",
+      "fieldname": "include_benefits",
+      "fieldtype": "Check",
+      "label": "Generate Benefits List"
+    },
+    {
+      "fieldname": "column_break_output",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "1",
+      "fieldname": "include_applications",
+      "fieldtype": "Check",
+      "label": "Generate Application Areas"
+    },
+    {
+      "default": "1",
+      "fieldname": "include_delivery_scope",
+      "fieldtype": "Check",
+      "label": "Extract Delivery Scope"
+    },
+    {
+      "default": "1",
+      "fieldname": "html_format",
+      "fieldtype": "Check",
+      "label": "Output as HTML",
+      "description": "Generate HTML-formatted descriptions for web display"
+    },
+    {
+      "fieldname": "batch_section",
+      "fieldtype": "Section Break",
+      "label": "Batch Processing"
+    },
+    {
+      "default": "0",
+      "fieldname": "enable_batch_processing",
+      "fieldtype": "Check",
+      "label": "Enable Scheduled Batch Processing"
+    },
+    {
+      "default": "10",
+      "fieldname": "batch_size",
+      "fieldtype": "Int",
+      "label": "Batch Size",
+      "description": "Number of items to process per batch (default: 10)"
+    },
+    {
+      "fieldname": "column_break_batch",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "60",
+      "fieldname": "process_interval_minutes",
+      "fieldtype": "Int",
+      "label": "Process Interval (Minutes)",
+      "description": "How often to run batch processing (default: 60)"
+    },
+    {
+      "fieldname": "filter_section",
+      "fieldtype": "Section Break",
+      "label": "Item Filter"
+    },
+    {
+      "fieldname": "item_group_filter",
+      "fieldtype": "Link",
+      "label": "Only Items from Item Group",
+      "options": "Item Group",
+      "description": "Leave empty to process all item groups"
+    },
+    {
+      "default": "1",
+      "fieldname": "only_items_without_description",
+      "fieldtype": "Check",
+      "label": "Only Items Without AI Description"
+    },
+    {
+      "fieldname": "column_break_filter",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "1",
+      "fieldname": "only_sellable_items",
+      "fieldtype": "Check",
+      "label": "Only Sellable Items"
+    },
+    {
+      "fieldname": "status_section",
+      "fieldtype": "Section Break",
+      "label": "Status"
+    },
+    {
+      "fieldname": "last_batch_run",
+      "fieldtype": "Datetime",
+      "label": "Last Batch Run",
+      "read_only": 1
+    },
+    {
+      "default": "0",
+      "fieldname": "items_processed",
+      "fieldtype": "Int",
+      "label": "Total Items Processed",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_status",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "queue_status_html",
+      "fieldtype": "HTML",
+      "label": "Queue Status"
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "issingle": 1,
+  "links": [],
+  "modified": "2024-12-23 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "ai_description",
+  "name": "AI Description Setting",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "print": 1,
+      "read": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "track_changes": 1
+}
