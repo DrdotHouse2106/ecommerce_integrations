@@ -1830,6 +1830,35 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> b
         if not images:
             return True  # No images to sync
 
+        # First, remove all existing product-media relationships to prevent duplicates
+        # This ensures we always have a clean slate before adding images
+        try:
+            existing_media = client.request_get(
+                f"product/{shopware_product_id}",
+                {"associations": {"media": {}}}
+            )
+            existing_product_media = existing_media.get("data", {}).get("media", [])
+
+            if existing_product_media:
+                # Delete existing product-media relationships one by one
+                deleted_count = 0
+                for pm in existing_product_media:
+                    pm_id = pm.get("id")
+                    if pm_id:
+                        try:
+                            client.request_delete(f"product-media/{pm_id}")
+                            deleted_count += 1
+                        except Exception as del_err:
+                            frappe.logger().debug(f"Could not delete product-media {pm_id}: {del_err}")
+
+                if deleted_count > 0:
+                    frappe.logger().debug(
+                        f"Removed {deleted_count} existing media for {item.item_code}"
+                    )
+        except Exception as e:
+            # If we can't get existing media, continue anyway
+            frappe.logger().warning(f"Could not clean existing media for {item.item_code}: {e}")
+
         product_media_list = []
         cover_id = None
         images_uploaded = 0
