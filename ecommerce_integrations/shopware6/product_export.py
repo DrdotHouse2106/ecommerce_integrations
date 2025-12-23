@@ -1035,7 +1035,9 @@ def get_or_create_category(client, category_name: str, parent_id: str = None, it
             "displayNestedProducts": True,
         }
 
-        if parent_id and not existing_cat_id:
+        # Always set parentId to ensure correct hierarchy
+        # This fixes categories that were created with wrong parent
+        if parent_id:
             payload["parentId"] = parent_id
 
         # Add description and SEO fields if available
