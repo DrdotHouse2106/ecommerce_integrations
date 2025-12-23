@@ -2,7 +2,6 @@
 # For license information, please see license.txt
 
 import frappe
-from pinecone import Pinecone, ServerlessSpec
 
 
 def get_rag_settings():
@@ -12,6 +11,7 @@ def get_rag_settings():
 
 def get_pinecone_client():
     """Get Pinecone client instance"""
+    from pinecone import Pinecone
     settings = get_rag_settings()
 
     if not settings.pinecone_api_key:
@@ -44,6 +44,7 @@ def get_pinecone_index():
 
 def create_index_if_not_exists():
     """Create Pinecone index if it doesn't exist"""
+    from pinecone import ServerlessSpec
     settings = get_rag_settings()
     pc = get_pinecone_client()
 
