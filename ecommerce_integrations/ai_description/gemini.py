@@ -254,40 +254,55 @@ def update_item_with_description(item, result: dict, settings):
         settings: AI Description Settings
     """
     if "error" in result:
+        frappe.logger().error(f"AI Description: Result contains error, not updating item {item.name}")
         return
+
+    frappe.logger().info(f"AI Description: Updating item {item.name} with AI results")
 
     # Update fields
     if result.get("short_description"):
+        item.db_set("ai_short_description", result["short_description"])
         item.ai_short_description = result["short_description"]
 
     if result.get("benefits"):
-        item.ai_benefits = json.dumps(result["benefits"], ensure_ascii=False)
+        benefits_json = json.dumps(result["benefits"], ensure_ascii=False)
+        item.db_set("ai_benefits", benefits_json)
+        item.ai_benefits = benefits_json
 
     if result.get("long_description"):
+        item.db_set("ai_long_description", result["long_description"])
         item.ai_long_description = result["long_description"]
 
     if result.get("applications"):
+        item.db_set("ai_applications", result["applications"])
         item.ai_applications = result["applications"]
 
     if result.get("scope_of_delivery"):
-        item.ai_delivery_scope = json.dumps(result["scope_of_delivery"], ensure_ascii=False)
+        delivery_json = json.dumps(result["scope_of_delivery"], ensure_ascii=False)
+        item.db_set("ai_delivery_scope", delivery_json)
+        item.ai_delivery_scope = delivery_json
 
     if settings.include_seo:
         if result.get("seo_title"):
-            item.ai_seo_title = result["seo_title"][:70]  # Enforce max length
+            item.db_set("ai_seo_title", result["seo_title"][:70])
+            item.ai_seo_title = result["seo_title"][:70]
         if result.get("seo_description"):
+            item.db_set("ai_seo_description", result["seo_description"][:160])
             item.ai_seo_description = result["seo_description"][:160]
 
     # Set metadata
+    now = frappe.utils.now()
+    item.db_set("ai_description_generated", 1)
+    item.db_set("ai_generation_date", now)
+    item.db_set("ai_model_used", settings.gemini_model)
+    
     item.ai_description_generated = 1
-    item.ai_generation_date = frappe.utils.now()
+    item.ai_generation_date = now
     item.ai_model_used = settings.gemini_model
 
-    # Save without triggering hooks to avoid infinite loops
-    item.flags.ignore_validate = True
-    item.flags.ignore_mandatory = True
-    item.save(ignore_permissions=True)
+    # Explicitly commit to database
     frappe.db.commit()
+    frappe.logger().info(f"AI Description: Item {item.name} updated and committed")
 
 
 def generate_descriptions_batch(item_codes: list) -> dict:
