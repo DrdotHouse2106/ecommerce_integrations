@@ -243,7 +243,7 @@
    "fieldname": "webhook_url_info",
    "fieldtype": "HTML",
    "label": "Webhook URL Info",
-   "options": "<p class=\"text-muted\">Configure webhooks in Shopware Admin under Settings > Extensions > Webhooks.<br>Use the following URL pattern:<br><code>/api/method/ecommerce_integrations.shopware6.connection.webhook_handler</code></p>"
+   "options": "<p class=\"text-muted\">Configure webhooks in Shopware Admin under Settings > Extensions > Webhooks.<br>Use the following URL pattern:<br><code>/api/method/ecommerce_integrations.shopware6.connection.webhook_handler</code><br><br><strong>Note:</strong> Webhooks require Shopware Evolve Edition. For other editions, install the <a href=\"https://github.com/TubaApollo/shopware6-erpnext-webhook\" target=\"_blank\">ERPNext Webhook Plugin</a>.</p>"
   },
   {
    "fieldname": "customer_settings_section",

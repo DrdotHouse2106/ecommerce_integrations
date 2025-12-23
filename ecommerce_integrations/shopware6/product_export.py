@@ -3715,6 +3715,186 @@ def sync_all_categories_to_shopware(
 
 
 @frappe.whitelist()
+@temp_shopware_session
+def cleanup_orphaned_shopware_categories(
+    client,
+    root_category: str = "Produkte",
+    dry_run: bool = True
+) -> Dict[str, Any]:
+    """
+    Delete categories in Shopware that no longer exist in ERPNext.
+
+    This function compares categories in Shopware with ERPNext Item Groups
+    and removes any Shopware categories that don't have a matching Item Group.
+
+    IMPORTANT: Only deletes categories under the specified root, not the entire Shopware tree.
+
+    Args:
+        client: Shopware API client (injected by decorator)
+        root_category: ERPNext root category to compare against (default: "Produkte")
+        dry_run: If True, only report what would be deleted (default: True for safety)
+
+    Returns:
+        dict: Cleanup results with statistics
+    """
+    # Convert string parameters
+    if isinstance(dry_run, str):
+        dry_run = dry_run.lower() in ("true", "1", "yes")
+
+    setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+    if not setting.is_enabled():
+        return {"success": False, "message": "Shopware integration is not enabled"}
+
+    # Get all ERPNext Item Groups under the root category
+    root_info = frappe.db.get_value(
+        "Item Group",
+        root_category,
+        ["lft", "rgt"],
+        as_dict=True
+    )
+
+    if not root_info:
+        return {"success": False, "message": f"Root category '{root_category}' not found in ERPNext"}
+
+    # Get all ERPNext category names under root
+    erpnext_categories = set(frappe.get_all(
+        "Item Group",
+        filters=[
+            ["lft", ">=", root_info.lft],
+            ["rgt", "<=", root_info.rgt]
+        ],
+        pluck="name"
+    ))
+
+    # Categories to skip (ERPNext root categories that shouldn't be in Shopware)
+    skip_categories = {"All Item Groups", "Alle Artikelgruppen"}
+    erpnext_categories = erpnext_categories - skip_categories
+
+    frappe.logger().info(f"Cleanup: Found {len(erpnext_categories)} ERPNext categories under '{root_category}'")
+
+    # Get all Shopware categories
+    try:
+        # Fetch all categories from Shopware (paginated)
+        all_shopware_categories = []
+        page = 1
+        limit = 100
+
+        while True:
+            response = client.request_post(
+                "search/category",
+                {
+                    "limit": limit,
+                    "page": page,
+                    "filter": [
+                        # Exclude root category (parentId = null)
+                        {"type": "not", "queries": [{"type": "equals", "field": "parentId", "value": None}]}
+                    ]
+                }
+            )
+            categories = response.get("data", [])
+            if not categories:
+                break
+
+            all_shopware_categories.extend(categories)
+            if len(categories) < limit:
+                break
+            page += 1
+
+    except Exception as e:
+        return {"success": False, "message": f"Failed to fetch Shopware categories: {str(e)}"}
+
+    frappe.logger().info(f"Cleanup: Found {len(all_shopware_categories)} categories in Shopware")
+
+    # Find orphaned categories (in Shopware but not in ERPNext)
+    orphaned_categories = []
+    for cat in all_shopware_categories:
+        cat_name = cat.get("name", "")
+        cat_id = cat.get("id", "")
+
+        # Check if this category exists in ERPNext
+        if cat_name and cat_name not in erpnext_categories:
+            orphaned_categories.append({
+                "id": cat_id,
+                "name": cat_name,
+                "parent_id": cat.get("parentId")
+            })
+
+    stats = {
+        "erpnext_count": len(erpnext_categories),
+        "shopware_count": len(all_shopware_categories),
+        "orphaned_count": len(orphaned_categories),
+        "deleted": 0,
+        "failed": 0,
+        "errors": []
+    }
+
+    if not orphaned_categories:
+        return {
+            "success": True,
+            "dry_run": dry_run,
+            "statistics": stats,
+            "message": "No orphaned categories found - Shopware is in sync with ERPNext"
+        }
+
+    # Sort by depth (delete children before parents) - categories with no children first
+    # We'll delete in reverse order of creation to avoid parent-child conflicts
+    orphaned_categories_to_delete = []
+
+    if not dry_run:
+        # Build parent-child relationships to delete in correct order
+        # Delete leaf categories first (no children)
+        orphaned_ids = {cat["id"] for cat in orphaned_categories}
+
+        # Find categories that have no children in the orphaned set
+        for cat in orphaned_categories:
+            has_orphaned_children = any(
+                other["parent_id"] == cat["id"]
+                for other in orphaned_categories
+            )
+            cat["has_children"] = has_orphaned_children
+
+        # Sort: categories without children first
+        orphaned_categories.sort(key=lambda x: x.get("has_children", False))
+
+        for cat in orphaned_categories:
+            try:
+                client.request_delete(f"category/{cat['id']}")
+                stats["deleted"] += 1
+                orphaned_categories_to_delete.append(cat["name"])
+                frappe.logger().info(f"Deleted orphaned category: {cat['name']} ({cat['id']})")
+            except Exception as e:
+                stats["failed"] += 1
+                stats["errors"].append({"category": cat["name"], "error": str(e)[:100]})
+                frappe.log_error(f"Failed to delete category {cat['name']}: {e}", "Shopware Category Cleanup")
+
+    # Create log entry
+    create_shopware_log(
+        status="Success" if stats["failed"] == 0 else "Partial",
+        message=f"Category cleanup: {stats['deleted']} deleted, {stats['failed']} failed" if not dry_run
+                else f"Category cleanup (DRY RUN): {len(orphaned_categories)} would be deleted",
+        request_data={
+            "root_category": root_category,
+            "dry_run": dry_run,
+            "orphaned_categories": [c["name"] for c in orphaned_categories[:20]]
+        },
+        method="cleanup_orphaned_shopware_categories"
+    )
+
+    return {
+        "success": True,
+        "dry_run": dry_run,
+        "statistics": stats,
+        "orphaned_categories": [c["name"] for c in orphaned_categories[:50]],
+        "deleted_categories": orphaned_categories_to_delete[:50] if not dry_run else [],
+        "message": (
+            f"Found {len(orphaned_categories)} orphaned categories. "
+            + (f"Deleted {stats['deleted']}, Failed {stats['failed']}" if not dry_run
+               else "Run without dry_run to delete them.")
+        )
+    }
+
+
+@frappe.whitelist()
 def full_reconciliation(
     limit: int = 500,
     dry_run: bool = False,
@@ -3722,13 +3902,15 @@ def full_reconciliation(
     include_unlinked: bool = False,
     category_root: str = "Produkte",
     skip_root_category: bool = False,
-    sync_empty_categories: bool = True
+    sync_empty_categories: bool = True,
+    cleanup_orphaned_categories: bool = False
 ) -> Dict[str, Any]:
     """
-    Full reconciliation: Categories first, then Products.
+    Full reconciliation: Categories first, then Products, optionally cleanup.
 
     This is the recommended function for a complete ERPNext to Shopware sync.
-    It ensures all categories exist before syncing products.
+    It ensures all categories exist before syncing products and can optionally
+    remove categories from Shopware that no longer exist in ERPNext.
 
     Args:
         limit: Maximum products to process
@@ -3738,9 +3920,10 @@ def full_reconciliation(
         category_root: Root category for category sync (default: "Produkte")
         skip_root_category: If True, skip the root category itself
         sync_empty_categories: If True, sync categories even without products
+        cleanup_orphaned_categories: If True, delete Shopware categories not in ERPNext
 
     Returns:
-        dict: Combined results from category and product sync
+        dict: Combined results from category, product sync, and cleanup
     """
     # Convert string parameters from frontend
     if isinstance(dry_run, str):
@@ -3753,20 +3936,23 @@ def full_reconciliation(
         skip_root_category = skip_root_category.lower() in ("true", "1", "yes")
     if isinstance(sync_empty_categories, str):
         sync_empty_categories = sync_empty_categories.lower() in ("true", "1", "yes")
+    if isinstance(cleanup_orphaned_categories, str):
+        cleanup_orphaned_categories = cleanup_orphaned_categories.lower() in ("true", "1", "yes")
 
     results = {
         "success": True,
         "dry_run": dry_run,
         "category_sync": None,
-        "product_sync": None
+        "product_sync": None,
+        "category_cleanup": None
     }
 
-    frappe.logger().info(f"Full Reconciliation: Starting (categories: {category_root}, products: {limit})")
+    frappe.logger().info(f"Full Reconciliation: Starting (categories: {category_root}, products: {limit}, cleanup: {cleanup_orphaned_categories})")
 
     # Phase 1: Sync ALL categories first
     frappe.publish_realtime(
         "msgprint",
-        {"message": "Phase 1: Syncing categories...", "indicator": "blue"},
+        {"message": "Phase 1/3: Syncing categories...", "indicator": "blue"},
         user=frappe.session.user
     )
 
@@ -3781,7 +3967,7 @@ def full_reconciliation(
     # Phase 2: Sync products (reuse existing reconciliation)
     frappe.publish_realtime(
         "msgprint",
-        {"message": "Phase 2: Syncing products...", "indicator": "blue"},
+        {"message": "Phase 2/3: Syncing products...", "indicator": "blue"},
         user=frappe.session.user
     )
 
@@ -3794,14 +3980,34 @@ def full_reconciliation(
     )
     results["product_sync"] = product_result
 
+    # Phase 3: Cleanup orphaned categories (if enabled)
+    if cleanup_orphaned_categories:
+        frappe.publish_realtime(
+            "msgprint",
+            {"message": "Phase 3/3: Cleaning up orphaned categories...", "indicator": "blue"},
+            user=frappe.session.user
+        )
+
+        cleanup_result = cleanup_orphaned_shopware_categories(
+            root_category=category_root,
+            dry_run=dry_run
+        )
+        results["category_cleanup"] = cleanup_result
+
     # Combine statistics for summary
     cat_stats = category_result.get("statistics", {})
     prod_stats = product_result.get("statistics", {})
 
-    results["message"] = (
-        f"Categories: {cat_stats.get('synced', 0)}/{cat_stats.get('total', 0)} synced. "
-        f"Products: {prod_stats.get('synced', 0)}/{prod_stats.get('total_checked', 0)} synced."
-    )
+    message_parts = [
+        f"Categories: {cat_stats.get('synced', 0)}/{cat_stats.get('total', 0)} synced",
+        f"Products: {prod_stats.get('synced', 0)}/{prod_stats.get('total_checked', 0)} synced"
+    ]
+
+    if cleanup_orphaned_categories and results.get("category_cleanup"):
+        cleanup_stats = results["category_cleanup"].get("statistics", {})
+        message_parts.append(f"Cleanup: {cleanup_stats.get('deleted', 0)} deleted")
+
+    results["message"] = ". ".join(message_parts) + "."
 
     if dry_run:
         results["message"] += " (DRY RUN - no changes made)"
@@ -3814,7 +4020,8 @@ def full_reconciliation(
             "limit": limit,
             "dry_run": dry_run,
             "category_root": category_root,
-            "skip_root_category": skip_root_category
+            "skip_root_category": skip_root_category,
+            "cleanup_orphaned_categories": cleanup_orphaned_categories
         },
         method="full_reconciliation"
     )
@@ -3830,10 +4037,11 @@ def enqueue_full_reconciliation_with_categories(
     include_unlinked: bool = False,
     category_root: str = None,
     skip_root_category: bool = None,
-    sync_empty_categories: bool = None
+    sync_empty_categories: bool = None,
+    cleanup_orphaned_categories: bool = False
 ) -> Dict[str, Any]:
     """
-    Enqueue full reconciliation (categories + products) as background job.
+    Enqueue full reconciliation (categories + products + cleanup) as background job.
 
     Use this for large reconciliations that would timeout in a web request.
 
@@ -3842,6 +4050,7 @@ def enqueue_full_reconciliation_with_categories(
         dry_run: If True, only report differences without syncing
         sync_images: If True, also sync images for changed items
         include_unlinked: If True, also sync products not yet in Shopware
+        cleanup_orphaned_categories: If True, delete categories in Shopware not in ERPNext
         category_root: Root category (uses setting default if not provided)
         skip_root_category: Skip root category (uses setting default if not provided)
         sync_empty_categories: Sync empty categories (uses setting default if not provided)
@@ -3856,6 +4065,8 @@ def enqueue_full_reconciliation_with_categories(
         sync_images = sync_images.lower() in ("true", "1", "yes")
     if isinstance(include_unlinked, str):
         include_unlinked = include_unlinked.lower() in ("true", "1", "yes")
+    if isinstance(cleanup_orphaned_categories, str):
+        cleanup_orphaned_categories = cleanup_orphaned_categories.lower() in ("true", "1", "yes")
 
     # Load settings for defaults if not provided
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
@@ -3884,12 +4095,14 @@ def enqueue_full_reconciliation_with_categories(
         include_unlinked=include_unlinked,
         category_root=category_root,
         skip_root_category=skip_root_category,
-        sync_empty_categories=sync_empty_categories
+        sync_empty_categories=sync_empty_categories,
+        cleanup_orphaned_categories=cleanup_orphaned_categories
     )
 
+    cleanup_info = " + cleanup" if cleanup_orphaned_categories else ""
     return {
         "success": True,
-        "message": f"Full reconciliation job enqueued (categories from '{category_root}' + up to {limit} products)",
+        "message": f"Full reconciliation job enqueued (categories from '{category_root}' + up to {limit} products{cleanup_info})",
         "job_queue": "long",
         "dry_run": dry_run
     }
