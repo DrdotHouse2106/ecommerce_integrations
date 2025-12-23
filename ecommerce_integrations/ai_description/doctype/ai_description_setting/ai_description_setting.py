@@ -23,6 +23,7 @@ Produktbeschreibung für einen B2B-Online-Shop.
 - Professionell, aber nicht steif
 - Nutzenorientiert statt feature-fokussiert
 - Konkret und präzise
+- Vertrauenswürdig ({company_name})
 
 ## Regeln
 1. Immer den NUTZEN vor dem FEATURE nennen ("800 kg Tragkraft für schwere Formen" statt "Tragkraft: 800 kg")
