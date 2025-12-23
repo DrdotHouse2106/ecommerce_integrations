@@ -3895,6 +3895,334 @@ def cleanup_orphaned_shopware_categories(
 
 
 @frappe.whitelist()
+@temp_shopware_session
+def analyze_shopware_categories(client) -> Dict[str, Any]:
+    """
+    Analyze the Shopware category tree structure.
+
+    Returns a detailed view of all categories in Shopware, organized by their tree structure.
+    Useful for understanding the category hierarchy before running cleanup operations.
+
+    Returns:
+        dict: Category tree analysis with statistics
+    """
+    setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+    if not setting.is_enabled():
+        return {"success": False, "message": "Shopware integration is not enabled"}
+
+    # Fetch all categories from Shopware
+    all_categories = []
+    page = 1
+    limit = 100
+
+    while True:
+        response = client.request_post(
+            "search/category",
+            {
+                "limit": limit,
+                "page": page,
+                "includes": {
+                    "category": ["id", "parentId", "name", "translated", "level", "childCount", "active", "path"]
+                }
+            }
+        )
+        categories = response.get("data", [])
+        if not categories:
+            break
+        all_categories.extend(categories)
+        if len(categories) < limit:
+            break
+        page += 1
+
+    # Build lookup and tree
+    cats_by_id = {c["id"]: c for c in all_categories}
+
+    def get_name(c):
+        return c.get("name") or c.get("translated", {}).get("name") or "(unnamed)"
+
+    # Find root categories (no parent or parent not found)
+    roots = []
+    for c in all_categories:
+        parent_id = c.get("parentId")
+        if not parent_id or parent_id not in cats_by_id:
+            roots.append(c)
+
+    def build_tree(cat, depth=0):
+        children = [c for c in all_categories if c.get("parentId") == cat["id"]]
+        children.sort(key=lambda x: get_name(x))
+        return {
+            "id": cat["id"],
+            "name": get_name(cat),
+            "active": cat.get("active", True),
+            "child_count": cat.get("childCount", 0),
+            "level": cat.get("level", depth),
+            "children": [build_tree(child, depth + 1) for child in children] if depth < 3 else []
+        }
+
+    # Build tree for each root
+    tree = []
+    for root in sorted(roots, key=get_name):
+        tree.append(build_tree(root))
+
+    # Get ERPNext categories for comparison
+    erpnext_names = set(frappe.get_all("Item Group", pluck="name"))
+
+    # Categorize Shopware categories
+    only_in_shopware = []
+    in_both = []
+    for cat in all_categories:
+        name = get_name(cat)
+        if name in erpnext_names:
+            in_both.append(name)
+        else:
+            only_in_shopware.append(name)
+
+    return {
+        "success": True,
+        "statistics": {
+            "total_shopware": len(all_categories),
+            "total_erpnext": len(erpnext_names),
+            "in_both": len(in_both),
+            "only_in_shopware": len(only_in_shopware),
+            "root_categories": len(roots)
+        },
+        "root_categories": [get_name(r) for r in roots],
+        "only_in_shopware": sorted(only_in_shopware),
+        "tree": tree
+    }
+
+
+@frappe.whitelist()
+@temp_shopware_session
+def cleanup_orphaned_shopware_categories_v2(
+    client,
+    root_category: str = "Produkte",
+    shopware_root_category: str = None,
+    exclude_parent_categories: str = None,
+    dry_run: bool = True
+) -> Dict[str, Any]:
+    """
+    Delete categories in Shopware that no longer exist in ERPNext.
+
+    Enhanced version with support for excluding entire subtrees from cleanup.
+
+    Args:
+        client: Shopware API client (injected by decorator)
+        root_category: ERPNext root category to compare against (default: "Produkte")
+        shopware_root_category: Shopware root category name to search under (default: same as root_category)
+        exclude_parent_categories: Comma-separated list of Shopware parent category names to exclude
+                                   (e.g., "Footer,Service,Rechtliches" - their children won't be deleted)
+        dry_run: If True, only report what would be deleted (default: True for safety)
+
+    Returns:
+        dict: Cleanup results with statistics
+    """
+    # Convert string parameters
+    if isinstance(dry_run, str):
+        dry_run = dry_run.lower() in ("true", "1", "yes")
+
+    setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+    if not setting.is_enabled():
+        return {"success": False, "message": "Shopware integration is not enabled"}
+
+    # Parse excluded parent categories
+    excluded_parents = set()
+    if exclude_parent_categories:
+        excluded_parents = {name.strip() for name in exclude_parent_categories.split(",") if name.strip()}
+        frappe.logger().info(f"Cleanup: Excluding parent categories: {excluded_parents}")
+
+    if shopware_root_category is None:
+        shopware_root_category = root_category
+
+    # Get all ERPNext Item Groups under the root category
+    root_info = frappe.db.get_value(
+        "Item Group",
+        root_category,
+        ["lft", "rgt"],
+        as_dict=True
+    )
+
+    if not root_info:
+        return {"success": False, "message": f"Root category '{root_category}' not found in ERPNext"}
+
+    # Get all ERPNext category names under root
+    erpnext_categories = set(frappe.get_all(
+        "Item Group",
+        filters=[
+            ["lft", ">=", root_info.lft],
+            ["rgt", "<=", root_info.rgt]
+        ],
+        pluck="name"
+    ))
+
+    # Categories to skip (ERPNext root categories)
+    skip_categories = {"All Item Groups", "Alle Artikelgruppen"}
+    erpnext_categories = erpnext_categories - skip_categories
+
+    frappe.logger().info(f"Cleanup v2: Found {len(erpnext_categories)} ERPNext categories under '{root_category}'")
+
+    # Fetch all Shopware categories
+    all_shopware_categories = []
+    page = 1
+    limit = 100
+
+    while True:
+        response = client.request_post(
+            "search/category",
+            {
+                "limit": limit,
+                "page": page,
+                "includes": {
+                    "category": ["id", "parentId", "name", "translated", "level", "path"]
+                }
+            }
+        )
+        categories = response.get("data", [])
+        if not categories:
+            break
+        all_shopware_categories.extend(categories)
+        if len(categories) < limit:
+            break
+        page += 1
+
+    frappe.logger().info(f"Cleanup v2: Found {len(all_shopware_categories)} categories in Shopware")
+
+    # Build category lookup
+    cats_by_id = {c["id"]: c for c in all_shopware_categories}
+
+    def get_name(c):
+        return c.get("name") or c.get("translated", {}).get("name") or ""
+
+    # Find the Shopware root category (e.g., "Produkte")
+    shopware_root = None
+    for cat in all_shopware_categories:
+        if get_name(cat) == shopware_root_category:
+            shopware_root = cat
+            break
+
+    # Get IDs of excluded parent categories and all their descendants
+    excluded_category_ids = set()
+    for cat in all_shopware_categories:
+        cat_name = get_name(cat)
+        if cat_name in excluded_parents:
+            # Add this category and find all its descendants
+            excluded_category_ids.add(cat["id"])
+            # Find all descendants by checking path
+            for other in all_shopware_categories:
+                if other.get("path") and cat["id"] in (other.get("path") or ""):
+                    excluded_category_ids.add(other["id"])
+
+    frappe.logger().info(f"Cleanup v2: Excluding {len(excluded_category_ids)} categories (and descendants) from cleanup")
+
+    # Find orphaned categories (in Shopware but not in ERPNext)
+    # Only consider categories under the Shopware root and not in excluded trees
+    orphaned_categories = []
+    categories_under_root = []
+
+    for cat in all_shopware_categories:
+        cat_name = get_name(cat)
+        cat_id = cat.get("id", "")
+        cat_path = cat.get("path") or ""
+
+        # Skip if this category is in an excluded tree
+        if cat_id in excluded_category_ids:
+            continue
+
+        # If we have a root, only consider categories under it
+        if shopware_root:
+            # Check if category is under the root by examining path
+            if shopware_root["id"] not in cat_path and cat_id != shopware_root["id"]:
+                continue
+
+        categories_under_root.append(cat)
+
+        # Check if this category exists in ERPNext
+        if cat_name and cat_name not in erpnext_categories:
+            orphaned_categories.append({
+                "id": cat_id,
+                "name": cat_name,
+                "parent_id": cat.get("parentId")
+            })
+
+    stats = {
+        "erpnext_count": len(erpnext_categories),
+        "shopware_count": len(all_shopware_categories),
+        "shopware_under_root": len(categories_under_root),
+        "excluded_count": len(excluded_category_ids),
+        "orphaned_count": len(orphaned_categories),
+        "deleted": 0,
+        "failed": 0,
+        "errors": []
+    }
+
+    if not orphaned_categories:
+        return {
+            "success": True,
+            "dry_run": dry_run,
+            "statistics": stats,
+            "excluded_parents": list(excluded_parents),
+            "message": "No orphaned categories found - Shopware is in sync with ERPNext"
+        }
+
+    deleted_categories = []
+
+    if not dry_run:
+        # Build parent-child relationships for correct deletion order
+        orphaned_ids = {cat["id"] for cat in orphaned_categories}
+
+        # Mark categories that have children in the orphaned set
+        for cat in orphaned_categories:
+            has_orphaned_children = any(
+                other["parent_id"] == cat["id"]
+                for other in orphaned_categories
+            )
+            cat["has_children"] = has_orphaned_children
+
+        # Sort: categories without children first (leaves first)
+        orphaned_categories.sort(key=lambda x: x.get("has_children", False))
+
+        for cat in orphaned_categories:
+            try:
+                client.request_delete(f"category/{cat['id']}")
+                stats["deleted"] += 1
+                deleted_categories.append(cat["name"])
+                frappe.logger().info(f"Deleted orphaned category: {cat['name']} ({cat['id']})")
+            except Exception as e:
+                stats["failed"] += 1
+                stats["errors"].append({"category": cat["name"], "error": str(e)[:100]})
+                frappe.log_error(f"Failed to delete category {cat['name']}: {e}", "Shopware Category Cleanup")
+
+    # Create log entry
+    create_shopware_log(
+        status="Success" if stats["failed"] == 0 else "Partial",
+        message=f"Category cleanup v2: {stats['deleted']} deleted, {stats['failed']} failed" if not dry_run
+                else f"Category cleanup v2 (DRY RUN): {len(orphaned_categories)} would be deleted",
+        request_data={
+            "root_category": root_category,
+            "shopware_root_category": shopware_root_category,
+            "excluded_parents": list(excluded_parents),
+            "dry_run": dry_run,
+            "orphaned_categories": [c["name"] for c in orphaned_categories[:20]]
+        },
+        method="cleanup_orphaned_shopware_categories_v2"
+    )
+
+    return {
+        "success": True,
+        "dry_run": dry_run,
+        "statistics": stats,
+        "excluded_parents": list(excluded_parents),
+        "orphaned_categories": [c["name"] for c in orphaned_categories[:50]],
+        "deleted_categories": deleted_categories[:50] if not dry_run else [],
+        "message": (
+            f"Found {len(orphaned_categories)} orphaned categories (excluded {len(excluded_category_ids)} in protected trees). "
+            + (f"Deleted {stats['deleted']}, Failed {stats['failed']}" if not dry_run
+               else "Run without dry_run to delete them.")
+        )
+    }
+
+
+@frappe.whitelist()
 def full_reconciliation(
     limit: int = 500,
     dry_run: bool = False,
