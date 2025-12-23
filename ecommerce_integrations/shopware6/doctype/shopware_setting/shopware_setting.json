@@ -65,6 +65,12 @@
   "column_break_sync",
   "sync_new_item_as_active",
   "discount_item",
+  "category_sync_section",
+  "category_sync_root",
+  "skip_root_category",
+  "column_break_category_sync",
+  "sync_empty_categories",
+  "category_sync_info_html",
   "field_mapping_section",
   "product_field_mappings",
   "column_break_field_mapping",
@@ -454,6 +460,45 @@
    "label": "Discount Item",
    "options": "Item",
    "description": "ERPNext Item to use for Shopware discounts/promotions. This item will be added with negative amount when promotions are applied."
+  },
+  {
+   "fieldname": "category_sync_section",
+   "fieldtype": "Section Break",
+   "label": "Category Sync Settings",
+   "collapsible": 1,
+   "depends_on": "eval:doc.upload_erpnext_items"
+  },
+  {
+   "fieldname": "category_sync_root",
+   "fieldtype": "Link",
+   "label": "Category Sync Root",
+   "options": "Item Group",
+   "default": "Produkte",
+   "description": "Root category for Shopware sync. All subcategories under this will be synced."
+  },
+  {
+   "fieldname": "skip_root_category",
+   "fieldtype": "Check",
+   "label": "Skip Root Category",
+   "default": "1",
+   "description": "If checked, the root category itself won't be synced to Shopware (only its children)"
+  },
+  {
+   "fieldname": "column_break_category_sync",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sync_empty_categories",
+   "fieldtype": "Check",
+   "label": "Sync Empty Categories",
+   "default": "1",
+   "description": "Sync categories even if they have no products assigned"
+  },
+  {
+   "fieldname": "category_sync_info_html",
+   "fieldtype": "HTML",
+   "label": "Category Sync Info",
+   "options": "<div class=\"alert alert-info\" style=\"margin-top: 10px;\"><h5>Category Sync</h5><p>Categories are synced from ERPNext to Shopware in tree order (parent before children).</p><p><strong>Tip:</strong> Use 'Sync All Categories' button to sync all categories at once, or use 'Full Reconciliation' to sync both categories and products.</p></div>"
   },
   {
    "collapsible": 1,

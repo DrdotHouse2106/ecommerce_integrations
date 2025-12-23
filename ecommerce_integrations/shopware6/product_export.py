@@ -3574,6 +3574,328 @@ def sync_item_group_to_shopware(item_group_name: str) -> Dict[str, Any]:
 
 
 # =============================================================================
+# CATEGORY-ONLY SYNC (ALL CATEGORIES)
+# =============================================================================
+
+@frappe.whitelist()
+@temp_shopware_session
+def sync_all_categories_to_shopware(
+    client,
+    root_category: str = "Produkte",
+    skip_root: bool = False,
+    sync_empty_categories: bool = True,
+    dry_run: bool = False
+) -> Dict[str, Any]:
+    """
+    Sync ALL Item Groups under a root category to Shopware.
+
+    Processes in tree order (parent before children) using lft ordering.
+    Creates/updates categories even if they have no products assigned.
+
+    Args:
+        client: Shopware API client (injected by decorator)
+        root_category: Root category to start from (default: "Produkte")
+        skip_root: If True, don't sync the root category itself
+        sync_empty_categories: If True, sync categories even without products
+        dry_run: If True, only report what would be synced
+
+    Returns:
+        dict: Sync results with statistics
+    """
+    # Convert string parameters from frontend
+    if isinstance(skip_root, str):
+        skip_root = skip_root.lower() in ("true", "1", "yes")
+    if isinstance(sync_empty_categories, str):
+        sync_empty_categories = sync_empty_categories.lower() in ("true", "1", "yes")
+    if isinstance(dry_run, str):
+        dry_run = dry_run.lower() in ("true", "1", "yes")
+
+    setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+    if not setting.is_enabled():
+        return {"success": False, "message": "Shopware integration is not enabled"}
+
+    # Get root category's lft/rgt values for nested set query
+    root_info = frappe.db.get_value(
+        "Item Group",
+        root_category,
+        ["lft", "rgt", "name"],
+        as_dict=True
+    )
+
+    if not root_info:
+        return {"success": False, "message": f"Root category '{root_category}' not found"}
+
+    # Build filters for all descendants
+    filters = [
+        ["lft", ">=", root_info.lft],
+        ["rgt", "<=", root_info.rgt]
+    ]
+
+    if skip_root:
+        filters.append(["name", "!=", root_category])
+
+    # Get all categories in tree order (lft asc = parent before children)
+    categories = frappe.get_all(
+        "Item Group",
+        filters=filters,
+        fields=["name", "parent_item_group", "is_group"],
+        order_by="lft asc"
+    )
+
+    # Optionally filter out empty categories (categories without products)
+    if not sync_empty_categories:
+        categories_with_products = set(frappe.get_all(
+            "Item",
+            filters={"disabled": 0},
+            pluck="item_group"
+        ))
+        categories = [c for c in categories if c.name in categories_with_products]
+
+    # Initialize statistics
+    stats = {
+        "synced": 0,
+        "skipped": 0,
+        "errors": [],
+        "total": len(categories)
+    }
+
+    synced_categories = []
+
+    frappe.logger().info(f"Sync All Categories: Processing {len(categories)} categories from root '{root_category}'")
+
+    for cat in categories:
+        if dry_run:
+            stats["synced"] += 1
+            synced_categories.append(cat.name)
+            continue
+
+        try:
+            # Sync the category hierarchy (creates/updates the category)
+            category_id = sync_category_hierarchy.__wrapped__(
+                client=client,
+                item_group_name=cat.name
+            )
+
+            if category_id:
+                stats["synced"] += 1
+                synced_categories.append(cat.name)
+            else:
+                stats["skipped"] += 1
+
+        except Exception as e:
+            stats["errors"].append({"category": cat.name, "error": str(e)[:200]})
+            frappe.log_error(f"Failed to sync category {cat.name}: {e}", "Shopware Category Sync")
+
+        # Commit periodically to avoid long transactions
+        if stats["synced"] % 20 == 0:
+            frappe.db.commit()
+
+    frappe.db.commit()
+
+    # Create log entry
+    create_shopware_log(
+        status="Success" if not stats["errors"] else "Partial",
+        message=f"Category sync: {stats['synced']}/{stats['total']} synced, {len(stats['errors'])} errors",
+        request_data={
+            "root_category": root_category,
+            "skip_root": skip_root,
+            "sync_empty_categories": sync_empty_categories,
+            "dry_run": dry_run
+        },
+        method="sync_all_categories_to_shopware"
+    )
+
+    return {
+        "success": True,
+        "dry_run": dry_run,
+        "statistics": stats,
+        "synced_categories": synced_categories[:50] if dry_run else [],  # Only include list in dry run
+        "message": f"Synced {stats['synced']}/{stats['total']} categories" + (" (DRY RUN)" if dry_run else "")
+    }
+
+
+@frappe.whitelist()
+def full_reconciliation(
+    limit: int = 500,
+    dry_run: bool = False,
+    sync_images: bool = False,
+    include_unlinked: bool = False,
+    category_root: str = "Produkte",
+    skip_root_category: bool = False,
+    sync_empty_categories: bool = True
+) -> Dict[str, Any]:
+    """
+    Full reconciliation: Categories first, then Products.
+
+    This is the recommended function for a complete ERPNext to Shopware sync.
+    It ensures all categories exist before syncing products.
+
+    Args:
+        limit: Maximum products to process
+        dry_run: If True, only report differences without syncing
+        sync_images: If True, also sync images for changed items
+        include_unlinked: If True, also sync products not yet in Shopware
+        category_root: Root category for category sync (default: "Produkte")
+        skip_root_category: If True, skip the root category itself
+        sync_empty_categories: If True, sync categories even without products
+
+    Returns:
+        dict: Combined results from category and product sync
+    """
+    # Convert string parameters from frontend
+    if isinstance(dry_run, str):
+        dry_run = dry_run.lower() in ("true", "1", "yes")
+    if isinstance(sync_images, str):
+        sync_images = sync_images.lower() in ("true", "1", "yes")
+    if isinstance(include_unlinked, str):
+        include_unlinked = include_unlinked.lower() in ("true", "1", "yes")
+    if isinstance(skip_root_category, str):
+        skip_root_category = skip_root_category.lower() in ("true", "1", "yes")
+    if isinstance(sync_empty_categories, str):
+        sync_empty_categories = sync_empty_categories.lower() in ("true", "1", "yes")
+
+    results = {
+        "success": True,
+        "dry_run": dry_run,
+        "category_sync": None,
+        "product_sync": None
+    }
+
+    frappe.logger().info(f"Full Reconciliation: Starting (categories: {category_root}, products: {limit})")
+
+    # Phase 1: Sync ALL categories first
+    frappe.publish_realtime(
+        "msgprint",
+        {"message": "Phase 1: Syncing categories...", "indicator": "blue"},
+        user=frappe.session.user
+    )
+
+    category_result = sync_all_categories_to_shopware(
+        root_category=category_root,
+        skip_root=skip_root_category,
+        sync_empty_categories=sync_empty_categories,
+        dry_run=dry_run
+    )
+    results["category_sync"] = category_result
+
+    # Phase 2: Sync products (reuse existing reconciliation)
+    frappe.publish_realtime(
+        "msgprint",
+        {"message": "Phase 2: Syncing products...", "indicator": "blue"},
+        user=frappe.session.user
+    )
+
+    product_result = reconcile_erpnext_with_shopware(
+        limit=int(limit),
+        dry_run=dry_run,
+        sync_images=sync_images,
+        include_unlinked=include_unlinked,
+        compare_categories=True
+    )
+    results["product_sync"] = product_result
+
+    # Combine statistics for summary
+    cat_stats = category_result.get("statistics", {})
+    prod_stats = product_result.get("statistics", {})
+
+    results["message"] = (
+        f"Categories: {cat_stats.get('synced', 0)}/{cat_stats.get('total', 0)} synced. "
+        f"Products: {prod_stats.get('synced', 0)}/{prod_stats.get('total_checked', 0)} synced."
+    )
+
+    if dry_run:
+        results["message"] += " (DRY RUN - no changes made)"
+
+    # Create combined log entry
+    create_shopware_log(
+        status="Success",
+        message=results["message"],
+        request_data={
+            "limit": limit,
+            "dry_run": dry_run,
+            "category_root": category_root,
+            "skip_root_category": skip_root_category
+        },
+        method="full_reconciliation"
+    )
+
+    return results
+
+
+@frappe.whitelist()
+def enqueue_full_reconciliation_with_categories(
+    limit: int = 500,
+    dry_run: bool = False,
+    sync_images: bool = False,
+    include_unlinked: bool = False,
+    category_root: str = None,
+    skip_root_category: bool = None,
+    sync_empty_categories: bool = None
+) -> Dict[str, Any]:
+    """
+    Enqueue full reconciliation (categories + products) as background job.
+
+    Use this for large reconciliations that would timeout in a web request.
+
+    Args:
+        limit: Maximum products to process
+        dry_run: If True, only report differences without syncing
+        sync_images: If True, also sync images for changed items
+        include_unlinked: If True, also sync products not yet in Shopware
+        category_root: Root category (uses setting default if not provided)
+        skip_root_category: Skip root category (uses setting default if not provided)
+        sync_empty_categories: Sync empty categories (uses setting default if not provided)
+
+    Returns:
+        dict: Job enqueue status
+    """
+    # Convert string parameters
+    if isinstance(dry_run, str):
+        dry_run = dry_run.lower() in ("true", "1", "yes")
+    if isinstance(sync_images, str):
+        sync_images = sync_images.lower() in ("true", "1", "yes")
+    if isinstance(include_unlinked, str):
+        include_unlinked = include_unlinked.lower() in ("true", "1", "yes")
+
+    # Load settings for defaults if not provided
+    setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+
+    if category_root is None:
+        category_root = getattr(setting, 'category_sync_root', 'Produkte') or 'Produkte'
+    if skip_root_category is None:
+        skip_root_category = getattr(setting, 'skip_root_category', False)
+    if sync_empty_categories is None:
+        sync_empty_categories = getattr(setting, 'sync_empty_categories', True)
+
+    # Convert to bool if string
+    if isinstance(skip_root_category, str):
+        skip_root_category = skip_root_category.lower() in ("true", "1", "yes")
+    if isinstance(sync_empty_categories, str):
+        sync_empty_categories = sync_empty_categories.lower() in ("true", "1", "yes")
+
+    frappe.enqueue(
+        "ecommerce_integrations.shopware6.product_export.full_reconciliation",
+        queue="long",
+        timeout=3600,  # 1 hour timeout
+        job_name=f"shopware6_full_reconciliation_{frappe.utils.now()}",
+        limit=int(limit),
+        dry_run=dry_run,
+        sync_images=sync_images,
+        include_unlinked=include_unlinked,
+        category_root=category_root,
+        skip_root_category=skip_root_category,
+        sync_empty_categories=sync_empty_categories
+    )
+
+    return {
+        "success": True,
+        "message": f"Full reconciliation job enqueued (categories from '{category_root}' + up to {limit} products)",
+        "job_queue": "long",
+        "dry_run": dry_run
+    }
+
+
+# =============================================================================
 # FULL RECONCILIATION SYNC
 # =============================================================================
 

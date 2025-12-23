@@ -357,6 +357,236 @@ frappe.ui.form.on('Shopware Setting', {
 				dialog.show();
 			}, __('Actions'));
 
+			// Add Sync All Categories button
+			frm.add_custom_button(__('Sync All Categories'), function() {
+				let dialog = new frappe.ui.Dialog({
+					title: __('Sync All Categories to Shopware'),
+					fields: [
+						{
+							fieldname: 'info_html',
+							fieldtype: 'HTML',
+							options: `<div class="alert alert-info">
+								<p><strong>Category Sync</strong> syncs ALL categories under the configured root to Shopware.</p>
+								<p>Categories are processed in tree order (parent before children).</p>
+								<p>This is useful to ensure all categories exist before syncing products.</p>
+							</div>`
+						},
+						{
+							fieldname: 'root_category',
+							fieldtype: 'Link',
+							label: __('Root Category'),
+							options: 'Item Group',
+							default: frm.doc.category_sync_root || 'Produkte',
+							reqd: 1
+						},
+						{
+							fieldname: 'skip_root',
+							fieldtype: 'Check',
+							label: __('Skip Root Category'),
+							default: frm.doc.skip_root_category || 1,
+							description: __('Do not sync the root category itself, only its children')
+						},
+						{
+							fieldname: 'sync_empty',
+							fieldtype: 'Check',
+							label: __('Include Empty Categories'),
+							default: frm.doc.sync_empty_categories !== 0 ? 1 : 0,
+							description: __('Sync categories even if they have no products assigned')
+						},
+						{
+							fieldname: 'dry_run',
+							fieldtype: 'Check',
+							label: __('Dry Run'),
+							default: 1,
+							description: __('Preview only - no changes will be made')
+						}
+					],
+					primary_action_label: __('Start Sync'),
+					primary_action: function(values) {
+						dialog.hide();
+						frappe.call({
+							method: 'ecommerce_integrations.shopware6.product_export.sync_all_categories_to_shopware',
+							args: {
+								root_category: values.root_category,
+								skip_root: values.skip_root,
+								sync_empty_categories: values.sync_empty,
+								dry_run: values.dry_run
+							},
+							freeze: true,
+							freeze_message: values.dry_run
+								? __('Analyzing categories...')
+								: __('Syncing categories to Shopware...'),
+							callback: function(r) {
+								if (r.message) {
+									let stats = r.message.statistics || {};
+									let details = `
+										<p><strong>Total:</strong> ${stats.total || 0}</p>
+										<p><strong>Synced:</strong> ${stats.synced || 0}</p>
+										<p><strong>Skipped:</strong> ${stats.skipped || 0}</p>
+										<p><strong>Errors:</strong> ${(stats.errors || []).length}</p>
+									`;
+
+									if (values.dry_run && r.message.synced_categories && r.message.synced_categories.length > 0) {
+										details += '<br><strong>Categories to sync:</strong><ul>';
+										r.message.synced_categories.slice(0, 20).forEach(cat => {
+											details += `<li>${cat}</li>`;
+										});
+										if (r.message.synced_categories.length > 20) {
+											details += `<li>... and ${r.message.synced_categories.length - 20} more</li>`;
+										}
+										details += '</ul>';
+									}
+
+									frappe.msgprint({
+										title: values.dry_run ? __('Dry Run Complete') : __('Category Sync Complete'),
+										message: details,
+										indicator: (stats.errors || []).length > 0 ? 'orange' : 'green'
+									});
+								}
+							}
+						});
+					}
+				});
+				dialog.show();
+			}, __('Actions'));
+
+			// Add Full Reconciliation (Categories + Products) button
+			frm.add_custom_button(__('Full Reconciliation'), function() {
+				let dialog = new frappe.ui.Dialog({
+					title: __('Full Reconciliation: Categories + Products'),
+					fields: [
+						{
+							fieldname: 'info_html',
+							fieldtype: 'HTML',
+							options: `<div class="alert alert-warning">
+								<p><strong>Full Reconciliation</strong> performs a complete sync:</p>
+								<ol>
+									<li><strong>Phase 1:</strong> Sync ALL categories under the root (including empty ones)</li>
+									<li><strong>Phase 2:</strong> Compare and update ALL products</li>
+								</ol>
+								<p>This ensures ERPNext and Shopware are fully synchronized.</p>
+							</div>`
+						},
+						{
+							fieldname: 'category_root',
+							fieldtype: 'Link',
+							label: __('Category Root'),
+							options: 'Item Group',
+							default: frm.doc.category_sync_root || 'Produkte',
+							reqd: 1
+						},
+						{
+							fieldname: 'skip_root_category',
+							fieldtype: 'Check',
+							label: __('Skip Root Category'),
+							default: frm.doc.skip_root_category || 1
+						},
+						{
+							fieldname: 'limit',
+							fieldtype: 'Int',
+							label: __('Product Limit'),
+							default: 500,
+							reqd: 1,
+							description: __('Maximum number of products to process')
+						},
+						{
+							fieldname: 'dry_run',
+							fieldtype: 'Check',
+							label: __('Dry Run'),
+							default: 1,
+							description: __('Preview changes without applying them')
+						},
+						{
+							fieldname: 'sync_images',
+							fieldtype: 'Check',
+							label: __('Sync Images'),
+							default: 0,
+							description: __('Also sync product images (slower)')
+						},
+						{
+							fieldname: 'include_unlinked',
+							fieldtype: 'Check',
+							label: __('Include Unlinked Products'),
+							default: 0,
+							description: __('Also sync products not yet in Shopware')
+						},
+						{
+							fieldname: 'run_in_background',
+							fieldtype: 'Check',
+							label: __('Run in Background'),
+							default: 1,
+							description: __('Recommended for large syncs - runs as background job')
+						}
+					],
+					primary_action_label: __('Start'),
+					primary_action: function(values) {
+						dialog.hide();
+
+						if (values.run_in_background) {
+							frappe.call({
+								method: 'ecommerce_integrations.shopware6.product_export.enqueue_full_reconciliation_with_categories',
+								args: {
+									limit: values.limit,
+									dry_run: values.dry_run,
+									sync_images: values.sync_images,
+									include_unlinked: values.include_unlinked,
+									category_root: values.category_root,
+									skip_root_category: values.skip_root_category,
+									sync_empty_categories: true
+								},
+								callback: function(r) {
+									if (r.message && r.message.success) {
+										frappe.show_alert({
+											message: __('Full reconciliation job started in background'),
+											indicator: 'green'
+										});
+									}
+								}
+							});
+						} else {
+							frappe.call({
+								method: 'ecommerce_integrations.shopware6.product_export.full_reconciliation',
+								args: {
+									limit: values.limit,
+									dry_run: values.dry_run,
+									sync_images: values.sync_images,
+									include_unlinked: values.include_unlinked,
+									category_root: values.category_root,
+									skip_root_category: values.skip_root_category,
+									sync_empty_categories: true
+								},
+								freeze: true,
+								freeze_message: __('Running full reconciliation (this may take a while)...'),
+								callback: function(r) {
+									if (r.message) {
+										let cat_stats = (r.message.category_sync || {}).statistics || {};
+										let prod_stats = (r.message.product_sync || {}).statistics || {};
+
+										let details = `
+											<h5>Category Sync</h5>
+											<p>Total: ${cat_stats.total || 0}, Synced: ${cat_stats.synced || 0}, Errors: ${(cat_stats.errors || []).length}</p>
+											<h5>Product Sync</h5>
+											<p>Checked: ${prod_stats.total_checked || 0}, In Sync: ${prod_stats.in_sync || 0}, Out of Sync: ${prod_stats.out_of_sync || 0}, Synced: ${prod_stats.synced || 0}</p>
+										`;
+
+										if (values.dry_run) {
+											details += '<p><em>(DRY RUN - no changes were made)</em></p>';
+										}
+
+										frappe.msgprint({
+											title: __('Full Reconciliation Complete'),
+											message: details,
+											indicator: 'green'
+										});
+									}
+								}
+							});
+						}
+					}
+				});
+				dialog.show();
+			}, __('Actions'));
+
 			// Add Clear Cache button
 			frm.add_custom_button(__('Clear Cache'), function() {
 				frappe.call({
