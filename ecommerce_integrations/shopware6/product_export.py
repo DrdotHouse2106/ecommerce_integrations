@@ -1969,7 +1969,7 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> b
         if not images:
             return True  # No images to sync
 
-        # First, remove all existing product-media relationships to prevent duplicates
+        # First, remove all existing product-media relationships AND media entities
         # This ensures we always have a clean slate before adding images
         try:
             existing_media = client.request_get(
@@ -1979,22 +1979,38 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> b
             existing_product_media = existing_media.get("data", {}).get("media", [])
 
             if existing_product_media:
-                # Delete existing product-media relationships one by one
-                deleted_count = 0
+                # Collect media IDs to delete after removing relationships
+                media_ids_to_delete = []
+                deleted_relationships = 0
+
                 for pm in existing_product_media:
                     pm_id = pm.get("id")
+                    media_id = pm.get("mediaId") or pm.get("media", {}).get("id")
+
                     if pm_id:
                         try:
                             client.request_delete(f"product-media/{pm_id}")
-                            deleted_count += 1
-                        except Exception as del_err:
+                            deleted_relationships += 1
+                            if media_id:
+                                media_ids_to_delete.append(media_id)
+                        except BaseException as del_err:
                             frappe.logger().debug(f"Could not delete product-media {pm_id}: {del_err}")
 
-                if deleted_count > 0:
-                    frappe.logger().debug(
-                        f"Removed {deleted_count} existing media for {item.item_code}"
+                # Now delete the actual media entities (orphaned after relationship removal)
+                deleted_media = 0
+                for media_id in media_ids_to_delete:
+                    try:
+                        client.request_delete(f"media/{media_id}")
+                        deleted_media += 1
+                    except BaseException as del_err:
+                        # Media might be used by other products or already deleted
+                        frappe.logger().debug(f"Could not delete media {media_id}: {del_err}")
+
+                if deleted_relationships > 0 or deleted_media > 0:
+                    frappe.logger().info(
+                        f"Cleaned up media for {item.item_code}: {deleted_relationships} relationships, {deleted_media} media entities deleted"
                     )
-        except Exception as e:
+        except BaseException as e:
             # If we can't get existing media, continue anyway
             frappe.logger().warning(f"Could not clean existing media for {item.item_code}: {e}")
 

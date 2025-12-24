@@ -53,11 +53,20 @@ SHOPWARE_CUSTOM_FIELD_ZUBEHOER = "erpnext_zubehoer"
 SHOPWARE_CUSTOM_FIELD_SICHERHEITSBLAETTER = "erpnext_sicherheitsblaetter"
 SHOPWARE_CUSTOM_FIELD_PRODUKTBLAETTER = "erpnext_produktblaetter"
 
+# AI Description Custom Fields (in Shopware)
+SHOPWARE_CUSTOM_FIELD_AI_SHORT_DESCRIPTION = "erpnext_ai_short_description"
+SHOPWARE_CUSTOM_FIELD_AI_BENEFITS = "erpnext_ai_benefits"
+SHOPWARE_CUSTOM_FIELD_AI_SEO_DESCRIPTION = "erpnext_ai_seo_description"
+
 # Mapping: ERPNext field -> Shopware custom field
 PRODUCT_CUSTOM_FIELDS_MAP = {
     ITEM_ZUBEHOER_FIELD: SHOPWARE_CUSTOM_FIELD_ZUBEHOER,
     ITEM_SICHERHEITSBLAETTER_FIELD: SHOPWARE_CUSTOM_FIELD_SICHERHEITSBLAETTER,
     ITEM_PRODUKTBLAETTER_FIELD: SHOPWARE_CUSTOM_FIELD_PRODUKTBLAETTER,
+    # AI Description fields
+    "ai_short_description": SHOPWARE_CUSTOM_FIELD_AI_SHORT_DESCRIPTION,
+    "ai_benefits": SHOPWARE_CUSTOM_FIELD_AI_BENEFITS,
+    "ai_seo_description": SHOPWARE_CUSTOM_FIELD_AI_SEO_DESCRIPTION,
 }
 
 # Shopware Custom Field Set for Categories
