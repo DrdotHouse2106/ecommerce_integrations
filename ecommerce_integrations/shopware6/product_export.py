@@ -1074,13 +1074,17 @@ def upload_category_media(client, category_id: str, image_path: str) -> Optional
                     return None
 
         # Upload media content (works for both new and existing media)
-        upload_url = f"_action/media/{media_id}/upload?extension={ext}&fileName={filename}"
+        # Use same API pattern as upload_media_to_shopware for product images
+        upload_url = f"_action/media/{media_id}/upload"
         try:
             client.request_post(
                 upload_url,
-                image_content,
-                headers={"Content-Type": content_type},
-                raw_body=True
+                payload=image_content,
+                content_type="octet-stream",
+                additional_query_params={
+                    "extension": ext,
+                    "fileName": filename
+                }
             )
         except BaseException as e:
             # ShopwareAPIError inherits from BaseException
