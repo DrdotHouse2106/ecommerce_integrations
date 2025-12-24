@@ -900,6 +900,91 @@ def build_category_custom_fields(item_group_data: Dict[str, Any]) -> Dict[str, s
     return custom_fields
 
 
+def get_or_create_media_folder(client, folder_name: str) -> Optional[str]:
+    """
+    Get or create a media folder in Shopware by name.
+
+    Args:
+        client: Shopware API client
+        folder_name: Name of the media folder (e.g., "Category Media", "Product Media")
+
+    Returns:
+        Folder ID if successful, None otherwise
+    """
+    global _media_folder_cache
+
+    # Check cache first
+    cache_key = folder_name.lower().replace(" ", "_")
+    if cache_key in _media_folder_cache:
+        return _media_folder_cache[cache_key]
+
+    try:
+        # Search for existing folder by name
+        response = client.request_post(
+            "search/media-folder",
+            {"filter": [{"type": "equals", "field": "name", "value": folder_name}]}
+        )
+        folders = response.get("data", [])
+
+        if folders:
+            folder_id = folders[0]["id"]
+            _media_folder_cache[cache_key] = folder_id
+            return folder_id
+
+        # Folder doesn't exist, create it
+        folder_id = generate_uuid(f"media_folder_{folder_name}")
+
+        # Get the default configuration ID for media folders
+        config_response = client.request_post(
+            "search/media-folder-configuration",
+            {"limit": 1}
+        )
+        configs = config_response.get("data", [])
+        config_id = configs[0]["id"] if configs else None
+
+        folder_payload = {
+            "id": folder_id,
+            "name": folder_name,
+        }
+
+        if config_id:
+            folder_payload["configurationId"] = config_id
+        else:
+            # Create with default configuration
+            folder_payload["configuration"] = {
+                "createThumbnails": True,
+                "keepAspectRatio": True,
+                "thumbnailQuality": 80,
+            }
+
+        try:
+            client.request_post("media-folder", folder_payload)
+            _media_folder_cache[cache_key] = folder_id
+            frappe.logger().info(f"Created media folder: {folder_name} with ID {folder_id}")
+            return folder_id
+        except BaseException as create_error:
+            # Folder might have been created by another process
+            error_str = str(create_error).lower()
+            if "already exists" in error_str or "duplicate" in error_str:
+                # Try to fetch it again
+                response = client.request_post(
+                    "search/media-folder",
+                    {"filter": [{"type": "equals", "field": "name", "value": folder_name}]}
+                )
+                folders = response.get("data", [])
+                if folders:
+                    folder_id = folders[0]["id"]
+                    _media_folder_cache[cache_key] = folder_id
+                    return folder_id
+
+            frappe.log_error(f"Failed to create media folder '{folder_name}': {create_error}")
+            return None
+
+    except BaseException as e:
+        frappe.log_error(f"Failed to get or create media folder '{folder_name}': {e}")
+        return None
+
+
 @temp_shopware_session
 def upload_category_media(client, category_id: str, image_path: str) -> Optional[str]:
     """
@@ -915,7 +1000,7 @@ def upload_category_media(client, category_id: str, image_path: str) -> Optional
     """
     try:
         # Get or create media folder for categories
-        folder_id = get_or_create_media_folder.__wrapped__(client, "Category Media")
+        folder_id = get_or_create_media_folder(client, "Category Media")
         if not folder_id:
             return None
 
@@ -926,6 +1011,10 @@ def upload_category_media(client, category_id: str, image_path: str) -> Optional
         if image_path.startswith("http"):
             response = requests.get(image_path, timeout=30)
             if response.status_code != 200:
+                frappe.log_error(
+                    f"Failed to fetch category image from URL {image_path}: HTTP {response.status_code}",
+                    "Shopware Category Media Upload"
+                )
                 return None
             image_content = response.content
             content_type = response.headers.get("Content-Type", "image/jpeg")
@@ -940,6 +1029,10 @@ def upload_category_media(client, category_id: str, image_path: str) -> Optional
                 full_path = image_path
 
             if not os.path.exists(full_path):
+                frappe.log_error(
+                    f"Category image file not found: {full_path} (original path: {image_path})",
+                    "Shopware Category Media Upload"
+                )
                 return None
 
             with open(full_path, "rb") as f:
@@ -952,26 +1045,58 @@ def upload_category_media(client, category_id: str, image_path: str) -> Optional
         if ext not in ["jpg", "jpeg", "png", "gif", "webp"]:
             ext = "jpg"
 
-        # Create media entry
-        media_payload = {
-            "id": media_id,
-            "mediaFolderId": folder_id,
-        }
-        client.request_post("media", media_payload)
+        # Check if media already exists (for updates)
+        media_exists = False
+        try:
+            existing_media = client.request_get(f"media/{media_id}")
+            if existing_media and existing_media.get("data"):
+                media_exists = True
+        except BaseException:
+            # ShopwareAPIError inherits from BaseException, not Exception
+            pass  # Media doesn't exist yet (404)
 
-        # Upload media content
+        # Create media entry only if it doesn't exist
+        if not media_exists:
+            media_payload = {
+                "id": media_id,
+                "mediaFolderId": folder_id,
+            }
+            try:
+                client.request_post("media", media_payload)
+            except BaseException as e:
+                # ShopwareAPIError inherits from BaseException
+                error_str = str(e).lower()
+                if "already exists" not in error_str and "duplicate" not in error_str:
+                    frappe.log_error(
+                        f"Failed to create media entry for category {category_id}: {e}",
+                        "Shopware Category Media Upload"
+                    )
+                    return None
+
+        # Upload media content (works for both new and existing media)
         upload_url = f"_action/media/{media_id}/upload?extension={ext}&fileName={filename}"
-        client.request_post(
-            upload_url,
-            image_content,
-            headers={"Content-Type": content_type},
-            raw_body=True
-        )
+        try:
+            client.request_post(
+                upload_url,
+                image_content,
+                headers={"Content-Type": content_type},
+                raw_body=True
+            )
+        except BaseException as e:
+            # ShopwareAPIError inherits from BaseException
+            error_str = str(e).lower()
+            # Ignore "already exists" or "duplicate" errors - file already uploaded
+            if "already exists" not in error_str and "duplicate" not in error_str:
+                frappe.log_error(
+                    f"Failed to upload media content for category {category_id}: {e}",
+                    "Shopware Category Media Upload"
+                )
+                return None
 
         return media_id
 
     except BaseException as e:
-        frappe.log_error(f"Failed to upload category media: {e}")
+        frappe.log_error(f"Failed to upload category media: {str(e)[:100]}", "Shopware Category Media Upload")
         return None
 
 
@@ -1073,10 +1198,20 @@ def get_or_create_category(client, category_name: str, parent_id: str = None, it
         if item_group_data:
             image_path = item_group_data.get("category_image") or item_group_data.get("image")
             if image_path:
+                frappe.logger().debug(f"Uploading category image for {category_name}: {image_path}")
                 media_id = upload_category_media.__wrapped__(client, cat_id, image_path)
                 if media_id:
                     # Assign media to category
-                    client.request_patch(f"category/{cat_id}", {"mediaId": media_id})
+                    try:
+                        client.request_patch(f"category/{cat_id}", {"mediaId": media_id})
+                        frappe.logger().debug(f"Successfully assigned media {media_id} to category {category_name}")
+                    except Exception as e:
+                        frappe.log_error(
+                            f"Failed to assign media {media_id} to category {category_name}: {e}",
+                            "Shopware Category Media Assignment"
+                        )
+                else:
+                    frappe.logger().debug(f"No media_id returned for category {category_name}")
 
         return cat_id
 
@@ -1925,9 +2060,13 @@ def map_erpnext_item_to_shopware(erpnext_item) -> Dict[str, Any]:
 
     Returns a dict suitable for Shopware product API.
     """
-    # Get description - prefer web_long_description (rich HTML for websites),
-    # then fall back to description, then item_name
+    # Get description - priority:
+    # 1. ai_long_description (AI-generated HTML description)
+    # 2. web_long_description (rich HTML for websites)
+    # 3. description (basic description)
+    # 4. item_name (fallback)
     description = (
+        getattr(erpnext_item, 'ai_long_description', None) or
         getattr(erpnext_item, 'web_long_description', None) or
         erpnext_item.description or
         erpnext_item.item_name
@@ -4566,8 +4705,9 @@ def compare_item_with_shopware(erpnext_item, shopware_data: Dict[str, Any], comp
         differences.append("name")
         details["name"] = {"erpnext": erpnext_name, "shopware": shopware_name}
 
-    # Compare description
+    # Compare description (same priority as export)
     erpnext_desc = (
+        getattr(erpnext_item, 'ai_long_description', None) or
         getattr(erpnext_item, 'web_long_description', None) or
         erpnext_item.description or
         erpnext_item.item_name
