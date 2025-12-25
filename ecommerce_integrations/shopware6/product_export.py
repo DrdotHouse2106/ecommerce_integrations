@@ -1981,11 +1981,10 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> b
     """
     try:
         images = get_item_images(item)
-        if not images:
-            return True  # No images to sync
 
         # First, remove all existing product-media relationships AND media entities
         # This ensures we always have a clean slate before adding images
+        # IMPORTANT: This runs even if ERPNext has no images - to remove orphaned Shopware images
         try:
             # Use search endpoint instead of association (more reliable)
             search_result = client.request_post("search/product-media", {
@@ -2030,6 +2029,10 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> b
         except BaseException as e:
             # If we can't get existing media, continue anyway
             frappe.logger().warning(f"Could not clean existing media for {item.item_code}: {e}")
+
+        # If ERPNext has no images, we're done (existing Shopware images already deleted above)
+        if not images:
+            return True
 
         product_media_list = []
         cover_id = None
