@@ -72,7 +72,7 @@ CUSTOM_FIELDS = {
             "label": "SEO Title",
             "fieldtype": "Data",
             "insert_after": "ai_seo_section",
-            "length": 70,
+            "length": 140,
             "description": "Max 60 characters for optimal display in search results"
         },
         {

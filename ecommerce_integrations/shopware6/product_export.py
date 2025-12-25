@@ -264,6 +264,22 @@ def set_cached_image_hash(item_code: str, position: int, file_hash: str):
     cache.set_value(cache_key, file_hash, expires_in_sec=604800)
 
 
+def clear_cached_image_hashes(item_code: str, max_positions: int = 10):
+    """
+    Clear all cached image hashes for an item.
+
+    Call this after deleting media in Shopware to ensure images get re-uploaded.
+
+    Args:
+        item_code: ERPNext item code
+        max_positions: Maximum number of image positions to clear (default 10)
+    """
+    cache = frappe.cache()
+    for position in range(max_positions):
+        cache_key = f"{REDIS_IMAGE_HASH_PREFIX}{item_code}:{position}"
+        cache.delete_value(cache_key)
+
+
 @frappe.whitelist()
 def clear_shopware_cache():
     """
@@ -478,38 +494,37 @@ def get_item_custom_fields(erpnext_item) -> Dict[str, Any]:
     """
     Get custom field values from ERPNext Item for Shopware sync.
 
-    Priority:
-    1. Read from shopware_properties table (new flexible key-value table)
-    2. Fallback to old individual custom fields (for backwards compatibility)
+    Merges custom fields from all sources:
+    1. PRODUCT_CUSTOM_FIELDS_MAP (hardcoded mappings including AI fields - always synced)
+    2. Configurable field mappings from Shopware Setting
+    3. shopware_properties table (new flexible key-value table)
 
     Returns a dict with Shopware custom field names as keys.
     Only includes fields that have values.
     """
     custom_fields = {}
 
-    # Priority 1: Read from new shopware_properties table
+    # Source 1: ALWAYS include hardcoded mappings (AI fields, Zubehoer, etc.)
+    for erpnext_field, shopware_field in PRODUCT_CUSTOM_FIELDS_MAP.items():
+        value = getattr(erpnext_item, erpnext_field, None)
+        if value:
+            custom_fields[shopware_field] = cstr(value).strip()
+
+    # Source 2: Add configurable field mappings (may override hardcoded)
+    mappings = get_field_mappings_cached()
+    for erpnext_field, config in mappings.items():
+        if config['mapping_type'] == 'Custom Field':
+            value = getattr(erpnext_item, erpnext_field, None)
+            if value:
+                custom_fields[config['shopware_field']] = cstr(value).strip()
+
+    # Source 3: Add shopware_properties table (highest priority - may override all)
     properties_table = getattr(erpnext_item, 'shopware_properties', None) or []
     for row in properties_table:
         if row.property_type == 'Custom Field' and row.property_value:
             # Use property_name as Shopware field name (with erpnext_ prefix for consistency)
             shopware_field_name = f"erpnext_{row.property_name.lower().replace(' ', '_')}"
             custom_fields[shopware_field_name] = cstr(row.property_value).strip()
-
-    # Priority 2: Fallback to old configurable mappings (for backwards compatibility)
-    if not custom_fields:
-        mappings = get_field_mappings_cached()
-        for erpnext_field, config in mappings.items():
-            if config['mapping_type'] == 'Custom Field':
-                value = getattr(erpnext_item, erpnext_field, None)
-                if value:
-                    custom_fields[config['shopware_field']] = cstr(value).strip()
-
-    # Priority 3: Fallback to legacy hardcoded mappings
-    if not custom_fields:
-        for erpnext_field, shopware_field in PRODUCT_CUSTOM_FIELDS_MAP.items():
-            value = getattr(erpnext_item, erpnext_field, None)
-            if value:
-                custom_fields[shopware_field] = cstr(value).strip()
 
     return custom_fields
 
@@ -1972,11 +1987,11 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> b
         # First, remove all existing product-media relationships AND media entities
         # This ensures we always have a clean slate before adding images
         try:
-            existing_media = client.request_get(
-                f"product/{shopware_product_id}",
-                {"associations": {"media": {}}}
-            )
-            existing_product_media = existing_media.get("data", {}).get("media", [])
+            # Use search endpoint instead of association (more reliable)
+            search_result = client.request_post("search/product-media", {
+                "filter": [{"type": "equals", "field": "productId", "value": shopware_product_id}]
+            })
+            existing_product_media = search_result.get("data", []) or []
 
             if existing_product_media:
                 # Collect media IDs to delete after removing relationships
@@ -2007,8 +2022,10 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> b
                         frappe.logger().debug(f"Could not delete media {media_id}: {del_err}")
 
                 if deleted_relationships > 0 or deleted_media > 0:
+                    # Clear cached image hashes so images get re-uploaded
+                    clear_cached_image_hashes(item.item_code)
                     frappe.logger().info(
-                        f"Cleaned up media for {item.item_code}: {deleted_relationships} relationships, {deleted_media} media entities deleted"
+                        f"Cleaned up media for {item.item_code}: {deleted_relationships} relationships, {deleted_media} media entities deleted, cache cleared"
                     )
         except BaseException as e:
             # If we can't get existing media, continue anyway
@@ -2103,7 +2120,20 @@ def map_erpnext_item_to_shopware(erpnext_item) -> Dict[str, Any]:
 
     # Price (gross price in default currency)
     price = flt(erpnext_item.get(ITEM_SELLING_RATE_FIELD) or 0)
-    
+
+    # Fallback: Check Item Price table if standard_rate is 0
+    if price <= 0:
+        try:
+            item_price = frappe.db.get_value("Item Price",
+                {"item_code": erpnext_item.name, "selling": 1, "price_list_rate": [">", 0]},
+                "price_list_rate",
+                order_by="price_list_rate desc"
+            )
+            if item_price:
+                price = flt(item_price)
+        except Exception:
+            pass
+
     # Shopware requires price field always. For templates without price, try to find lowest variant price.
     if price <= 0 and hasattr(erpnext_item, "has_variants") and erpnext_item.has_variants:
         try:
@@ -4656,8 +4686,13 @@ def get_shopware_products_batch(client, product_ids: List[str], include_categori
             "ids": product_ids,
         }
 
+        # Always include media for image comparison
+        search_payload["associations"] = {
+            "media": {},
+            "cover": {"associations": {"media": {}}}
+        }
         if include_categories:
-            search_payload["associations"] = {"categories": {}}
+            search_payload["associations"]["categories"] = {}
 
         response = client.request_post("search/product", search_payload)
 
@@ -4801,6 +4836,29 @@ def compare_item_with_shopware(erpnext_item, shopware_data: Dict[str, Any], comp
                 "erpnext": erpnext_categories_sorted,
                 "shopware": shopware_category_names_sorted
             }
+
+    # Compare images
+    erpnext_has_image = bool(erpnext_item.image)
+    shopware_media = shopware_data.get("media", []) or []
+    shopware_cover = shopware_data.get("cover", {}) or {}
+    shopware_has_image = bool(shopware_media) or bool(shopware_cover.get("media"))
+
+    # Image difference: ERPNext has image but Shopware doesn't
+    if erpnext_has_image and not shopware_has_image:
+        differences.append("image")
+        details["image"] = {
+            "erpnext": erpnext_item.image,
+            "shopware": "No image",
+            "action": "Upload image to Shopware"
+        }
+    # Also flag if Shopware has image but ERPNext doesn't (optional sync back)
+    elif shopware_has_image and not erpnext_has_image:
+        differences.append("image")
+        details["image"] = {
+            "erpnext": "No image",
+            "shopware": f"{len(shopware_media)} media items",
+            "action": "ERPNext missing image (Shopware has one)"
+        }
 
     return {
         "needs_sync": len(differences) > 0,

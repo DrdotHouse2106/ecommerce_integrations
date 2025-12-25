@@ -23,6 +23,13 @@ CUSTOM_FIELDS = {
             "default": 1,
             "description": "If unchecked, this category will be set to inactive in Shopware (hidden from customers). This only affects Shopware visibility, not ERPNext.",
         },
+        {
+            "fieldname": "category_image",
+            "label": "Category Image (Shopware)",
+            "fieldtype": "Attach Image",
+            "insert_after": "shopware_active",
+            "description": "Image displayed for this category in Shopware. If empty, the standard Item Group image will be used.",
+        },
     ],
     "Item": [
         {
