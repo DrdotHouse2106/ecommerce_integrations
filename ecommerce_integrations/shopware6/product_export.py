@@ -4807,6 +4807,30 @@ def compare_item_with_shopware(erpnext_item, shopware_data: Dict[str, Any], comp
         differences.append("weight")
         details["weight"] = {"erpnext": erpnext_weight, "shopware": shopware_weight}
 
+    # Compare dimensions (ERPNext stores in cm, Shopware in mm)
+    erpnext_height = flt(getattr(erpnext_item, 'item_height', 0) or 0)
+    erpnext_width = flt(getattr(erpnext_item, 'item_width', 0) or 0)
+    erpnext_length = flt(getattr(erpnext_item, 'item_length', 0) or 0)
+
+    shopware_height = flt(shopware_data.get("height", 0)) / 10 if shopware_data.get("height") else 0  # mm to cm
+    shopware_width = flt(shopware_data.get("width", 0)) / 10 if shopware_data.get("width") else 0
+    shopware_length = flt(shopware_data.get("length", 0)) / 10 if shopware_data.get("length") else 0
+
+    dim_diffs = []
+    if abs(erpnext_height - shopware_height) > 0.01:
+        dim_diffs.append(f"height: {erpnext_height} vs {shopware_height}")
+    if abs(erpnext_width - shopware_width) > 0.01:
+        dim_diffs.append(f"width: {erpnext_width} vs {shopware_width}")
+    if abs(erpnext_length - shopware_length) > 0.01:
+        dim_diffs.append(f"length: {erpnext_length} vs {shopware_length}")
+
+    if dim_diffs:
+        differences.append("dimensions")
+        details["dimensions"] = {
+            "erpnext": {"height": erpnext_height, "width": erpnext_width, "length": erpnext_length},
+            "shopware": {"height": shopware_height, "width": shopware_width, "length": shopware_length}
+        }
+
     # Compare product number (item_code)
     if erpnext_item.item_code != shopware_data.get("productNumber", ""):
         differences.append("productNumber")
