@@ -5139,49 +5139,213 @@ def reconcile_all_to_shopware(
     )
 
 
+RECONCILIATION_JOB_NAME = "shopware6.reconciliation.full"
+
+
 @frappe.whitelist()
 def enqueue_full_reconciliation(
-    limit: int = 500,
-    dry_run: bool = False,
-    sync_images: bool = False,
-    include_unlinked: bool = False
+    batch_size: int = 50,
+    sync_images: bool = True,
+    compare_categories: bool = True
 ) -> Dict[str, Any]:
     """
     Enqueue a full reconciliation job to run in the background.
 
-    Use this for large reconciliations that would timeout in a web request.
+    Uses batch processing with commits between batches to avoid
+    transaction bloat and "TooManyWritesError".
 
     Args:
-        limit: Maximum number of items to process
-        dry_run: If True, only report differences without syncing
+        batch_size: Number of items per batch (default 50)
         sync_images: If True, also sync images for changed items
-        include_unlinked: If True, also sync items not yet in Shopware
+        compare_categories: If True, also compare categories
 
     Returns:
         dict: Job enqueue status
     """
     # Convert string parameters
-    if isinstance(dry_run, str):
-        dry_run = dry_run.lower() in ("true", "1", "yes")
     if isinstance(sync_images, str):
         sync_images = sync_images.lower() in ("true", "1", "yes")
-    if isinstance(include_unlinked, str):
-        include_unlinked = include_unlinked.lower() in ("true", "1", "yes")
+    if isinstance(compare_categories, str):
+        compare_categories = compare_categories.lower() in ("true", "1", "yes")
+
+    # Check if already running
+    from frappe.utils.background_jobs import is_job_enqueued
+    if is_job_enqueued(RECONCILIATION_JOB_NAME):
+        return {
+            "success": False,
+            "message": "A reconciliation job is already running. Please wait for it to complete."
+        }
+
+    # Create log entry for tracking
+    log = create_shopware_log(
+        status="Queued",
+        method="enqueue_full_reconciliation",
+        message="Full reconciliation queued"
+    )
 
     frappe.enqueue(
-        "ecommerce_integrations.shopware6.product_export.reconcile_erpnext_with_shopware",
+        "ecommerce_integrations.shopware6.product_export._run_batch_reconciliation",
         queue="long",
-        timeout=3600,  # 1 hour
-        job_name=f"shopware6_reconciliation_{frappe.utils.now()}",
-        limit=int(limit),
-        dry_run=dry_run,
+        timeout=14400,  # 4 hours max
+        job_name=RECONCILIATION_JOB_NAME,
+        batch_size=int(batch_size),
         sync_images=sync_images,
-        include_unlinked=include_unlinked
+        compare_categories=compare_categories,
+        log_name=log.name if log else None
     )
 
     return {
         "success": True,
-        "message": f"Reconciliation job enqueued. Processing up to {limit} items.",
+        "message": "Reconciliation job enqueued. Processing all items in batches.",
         "job_queue": "long",
-        "dry_run": dry_run
+        "batch_size": batch_size,
+        "log_name": log.name if log else None
     }
+
+
+def _run_batch_reconciliation(
+    batch_size: int = 50,
+    sync_images: bool = True,
+    compare_categories: bool = True,
+    log_name: str = None
+):
+    """
+    Internal function that runs the batch reconciliation.
+    Called by frappe.enqueue - runs in background worker.
+
+    Processes all items in batches with:
+    - Commits between batches (prevents TooManyWritesError)
+    - Savepoints for individual item error recovery
+    - Fresh Shopware session per batch (prevents session timeout)
+    - Progress logging
+    """
+    from frappe.utils import create_batch, now
+
+    setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+    if not setting.is_enabled():
+        frappe.logger().error("Shopware integration not enabled")
+        return
+
+    # Get ALL linked items (no limit)
+    ecom_items = frappe.get_all(
+        "Ecommerce Item",
+        filters={"integration": MODULE_NAME},
+        fields=["erpnext_item_code", "integration_item_code"],
+        order_by="modified desc"
+    )
+
+    total_items = len(ecom_items)
+    frappe.logger().info(f"[Reconciliation] Starting batch reconciliation for {total_items} items")
+
+    # Statistics
+    stats = {
+        "total": total_items,
+        "processed": 0,
+        "in_sync": 0,
+        "synced": 0,
+        "errors": 0,
+        "start_time": now()
+    }
+
+    # Process in batches
+    batch_num = 0
+    for batch in create_batch(ecom_items, batch_size):
+        batch_num += 1
+        batch_start = (batch_num - 1) * batch_size + 1
+        batch_end = min(batch_num * batch_size, total_items)
+
+        frappe.logger().info(f"[Reconciliation] Processing batch {batch_num}: items {batch_start}-{batch_end} of {total_items}")
+
+        try:
+            # Get fresh Shopware client for this batch (prevents session timeout)
+            client = get_shopware_client()
+
+            # Collect Shopware IDs for batch fetch
+            shopware_ids = [item.integration_item_code for item in batch]
+
+            # Batch fetch products from Shopware
+            shopware_products = get_shopware_products_batch(
+                client, shopware_ids, include_categories=compare_categories
+            )
+
+            # Process each item with savepoint
+            savepoint = f"reconcile_batch_{batch_num}"
+
+            for ecom_item in batch:
+                item_code = ecom_item.erpnext_item_code
+                shopware_id = ecom_item.integration_item_code
+
+                try:
+                    frappe.db.savepoint(savepoint)
+
+                    # Load ERPNext item
+                    erpnext_item = frappe.get_doc("Item", item_code)
+
+                    # Get Shopware data
+                    shopware_data = shopware_products.get(shopware_id)
+                    if not shopware_data:
+                        stats["errors"] += 1
+                        stats["processed"] += 1
+                        continue
+
+                    # Compare
+                    comparison = compare_item_with_shopware(
+                        erpnext_item, shopware_data, compare_categories=compare_categories
+                    )
+
+                    if comparison["needs_sync"]:
+                        # Sync the item
+                        original_image_setting = getattr(setting, 'sync_images_to_shopware', True)
+                        if not sync_images:
+                            setting.sync_images_to_shopware = False
+
+                        upload_erpnext_item_to_shopware(doc=erpnext_item)
+
+                        setting.sync_images_to_shopware = original_image_setting
+                        stats["synced"] += 1
+                    else:
+                        stats["in_sync"] += 1
+
+                    stats["processed"] += 1
+
+                except Exception as e:
+                    frappe.db.rollback(save_point=savepoint)
+                    stats["errors"] += 1
+                    stats["processed"] += 1
+                    frappe.logger().warning(f"[Reconciliation] Error syncing {item_code}: {e}")
+
+            # Commit after each batch
+            frappe.db.commit()
+
+            # Log progress every 5 batches
+            if batch_num % 5 == 0:
+                progress_pct = round(stats["processed"] / total_items * 100, 1)
+                frappe.logger().info(
+                    f"[Reconciliation] Progress: {progress_pct}% ({stats['processed']}/{total_items}) - "
+                    f"Synced: {stats['synced']}, In Sync: {stats['in_sync']}, Errors: {stats['errors']}"
+                )
+
+        except Exception as batch_error:
+            frappe.logger().error(f"[Reconciliation] Batch {batch_num} failed: {batch_error}")
+            frappe.db.rollback()
+            # Continue with next batch
+
+    # Final log
+    stats["end_time"] = now()
+    frappe.logger().info(
+        f"[Reconciliation] COMPLETED - Total: {stats['total']}, "
+        f"Synced: {stats['synced']}, In Sync: {stats['in_sync']}, Errors: {stats['errors']}"
+    )
+
+    # Update log entry
+    if log_name:
+        try:
+            frappe.db.set_value("Shopware Log", log_name, {
+                "status": "Success",
+                "message": f"Reconciliation completed: {stats['synced']} synced, {stats['in_sync']} in sync, {stats['errors']} errors"
+            })
+            frappe.db.commit()
+        except Exception:
+            pass
+
+    return stats
