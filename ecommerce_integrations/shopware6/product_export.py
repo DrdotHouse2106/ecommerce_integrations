@@ -2206,13 +2206,18 @@ def map_erpnext_item_to_shopware(erpnext_item) -> Dict[str, Any]:
     if hasattr(erpnext_item, 'item_length') and erpnext_item.item_length:
         payload["length"] = flt(erpnext_item.item_length) * 10
 
-    # SEO fields
-    if hasattr(erpnext_item, 'seo_title') and erpnext_item.seo_title:
-        payload["metaTitle"] = erpnext_item.seo_title
-    if hasattr(erpnext_item, 'seo_meta_description') and erpnext_item.seo_meta_description:
-        payload["metaDescription"] = erpnext_item.seo_meta_description
-    if hasattr(erpnext_item, 'seo_keywords') and erpnext_item.seo_keywords:
-        payload["keywords"] = erpnext_item.seo_keywords
+    # SEO fields - use AI-generated fields (ai_seo_title, ai_seo_description)
+    # or fallback to legacy field names (seo_title, seo_meta_description)
+    seo_title = getattr(erpnext_item, 'ai_seo_title', None) or getattr(erpnext_item, 'seo_title', None)
+    seo_description = getattr(erpnext_item, 'ai_seo_description', None) or getattr(erpnext_item, 'seo_meta_description', None)
+    seo_keywords = getattr(erpnext_item, 'seo_keywords', None)
+
+    if seo_title:
+        payload["metaTitle"] = seo_title
+    if seo_description:
+        payload["metaDescription"] = seo_description
+    if seo_keywords:
+        payload["keywords"] = seo_keywords
 
     # Delivery time - will be set separately via get_or_create_delivery_time
     # The deliveryTimeId is added in upload_erpnext_item_to_shopware
@@ -2452,7 +2457,7 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
 
 
 @temp_shopware_session
-def upload_variant_item_to_shopware(client, variant_item, parent_shopware_id: str) -> Optional[str]:
+def upload_variant_item_to_shopware(client, variant_item, parent_shopware_id: str, force_update: bool = False) -> Optional[str]:
     """
     Export an ERPNext variant item to Shopware as a child product.
 
@@ -2460,15 +2465,16 @@ def upload_variant_item_to_shopware(client, variant_item, parent_shopware_id: st
         client: Shopware API client
         variant_item: ERPNext Item document (variant_of is set)
         parent_shopware_id: Shopware product ID of the parent/template product
+        force_update: If True, update existing variant even if already synced (for reconciliation)
 
     Returns:
         Shopware product ID if successful, None otherwise
     """
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
 
-    # Check if already synced
+    # Check if already synced - but allow updates if force_update is True
     shopware_product_id = get_shopware_document_id("Item", variant_item.name)
-    if shopware_product_id:
+    if shopware_product_id and not force_update:
         return shopware_product_id
 
     # Verify parent exists in Shopware before creating variant
@@ -2501,8 +2507,11 @@ def upload_variant_item_to_shopware(client, variant_item, parent_shopware_id: st
         # Build variant product payload
         product_payload = map_erpnext_item_to_shopware(variant_item)
 
-        # Generate variant product ID
-        product_id = generate_uuid(f"product_{variant_item.item_code}")
+        # Use existing Shopware ID if updating, otherwise generate new one
+        if shopware_product_id and force_update:
+            product_id = shopware_product_id
+        else:
+            product_id = generate_uuid(f"product_{variant_item.item_code}")
         product_payload["id"] = product_id
 
         # Set parent ID - this makes it a variant
@@ -2717,8 +2726,9 @@ def upload_erpnext_item_to_shopware(client, doc, method=None):
             parent_shopware_id = upload_template_item_to_shopware.__wrapped__(client, template_item)
 
         if parent_shopware_id:
-            # Now create the variant
-            upload_variant_item_to_shopware.__wrapped__(client, item, parent_shopware_id)
+            # Now create or update the variant
+            # force_update=True if this is an existing variant (for reconciliation to work)
+            upload_variant_item_to_shopware.__wrapped__(client, item, parent_shopware_id, force_update=not is_new_product)
         return
 
     # Note: shopware_product_id and is_new_product are already set above (line 2088-2090)
