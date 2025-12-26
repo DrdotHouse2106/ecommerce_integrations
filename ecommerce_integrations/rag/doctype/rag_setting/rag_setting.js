@@ -86,6 +86,22 @@ frappe.ui.form.on('RAG Setting', {
                     setTimeout(() => frm.reload_doc(), 2000);
                 });
             }, __('Actions'));
+
+            // Clear Queue Button
+            frm.add_custom_button(__('Clear Queue'), function() {
+                frappe.confirm(
+                    __('This will remove all items from the queue without syncing. Continue?'),
+                    function() {
+                        frm.call('clear_sync_queue').then(r => {
+                            frappe.show_alert({
+                                message: __('Queue cleared'),
+                                indicator: 'green'
+                            });
+                            frm.reload_doc();
+                        });
+                    }
+                );
+            }, __('Actions'));
         }
 
         // Load Queue Status
@@ -96,6 +112,11 @@ frappe.ui.form.on('RAG Setting', {
                     let html = `
                         <div class="rag-queue-status" style="padding: 10px; background: var(--bg-light-gray); border-radius: 4px;">
                             <p style="margin: 5px 0;"><strong>Queue Size:</strong> ${status.queue_size || 0}</p>
+                            <p style="margin: 5px 0;"><strong>Auto Sync:</strong>
+                                <span class="indicator-pill ${status.auto_sync_paused ? 'orange' : 'green'}">
+                                    ${status.auto_sync_paused ? 'Paused' : 'Active'}
+                                </span>
+                            </p>
                             <p style="margin: 5px 0;"><strong>Bulk Mode:</strong>
                                 <span class="indicator-pill ${status.bulk_mode_active ? 'green' : 'gray'}">
                                     ${status.bulk_mode_active ? 'Active' : 'Inactive'}

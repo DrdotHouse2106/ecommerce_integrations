@@ -68,3 +68,8 @@ class RAGSetting(Document):
     def force_process_queue(self):
         from ecommerce_integrations.rag.bulk_sync import force_process_queue
         return force_process_queue()
+
+    @frappe.whitelist()
+    def clear_sync_queue(self):
+        from ecommerce_integrations.rag.bulk_sync import clear_sync_queue
+        return clear_sync_queue()

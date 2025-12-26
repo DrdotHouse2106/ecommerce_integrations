@@ -19,6 +19,7 @@
     "dimensions",
     "bulk_sync_section",
     "enable_bulk_sync",
+    "pause_auto_sync",
     "bulk_sync_threshold",
     "column_break_bs",
     "bulk_sync_batch_size",
@@ -132,6 +133,13 @@
       "fieldname": "enable_bulk_sync",
       "fieldtype": "Check",
       "label": "Enable Bulk Sync"
+    },
+    {
+      "default": "0",
+      "fieldname": "pause_auto_sync",
+      "fieldtype": "Check",
+      "label": "Pause Auto Sync",
+      "description": "When enabled, items are queued but NOT automatically synced. Use 'Process Queue Now' to manually sync."
     },
     {
       "default": "5",

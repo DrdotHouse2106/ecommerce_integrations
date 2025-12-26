@@ -41,6 +41,15 @@ def is_bulk_sync_enabled():
         return False
 
 
+def is_auto_sync_paused():
+    """Check if auto sync is paused (items still queue but don't process automatically)"""
+    try:
+        settings = frappe.get_single("RAG Setting")
+        return getattr(settings, 'pause_auto_sync', False)
+    except Exception:
+        return False
+
+
 def get_bulk_threshold():
     """Get threshold for bulk mode activation"""
     settings = frappe.get_single("RAG Setting")
@@ -108,6 +117,12 @@ def queue_item_for_sync(doc, method=None):
     if settings.item_group_filter:
         if not is_in_item_group(doc.item_group, settings.item_group_filter):
             return
+
+    # Check if auto sync is paused - queue items but don't process
+    if is_auto_sync_paused():
+        add_to_queue(doc.item_code)
+        # Don't schedule processing - user must manually trigger
+        return
 
     # Bulk or Direct?
     if should_use_bulk_mode():
@@ -248,6 +263,10 @@ def check_and_process_queue():
     if not is_rag_enabled():
         return
 
+    # Don't auto-process if paused
+    if is_auto_sync_paused():
+        return
+
     redis = get_redis()
 
     # Only if not in active bulk mode
@@ -286,8 +305,16 @@ def get_queue_status():
     return {
         "queue_size": len(items),
         "bulk_mode_active": bulk_mode == "1",
-        "processing": processing == "1"
+        "processing": processing == "1",
+        "auto_sync_paused": is_auto_sync_paused()
     }
+
+
+@frappe.whitelist()
+def clear_sync_queue():
+    """Clear the sync queue (for manual cleanup)"""
+    clear_queue()
+    return {"status": "Queue cleared"}
 
 
 def is_in_item_group(item_group, filter_group):
