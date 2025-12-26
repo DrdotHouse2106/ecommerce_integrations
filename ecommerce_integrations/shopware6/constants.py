@@ -129,11 +129,28 @@ ORDER_STATE_MAP = {
 }
 
 # Payment state mappings
+# All Shopware payment states mapped to ERPNext status
+# States from Shopware order_transaction.state state machine
 PAYMENT_STATE_MAP = {
+    # Unpaid states
     "open": "Unpaid",
+    "in_progress": "Unpaid",       # Payment is being processed
+    "pending": "Unpaid",           # Waiting for payment
+    "unconfirmed": "Unpaid",       # Payment not confirmed yet
+    "reminded": "Unpaid",          # Reminder sent, still unpaid
+    "failed": "Unpaid",            # Payment failed
+    # Paid states
+    "authorized": "Paid",          # PayPal/Klarna authorization = payment captured
     "paid": "Paid",
+    "completed": "Paid",           # Some providers use this instead of "paid"
+    # Partial states
     "partially_paid": "Partly Paid",
+    "paid_partially": "Partly Paid",  # Shopware uses this spelling
+    # Refund states
     "refunded": "Refunded",
+    "refunded_partially": "Partly Paid",  # Partial refund = still partly paid
+    "chargeback": "Refunded",      # Chargeback = effectively refunded
+    # Cancelled
     "cancelled": "Cancelled",
 }
 

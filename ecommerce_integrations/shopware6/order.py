@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
-from frappe.utils import flt, nowdate, getdate
+from frappe.utils import flt, nowdate, getdate, add_days
 
 from lib_shopware6_api_base import (
     Shopware6AdminAPIClientBase,
@@ -44,6 +44,39 @@ from ecommerce_integrations.shopware6.utils import (
     get_tax_rate_from_line_item,
     convert_gross_to_net,
 )
+
+
+def calculate_delivery_date(order_date: str, line_items: list) -> str:
+    """
+    Calculate delivery date based on the longest lead time of items in the order.
+
+    Gets lead_time_days from each Item in ERPNext and uses the maximum value
+    to determine the delivery date.
+
+    Args:
+        order_date: Order date in YYYY-MM-DD format or datetime
+        line_items: List of Shopware line items from the order
+
+    Returns:
+        Delivery date as string (YYYY-MM-DD format)
+    """
+    # Default minimum lead time is 1 day (no same-day delivery)
+    max_lead_time = 1
+
+    for line_item in line_items:
+        # Get item code from line item
+        item_code = get_item_code(line_item)
+        if not item_code:
+            continue
+
+        # Check if item exists in ERPNext and get its lead_time_days
+        lead_time = frappe.db.get_value("Item", item_code, "lead_time_days")
+        if lead_time and int(lead_time) > max_lead_time:
+            max_lead_time = int(lead_time)
+
+    # Calculate delivery date: order_date + max_lead_time
+    delivery_date = add_days(getdate(order_date), max_lead_time)
+    return str(delivery_date)
 
 
 def get_checkout_custom_field(order_data: dict, field_type: str) -> Any:
@@ -544,7 +577,10 @@ def create_sales_order(order_data: dict[str, Any]) -> str:
     so.customer = customer
     so.company = setting.company
     so.transaction_date = getdate(order_date)
-    so.delivery_date = getdate(order_date)  # Can be updated later
+    # Calculate delivery date based on longest item lead time
+    so.delivery_date = getdate(
+        calculate_delivery_date(order_date, order_data.get("lineItems", []))
+    )
     so.currency = currency_code
     so.shopware_order_id = order_id
     so.shopware_order_number = order_number

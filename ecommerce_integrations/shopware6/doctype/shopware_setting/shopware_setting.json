@@ -52,6 +52,9 @@
   "column_break_order",
   "sync_delivery_note",
   "sync_sales_invoice",
+  "auto_send_invoice_email",
+  "invoice_print_format",
+  "invoice_email_template",
   "section_break_tax",
   "html_tax_info",
   "taxes",
@@ -385,6 +388,30 @@
    "fieldname": "sync_sales_invoice",
    "fieldtype": "Check",
    "label": "Create Sales Invoices for paid orders"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.sync_sales_invoice",
+   "fieldname": "auto_send_invoice_email",
+   "fieldtype": "Check",
+   "label": "Auto-send Invoice Email when Paid",
+   "description": "Automatically send invoice PDF to customer when payment is confirmed"
+  },
+  {
+   "depends_on": "eval:doc.auto_send_invoice_email",
+   "fieldname": "invoice_print_format",
+   "fieldtype": "Link",
+   "label": "Invoice Print Format",
+   "options": "Print Format",
+   "description": "Print Format to use for invoice PDF attachment. Default: Legacy Invoice with Payment"
+  },
+  {
+   "depends_on": "eval:doc.auto_send_invoice_email",
+   "fieldname": "invoice_email_template",
+   "fieldtype": "Link",
+   "label": "Invoice Email Template",
+   "options": "Email Template",
+   "description": "Optional email template. If not set, a default German message is used."
   },
   {
    "fieldname": "section_break_tax",

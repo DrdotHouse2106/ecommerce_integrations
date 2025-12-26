@@ -22,6 +22,117 @@ from ecommerce_integrations.shopware6.utils import (
 )
 
 
+def send_invoice_email(sales_invoice_name: str, setting) -> bool:
+    """
+    Send Sales Invoice email to customer with PDF attachment.
+
+    Uses ERPNext's email queue and the configured Print Format.
+
+    Args:
+        sales_invoice_name: Name of the Sales Invoice
+        setting: Shopware Setting document
+
+    Returns:
+        bool: True if email was queued successfully
+    """
+    try:
+        si = frappe.get_doc("Sales Invoice", sales_invoice_name)
+
+        # Get customer email - check multiple sources
+        customer_email = None
+
+        # 1. Check Contact linked to invoice
+        if si.contact_email:
+            customer_email = si.contact_email
+
+        # 2. Check Customer primary email
+        if not customer_email:
+            customer_email = frappe.db.get_value("Customer", si.customer, "email_id")
+
+        # 3. Check billing contact
+        if not customer_email:
+            billing_contact = frappe.db.get_value(
+                "Dynamic Link",
+                {"link_doctype": "Customer", "link_name": si.customer, "parenttype": "Contact"},
+                "parent"
+            )
+            if billing_contact:
+                customer_email = frappe.db.get_value("Contact", billing_contact, "email_id")
+
+        if not customer_email:
+            frappe.log_error(
+                f"No email address found for customer {si.customer} (Invoice {si.name})",
+                "Shopware Invoice Email"
+            )
+            return False
+
+        # Get Print Format from setting or use default
+        print_format = getattr(setting, 'invoice_print_format', None) or "Legacy Invoice with Payment"
+
+        # Get company name for email
+        company_name = frappe.db.get_value("Company", si.company, "company_name") or si.company
+
+        # Build email subject and message
+        subject = f"Ihre Rechnung {si.name} - {company_name}"
+
+        # Check if email template is configured
+        email_template_name = getattr(setting, 'invoice_email_template', None)
+
+        if email_template_name and frappe.db.exists("Email Template", email_template_name):
+            template = frappe.get_doc("Email Template", email_template_name)
+            message = frappe.render_template(template.response, {"doc": si})
+            if template.subject:
+                subject = frappe.render_template(template.subject, {"doc": si})
+        else:
+            # Default message in German
+            message = f"""
+<p>Sehr geehrte Damen und Herren,</p>
+
+<p>anbei erhalten Sie Ihre Rechnung <strong>{si.name}</strong> als PDF-Dokument.</p>
+
+<p>Rechnungsbetrag: <strong>{si.get_formatted("grand_total")}</strong></p>
+
+<p>Bei Fragen zu Ihrer Rechnung stehen wir Ihnen gerne zur Verfügung.</p>
+
+<p>Mit freundlichen Grüßen,<br>
+{company_name}</p>
+            """
+
+        # Generate PDF attachment
+        pdf_content = frappe.get_print(
+            "Sales Invoice",
+            si.name,
+            print_format=print_format,
+            as_pdf=True
+        )
+
+        # Send email with PDF attachment
+        frappe.sendmail(
+            recipients=[customer_email],
+            subject=subject,
+            message=message,
+            attachments=[{
+                "fname": f"Rechnung_{si.name}.pdf",
+                "fcontent": pdf_content
+            }],
+            reference_doctype="Sales Invoice",
+            reference_name=si.name,
+            now=False  # Queue the email
+        )
+
+        frappe.logger("shopware6").info(
+            f"Invoice email queued for {si.name} to {customer_email}"
+        )
+        return True
+
+    except Exception as e:
+        frappe.log_error(
+            f"Failed to send invoice email for {sales_invoice_name}: {e}",
+            "Shopware Invoice Email"
+        )
+        return False
+
+
 def handle_transaction_state_change(payload: Dict[str, Any], request_id: str = None):
     """
     Handle order transaction state change from Shopware webhook.
@@ -98,6 +209,13 @@ def handle_transaction_state_change(payload: Dict[str, Any], request_id: str = N
                 invoice_result = _create_sales_invoice_for_order(sales_order_name, transaction_id, setting)
                 if invoice_result:
                     messages.append(f"Created Invoice {invoice_result}")
+
+                    # Send invoice email if enabled
+                    if getattr(setting, 'auto_send_invoice_email', False):
+                        if send_invoice_email(invoice_result, setting):
+                            messages.append(f"Email sent for {invoice_result}")
+                        else:
+                            messages.append(f"Email failed for {invoice_result}")
 
             # Create Payment Entry
             pe_result = create_payment_entry_for_order(sales_order_name, transaction_id)
