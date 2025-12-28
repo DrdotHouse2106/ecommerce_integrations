@@ -318,14 +318,24 @@ def upload_category_media(client, category_id: str, image_path: str) -> Optional
         if not image_content:
             return None
 
-        # Check if media exists
+        # Use unique filename to avoid CONTENT__MEDIA_DUPLICATED_FILE_NAME error
+        unique_filename = f"{filename_without_ext}-{int(time.time())}"
+
+        # Check if media exists and has valid content
         media_exists = False
+        media_has_content = False
         try:
             existing = client.request_get(f"media/{media_id}")
             if existing and existing.get("data"):
                 media_exists = True
+                # Check if media has actual content (fileName indicates uploaded)
+                media_has_content = bool(existing.get("data", {}).get("fileName"))
         except BaseException:
             pass
+
+        # If media exists with valid content, return it
+        if media_exists and media_has_content:
+            return media_id
 
         if not media_exists:
             try:
@@ -335,13 +345,13 @@ def upload_category_media(client, category_id: str, image_path: str) -> Optional
                 if "already exists" not in error_str and "duplicate" not in error_str:
                     return None
 
-        # Upload content
+        # Upload content with unique filename
         try:
             client.request_post(
                 f"_action/media/{media_id}/upload",
                 payload=image_content,
                 content_type="octet-stream",
-                additional_query_params={"extension": ext, "fileName": filename_without_ext}
+                additional_query_params={"extension": ext, "fileName": unique_filename}
             )
         except BaseException as e:
             error_str = str(e).lower()
@@ -705,7 +715,10 @@ def force_resync_category_image(client, item_group_name: str) -> bool:
         if not folder_id:
             return False
 
-        fresh_media_id = hashlib.md5(f"category_media_{cat_id}_{time.time()}".encode()).hexdigest()
+        timestamp = int(time.time())
+        fresh_media_id = hashlib.md5(f"category_media_{cat_id}_{timestamp}".encode()).hexdigest()
+        # Use unique filename to avoid CONTENT__MEDIA_DUPLICATED_FILE_NAME error
+        unique_filename = f"{filename_without_ext}-{timestamp}"
 
         # Create new media
         try:
@@ -720,7 +733,7 @@ def force_resync_category_image(client, item_group_name: str) -> bool:
                 f"_action/media/{fresh_media_id}/upload",
                 payload=image_content,
                 content_type="octet-stream",
-                additional_query_params={"extension": ext, "fileName": filename_without_ext}
+                additional_query_params={"extension": ext, "fileName": unique_filename}
             )
         except Exception as e:
             frappe.log_error(f"Failed to upload media content: {e}")
