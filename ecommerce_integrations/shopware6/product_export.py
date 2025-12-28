@@ -76,6 +76,82 @@ from ecommerce_integrations.shopware6.export.property_handler import (
 # Cache management
 from ecommerce_integrations.shopware6.base.cache_manager import clear_shopware_cache
 
+import frappe
+from frappe import _
+
+
+# ============================================================================
+# Backwards-compatible wrapper functions for external callers
+# ============================================================================
+
+@frappe.whitelist()
+def sync_item_to_shopware(item_code: str) -> dict:
+    """
+    Sync a single ERPNext item to Shopware.
+
+    This is a backwards-compatible wrapper for external callers like ai_description/api.py.
+
+    Args:
+        item_code: The ERPNext Item code to sync
+
+    Returns:
+        dict with success status and message
+    """
+    try:
+        product = ShopwareProduct(item_code=item_code)
+        result = product.upload()
+
+        return {
+            "success": True,
+            "shopware_id": result,
+            "message": f"Item {item_code} synced to Shopware"
+        }
+    except Exception as e:
+        frappe.log_error(
+            message=f"Failed to sync item {item_code} to Shopware: {str(e)}",
+            title="Shopware Sync Error"
+        )
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+
+@frappe.whitelist()
+def sync_template_with_variants_to_shopware(template_item_code: str) -> dict:
+    """
+    Sync a template item with all its variants to Shopware.
+
+    Args:
+        template_item_code: The ERPNext template Item code
+
+    Returns:
+        dict with success status and synced variants count
+    """
+    try:
+        # First sync the template
+        template_result = upload_template_item_to_shopware(template_item_code)
+
+        # Then sync all variants
+        variants_synced = sync_all_variants(template_item_code)
+
+        return {
+            "success": True,
+            "template_id": template_result,
+            "variants_synced": variants_synced,
+            "message": f"Template {template_item_code} and variants synced"
+        }
+    except Exception as e:
+        frappe.log_error(
+            message=f"Failed to sync template {template_item_code}: {str(e)}",
+            title="Shopware Template Sync Error"
+        )
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+
 __all__ = [
     # Main class
     "ShopwareProduct",
@@ -125,4 +201,7 @@ __all__ = [
     "cleanup_orphaned_shopware_categories",
     # Cache
     "clear_shopware_cache",
+    # Backwards-compatible wrappers
+    "sync_item_to_shopware",
+    "sync_template_with_variants_to_shopware",
 ]
