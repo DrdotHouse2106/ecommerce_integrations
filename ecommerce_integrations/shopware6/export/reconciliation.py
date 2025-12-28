@@ -124,7 +124,7 @@ def sync_all_categories_to_shopware(
             continue
 
         try:
-            category_id = sync_category_hierarchy.__wrapped__(
+            category_id = sync_category_hierarchy(
                 client=client, item_group_name=cat.name
             )
             if category_id:
@@ -384,7 +384,7 @@ def reconcile_erpnext_with_shopware(
                             if not sync_images:
                                 setting.sync_images_to_shopware = False
 
-                            upload_erpnext_item_to_shopware(doc=erpnext_item)
+                            upload_erpnext_item_to_shopware(erpnext_item.item_code)
                             setting.sync_images_to_shopware = orig_img
 
                             stats["synced"] += 1
@@ -420,8 +420,7 @@ def reconcile_erpnext_with_shopware(
         )
         for item_code in unlinked:
             try:
-                item = frappe.get_doc("Item", item_code)
-                upload_erpnext_item_to_shopware(doc=item)
+                upload_erpnext_item_to_shopware(item_code)
                 stats["newly_synced"] += 1
             except Exception as e:
                 stats["errors"].append({"item": item_code, "error": str(e)[:150]})
@@ -884,7 +883,7 @@ def _run_batch_reconciliation(
                         if not sync_images:
                             setting.sync_images_to_shopware = False
 
-                        upload_erpnext_item_to_shopware(doc=erpnext_item)
+                        upload_erpnext_item_to_shopware(item_code)
                         setting.sync_images_to_shopware = orig_img
                         stats["synced"] += 1
                     else:

@@ -289,7 +289,7 @@ def sync_item_properties_to_shopware(client, item_code: str) -> Dict[str, Any]:
 
     for group_name, option_value in properties.items():
         # Get or create property group
-        group_id = get_or_create_property_group.__wrapped__(
+        group_id = get_or_create_property_group(
             client, group_name, filterable=True
         )
 
@@ -297,7 +297,7 @@ def sync_item_properties_to_shopware(client, item_code: str) -> Dict[str, Any]:
             continue
 
         # Get or create property option
-        option_id = get_or_create_property_option.__wrapped__(
+        option_id = get_or_create_property_option(
             client, group_id, group_name, option_value
         )
 

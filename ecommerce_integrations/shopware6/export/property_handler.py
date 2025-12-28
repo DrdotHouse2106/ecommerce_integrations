@@ -56,7 +56,6 @@ def build_custom_fields_from_mappings() -> List[Dict[str, Any]]:
     return custom_fields
 
 
-@temp_shopware_session
 def ensure_shopware_custom_field_set(client) -> Optional[str]:
     """
     Ensure the ERPNext custom field set exists in Shopware.
@@ -193,7 +192,6 @@ def get_item_custom_fields(erpnext_item) -> Dict[str, Any]:
     return custom_fields
 
 
-@temp_shopware_session
 def get_or_create_property_group(client, group_name: str) -> Optional[str]:
     """
     Get existing or create new PropertyGroup in Shopware.
@@ -241,7 +239,6 @@ def get_or_create_property_group(client, group_name: str) -> Optional[str]:
         return None
 
 
-@temp_shopware_session
 def get_or_create_property_option(client, group_id: str, group_name: str, option_value: str) -> Optional[str]:
     """
     Get existing or create new PropertyGroupOption.
@@ -301,7 +298,6 @@ def get_or_create_property_option(client, group_id: str, group_name: str, option
         return None
 
 
-@temp_shopware_session
 def get_or_create_variant_option(client, group_id: str, group_name: str, option_value: str) -> Optional[str]:
     """
     Get existing or create new PropertyGroupOption for variant attributes.

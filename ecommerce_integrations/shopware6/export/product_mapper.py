@@ -11,12 +11,11 @@ import frappe
 from frappe.utils import flt
 
 from ecommerce_integrations.shopware6.constants import ITEM_SELLING_RATE_FIELD
-from ecommerce_integrations.shopware6.connection import temp_shopware_session
+# Note: Internal functions - client is passed from caller
 from ecommerce_integrations.shopware6.base.cache_manager import get_cache
 from ecommerce_integrations.shopware6.export.utils import generate_uuid
 
 
-@temp_shopware_session
 def get_tax_id_by_rate(client, tax_rate: float = 19.0) -> Optional[str]:
     """
     Get the Shopware tax ID for a given tax rate.
@@ -77,7 +76,6 @@ def get_tax_id_by_rate(client, tax_rate: float = 19.0) -> Optional[str]:
         return None
 
 
-@temp_shopware_session
 def get_or_create_delivery_time(client, delivery_time_name: str) -> Optional[str]:
     """
     Get existing or create new Delivery Time in Shopware.
@@ -151,7 +149,6 @@ def get_or_create_delivery_time(client, delivery_time_name: str) -> Optional[str
         return None
 
 
-@temp_shopware_session
 def get_or_create_manufacturer(client, manufacturer_name: str) -> Optional[str]:
     """
     Get existing or create new Manufacturer in Shopware.

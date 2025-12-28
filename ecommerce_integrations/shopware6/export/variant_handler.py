@@ -26,7 +26,6 @@ from ecommerce_integrations.shopware6.export.property_handler import (
 from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
 
 
-@temp_shopware_session
 def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
     """
     Export an ERPNext variant item to Shopware as a child product.

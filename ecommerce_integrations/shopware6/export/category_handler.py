@@ -13,7 +13,7 @@ import frappe
 import requests
 from frappe.utils import get_files_path
 
-from ecommerce_integrations.shopware6.connection import temp_shopware_session
+from ecommerce_integrations.shopware6.connection import temp_shopware_session, get_shopware_client
 from ecommerce_integrations.shopware6.constants import (
     SHOPWARE_CATEGORY_CUSTOM_FIELD_SET_NAME,
     CATEGORY_FAQ_FIELDS_MAP,
@@ -26,7 +26,6 @@ from ecommerce_integrations.shopware6.export.utils import (
 )
 
 
-@temp_shopware_session
 def ensure_category_custom_field_set(client) -> Optional[str]:
     """
     Ensure the ERPNext category custom field set exists in Shopware.
@@ -246,7 +245,6 @@ def get_or_create_media_folder(client, folder_name: str) -> Optional[str]:
         return None
 
 
-@temp_shopware_session
 def upload_category_media(client, category_id: str, image_path: str) -> Optional[str]:
     """
     Upload and assign media to a category in Shopware.
@@ -331,7 +329,6 @@ def upload_category_media(client, category_id: str, image_path: str) -> Optional
         return None
 
 
-@temp_shopware_session
 def get_or_create_category(
     client,
     category_name: str,
@@ -434,7 +431,6 @@ def get_or_create_category(
         return None
 
 
-@temp_shopware_session
 def sync_category_hierarchy(client, item_group_name: str) -> Optional[str]:
     """
     Sync the full category hierarchy from ERPNext Item Group to Shopware.
@@ -542,7 +538,6 @@ def get_all_item_categories(item_code: str, include_variant_categories: bool = T
     return categories
 
 
-@temp_shopware_session
 def sync_all_item_categories(client, item_code: str) -> List[Dict[str, str]]:
     """
     Sync all categories for an item to Shopware.

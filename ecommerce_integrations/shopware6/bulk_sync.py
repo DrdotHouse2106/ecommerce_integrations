@@ -544,7 +544,7 @@ def process_product_batch(item_codes: List[str]):
         for item in batch:
             try:
                 item.flags.from_integration = False  # Ensure we can process
-                upload_template_item_to_shopware.__wrapped__(client, item)
+                upload_template_item_to_shopware(client, item)
                 processed.append(item.name)
             except Exception as e:
                 errors.append((item.name, str(e)))
@@ -577,7 +577,7 @@ def process_product_batch(item_codes: List[str]):
                 parent_shopware_id = get_shopware_document_id("Item", item.variant_of)
                 if parent_shopware_id:
                     item.flags.from_integration = False
-                    upload_variant_item_to_shopware.__wrapped__(client, item, parent_shopware_id)
+                    upload_variant_item_to_shopware(client, item, parent_shopware_id)
                     processed.append(item.name)
                 else:
                     errors.append((item.name, "Parent template not synced"))

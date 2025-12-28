@@ -10,7 +10,7 @@ from typing import Optional
 import frappe
 from frappe import _
 
-from ecommerce_integrations.shopware6.connection import temp_shopware_session
+# Note: get_shopware_client is imported inside upload() method to avoid circular imports
 from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCTYPE
 from ecommerce_integrations.shopware6.utils import create_shopware_log
 from ecommerce_integrations.shopware6.export.utils import generate_uuid, get_shopware_document_id
@@ -68,17 +68,16 @@ class ShopwareProduct:
         """Get the ERPNext Item document."""
         return frappe.get_doc("Item", self.item_code)
 
-    @temp_shopware_session
-    def upload(self, client) -> Optional[str]:
+    def upload(self) -> Optional[str]:
         """
         Upload or update product in Shopware.
-
-        Args:
-            client: Shopware API client
 
         Returns:
             Shopware product ID if successful, None otherwise
         """
+        from ecommerce_integrations.shopware6.connection import get_shopware_client
+
+        client = get_shopware_client()
         item = self.get_erpnext_item()
 
         # Check if template item
