@@ -1,0 +1,200 @@
+{
+    "id": "test-order-id-123",
+    "orderNumber": "10001",
+    "orderDateTime": "2024-01-15T10:30:00.000+00:00",
+    "salesChannelId": "sales-channel-id-1",
+    "orderCustomer": {
+        "id": "order-customer-id-456",
+        "customerId": "customer-id-456",
+        "email": "max.mustermann@example.com",
+        "firstName": "Max",
+        "lastName": "Mustermann",
+        "salutation": {
+            "id": "salutation-mr",
+            "salutationKey": "mr",
+            "displayName": "Herr"
+        },
+        "company": "Test GmbH",
+        "vatIds": ["DE123456789"],
+        "customFields": {
+            "custom_tel_avis": true
+        }
+    },
+    "billingAddressId": "billing-address-id-789",
+    "billingAddress": {
+        "id": "billing-address-id-789",
+        "firstName": "Max",
+        "lastName": "Mustermann",
+        "company": "Test GmbH",
+        "street": "Musterstraße 123",
+        "additionalAddressLine1": "Gebäude A",
+        "zipcode": "10115",
+        "city": "Berlin",
+        "country": {
+            "id": "country-de",
+            "iso": "DE",
+            "iso3": "DEU",
+            "name": "Germany"
+        },
+        "countryState": null,
+        "phoneNumber": "+49 30 12345678"
+    },
+    "currencyId": "currency-eur-id",
+    "currency": {
+        "id": "currency-eur-id",
+        "isoCode": "EUR",
+        "factor": 1.0,
+        "symbol": "€",
+        "name": "Euro"
+    },
+    "currencyFactor": 1.0,
+    "languageId": "language-de-id",
+    "shippingCosts": {
+        "unitPrice": 5.99,
+        "quantity": 1,
+        "totalPrice": 5.99,
+        "calculatedTaxes": [
+            {
+                "tax": 0.96,
+                "taxRate": 19.0,
+                "price": 5.99
+            }
+        ]
+    },
+    "amountTotal": 155.95,
+    "amountNet": 131.05,
+    "positionPrice": 149.96,
+    "taxStatus": "gross",
+    "lineItems": [
+        {
+            "id": "line-item-1",
+            "type": "product",
+            "referencedId": "product-id-123",
+            "productId": "product-id-123",
+            "label": "Test Product",
+            "quantity": 2,
+            "unitPrice": 49.99,
+            "totalPrice": 99.98,
+            "price": {
+                "unitPrice": 49.99,
+                "quantity": 2,
+                "totalPrice": 99.98,
+                "calculatedTaxes": [
+                    {
+                        "tax": 15.96,
+                        "taxRate": 19.0,
+                        "price": 99.98
+                    }
+                ]
+            },
+            "payload": {
+                "productNumber": "TEST-001",
+                "isCloseout": false,
+                "customFields": {}
+            }
+        },
+        {
+            "id": "line-item-2",
+            "type": "product",
+            "referencedId": "product-id-456",
+            "productId": "product-id-456",
+            "label": "Another Product",
+            "quantity": 1,
+            "unitPrice": 49.98,
+            "totalPrice": 49.98,
+            "price": {
+                "unitPrice": 49.98,
+                "quantity": 1,
+                "totalPrice": 49.98,
+                "calculatedTaxes": [
+                    {
+                        "tax": 7.98,
+                        "taxRate": 19.0,
+                        "price": 49.98
+                    }
+                ]
+            },
+            "payload": {
+                "productNumber": "TEST-002",
+                "isCloseout": false,
+                "customFields": {}
+            }
+        }
+    ],
+    "transactions": [
+        {
+            "id": "transaction-id-1",
+            "paymentMethodId": "payment-invoice-id",
+            "paymentMethod": {
+                "id": "payment-invoice-id",
+                "name": "Invoice",
+                "shortName": "invoice",
+                "technicalName": "payment_invoice"
+            },
+            "amount": {
+                "unitPrice": 155.95,
+                "quantity": 1,
+                "totalPrice": 155.95,
+                "calculatedTaxes": [
+                    {
+                        "tax": 24.90,
+                        "taxRate": 19.0,
+                        "price": 155.95
+                    }
+                ]
+            },
+            "stateMachineState": {
+                "id": "state-open",
+                "technicalName": "open",
+                "name": "Open"
+            }
+        }
+    ],
+    "deliveries": [
+        {
+            "id": "delivery-id-1",
+            "shippingMethodId": "shipping-standard-id",
+            "shippingMethod": {
+                "id": "shipping-standard-id",
+                "name": "Standard Shipping",
+                "technicalName": "shipping_standard"
+            },
+            "shippingOrderAddress": {
+                "id": "shipping-address-id-101",
+                "firstName": "Max",
+                "lastName": "Mustermann",
+                "company": "Test GmbH",
+                "street": "Musterstraße 123",
+                "additionalAddressLine1": "Gebäude A",
+                "zipcode": "10115",
+                "city": "Berlin",
+                "country": {
+                    "id": "country-de",
+                    "iso": "DE",
+                    "name": "Germany"
+                }
+            },
+            "shippingDateEarliest": "2024-01-17T00:00:00.000+00:00",
+            "shippingDateLatest": "2024-01-19T00:00:00.000+00:00",
+            "stateMachineState": {
+                "id": "state-open",
+                "technicalName": "open",
+                "name": "Open"
+            }
+        }
+    ],
+    "stateMachineState": {
+        "id": "order-state-open",
+        "technicalName": "open",
+        "name": "Open"
+    },
+    "customFields": {
+        "custom_po_number": "PO-2024-001",
+        "custom_forklift_delivery": true
+    },
+    "tags": [],
+    "affiliateCode": null,
+    "campaignCode": null,
+    "createdAt": "2024-01-15T10:30:00.000+00:00",
+    "updatedAt": "2024-01-15T10:30:00.000+00:00"
+}

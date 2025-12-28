@@ -1,0 +1,378 @@
+"""
+Shopware 6 Data Validators
+
+Input validation for Shopware data to ensure data integrity
+and provide clear error messages.
+"""
+
+from typing import Any, Dict, List, Optional, Tuple
+
+import frappe
+from frappe import _
+
+
+class ValidationError(Exception):
+    """Custom exception for validation errors."""
+    pass
+
+
+class ShopwareDataValidator:
+    """
+    Validator for Shopware API data.
+
+    Validates incoming data from Shopware webhooks and API responses
+    to ensure required fields are present and have valid values.
+    """
+
+    # Required fields for different entity types
+    ORDER_REQUIRED_FIELDS = ["id", "orderNumber", "orderCustomer"]
+    CUSTOMER_REQUIRED_FIELDS = ["id", "email"]
+    PRODUCT_REQUIRED_FIELDS = ["id", "productNumber"]
+    CATEGORY_REQUIRED_FIELDS = ["id", "name"]
+    WEBHOOK_REQUIRED_FIELDS = ["source", "data"]
+
+    @classmethod
+    def validate_order(cls, order_data: Dict[str, Any]) -> Tuple[bool, List[str]]:
+        """
+        Validate Shopware order data.
+
+        Args:
+            order_data: Shopware order object
+
+        Returns:
+            Tuple of (is_valid, list of error messages)
+        """
+        errors = []
+
+        if not order_data:
+            return False, ["Order data is empty"]
+
+        # Check required fields
+        for field in cls.ORDER_REQUIRED_FIELDS:
+            if field not in order_data or order_data[field] is None:
+                errors.append(f"Missing required field: {field}")
+
+        # Validate order ID format (UUID)
+        order_id = order_data.get("id", "")
+        if order_id and not cls._is_valid_uuid(order_id):
+            errors.append(f"Invalid order ID format: {order_id}")
+
+        # Validate order number
+        order_number = order_data.get("orderNumber", "")
+        if not order_number:
+            errors.append("Order number is empty")
+
+        # Validate order customer
+        order_customer = order_data.get("orderCustomer", {})
+        if not order_customer:
+            errors.append("Order customer data is missing")
+        elif not order_customer.get("email"):
+            errors.append("Order customer email is missing")
+
+        # Validate line items (optional but log warning if empty)
+        line_items = order_data.get("lineItems", [])
+        if not line_items:
+            frappe.logger("shopware6").warning(
+                f"Order {order_number} has no line items"
+            )
+
+        return len(errors) == 0, errors
+
+    @classmethod
+    def validate_customer(cls, customer_data: Dict[str, Any]) -> Tuple[bool, List[str]]:
+        """
+        Validate Shopware customer data.
+
+        Args:
+            customer_data: Shopware customer object
+
+        Returns:
+            Tuple of (is_valid, list of error messages)
+        """
+        errors = []
+
+        if not customer_data:
+            return False, ["Customer data is empty"]
+
+        # Check required fields
+        for field in cls.CUSTOMER_REQUIRED_FIELDS:
+            if field not in customer_data or customer_data[field] is None:
+                errors.append(f"Missing required field: {field}")
+
+        # Validate email format
+        email = customer_data.get("email", "")
+        if email and not cls._is_valid_email(email):
+            errors.append(f"Invalid email format: {email}")
+
+        # Validate customer ID format (UUID)
+        customer_id = customer_data.get("id", "")
+        if customer_id and not cls._is_valid_uuid(customer_id):
+            errors.append(f"Invalid customer ID format: {customer_id}")
+
+        return len(errors) == 0, errors
+
+    @classmethod
+    def validate_product(cls, product_data: Dict[str, Any]) -> Tuple[bool, List[str]]:
+        """
+        Validate Shopware product data.
+
+        Args:
+            product_data: Shopware product object
+
+        Returns:
+            Tuple of (is_valid, list of error messages)
+        """
+        errors = []
+
+        if not product_data:
+            return False, ["Product data is empty"]
+
+        # Check required fields
+        for field in cls.PRODUCT_REQUIRED_FIELDS:
+            if field not in product_data or product_data[field] is None:
+                errors.append(f"Missing required field: {field}")
+
+        # Validate product ID format (UUID)
+        product_id = product_data.get("id", "")
+        if product_id and not cls._is_valid_uuid(product_id):
+            errors.append(f"Invalid product ID format: {product_id}")
+
+        # Validate product number
+        product_number = product_data.get("productNumber", "")
+        if not product_number:
+            errors.append("Product number is empty")
+
+        # Validate price if present
+        price = product_data.get("price", [])
+        if price and isinstance(price, list) and len(price) > 0:
+            price_entry = price[0]
+            if price_entry.get("gross") is None and price_entry.get("net") is None:
+                errors.append("Product price has no gross or net value")
+
+        return len(errors) == 0, errors
+
+    @classmethod
+    def validate_category(cls, category_data: Dict[str, Any]) -> Tuple[bool, List[str]]:
+        """
+        Validate Shopware category data.
+
+        Args:
+            category_data: Shopware category object
+
+        Returns:
+            Tuple of (is_valid, list of error messages)
+        """
+        errors = []
+
+        if not category_data:
+            return False, ["Category data is empty"]
+
+        # Check required fields
+        for field in cls.CATEGORY_REQUIRED_FIELDS:
+            if field not in category_data or category_data[field] is None:
+                errors.append(f"Missing required field: {field}")
+
+        # Validate category ID format (UUID)
+        category_id = category_data.get("id", "")
+        if category_id and not cls._is_valid_uuid(category_id):
+            errors.append(f"Invalid category ID format: {category_id}")
+
+        return len(errors) == 0, errors
+
+    @classmethod
+    def validate_webhook_payload(cls, payload: Dict[str, Any]) -> Tuple[bool, List[str]]:
+        """
+        Validate Shopware webhook payload.
+
+        Args:
+            payload: Webhook payload
+
+        Returns:
+            Tuple of (is_valid, list of error messages)
+        """
+        errors = []
+
+        if not payload:
+            return False, ["Webhook payload is empty"]
+
+        # Check for entity ID (can be in multiple locations)
+        entity_id = (
+            payload.get("primaryKey") or
+            payload.get("id") or
+            payload.get("payload", {}).get("entity", {}).get("id") or
+            payload.get("data", {}).get("orderId") or
+            payload.get("data", {}).get("customerId") or
+            payload.get("data", {}).get("productId")
+        )
+
+        if not entity_id:
+            errors.append("No entity ID found in webhook payload")
+
+        return len(errors) == 0, errors
+
+    @classmethod
+    def validate_line_item(cls, line_item: Dict[str, Any]) -> Tuple[bool, List[str]]:
+        """
+        Validate Shopware order line item.
+
+        Args:
+            line_item: Shopware line item object
+
+        Returns:
+            Tuple of (is_valid, list of error messages)
+        """
+        errors = []
+
+        if not line_item:
+            return False, ["Line item data is empty"]
+
+        # Check for product type items
+        item_type = line_item.get("type", "")
+        if item_type == "product":
+            # Product items should have a productId or referencedId
+            if not line_item.get("productId") and not line_item.get("referencedId"):
+                errors.append("Product line item has no productId or referencedId")
+
+            # Should have quantity
+            quantity = line_item.get("quantity")
+            if quantity is None or quantity <= 0:
+                errors.append("Invalid quantity for line item")
+
+        return len(errors) == 0, errors
+
+    @staticmethod
+    def _is_valid_uuid(value: str) -> bool:
+        """Check if a string is a valid UUID format."""
+        import re
+        uuid_pattern = re.compile(
+            r'^[a-f0-9]{32}$|^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$',
+            re.IGNORECASE
+        )
+        return bool(uuid_pattern.match(value))
+
+    @staticmethod
+    def _is_valid_email(email: str) -> bool:
+        """Check if a string is a valid email format."""
+        import re
+        email_pattern = re.compile(
+            r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        )
+        return bool(email_pattern.match(email))
+
+
+class ERPNextDataValidator:
+    """
+    Validator for ERPNext data before syncing to Shopware.
+    """
+
+    @classmethod
+    def validate_item_for_export(cls, item_code: str) -> Tuple[bool, List[str]]:
+        """
+        Validate an ERPNext Item before exporting to Shopware.
+
+        Args:
+            item_code: ERPNext Item code
+
+        Returns:
+            Tuple of (is_valid, list of error messages)
+        """
+        errors = []
+
+        if not frappe.db.exists("Item", item_code):
+            return False, [f"Item {item_code} does not exist"]
+
+        item = frappe.get_doc("Item", item_code)
+
+        # Check if item is disabled
+        if item.disabled:
+            errors.append(f"Item {item_code} is disabled")
+
+        # Check if item has a name (required for Shopware)
+        if not item.item_name:
+            errors.append(f"Item {item_code} has no item_name")
+
+        # Check if item has a description (highly recommended)
+        if not item.description:
+            frappe.logger("shopware6").warning(
+                f"Item {item_code} has no description, will use item_name"
+            )
+
+        # Validate price for simple products (not templates)
+        if not item.has_variants:
+            if not cls._item_has_price(item_code):
+                frappe.logger("shopware6").warning(
+                    f"Item {item_code} has no selling price set"
+                )
+
+        return len(errors) == 0, errors
+
+    @classmethod
+    def validate_customer_for_export(cls, customer_name: str) -> Tuple[bool, List[str]]:
+        """
+        Validate an ERPNext Customer before exporting to Shopware.
+
+        Args:
+            customer_name: ERPNext Customer name
+
+        Returns:
+            Tuple of (is_valid, list of error messages)
+        """
+        errors = []
+
+        if not frappe.db.exists("Customer", customer_name):
+            return False, [f"Customer {customer_name} does not exist"]
+
+        customer = frappe.get_doc("Customer", customer_name)
+
+        # Check if customer is disabled
+        if customer.disabled:
+            errors.append(f"Customer {customer_name} is disabled")
+
+        return len(errors) == 0, errors
+
+    @staticmethod
+    def _item_has_price(item_code: str) -> bool:
+        """Check if an item has a selling price."""
+        # Check standard_rate first
+        standard_rate = frappe.db.get_value("Item", item_code, "standard_rate")
+        if standard_rate and float(standard_rate) > 0:
+            return True
+
+        # Check Item Price table
+        item_price = frappe.db.get_value(
+            "Item Price",
+            {"item_code": item_code, "selling": 1},
+            "price_list_rate"
+        )
+        return bool(item_price and float(item_price) > 0)
+
+
+def validate_and_log(
+    validator_func,
+    data: Dict[str, Any],
+    entity_type: str,
+    entity_id: str = None
+) -> bool:
+    """
+    Validate data and log any errors.
+
+    Args:
+        validator_func: Validation function to call
+        data: Data to validate
+        entity_type: Type of entity (order, customer, product, etc.)
+        entity_id: Optional entity ID for logging
+
+    Returns:
+        True if valid, False otherwise
+    """
+    is_valid, errors = validator_func(data)
+
+    if not is_valid:
+        error_msg = f"Validation failed for {entity_type}"
+        if entity_id:
+            error_msg += f" ({entity_id})"
+        error_msg += f": {', '.join(errors)}"
+
+        frappe.log_error(error_msg, f"Shopware Validation Error - {entity_type}")
+
+    return is_valid

@@ -1,0 +1,219 @@
+{
+    "id": "template-product-id-456",
+    "productNumber": "TEMPLATE-001",
+    "name": "T-Shirt Template",
+    "description": "A t-shirt template with size and color variants",
+    "active": true,
+    "stock": 0,
+    "availableStock": 0,
+    "isCloseout": false,
+    "price": [
+        {
+            "currencyId": "currency-eur-id",
+            "gross": 29.99,
+            "net": 25.20,
+            "linked": false
+        }
+    ],
+    "taxId": "tax-19-id",
+    "tax": {
+        "id": "tax-19-id",
+        "taxRate": 19.0,
+        "name": "Standard rate"
+    },
+    "categories": [
+        {
+            "id": "category-clothing-id",
+            "name": "Clothing"
+        }
+    ],
+    "parentId": null,
+    "childCount": 4,
+    "children": [
+        {
+            "id": "variant-1-small-red",
+            "productNumber": "TEMPLATE-001-S-RED",
+            "name": "T-Shirt Small Red",
+            "parentId": "template-product-id-456",
+            "active": true,
+            "stock": 50,
+            "options": [
+                {
+                    "id": "option-size-small",
+                    "name": "S",
+                    "group": {
+                        "id": "group-size",
+                        "name": "Size"
+                    }
+                },
+                {
+                    "id": "option-color-red",
+                    "name": "Red",
+                    "group": {
+                        "id": "group-color",
+                        "name": "Color"
+                    }
+                }
+            ],
+            "price": [
+                {
+                    "currencyId": "currency-eur-id",
+                    "gross": 29.99,
+                    "net": 25.20,
+                    "linked": false
+                }
+            ]
+        },
+        {
+            "id": "variant-2-small-blue",
+            "productNumber": "TEMPLATE-001-S-BLUE",
+            "name": "T-Shirt Small Blue",
+            "parentId": "template-product-id-456",
+            "active": true,
+            "stock": 30,
+            "options": [
+                {
+                    "id": "option-size-small",
+                    "name": "S",
+                    "group": {
+                        "id": "group-size",
+                        "name": "Size"
+                    }
+                },
+                {
+                    "id": "option-color-blue",
+                    "name": "Blue",
+                    "group": {
+                        "id": "group-color",
+                        "name": "Color"
+                    }
+                }
+            ],
+            "price": [
+                {
+                    "currencyId": "currency-eur-id",
+                    "gross": 29.99,
+                    "net": 25.20,
+                    "linked": false
+                }
+            ]
+        },
+        {
+            "id": "variant-3-large-red",
+            "productNumber": "TEMPLATE-001-L-RED",
+            "name": "T-Shirt Large Red",
+            "parentId": "template-product-id-456",
+            "active": true,
+            "stock": 40,
+            "options": [
+                {
+                    "id": "option-size-large",
+                    "name": "L",
+                    "group": {
+                        "id": "group-size",
+                        "name": "Size"
+                    }
+                },
+                {
+                    "id": "option-color-red",
+                    "name": "Red",
+                    "group": {
+                        "id": "group-color",
+                        "name": "Color"
+                    }
+                }
+            ],
+            "price": [
+                {
+                    "currencyId": "currency-eur-id",
+                    "gross": 32.99,
+                    "net": 27.72,
+                    "linked": false
+                }
+            ]
+        },
+        {
+            "id": "variant-4-large-blue",
+            "productNumber": "TEMPLATE-001-L-BLUE",
+            "name": "T-Shirt Large Blue",
+            "parentId": "template-product-id-456",
+            "active": true,
+            "stock": 25,
+            "options": [
+                {
+                    "id": "option-size-large",
+                    "name": "L",
+                    "group": {
+                        "id": "group-size",
+                        "name": "Size"
+                    }
+                },
+                {
+                    "id": "option-color-blue",
+                    "name": "Blue",
+                    "group": {
+                        "id": "group-color",
+                        "name": "Color"
+                    }
+                }
+            ],
+            "price": [
+                {
+                    "currencyId": "currency-eur-id",
+                    "gross": 32.99,
+                    "net": 27.72,
+                    "linked": false
+                }
+            ]
+        }
+    ],
+    "configuratorSettings": [
+        {
+            "optionId": "option-size-small",
+            "option": {
+                "id": "option-size-small",
+                "name": "S",
+                "group": {
+                    "id": "group-size",
+                    "name": "Size"
+                }
+            }
+        },
+        {
+            "optionId": "option-size-large",
+            "option": {
+                "id": "option-size-large",
+                "name": "L",
+                "group": {
+                    "id": "group-size",
+                    "name": "Size"
+                }
+            }
+        },
+        {
+            "optionId": "option-color-red",
+            "option": {
+                "id": "option-color-red",
+                "name": "Red",
+                "group": {
+                    "id": "group-color",
+                    "name": "Color"
+                }
+            }
+        },
+        {
+            "optionId": "option-color-blue",
+            "option": {
+                "id": "option-color-blue",
+                "name": "Blue",
+                "group": {
+                    "id": "group-color",
+                    "name": "Color"
+                }
+            }
+        }
+    ],
+    "customFields": {},
+    "createdAt": "2024-01-15T10:30:00.000+00:00",
+    "updatedAt": "2024-01-15T10:30:00.000+00:00"
+}

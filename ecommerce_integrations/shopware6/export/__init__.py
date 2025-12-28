@@ -1,64 +1,89 @@
 """
-Shopware 6 Product Export Module (Compatibility Layer)
+Shopware 6 Product Export Module
 
-This file re-exports functions from the new modular structure under shopware6/export/.
-It maintains backwards compatibility for existing code that imports from product_export.
+Refactored from the monolithic product_export.py (5446 lines) into focused modules:
+- utils: Utility functions (generate_uuid, sanitize_filename)
+- property_handler: Property group and option management
+- category_handler: Category hierarchy and sync
+- image_handler: Image upload and delta-sync
+- product_mapper: ERPNext to Shopware field mapping
+- product_uploader: Main ShopwareProduct class
+- template_handler: Template/parent product handling
+- variant_handler: Variant product handling
+- price_handler: Price synchronization
 
-The actual implementation is now in:
-- export/product_uploader.py - ShopwareProduct class
-- export/product_mapper.py - Field mapping
-- export/template_handler.py - Template products
-- export/variant_handler.py - Variant products
-- export/category_handler.py - Category sync
-- export/image_handler.py - Image sync
-- export/price_handler.py - Price sync
-- export/property_handler.py - Properties and custom fields
-- export/utils.py - Utility functions
-
-For new code, import directly from the export module:
+Usage:
     from ecommerce_integrations.shopware6.export import ShopwareProduct
+
+    product = ShopwareProduct(item_code="ITEM-001")
+    product.upload()
 """
 
-# Re-export everything from the new modules for backwards compatibility
-from ecommerce_integrations.shopware6.export import (
-    # Main class
+# Product uploader
+from ecommerce_integrations.shopware6.export.product_uploader import (
     ShopwareProduct,
-    # Upload functions
     upload_erpnext_item_to_shopware,
+)
+
+# Template/Variant handlers
+from ecommerce_integrations.shopware6.export.template_handler import (
     upload_template_item_to_shopware,
+)
+from ecommerce_integrations.shopware6.export.variant_handler import (
     upload_variant_item_to_shopware,
     sync_all_variants,
-    # Categories
+)
+
+# Category handling
+from ecommerce_integrations.shopware6.export.category_handler import (
     sync_category_hierarchy,
     sync_all_item_categories,
     get_or_create_category,
     sync_item_group_to_shopware,
-    # Images
+)
+
+# Image handling
+from ecommerce_integrations.shopware6.export.image_handler import (
     sync_product_images_to_shopware,
     upload_media_to_shopware,
-    # Prices
+)
+
+# Price handling
+from ecommerce_integrations.shopware6.export.price_handler import (
     sync_product_price,
     sync_bulk_prices,
     update_item_price_in_shopware,
     get_item_price,
-    # Mapper
+)
+
+# Product mapper
+from ecommerce_integrations.shopware6.export.product_mapper import (
     map_erpnext_item_to_shopware,
     get_tax_id_by_rate,
     get_or_create_manufacturer,
     get_cached_currency_id,
     get_cached_sales_channel_id,
-    # Properties
+)
+
+# Property handling
+from ecommerce_integrations.shopware6.export.property_handler import (
     get_or_create_property_group,
     get_or_create_property_option,
     get_item_properties,
     get_item_custom_fields,
     ensure_shopware_custom_field_set,
-    # Utils
+)
+
+# Utils
+from ecommerce_integrations.shopware6.export.utils import (
     generate_uuid,
     sanitize_filename,
     get_shopware_document_id,
     get_field_mappings,
-    # Reconciliation
+)
+
+# Reconciliation
+from ecommerce_integrations.shopware6.export.reconciliation import (
     sync_all_categories_to_shopware,
     reconcile_erpnext_with_shopware,
     reconcile_all_to_shopware,
@@ -67,14 +92,6 @@ from ecommerce_integrations.shopware6.export import (
     enqueue_full_reconciliation_with_categories,
     cleanup_orphaned_shopware_categories,
 )
-
-# Additional re-exports for bulk_sync.py compatibility
-from ecommerce_integrations.shopware6.export.property_handler import (
-    get_or_create_variant_option,
-)
-
-# Cache management
-from ecommerce_integrations.shopware6.base.cache_manager import clear_shopware_cache
 
 __all__ = [
     # Main class
@@ -106,7 +123,6 @@ __all__ = [
     # Properties
     "get_or_create_property_group",
     "get_or_create_property_option",
-    "get_or_create_variant_option",
     "get_item_properties",
     "get_item_custom_fields",
     "ensure_shopware_custom_field_set",
@@ -123,6 +139,4 @@ __all__ = [
     "enqueue_full_reconciliation",
     "enqueue_full_reconciliation_with_categories",
     "cleanup_orphaned_shopware_categories",
-    # Cache
-    "clear_shopware_cache",
 ]

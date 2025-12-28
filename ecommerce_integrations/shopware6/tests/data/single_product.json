@@ -1,0 +1,45 @@
+{
+    "id": "test-product-id-123",
+    "productNumber": "TEST-001",
+    "name": "Test Product",
+    "description": "A test product for testing",
+    "active": true,
+    "stock": 100,
+    "availableStock": 100,
+    "isCloseout": false,
+    "manufacturerNumber": "MFR-001",
+    "ean": "1234567890123",
+    "weight": 1.5,
+    "width": 10.0,
+    "height": 5.0,
+    "length": 20.0,
+    "price": [
+        {
+            "currencyId": "currency-eur-id",
+            "gross": 59.99,
+            "net": 50.41,
+            "linked": false
+        }
+    ],
+    "taxId": "tax-19-id",
+    "tax": {
+        "id": "tax-19-id",
+        "taxRate": 19.0,
+        "name": "Standard rate"
+    },
+    "categories": [
+        {
+            "id": "category-id-1",
+            "name": "Test Category"
+        }
+    ],
+    "media": [],
+    "cover": null,
+    "customFields": {
+        "custom_erpnext_item_code": "TEST-001"
+    },
+    "parentId": null,
+    "childCount": 0,
+    "createdAt": "2024-01-15T10:30:00.000+00:00",
+    "updatedAt": "2024-01-15T10:30:00.000+00:00"
+}

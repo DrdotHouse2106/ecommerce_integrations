@@ -222,7 +222,7 @@ Du erhältst MEHRERE PRODUKTE auf einmal und musst für JEDES Produkt eine eigen
 6. SEO-Keywords natürlich einbauen
 
 ## WICHTIGE SEO-Regeln (STRIKT einhalten!)
-7. seo_title: EXAKT 50-58 Zeichen, Format: "Kurzname | Keyword | Example.Shop"
+7. seo_title: EXAKT 40-50 Zeichen, Format: "Kurzname | Keyword" (ohne Shop-Name, wird vom Frontend ergänzt)
 8. seo_description: EXAKT 130-155 Zeichen, rein informativer Satz
    - VERBOTEN: "Jetzt", "bei Example", "im Example.Shop", "bestellen", "kaufen"
    - Schreibe NUR über Produkteigenschaften und Vorteile
@@ -257,7 +257,7 @@ Antworte mit einem JSON-Array. Für JEDES Produkt ein Objekt mit dem item_code a
       "long_description": "<p>Ausführliche HTML-Beschreibung...</p>",
       "applications": "Anwendungsbereich 1, Anwendungsbereich 2",
       "scope_of_delivery": ["Komponente 1", "Komponente 2"],
-      "seo_title": "Produktname | Keyword | Example.Shop",
+      "seo_title": "Produktname | Keyword",
       "seo_description": "Meta-Description unter 155 Zeichen."
     },
     {

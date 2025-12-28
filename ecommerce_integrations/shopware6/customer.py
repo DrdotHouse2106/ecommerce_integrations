@@ -559,17 +559,7 @@ def create_customer_contact(customer: str, customer_data: Dict[str, Any], is_pri
     salutation_data = customer_data.get("salutation", {})
     phone = customer_data.get("phone", "") or customer_data.get("phoneNumber", "")
 
-    # Debug: Log the salutation mapping
-    frappe.logger("shopware6").info(
-        f"create_customer_contact: salutation_data type={type(salutation_data)}, "
-        f"value={salutation_data}"
-    )
-
     salutation, gender = map_shopware_salutation(salutation_data)
-    
-    frappe.logger("shopware6").info(
-        f"create_customer_contact: mapped salutation={salutation}, gender={gender}"
-    )
 
     contact = frappe.get_doc({
         "doctype": "Contact",

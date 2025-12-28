@@ -133,7 +133,7 @@ def send_invoice_email(sales_invoice_name: str, setting) -> bool:
         return False
 
 
-def handle_transaction_state_change(payload: Dict[str, Any], request_id: str = None):
+def handle_transaction_state_change(payload: Dict[str, Any], request_id: str = None, retry_count: int = 0):
     """
     Handle order transaction state change from Shopware webhook.
 
@@ -145,9 +145,14 @@ def handle_transaction_state_change(payload: Dict[str, Any], request_id: str = N
     Args:
         payload: Webhook payload from Shopware
         request_id: Log entry ID for tracking
+        retry_count: Number of retry attempts (used for delayed retry when order doesn't exist yet)
     """
     frappe.set_user("Administrator")
     frappe.flags.request_id = request_id
+
+    # Maximum retry attempts and delay configuration
+    MAX_RETRIES = 3
+    RETRY_DELAYS = [5, 10, 20]  # Seconds to wait before each retry
 
     try:
         # Extract data from payload
@@ -166,6 +171,7 @@ def handle_transaction_state_change(payload: Dict[str, Any], request_id: str = N
         frappe.logger("shopware6").info(
             f"Transaction state change: Order {order_number}, "
             f"Transaction {transaction_id}, {previous_state} -> {new_state}"
+            f" (retry {retry_count}/{MAX_RETRIES})"
         )
 
         # Find the Sales Order
@@ -176,13 +182,40 @@ def handle_transaction_state_change(payload: Dict[str, Any], request_id: str = N
         )
 
         if not sales_order_name:
-            if request_id:
-                update_shopware_log(
-                    request_id,
-                    status="Skipped",
-                    message=f"No Sales Order found for Shopware order {order_id}"
+            # Order doesn't exist yet - this can happen due to race condition
+            # where payment webhook arrives before order.placed webhook is processed
+            if retry_count < MAX_RETRIES:
+                delay = RETRY_DELAYS[retry_count] if retry_count < len(RETRY_DELAYS) else RETRY_DELAYS[-1]
+                frappe.logger("shopware6").info(
+                    f"Sales Order not found for {order_id}, retrying in {delay}s ({retry_count + 1}/{MAX_RETRIES})"
                 )
-            return
+
+                # Update log to show pending retry
+                if request_id:
+                    update_shopware_log(
+                        request_id,
+                        status="Pending",
+                        message=f"Order not found, waiting {delay}s for retry {retry_count + 1}/{MAX_RETRIES}"
+                    )
+
+                # Wait and then retry directly (within same request context)
+                import time
+                time.sleep(delay)
+
+                # Retry by calling this function recursively
+                return handle_transaction_state_change(payload, request_id, retry_count + 1)
+            else:
+                # All retries exhausted
+                if request_id:
+                    update_shopware_log(
+                        request_id,
+                        status="Skipped",
+                        message=f"No Sales Order found for Shopware order {order_id} after {MAX_RETRIES} retries"
+                    )
+                frappe.logger("shopware6").warning(
+                    f"Payment webhook for order {order_id} skipped: order not found after {MAX_RETRIES} retries"
+                )
+                return
 
         # Map the state to ERPNext payment status
         erpnext_status = PAYMENT_STATE_MAP.get(new_state)

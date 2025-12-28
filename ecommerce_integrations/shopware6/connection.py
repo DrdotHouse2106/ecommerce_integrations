@@ -273,8 +273,19 @@ def webhook_handler():
             ):
                 frappe.throw(_("Invalid webhook signature"))
 
-        # Parse payload
-        data = json.loads(frappe.request.data)
+        # Parse payload with error handling
+        try:
+            data = json.loads(frappe.request.data)
+        except json.JSONDecodeError as e:
+            from ecommerce_integrations.shopware6.utils import create_shopware_log
+            create_shopware_log(
+                method="webhook_handler",
+                request_data={"raw": frappe.request.data.decode("utf-8", errors="replace")[:1000]},
+                status="Error",
+                message=f"Invalid JSON in webhook payload: {e}"
+            )
+            frappe.throw(_("Invalid webhook payload format"))
+
         event_type = data.get("event", "unknown")
 
         # Process webhook based on event type

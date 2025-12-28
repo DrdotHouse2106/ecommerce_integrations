@@ -1,0 +1,952 @@
+"""
+Shopware 6 Reconciliation Module
+
+Handles full reconciliation between ERPNext and Shopware:
+- Category sync (all categories under root)
+- Product comparison and sync
+- Batch processing for large datasets
+- Background job support
+
+Usage:
+    # Quick reconciliation
+    from ecommerce_integrations.shopware6.export.reconciliation import (
+        full_reconciliation,
+        enqueue_full_reconciliation,
+    )
+
+    # Run synchronously (small datasets)
+    result = full_reconciliation(limit=100, sync_images=True)
+
+    # Run in background (large datasets)
+    enqueue_full_reconciliation(batch_size=50, sync_images=True)
+"""
+
+from typing import Any, Dict, List, Optional, Tuple
+from frappe.utils import flt, now, cint, create_batch
+
+import frappe
+from frappe import _
+
+from ecommerce_integrations.shopware6.connection import (
+    temp_shopware_session,
+    get_shopware_client,
+)
+from ecommerce_integrations.shopware6.constants import (
+    MODULE_NAME,
+    SETTING_DOCTYPE,
+    ITEM_SELLING_RATE_FIELD,
+)
+from ecommerce_integrations.shopware6.utils import create_shopware_log
+
+
+# =============================================================================
+# CATEGORY RECONCILIATION
+# =============================================================================
+
+@frappe.whitelist()
+@temp_shopware_session
+def sync_all_categories_to_shopware(
+    client,
+    root_category: str = None,
+    skip_root: bool = False,
+    sync_empty_categories: bool = True,
+    dry_run: bool = False
+) -> Dict[str, Any]:
+    """
+    Sync ALL Item Groups under a root category to Shopware.
+
+    Processes in tree order (parent before children) using lft ordering.
+
+    Args:
+        client: Shopware API client (injected by decorator)
+        root_category: Root category (defaults to setting)
+        skip_root: If True, don't sync the root category itself
+        sync_empty_categories: If True, sync categories even without products
+        dry_run: If True, only report what would be synced
+
+    Returns:
+        dict: Sync results with statistics
+    """
+    from ecommerce_integrations.shopware6.export.category_handler import sync_category_hierarchy
+
+    # Parse string parameters from frontend
+    skip_root = _parse_bool(skip_root)
+    sync_empty_categories = _parse_bool(sync_empty_categories)
+    dry_run = _parse_bool(dry_run)
+
+    setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+    if not setting.is_enabled():
+        return {"success": False, "message": "Shopware integration is not enabled"}
+
+    # Use setting default if not provided
+    if not root_category:
+        root_category = getattr(setting, 'category_sync_root', 'Produkte') or 'Produkte'
+
+    # Get root category info for nested set query
+    root_info = frappe.db.get_value(
+        "Item Group", root_category, ["lft", "rgt", "name"], as_dict=True
+    )
+    if not root_info:
+        return {"success": False, "message": f"Root category '{root_category}' not found"}
+
+    # Build filters for all descendants
+    filters = [
+        ["lft", ">=", root_info.lft],
+        ["rgt", "<=", root_info.rgt]
+    ]
+    if skip_root:
+        filters.append(["name", "!=", root_category])
+
+    # Get categories in tree order (parent before children)
+    categories = frappe.get_all(
+        "Item Group",
+        filters=filters,
+        fields=["name", "parent_item_group", "is_group"],
+        order_by="lft asc"
+    )
+
+    # Filter empty categories if requested
+    if not sync_empty_categories:
+        categories_with_products = set(frappe.get_all(
+            "Item", filters={"disabled": 0}, pluck="item_group"
+        ))
+        categories = [c for c in categories if c.name in categories_with_products]
+
+    stats = {"synced": 0, "skipped": 0, "errors": [], "total": len(categories)}
+
+    frappe.logger().info(
+        f"Category Sync: Processing {len(categories)} categories from '{root_category}'"
+    )
+
+    for cat in categories:
+        if dry_run:
+            stats["synced"] += 1
+            continue
+
+        try:
+            category_id = sync_category_hierarchy.__wrapped__(
+                client=client, item_group_name=cat.name
+            )
+            if category_id:
+                stats["synced"] += 1
+            else:
+                stats["skipped"] += 1
+        except Exception as e:
+            stats["errors"].append({"category": cat.name, "error": str(e)[:200]})
+            frappe.log_error(f"Category sync failed: {cat.name}: {e}", "Shopware Category Sync")
+
+        # Commit periodically
+        if stats["synced"] % 20 == 0:
+            frappe.db.commit()
+
+    frappe.db.commit()
+
+    create_shopware_log(
+        status="Success" if not stats["errors"] else "Partial",
+        message=f"Category sync: {stats['synced']}/{stats['total']} synced, {len(stats['errors'])} errors",
+        method="sync_all_categories_to_shopware"
+    )
+
+    return {
+        "success": True,
+        "dry_run": dry_run,
+        "statistics": stats,
+        "message": f"Synced {stats['synced']}/{stats['total']} categories" + (" (DRY RUN)" if dry_run else "")
+    }
+
+
+# =============================================================================
+# PRODUCT RECONCILIATION
+# =============================================================================
+
+def get_shopware_products_batch(
+    client,
+    product_ids: List[str],
+    include_categories: bool = True
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Fetch multiple products from Shopware in a single API call.
+
+    Args:
+        client: Shopware API client
+        product_ids: List of Shopware product UUIDs
+        include_categories: Include category associations
+
+    Returns:
+        Dict mapping product ID to product data
+    """
+    if not product_ids:
+        return {}
+
+    try:
+        search_payload = {
+            "limit": len(product_ids),
+            "ids": product_ids,
+            "associations": {
+                "media": {},
+                "cover": {"associations": {"media": {}}}
+            }
+        }
+        if include_categories:
+            search_payload["associations"]["categories"] = {}
+
+        response = client.request_post("search/product", search_payload)
+        return {p.get("id"): p for p in response.get("data", []) if p.get("id")}
+
+    except Exception as e:
+        frappe.log_error(f"Batch product fetch failed: {e}", "Shopware Reconciliation")
+        return {}
+
+
+def compare_item_with_shopware(
+    erpnext_item,
+    shopware_data: Dict[str, Any],
+    compare_categories: bool = True
+) -> Dict[str, Any]:
+    """
+    Compare ERPNext Item with Shopware product data.
+
+    Returns:
+        dict with needs_sync (bool), differences (list), details (dict)
+    """
+    differences = []
+    details = {}
+
+    # Name comparison
+    if erpnext_item.item_name != shopware_data.get("name", ""):
+        differences.append("name")
+        details["name"] = {"erpnext": erpnext_item.item_name, "shopware": shopware_data.get("name")}
+
+    # Description (priority: ai > web > description > item_name)
+    erpnext_desc = (
+        getattr(erpnext_item, 'ai_long_description', None) or
+        getattr(erpnext_item, 'web_long_description', None) or
+        erpnext_item.description or
+        erpnext_item.item_name
+    )
+    shopware_desc = shopware_data.get("description", "") or ""
+    if erpnext_desc and shopware_desc and erpnext_desc.strip() != shopware_desc.strip():
+        differences.append("description")
+
+    # Active status
+    erpnext_active = not erpnext_item.disabled
+    if erpnext_active != shopware_data.get("active", False):
+        differences.append("active")
+        details["active"] = {"erpnext": erpnext_active, "shopware": shopware_data.get("active")}
+
+    # Price (with tolerance)
+    erpnext_price = flt(erpnext_item.get(ITEM_SELLING_RATE_FIELD) or 0)
+    shopware_prices = shopware_data.get("price", [])
+    if shopware_prices and erpnext_price > 0:
+        shopware_net = flt(shopware_prices[0].get("net", 0))
+        if abs(erpnext_price - shopware_net) > 0.01:
+            differences.append("price")
+            details["price"] = {"erpnext": erpnext_price, "shopware": shopware_net}
+
+    # Weight
+    erpnext_weight = flt(erpnext_item.weight_per_unit or 0)
+    shopware_weight = flt(shopware_data.get("weight", 0))
+    if abs(erpnext_weight - shopware_weight) > 0.001:
+        differences.append("weight")
+
+    # Dimensions (ERPNext: cm, Shopware: mm)
+    for dim in ["height", "width", "length"]:
+        erpnext_val = flt(getattr(erpnext_item, f'item_{dim}', 0) or 0)
+        shopware_val = flt(shopware_data.get(dim, 0)) / 10 if shopware_data.get(dim) else 0
+        if abs(erpnext_val - shopware_val) > 0.01:
+            if "dimensions" not in differences:
+                differences.append("dimensions")
+            break
+
+    # Product number
+    if erpnext_item.item_code != shopware_data.get("productNumber", ""):
+        differences.append("productNumber")
+
+    # Categories
+    if compare_categories:
+        from ecommerce_integrations.shopware6.export.category_handler import get_all_item_categories
+        erpnext_cats = sorted(get_all_item_categories(erpnext_item.item_code) or [])
+        shopware_cats = sorted([
+            c.get("name") or c.get("translated", {}).get("name", "")
+            for c in shopware_data.get("categories", [])
+        ])
+        if erpnext_cats != shopware_cats:
+            differences.append("categories")
+            details["categories"] = {"erpnext": erpnext_cats, "shopware": shopware_cats}
+
+    # Images
+    erpnext_has_image = bool(erpnext_item.image)
+    shopware_has_image = bool(shopware_data.get("media")) or bool(
+        shopware_data.get("cover", {}).get("media")
+    )
+    if erpnext_has_image != shopware_has_image:
+        differences.append("image")
+
+    return {
+        "needs_sync": len(differences) > 0,
+        "differences": differences,
+        "details": details
+    }
+
+
+@frappe.whitelist()
+@temp_shopware_session
+def reconcile_erpnext_with_shopware(
+    client,
+    limit: int = 100,
+    dry_run: bool = False,
+    sync_images: bool = False,
+    include_unlinked: bool = False,
+    compare_categories: bool = True
+) -> Dict[str, Any]:
+    """
+    Compare all ERPNext items with Shopware and sync differences.
+
+    Args:
+        client: Shopware API client
+        limit: Maximum items to process
+        dry_run: Only report differences without syncing
+        sync_images: Also sync images for changed items
+        include_unlinked: Also sync items not yet in Shopware
+        compare_categories: Compare and sync categories
+
+    Returns:
+        Reconciliation results with statistics
+    """
+    from ecommerce_integrations.shopware6.export.product_uploader import upload_erpnext_item_to_shopware
+
+    # Parse parameters
+    dry_run = _parse_bool(dry_run)
+    sync_images = _parse_bool(sync_images)
+    include_unlinked = _parse_bool(include_unlinked)
+    compare_categories = _parse_bool(compare_categories)
+
+    setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+    if not setting.is_enabled():
+        return {"success": False, "message": "Shopware integration is not enabled"}
+
+    stats = {
+        "total_checked": 0, "in_sync": 0, "out_of_sync": 0,
+        "synced": 0, "sync_failed": 0, "not_in_shopware": 0,
+        "newly_synced": 0, "errors": []
+    }
+    out_of_sync_items = []
+    synced_items = []
+
+    # Get linked items
+    ecom_items = frappe.get_all(
+        "Ecommerce Item",
+        filters={"integration": MODULE_NAME},
+        fields=["erpnext_item_code", "integration_item_code", "has_variants"],
+        limit=cint(limit)
+    )
+
+    frappe.logger().info(f"Reconciliation: Checking {len(ecom_items)} linked items")
+
+    # Process in batches
+    batch_size = 50
+    for batch_start in range(0, len(ecom_items), batch_size):
+        batch = ecom_items[batch_start:batch_start + batch_size]
+        shopware_ids = [item.integration_item_code for item in batch]
+        shopware_products = get_shopware_products_batch(client, shopware_ids, compare_categories)
+
+        for ecom_item in batch:
+            stats["total_checked"] += 1
+            item_code = ecom_item.erpnext_item_code
+            shopware_id = ecom_item.integration_item_code
+
+            try:
+                erpnext_item = frappe.get_doc("Item", item_code)
+                shopware_data = shopware_products.get(shopware_id)
+
+                if not shopware_data:
+                    stats["not_in_shopware"] += 1
+                    stats["errors"].append({
+                        "item": item_code, "error": "Not found in Shopware"
+                    })
+                    continue
+
+                comparison = compare_item_with_shopware(
+                    erpnext_item, shopware_data, compare_categories
+                )
+
+                if comparison["needs_sync"]:
+                    stats["out_of_sync"] += 1
+                    out_of_sync_items.append({
+                        "item_code": item_code,
+                        "differences": comparison["differences"]
+                    })
+
+                    if not dry_run:
+                        try:
+                            # Temporarily disable image sync unless requested
+                            orig_img = getattr(setting, 'sync_images_to_shopware', True)
+                            if not sync_images:
+                                setting.sync_images_to_shopware = False
+
+                            upload_erpnext_item_to_shopware(doc=erpnext_item)
+                            setting.sync_images_to_shopware = orig_img
+
+                            stats["synced"] += 1
+                            synced_items.append({
+                                "item_code": item_code,
+                                "differences": comparison["differences"]
+                            })
+                        except Exception as e:
+                            stats["sync_failed"] += 1
+                            stats["errors"].append({"item": item_code, "error": str(e)[:200]})
+                else:
+                    stats["in_sync"] += 1
+
+            except Exception as e:
+                stats["errors"].append({"item": item_code, "error": str(e)[:200]})
+
+        # Commit periodically
+        if stats["total_checked"] % 20 == 0:
+            frappe.db.commit()
+
+    # Optionally sync unlinked items
+    if include_unlinked and not dry_run:
+        synced_codes = [e.erpnext_item_code for e in ecom_items]
+        unlinked = frappe.get_all(
+            "Item",
+            filters={
+                "disabled": 0, "has_variants": 0,
+                "variant_of": ["is", "not set"],
+                "name": ["not in", synced_codes] if synced_codes else ["is", "set"]
+            },
+            pluck="name",
+            limit=cint(limit) - stats["total_checked"]
+        )
+        for item_code in unlinked:
+            try:
+                item = frappe.get_doc("Item", item_code)
+                upload_erpnext_item_to_shopware(doc=item)
+                stats["newly_synced"] += 1
+            except Exception as e:
+                stats["errors"].append({"item": item_code, "error": str(e)[:150]})
+
+    frappe.db.commit()
+
+    result = {
+        "success": True,
+        "dry_run": dry_run,
+        "statistics": stats,
+        "message": f"Checked {stats['total_checked']} items: {stats['in_sync']} in sync, {stats['out_of_sync']} out of sync"
+    }
+
+    if dry_run:
+        result["out_of_sync_items"] = out_of_sync_items[:50]
+        result["message"] += " (DRY RUN)"
+    else:
+        result["synced_items"] = synced_items[:50]
+        result["message"] += f", {stats['synced']} synced"
+
+    if stats["errors"]:
+        result["errors"] = stats["errors"][:20]
+
+    create_shopware_log(
+        status="Success",
+        message=result["message"],
+        method="reconcile_erpnext_with_shopware"
+    )
+
+    return result
+
+
+@frappe.whitelist()
+def reconcile_all_to_shopware(
+    limit: int = 100,
+    dry_run: bool = False,
+    sync_images: bool = False,
+    compare_categories: bool = True
+) -> Dict[str, Any]:
+    """
+    Convenience wrapper for reconcile_erpnext_with_shopware.
+
+    Can be called from frontend without client parameter.
+    """
+    return reconcile_erpnext_with_shopware(
+        limit=cint(limit),
+        dry_run=_parse_bool(dry_run),
+        sync_images=_parse_bool(sync_images),
+        include_unlinked=False,
+        compare_categories=_parse_bool(compare_categories)
+    )
+
+
+# =============================================================================
+# FULL RECONCILIATION (Categories + Products)
+# =============================================================================
+
+@frappe.whitelist()
+def full_reconciliation(
+    limit: int = 500,
+    dry_run: bool = False,
+    sync_images: bool = False,
+    include_unlinked: bool = False,
+    category_root: str = None,
+    skip_root_category: bool = False,
+    sync_empty_categories: bool = True,
+    cleanup_orphaned_categories: bool = False
+) -> Dict[str, Any]:
+    """
+    Full reconciliation: Categories first, then Products.
+
+    Args:
+        limit: Maximum products to process
+        dry_run: Only report differences without syncing
+        sync_images: Also sync images for changed items
+        include_unlinked: Also sync products not yet in Shopware
+        category_root: Root category for sync
+        skip_root_category: Skip the root category itself
+        sync_empty_categories: Sync categories even without products
+        cleanup_orphaned_categories: Delete Shopware categories not in ERPNext
+
+    Returns:
+        Combined results from category and product sync
+    """
+    # Parse parameters
+    dry_run = _parse_bool(dry_run)
+    sync_images = _parse_bool(sync_images)
+    include_unlinked = _parse_bool(include_unlinked)
+    skip_root_category = _parse_bool(skip_root_category)
+    sync_empty_categories = _parse_bool(sync_empty_categories)
+    cleanup_orphaned_categories = _parse_bool(cleanup_orphaned_categories)
+
+    setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+    if not category_root:
+        category_root = getattr(setting, 'category_sync_root', 'Produkte') or 'Produkte'
+
+    results = {
+        "success": True,
+        "dry_run": dry_run,
+        "category_sync": None,
+        "product_sync": None,
+        "category_cleanup": None
+    }
+
+    frappe.logger().info(
+        f"Full Reconciliation: Starting (categories: {category_root}, products: {limit})"
+    )
+
+    # Phase 1: Sync categories
+    _notify_user("Phase 1/3: Syncing categories...", "blue")
+    results["category_sync"] = sync_all_categories_to_shopware(
+        root_category=category_root,
+        skip_root=skip_root_category,
+        sync_empty_categories=sync_empty_categories,
+        dry_run=dry_run
+    )
+
+    # Phase 2: Sync products
+    _notify_user("Phase 2/3: Syncing products...", "blue")
+    results["product_sync"] = reconcile_erpnext_with_shopware(
+        limit=cint(limit),
+        dry_run=dry_run,
+        sync_images=sync_images,
+        include_unlinked=include_unlinked,
+        compare_categories=True
+    )
+
+    # Phase 3: Cleanup orphaned categories
+    if cleanup_orphaned_categories:
+        _notify_user("Phase 3/3: Cleaning up orphaned categories...", "blue")
+        results["category_cleanup"] = cleanup_orphaned_shopware_categories(
+            root_category=category_root,
+            dry_run=dry_run
+        )
+
+    # Build summary message
+    cat_stats = results["category_sync"].get("statistics", {})
+    prod_stats = results["product_sync"].get("statistics", {})
+
+    message_parts = [
+        f"Categories: {cat_stats.get('synced', 0)}/{cat_stats.get('total', 0)}",
+        f"Products: {prod_stats.get('synced', 0)}/{prod_stats.get('total_checked', 0)}"
+    ]
+
+    if cleanup_orphaned_categories and results.get("category_cleanup"):
+        cleanup_stats = results["category_cleanup"].get("statistics", {})
+        message_parts.append(f"Cleanup: {cleanup_stats.get('deleted', 0)} deleted")
+
+    results["message"] = ". ".join(message_parts)
+    if dry_run:
+        results["message"] += " (DRY RUN)"
+
+    create_shopware_log(
+        status="Success",
+        message=results["message"],
+        method="full_reconciliation"
+    )
+
+    return results
+
+
+@frappe.whitelist()
+@temp_shopware_session
+def cleanup_orphaned_shopware_categories(
+    client,
+    root_category: str = None,
+    dry_run: bool = True
+) -> Dict[str, Any]:
+    """
+    Delete categories in Shopware that no longer exist in ERPNext.
+
+    Args:
+        client: Shopware API client
+        root_category: ERPNext root category to compare against
+        dry_run: If True, only report what would be deleted
+
+    Returns:
+        Cleanup results with statistics
+    """
+    dry_run = _parse_bool(dry_run)
+
+    setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+    if not setting.is_enabled():
+        return {"success": False, "message": "Shopware integration is not enabled"}
+
+    if not root_category:
+        root_category = getattr(setting, 'category_sync_root', 'Produkte') or 'Produkte'
+
+    # Get ERPNext categories
+    root_info = frappe.db.get_value("Item Group", root_category, ["lft", "rgt"], as_dict=True)
+    if not root_info:
+        return {"success": False, "message": f"Root category '{root_category}' not found"}
+
+    erpnext_categories = set(frappe.get_all(
+        "Item Group",
+        filters=[["lft", ">=", root_info.lft], ["rgt", "<=", root_info.rgt]],
+        pluck="name"
+    )) - {"All Item Groups", "Alle Artikelgruppen"}
+
+    # Get Shopware categories
+    try:
+        all_shopware_cats = []
+        page = 1
+        while True:
+            response = client.request_post("search/category", {
+                "limit": 100, "page": page,
+                "filter": [{"type": "not", "queries": [
+                    {"type": "equals", "field": "parentId", "value": None}
+                ]}]
+            })
+            cats = response.get("data", [])
+            if not cats:
+                break
+            all_shopware_cats.extend(cats)
+            if len(cats) < 100:
+                break
+            page += 1
+    except Exception as e:
+        return {"success": False, "message": f"Failed to fetch Shopware categories: {e}"}
+
+    # Find orphaned
+    orphaned = [
+        {"id": c.get("id"), "name": c.get("name"), "parent_id": c.get("parentId")}
+        for c in all_shopware_cats
+        if c.get("name") and c.get("name") not in erpnext_categories
+    ]
+
+    stats = {
+        "erpnext_count": len(erpnext_categories),
+        "shopware_count": len(all_shopware_cats),
+        "orphaned_count": len(orphaned),
+        "deleted": 0, "failed": 0, "errors": []
+    }
+
+    if not orphaned:
+        return {
+            "success": True, "dry_run": dry_run, "statistics": stats,
+            "message": "No orphaned categories found"
+        }
+
+    if not dry_run:
+        # Delete leaf categories first
+        orphaned_ids = {c["id"] for c in orphaned}
+        for cat in orphaned:
+            cat["has_children"] = any(o["parent_id"] == cat["id"] for o in orphaned)
+        orphaned.sort(key=lambda x: x.get("has_children", False))
+
+        for cat in orphaned:
+            try:
+                client.request_delete(f"category/{cat['id']}")
+                stats["deleted"] += 1
+            except Exception as e:
+                stats["failed"] += 1
+                stats["errors"].append({"category": cat["name"], "error": str(e)[:100]})
+
+    return {
+        "success": True,
+        "dry_run": dry_run,
+        "statistics": stats,
+        "orphaned_categories": [c["name"] for c in orphaned[:20]],
+        "message": f"Found {len(orphaned)} orphaned, deleted {stats['deleted']}" + (" (DRY RUN)" if dry_run else "")
+    }
+
+
+# =============================================================================
+# BACKGROUND JOB SUPPORT
+# =============================================================================
+
+RECONCILIATION_JOB_NAME = "shopware6.reconciliation.full"
+
+
+@frappe.whitelist()
+def enqueue_full_reconciliation(
+    batch_size: int = 50,
+    sync_images: bool = True,
+    compare_categories: bool = True
+) -> Dict[str, Any]:
+    """
+    Enqueue full reconciliation to run in background.
+
+    Uses batch processing with commits to avoid transaction errors.
+
+    Args:
+        batch_size: Items per batch
+        sync_images: Sync images for changed items
+        compare_categories: Compare categories
+
+    Returns:
+        Job enqueue status
+    """
+    from frappe.utils.background_jobs import is_job_enqueued
+
+    sync_images = _parse_bool(sync_images)
+    compare_categories = _parse_bool(compare_categories)
+
+    if is_job_enqueued(RECONCILIATION_JOB_NAME):
+        return {
+            "success": False,
+            "message": "A reconciliation job is already running."
+        }
+
+    log = create_shopware_log(
+        status="Queued",
+        method="enqueue_full_reconciliation",
+        message="Full reconciliation queued"
+    )
+
+    frappe.enqueue(
+        "ecommerce_integrations.shopware6.export.reconciliation._run_batch_reconciliation",
+        queue="long",
+        timeout=14400,  # 4 hours
+        job_name=RECONCILIATION_JOB_NAME,
+        batch_size=cint(batch_size),
+        sync_images=sync_images,
+        compare_categories=compare_categories,
+        log_name=log.name if log else None
+    )
+
+    return {
+        "success": True,
+        "message": f"Reconciliation job enqueued (batch_size={batch_size})",
+        "job_queue": "long",
+        "log_name": log.name if log else None
+    }
+
+
+@frappe.whitelist()
+def enqueue_full_reconciliation_with_categories(
+    limit: int = 500,
+    dry_run: bool = False,
+    sync_images: bool = False,
+    include_unlinked: bool = False,
+    category_root: str = None,
+    skip_root_category: bool = None,
+    sync_empty_categories: bool = None,
+    cleanup_orphaned_categories: bool = False
+) -> Dict[str, Any]:
+    """
+    Enqueue full reconciliation (categories + products) as background job.
+
+    Args:
+        limit: Maximum products to process
+        dry_run: Only report differences
+        sync_images: Sync images for changed items
+        include_unlinked: Sync products not yet in Shopware
+        category_root: Root category (uses setting default if not provided)
+        skip_root_category: Skip root category
+        sync_empty_categories: Sync empty categories
+        cleanup_orphaned_categories: Delete orphaned categories
+
+    Returns:
+        Job enqueue status
+    """
+    # Parse parameters
+    dry_run = _parse_bool(dry_run)
+    sync_images = _parse_bool(sync_images)
+    include_unlinked = _parse_bool(include_unlinked)
+    cleanup_orphaned_categories = _parse_bool(cleanup_orphaned_categories)
+
+    setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+
+    if category_root is None:
+        category_root = getattr(setting, 'category_sync_root', 'Produkte') or 'Produkte'
+    if skip_root_category is None:
+        skip_root_category = getattr(setting, 'skip_root_category', False)
+    if sync_empty_categories is None:
+        sync_empty_categories = getattr(setting, 'sync_empty_categories', True)
+
+    skip_root_category = _parse_bool(skip_root_category)
+    sync_empty_categories = _parse_bool(sync_empty_categories)
+
+    frappe.enqueue(
+        "ecommerce_integrations.shopware6.export.reconciliation.full_reconciliation",
+        queue="long",
+        timeout=3600,
+        job_name=f"shopware6_full_reconciliation_{frappe.utils.now()}",
+        limit=cint(limit),
+        dry_run=dry_run,
+        sync_images=sync_images,
+        include_unlinked=include_unlinked,
+        category_root=category_root,
+        skip_root_category=skip_root_category,
+        sync_empty_categories=sync_empty_categories,
+        cleanup_orphaned_categories=cleanup_orphaned_categories
+    )
+
+    cleanup_info = " + cleanup" if cleanup_orphaned_categories else ""
+    return {
+        "success": True,
+        "message": f"Full reconciliation enqueued (categories: '{category_root}', products: {limit}{cleanup_info})",
+        "dry_run": dry_run
+    }
+
+
+def _run_batch_reconciliation(
+    batch_size: int = 50,
+    sync_images: bool = True,
+    compare_categories: bool = True,
+    log_name: str = None
+):
+    """
+    Internal batch reconciliation runner.
+
+    Processes all items in batches with:
+    - Commits between batches
+    - Fresh Shopware session per batch
+    - Progress logging
+    """
+    from ecommerce_integrations.shopware6.export.product_uploader import upload_erpnext_item_to_shopware
+
+    setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+    if not setting.is_enabled():
+        frappe.logger().error("Shopware integration not enabled")
+        return
+
+    # Get ALL linked items
+    ecom_items = frappe.get_all(
+        "Ecommerce Item",
+        filters={"integration": MODULE_NAME},
+        fields=["erpnext_item_code", "integration_item_code"],
+        order_by="modified desc"
+    )
+
+    total_items = len(ecom_items)
+    frappe.logger().info(f"[Reconciliation] Starting for {total_items} items")
+
+    stats = {
+        "total": total_items, "processed": 0, "in_sync": 0,
+        "synced": 0, "errors": 0, "start_time": now()
+    }
+
+    batch_num = 0
+    for batch in create_batch(ecom_items, batch_size):
+        batch_num += 1
+
+        try:
+            client = get_shopware_client()
+            shopware_ids = [item.integration_item_code for item in batch]
+            shopware_products = get_shopware_products_batch(client, shopware_ids, compare_categories)
+
+            for ecom_item in batch:
+                item_code = ecom_item.erpnext_item_code
+                shopware_id = ecom_item.integration_item_code
+
+                try:
+                    erpnext_item = frappe.get_doc("Item", item_code)
+                    shopware_data = shopware_products.get(shopware_id)
+
+                    if not shopware_data:
+                        stats["errors"] += 1
+                        stats["processed"] += 1
+                        continue
+
+                    comparison = compare_item_with_shopware(
+                        erpnext_item, shopware_data, compare_categories
+                    )
+
+                    if comparison["needs_sync"]:
+                        orig_img = getattr(setting, 'sync_images_to_shopware', True)
+                        if not sync_images:
+                            setting.sync_images_to_shopware = False
+
+                        upload_erpnext_item_to_shopware(doc=erpnext_item)
+                        setting.sync_images_to_shopware = orig_img
+                        stats["synced"] += 1
+                    else:
+                        stats["in_sync"] += 1
+
+                    stats["processed"] += 1
+
+                except Exception as e:
+                    stats["errors"] += 1
+                    stats["processed"] += 1
+                    frappe.logger().warning(f"[Reconciliation] Error: {item_code}: {e}")
+
+            frappe.db.commit()
+
+            # Log progress every 5 batches
+            if batch_num % 5 == 0:
+                pct = round(stats["processed"] / total_items * 100, 1)
+                frappe.logger().info(
+                    f"[Reconciliation] {pct}% - Synced: {stats['synced']}, "
+                    f"In Sync: {stats['in_sync']}, Errors: {stats['errors']}"
+                )
+
+        except Exception as e:
+            frappe.logger().error(f"[Reconciliation] Batch {batch_num} failed: {e}")
+            frappe.db.rollback()
+
+    stats["end_time"] = now()
+    frappe.logger().info(
+        f"[Reconciliation] COMPLETED - Synced: {stats['synced']}, "
+        f"In Sync: {stats['in_sync']}, Errors: {stats['errors']}"
+    )
+
+    if log_name:
+        try:
+            frappe.db.set_value("Shopware Log", log_name, {
+                "status": "Success",
+                "message": f"Completed: {stats['synced']} synced, {stats['in_sync']} in sync, {stats['errors']} errors"
+            })
+            frappe.db.commit()
+        except Exception:
+            pass
+
+    return stats
+
+
+# =============================================================================
+# UTILITIES
+# =============================================================================
+
+def _parse_bool(value) -> bool:
+    """Parse string/bool to boolean."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in ("true", "1", "yes")
+    return bool(value)
+
+
+def _notify_user(message: str, indicator: str = "blue"):
+    """Send realtime notification to user."""
+    frappe.publish_realtime(
+        "msgprint",
+        {"message": message, "indicator": indicator},
+        user=frappe.session.user
+    )
