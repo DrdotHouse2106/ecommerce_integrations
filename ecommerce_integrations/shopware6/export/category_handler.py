@@ -292,6 +292,9 @@ def upload_category_media(client, category_id: str, image_path: str) -> Optional
         if ext not in ["jpg", "jpeg", "png", "gif", "webp"]:
             ext = "jpg"
 
+        # Remove extension from filename - Shopware appends it from 'extension' parameter
+        filename_without_ext = filename.rsplit(".", 1)[0] if "." in filename else filename
+
         # Check if media exists
         media_exists = False
         try:
@@ -315,7 +318,7 @@ def upload_category_media(client, category_id: str, image_path: str) -> Optional
                 f"_action/media/{media_id}/upload",
                 payload=image_content,
                 content_type="octet-stream",
-                additional_query_params={"extension": ext, "fileName": filename}
+                additional_query_params={"extension": ext, "fileName": filename_without_ext}
             )
         except BaseException as e:
             error_str = str(e).lower()
