@@ -5,8 +5,10 @@ Manages category synchronization from ERPNext Item Groups to Shopware categories
 Supports hierarchy sync, FAQ custom fields, SEO fields, and category images.
 """
 
-import os
+import hashlib
 import mimetypes
+import os
+import time
 from typing import Any, Dict, List, Optional
 
 import frappe
@@ -245,6 +247,53 @@ def get_or_create_media_folder(client, folder_name: str) -> Optional[str]:
         return None
 
 
+def get_image_content_and_filename(image_path: str) -> tuple:
+    """
+    Get image content and filename from a path (local or URL).
+
+    Args:
+        image_path: Local file path or URL
+
+    Returns:
+        Tuple of (image_content, filename, extension) or (None, None, None) on error
+    """
+    try:
+        if image_path.startswith("http"):
+            response = requests.get(image_path, timeout=30)
+            if response.status_code != 200:
+                return None, None, None
+            image_content = response.content
+            filename = image_path.split("/")[-1].split("?")[0]
+        else:
+            if image_path.startswith("/files/"):
+                full_path = get_files_path() + image_path[6:]
+            elif image_path.startswith("/private/files/"):
+                full_path = get_files_path(is_private=True) + image_path[14:]
+            else:
+                full_path = image_path
+
+            if not os.path.exists(full_path):
+                return None, None, None
+
+            with open(full_path, "rb") as f:
+                image_content = f.read()
+            filename = sanitize_filename(os.path.basename(full_path))
+
+        # Extract extension
+        ext = filename.split(".")[-1].lower() if "." in filename else "jpg"
+        if ext not in ["jpg", "jpeg", "png", "gif", "webp"]:
+            ext = "jpg"
+
+        # Remove extension from filename (Shopware appends it from 'extension' parameter)
+        filename_without_ext = filename.rsplit(".", 1)[0] if "." in filename else filename
+
+        return image_content, filename_without_ext, ext
+
+    except Exception as e:
+        frappe.log_error(f"Failed to get image content from {image_path}: {e}")
+        return None, None, None
+
+
 def upload_category_media(client, category_id: str, image_path: str) -> Optional[str]:
     """
     Upload and assign media to a category in Shopware.
@@ -264,36 +313,10 @@ def upload_category_media(client, category_id: str, image_path: str) -> Optional
 
         media_id = generate_uuid(f"category_media_{category_id}")
 
-        # Get image content
-        if image_path.startswith("http"):
-            response = requests.get(image_path, timeout=30)
-            if response.status_code != 200:
-                return None
-            image_content = response.content
-            content_type = response.headers.get("Content-Type", "image/jpeg")
-            filename = image_path.split("/")[-1].split("?")[0]
-        else:
-            if image_path.startswith("/files/"):
-                full_path = get_files_path() + image_path[6:]
-            elif image_path.startswith("/private/files/"):
-                full_path = get_files_path(is_private=True) + image_path[14:]
-            else:
-                full_path = image_path
-
-            if not os.path.exists(full_path):
-                return None
-
-            with open(full_path, "rb") as f:
-                image_content = f.read()
-            content_type = mimetypes.guess_type(full_path)[0] or "image/jpeg"
-            filename = sanitize_filename(os.path.basename(full_path))
-
-        ext = filename.split(".")[-1].lower() if "." in filename else "jpg"
-        if ext not in ["jpg", "jpeg", "png", "gif", "webp"]:
-            ext = "jpg"
-
-        # Remove extension from filename - Shopware appends it from 'extension' parameter
-        filename_without_ext = filename.rsplit(".", 1)[0] if "." in filename else filename
+        # Get image content using helper
+        image_content, filename_without_ext, ext = get_image_content_and_filename(image_path)
+        if not image_content:
+            return None
 
         # Check if media exists
         media_exists = False
@@ -598,6 +621,123 @@ def clear_product_categories(client, product_id: str) -> bool:
         return True
     except Exception as e:
         frappe.log_error(f"Error clearing categories for product {product_id}: {e}")
+        return False
+
+
+@frappe.whitelist()
+@temp_shopware_session
+def force_resync_category_image(client, item_group_name: str) -> bool:
+    """
+    Force resync category image by deleting old media and creating fresh one.
+
+    Args:
+        client: Shopware API client
+        item_group_name: ERPNext Item Group name
+
+    Returns:
+        True if successful
+    """
+    try:
+        # Find category in Shopware
+        response = client.request_post(
+            "search/category",
+            {"filter": [{"type": "equals", "field": "name", "value": item_group_name}]}
+        )
+        categories = response.get("data", [])
+
+        if not categories:
+            frappe.log_error(f"Category not found in Shopware: {item_group_name}")
+            return False
+
+        cat = categories[0]
+        cat_id = cat["id"]
+        old_media_id = cat.get("mediaId")
+
+        # Remove media reference from category first
+        if old_media_id:
+            try:
+                client.request_patch(f"category/{cat_id}", {"mediaId": None})
+                frappe.logger().info(f"Removed old media reference from category {item_group_name}")
+            except Exception as e:
+                frappe.logger().warning(f"Could not remove media reference: {e}")
+
+            # Delete old media
+            try:
+                client.request_delete(f"media/{old_media_id}")
+                frappe.logger().info(f"Deleted old media {old_media_id}")
+            except Exception as e:
+                frappe.logger().warning(f"Could not delete old media: {e}")
+
+        # Also search for and delete any media with matching filename (to avoid duplicates)
+        try:
+            search_resp = client.request_post("search/media", {
+                "filter": [{"type": "contains", "field": "fileName", "value": item_group_name}]
+            })
+            existing_media = search_resp.get("data", [])
+            for media in existing_media:
+                media_id_to_delete = media.get("id")
+                if media_id_to_delete:
+                    try:
+                        client.request_delete(f"media/{media_id_to_delete}")
+                        frappe.logger().info(f"Deleted duplicate media {media_id_to_delete}")
+                    except Exception:
+                        pass
+        except Exception as e:
+            frappe.logger().warning(f"Could not search for duplicate media: {e}")
+
+        # Get Item Group data
+        item_group_data = get_item_group_data(item_group_name)
+        if not item_group_data:
+            return False
+
+        image_path = item_group_data.get("category_image") or item_group_data.get("image")
+        if not image_path:
+            return False
+
+        # Get image content using helper
+        image_content, filename_without_ext, ext = get_image_content_and_filename(image_path)
+        if not image_content:
+            frappe.log_error(f"Could not load image: {image_path}")
+            return False
+
+        # Upload new media with fresh UUID (not deterministic)
+        folder_id = get_or_create_media_folder(client, "Category Media")
+        if not folder_id:
+            return False
+
+        fresh_media_id = hashlib.md5(f"category_media_{cat_id}_{time.time()}".encode()).hexdigest()
+
+        # Create new media
+        try:
+            client.request_post("media", {"id": fresh_media_id, "mediaFolderId": folder_id})
+        except Exception as e:
+            frappe.log_error(f"Failed to create media: {e}")
+            return False
+
+        # Upload content
+        try:
+            client.request_post(
+                f"_action/media/{fresh_media_id}/upload",
+                payload=image_content,
+                content_type="octet-stream",
+                additional_query_params={"extension": ext, "fileName": filename_without_ext}
+            )
+        except Exception as e:
+            frappe.log_error(f"Failed to upload media content: {e}")
+            return False
+
+        # Assign to category
+        try:
+            client.request_patch(f"category/{cat_id}", {"mediaId": fresh_media_id})
+            frappe.logger().info(f"Assigned new media {fresh_media_id} to category {item_group_name}")
+        except Exception as e:
+            frappe.log_error(f"Failed to assign media to category: {e}")
+            return False
+
+        return True
+
+    except Exception as e:
+        frappe.log_error(f"Error force resyncing category image for {item_group_name}: {e}")
         return False
 
 
