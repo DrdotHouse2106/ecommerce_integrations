@@ -416,14 +416,24 @@ def queue_item_group_for_sync(doc, method=None):
 def schedule_bulk_sync_processing():
     """Schedule the bulk sync processing job if not already scheduled."""
     # Check if job is already scheduled
-    jobs = frappe.get_all(
-        "RQ Job",
-        filters={
-            "status": ["in", ["queued", "started"]],
-            "job_name": ["like", "%process_bulk_sync_queue%"]
-        },
-        limit=1
-    )
+    # Wrap in try-except to handle "signal only works in main thread" error
+    # which occurs when RQ Job registry cleanup runs outside the main thread
+    try:
+        jobs = frappe.get_all(
+            "RQ Job",
+            filters={
+                "status": ["in", ["queued", "started"]],
+                "job_name": ["like", "%process_bulk_sync_queue%"]
+            },
+            limit=1
+        )
+    except ValueError as e:
+        if "signal only works in main thread" in str(e):
+            # We're not in the main thread, skip the job check and just enqueue
+            # The job deduplication will be handled by the queue itself
+            jobs = []
+        else:
+            raise
 
     if not jobs:
         # Schedule processing after cooldown period
