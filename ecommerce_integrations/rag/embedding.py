@@ -19,15 +19,15 @@ def get_openai_client():
 
 def get_google_client():
     """Get Google Generative AI client for embeddings"""
-    import google.generativeai as genai
+    from google import genai
 
     settings = get_rag_settings()
 
     if not settings.google_api_key:
         frappe.throw("Google API Key not configured")
 
-    genai.configure(api_key=settings.get_password("google_api_key"))
-    return genai
+    client = genai.Client(api_key=settings.get_password("google_api_key"))
+    return client
 
 
 def generate_embedding(text: str) -> list:
@@ -49,21 +49,21 @@ def _generate_google_embedding(text: str) -> list:
     """Generate embedding using Google Gemini API (FREE!)"""
     from .connection import get_rag_settings
 
-    genai = get_google_client()
+    client = get_google_client()
     settings = get_rag_settings()
 
     # Determine model based on settings
-    model_name = "models/text-embedding-004"  # default
+    model_name = "text-embedding-004"  # default
     if settings.embedding_model == "gemini-embedding-001":
-        model_name = "models/gemini-embedding-001"
+        model_name = "gemini-embedding-001"
 
-    result = genai.embed_content(
+    response = client.models.embed_content(
         model=model_name,
-        content=text,
-        task_type="retrieval_document"
+        contents=text
     )
 
-    return result['embedding']
+    # New API returns response.embeddings list
+    return response.embeddings[0].values
 
 
 def _generate_openai_embedding(text: str) -> list:
@@ -118,13 +118,13 @@ def _generate_google_embeddings_batch(texts: list) -> list:
     """Generate embeddings using Google Gemini API (batch) - FREE!"""
     from .connection import get_rag_settings
 
-    genai = get_google_client()
+    client = get_google_client()
     settings = get_rag_settings()
 
     # Determine model based on settings
-    model_name = "models/text-embedding-004"  # default
+    model_name = "text-embedding-004"  # default
     if settings.embedding_model == "gemini-embedding-001":
-        model_name = "models/gemini-embedding-001"
+        model_name = "gemini-embedding-001"
 
     # Replace empty texts with placeholder
     texts = [t if t and t.strip() else "empty" for t in texts]
@@ -137,13 +137,13 @@ def _generate_google_embeddings_batch(texts: list) -> list:
     for i in range(0, len(texts), BATCH_SIZE):
         batch = texts[i:i + BATCH_SIZE]
 
-        result = genai.embed_content(
+        response = client.models.embed_content(
             model=model_name,
-            content=batch,
-            task_type="retrieval_document"
+            contents=batch
         )
 
-        all_embeddings.extend(result['embedding'])
+        # New API returns response.embeddings list
+        all_embeddings.extend([emb.values for emb in response.embeddings])
 
     return all_embeddings
 

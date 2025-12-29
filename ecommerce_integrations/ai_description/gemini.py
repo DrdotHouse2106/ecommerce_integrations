@@ -28,20 +28,21 @@ def get_settings():
 
 def get_gemini_client(max_tokens_override: int = None):
     """
-    Get configured Gemini GenerativeModel client
+    Get configured Gemini client and generation config
 
     Args:
         max_tokens_override: Override max_tokens setting (for batch processing)
 
     Returns:
-        genai.GenerativeModel: Configured model instance
+        tuple: (genai.Client, model_name, generation_config)
     """
     try:
-        import google.generativeai as genai
+        from google import genai
+        from google.genai import types
     except ImportError:
         frappe.throw(
-            "google-generativeai package not installed. "
-            "Install with: pip install google-generativeai"
+            "google-genai package not installed. "
+            "Install with: pip install google-genai"
         )
 
     settings = get_settings()
@@ -53,7 +54,7 @@ def get_gemini_client(max_tokens_override: int = None):
         frappe.throw("Gemini API Key not configured")
 
     api_key = settings.get_password("gemini_api_key")
-    genai.configure(api_key=api_key)
+    client = genai.Client(api_key=api_key)
 
     # Model name mapping
     model_map = {
@@ -68,18 +69,13 @@ def get_gemini_client(max_tokens_override: int = None):
     max_tokens = max_tokens_override or int(settings.max_tokens or 8192)
 
     # Configure generation settings
-    generation_config = {
-        "temperature": float(settings.temperature or 0.7),
-        "max_output_tokens": max_tokens,
-        "response_mime_type": "application/json"
-    }
-
-    model = genai.GenerativeModel(
-        model_name=model_name,
-        generation_config=generation_config
+    generation_config = types.GenerateContentConfig(
+        temperature=float(settings.temperature or 0.7),
+        max_output_tokens=max_tokens,
+        response_mime_type="application/json"
     )
 
-    return model
+    return client, model_name, generation_config
 
 
 def generate_description(item_code: str) -> dict:
@@ -114,12 +110,16 @@ def generate_description(item_code: str) -> dict:
     log.insert(ignore_permissions=True)
 
     try:
-        model = get_gemini_client()
+        client, model_name, generation_config = get_gemini_client()
 
         # Combine prompts for Gemini (it doesn't have separate system prompt in basic API)
         full_prompt = f"{system_prompt}\n\n---\n\n{user_prompt}"
 
-        response = model.generate_content(full_prompt)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=full_prompt,
+            config=generation_config
+        )
 
         if not response or not response.text:
             raise Exception("Empty response from Gemini API")
@@ -135,8 +135,8 @@ def generate_description(item_code: str) -> dict:
         log.response_raw = response.text
 
         # Extract token count if available
-        if hasattr(response, 'usage_metadata'):
-            log.tokens_used = response.usage_metadata.total_token_count
+        if hasattr(response, 'usage_metadata') and response.usage_metadata:
+            log.tokens_used = getattr(response.usage_metadata, 'total_token_count', None)
 
         log.save(ignore_permissions=True)
 
@@ -595,12 +595,16 @@ def _process_multi_batch(item_codes: list, settings, batch_num: int, total_batch
     log.insert(ignore_permissions=True)
 
     try:
-        # Get model with appropriate token limit
-        model = get_gemini_client(max_tokens_override=max_tokens)
+        # Get client with appropriate token limit
+        client, model_name, generation_config = get_gemini_client(max_tokens_override=max_tokens)
 
         full_prompt = f"{system_prompt}\n\n---\n\n{user_prompt}"
 
-        response = model.generate_content(full_prompt)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=full_prompt,
+            config=generation_config
+        )
 
         if not response or not response.text:
             raise Exception("Empty response from Gemini API")
@@ -611,8 +615,8 @@ def _process_multi_batch(item_codes: list, settings, batch_num: int, total_batch
         # Update log
         log.status = "Success"
         log.response_raw = response.text[:10000]  # Truncate for storage
-        if hasattr(response, 'usage_metadata'):
-            log.tokens_used = response.usage_metadata.total_token_count
+        if hasattr(response, 'usage_metadata') and response.usage_metadata:
+            log.tokens_used = getattr(response.usage_metadata, 'total_token_count', None)
         log.save(ignore_permissions=True)
 
         # Process each product in response
