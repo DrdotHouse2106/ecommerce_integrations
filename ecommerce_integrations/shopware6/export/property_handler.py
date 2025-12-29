@@ -362,7 +362,11 @@ def get_or_create_variant_option(client, group_id: str, group_name: str, option_
 
 def get_template_item_attributes(template_item) -> List[Dict[str, Any]]:
     """
-    Get all Item Attributes defined for a template item.
+    Get all Item Attributes for a template item, including attributes from variants.
+
+    This function scans both the template's attribute definitions AND all variant
+    items to find any additional attributes that may be defined on variants but
+    not on the template itself.
 
     Args:
         template_item: ERPNext Item document with has_variants=1
@@ -371,22 +375,55 @@ def get_template_item_attributes(template_item) -> List[Dict[str, Any]]:
         List of attribute info dicts with name and possible values
     """
     attributes = []
+    seen_attributes = set()
 
-    if not template_item.attributes:
-        return attributes
+    # First, get attributes defined on template
+    if template_item.attributes:
+        for attr_row in template_item.attributes:
+            attr_name = attr_row.attribute
+            seen_attributes.add(attr_name)
 
-    for attr_row in template_item.attributes:
-        attr_name = attr_row.attribute
-        attr_doc = frappe.get_doc("Item Attribute", attr_name)
-        values = []
+            attr_doc = frappe.get_doc("Item Attribute", attr_name)
+            values = []
+            if not attr_doc.numeric_values:
+                values = [v.attribute_value for v in attr_doc.item_attribute_values]
 
-        if not attr_doc.numeric_values:
-            values = [v.attribute_value for v in attr_doc.item_attribute_values]
+            attributes.append({
+                "name": attr_name,
+                "values": values,
+            })
 
-        attributes.append({
-            "name": attr_name,
-            "values": values,
-        })
+    # Second, scan variants for additional attributes not on template
+    # This handles cases where variants have more attributes than the template defines
+    variant_attrs = frappe.db.sql("""
+        SELECT DISTINCT iva.attribute
+        FROM `tabItem Variant Attribute` iva
+        INNER JOIN `tabItem` i ON i.name = iva.parent
+        WHERE i.variant_of = %s AND i.disabled = 0
+    """, (template_item.name,), as_dict=True)
+
+    for row in variant_attrs:
+        attr_name = row.attribute
+        if attr_name not in seen_attributes:
+            seen_attributes.add(attr_name)
+
+            try:
+                attr_doc = frappe.get_doc("Item Attribute", attr_name)
+                values = []
+                if not attr_doc.numeric_values:
+                    values = [v.attribute_value for v in attr_doc.item_attribute_values]
+
+                attributes.append({
+                    "name": attr_name,
+                    "values": values,
+                })
+                frappe.logger("shopware6").info(
+                    f"Added variant attribute '{attr_name}' for template {template_item.name}"
+                )
+            except Exception as e:
+                frappe.log_error(
+                    f"Failed to get attribute {attr_name} for template {template_item.name}: {e}"
+                )
 
     return attributes
 
