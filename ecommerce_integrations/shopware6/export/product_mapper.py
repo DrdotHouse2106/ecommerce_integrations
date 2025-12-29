@@ -407,3 +407,167 @@ def get_actual_variant_values(template_item_code: str, attribute_name: str) -> L
     )
 
     return [v for v in values if v]
+
+
+def get_product_visibilities(item, setting) -> Optional[List[Dict[str, Any]]]:
+    """
+    Calculate which Sales Channels a product should be visible in.
+
+    Priority:
+    1. If item.shopware_all_channels: return ALL channels with visibility 30
+    2. If item.shopware_use_item_group_channels: check Item Group mappings
+    3. Else: use item.shopware_channel_overrides table
+    4. Fallback: use default channel
+
+    Args:
+        item: ERPNext Item document
+        setting: Shopware Setting document
+
+    Returns:
+        List of visibility dicts: [{"salesChannelId": "...", "visibility": 30}, ...]
+        or None if no multi-channel config
+    """
+    # Get all available channels from setting
+    all_channels = {sc.sales_channel_id: sc for sc in (setting.sales_channels or [])}
+
+    if not all_channels:
+        # No multi-channel config - return None to use legacy single-channel mode
+        return None
+
+    visibilities = []
+
+    # Priority 1: Visible in ALL channels
+    if getattr(item, 'shopware_all_channels', False):
+        return [
+            {"salesChannelId": sc_id, "visibility": 30}
+            for sc_id, sc in all_channels.items() if sc.active
+        ]
+
+    # Priority 2: Use Item Group channels (default behavior)
+    if getattr(item, 'shopware_use_item_group_channels', True):
+        channel_mappings = _get_channels_from_item_group(item.item_group, setting)
+        if channel_mappings:
+            return channel_mappings
+
+    # Priority 3: Per-item overrides
+    overrides = getattr(item, 'shopware_channel_overrides', [])
+    if overrides:
+        for override in overrides:
+            if override.visibility != "Exclude":
+                vis_value = _parse_visibility(override.visibility)
+                visibilities.append({
+                    "salesChannelId": override.sales_channel_id,
+                    "visibility": vis_value
+                })
+        if visibilities:
+            return visibilities
+
+    # Fallback: Use default channel
+    for sc in setting.sales_channels or []:
+        if sc.is_default and sc.active:
+            return [{"salesChannelId": sc.sales_channel_id, "visibility": 30}]
+
+    # Ultimate fallback: first active channel
+    for sc in setting.sales_channels or []:
+        if sc.active:
+            return [{"salesChannelId": sc.sales_channel_id, "visibility": 30}]
+
+    return None
+
+
+def _get_channels_from_item_group(item_group: str, setting) -> Optional[List[Dict[str, Any]]]:
+    """
+    Get Sales Channel visibility mappings for an Item Group.
+    Also checks if Item Group is in 'all_channels_item_groups' list.
+
+    Args:
+        item_group: ERPNext Item Group name
+        setting: Shopware Setting document
+
+    Returns:
+        List of visibility dicts or None
+    """
+    if not item_group:
+        return None
+
+    # Check if in "all channels" list
+    all_channel_groups = []
+    for link in (setting.all_channels_item_groups or []):
+        # Table MultiSelect stores links differently
+        if hasattr(link, 'item_group'):
+            all_channel_groups.append(link.item_group)
+        elif hasattr(link, 'link_name'):
+            all_channel_groups.append(link.link_name)
+
+    if item_group in all_channel_groups:
+        return [
+            {"salesChannelId": sc.sales_channel_id, "visibility": 30}
+            for sc in (setting.sales_channels or []) if sc.active
+        ]
+
+    # Check specific mappings
+    visibilities = []
+    for mapping in (setting.item_group_channel_mappings or []):
+        matched = False
+
+        if mapping.item_group == item_group:
+            matched = True
+        elif mapping.include_subcategories:
+            # Check if item_group is descendant of mapping.item_group
+            if _is_descendant_item_group(item_group, mapping.item_group):
+                matched = True
+
+        if matched:
+            vis_value = _parse_visibility(mapping.visibility)
+            visibilities.append({
+                "salesChannelId": mapping.sales_channel_id,
+                "visibility": vis_value
+            })
+
+    return visibilities if visibilities else None
+
+
+def _is_descendant_item_group(child: str, parent: str) -> bool:
+    """
+    Check if child Item Group is a descendant of parent using nested set.
+
+    Args:
+        child: Child Item Group name
+        parent: Parent Item Group name
+
+    Returns:
+        True if child is a descendant of parent
+    """
+    if not child or not parent:
+        return False
+
+    parent_info = frappe.db.get_value("Item Group", parent, ["lft", "rgt"], as_dict=True)
+    child_info = frappe.db.get_value("Item Group", child, ["lft", "rgt"], as_dict=True)
+
+    if not parent_info or not child_info:
+        return False
+
+    return child_info.lft > parent_info.lft and child_info.rgt < parent_info.rgt
+
+
+def _parse_visibility(visibility_str: str) -> int:
+    """
+    Parse visibility string to Shopware integer value.
+
+    Args:
+        visibility_str: Visibility string like "All (30)" or "Search & List (20)"
+
+    Returns:
+        Integer visibility value (10, 20, or 30)
+    """
+    if not visibility_str:
+        return 30
+
+    if "30" in visibility_str or "All" in visibility_str:
+        return 30
+    elif "20" in visibility_str or "Search" in visibility_str:
+        return 20
+    elif "10" in visibility_str or "Link" in visibility_str:
+        return 10
+
+    return 30  # Default

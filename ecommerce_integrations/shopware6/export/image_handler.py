@@ -326,7 +326,7 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> b
                 media_ids_to_delete = []
                 for pm in existing:
                     pm_id = pm.get("id")
-                    media_id = pm.get("mediaId") or pm.get("media", {}).get("id")
+                    media_id = pm.get("mediaId") or (pm.get("media") or {}).get("id")
                     if pm_id:
                         try:
                             client.request_delete(f"product-media/{pm_id}")

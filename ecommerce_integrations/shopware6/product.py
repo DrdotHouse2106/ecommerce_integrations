@@ -196,8 +196,8 @@ class ShopwareProduct:
         """
         # Extract basic info
         product_number = product_data.get("productNumber", "")
-        name = product_data.get("name", "") or product_data.get("translated", {}).get("name", "")
-        description = product_data.get("description", "") or product_data.get("translated", {}).get("description", "")
+        name = product_data.get("name", "") or (product_data.get("translated") or {}).get("name", "")
+        description = product_data.get("description", "") or (product_data.get("translated") or {}).get("description", "")
 
         # Get price - handle B2B (net) vs B2C (gross) mode
         # Shopware stores gross prices

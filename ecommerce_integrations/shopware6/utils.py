@@ -539,7 +539,7 @@ def map_state_from_shopware(country_state_data: Dict[str, Any], country_name: st
     
     # Get the state code (e.g., "DE-NW" -> "NW") or name
     short_code = country_state_data.get("shortCode", "")
-    state_name = country_state_data.get("name", "") or country_state_data.get("translated", {}).get("name", "")
+    state_name = country_state_data.get("name", "") or (country_state_data.get("translated") or {}).get("name", "")
     
     # Extract state code from shortCode (e.g., "DE-NW" -> "NW")
     if short_code and "-" in short_code:

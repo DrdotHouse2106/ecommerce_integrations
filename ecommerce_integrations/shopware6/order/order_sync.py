@@ -147,6 +147,8 @@ def _build_order_fetch_criteria(order_id: str) -> Criteria:
     criteria.associations["transactions"] = Criteria()
     criteria.associations["transactions"].associations["paymentMethod"] = Criteria()
     criteria.associations["currency"] = Criteria()
+    # Multi-Storefront: Fetch sales channel info
+    criteria.associations["salesChannel"] = Criteria()
     return criteria
 
 
@@ -196,6 +198,26 @@ def create_sales_order(order_data: Dict[str, Any]) -> str:
     so.currency = currency_code
     so.shopware_order_id = order_id
     so.shopware_order_number = order_number
+
+    # Multi-Storefront: Extract and set Sales Channel info
+    sales_channel_id = order_data.get("salesChannelId", "")
+    sales_channel_name = ""
+    if sales_channel_id:
+        # Try to get name from associations first
+        sales_channel_data = order_data.get("salesChannel", {})
+        if sales_channel_data:
+            sales_channel_name = (
+                sales_channel_data.get("name") or
+                sales_channel_data.get("translated", {}).get("name", "")
+            )
+        # If not in associations, look up from settings
+        if not sales_channel_name:
+            for sc in setting.sales_channels or []:
+                if sc.sales_channel_id == sales_channel_id:
+                    sales_channel_name = sc.sales_channel_name
+                    break
+    so.shopware_sales_channel_id = sales_channel_id
+    so.shopware_sales_channel_name = sales_channel_name
 
     # Extract and set payment method info
     payment_method_name, erpnext_mode, payment_status = get_payment_method_info(order_data)

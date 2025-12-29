@@ -7,6 +7,13 @@
  "field_order": [
   "enable_shopware",
   "column_break_enable",
+  "sales_channels_section",
+  "sales_channels",
+  "fetch_sales_channels_btn",
+  "item_group_channel_mappings_section",
+  "item_group_channel_mappings",
+  "all_channels_item_groups",
+  "channel_mapping_info_html",
   "bulk_sync_section",
   "enable_bulk_sync",
   "bulk_sync_threshold",
@@ -107,6 +114,53 @@
   {
    "fieldname": "column_break_enable",
    "fieldtype": "Column Break"
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:doc.enable_shopware",
+   "fieldname": "sales_channels_section",
+   "fieldtype": "Section Break",
+   "label": "Sales Channels (Multi-Storefront)"
+  },
+  {
+   "description": "Available Sales Channels fetched from Shopware. Click 'Refresh Sales Channels' to update.",
+   "fieldname": "sales_channels",
+   "fieldtype": "Table",
+   "label": "Available Sales Channels",
+   "options": "Shopware Sales Channel"
+  },
+  {
+   "depends_on": "eval:doc.enable_shopware",
+   "fieldname": "fetch_sales_channels_btn",
+   "fieldtype": "Button",
+   "label": "Refresh Sales Channels"
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:doc.enable_shopware && doc.sales_channels && doc.sales_channels.length > 0",
+   "fieldname": "item_group_channel_mappings_section",
+   "fieldtype": "Section Break",
+   "label": "Item Group -> Sales Channel Mappings"
+  },
+  {
+   "description": "Map Item Groups to Sales Channels. Products inherit channel visibility from their Item Group.",
+   "fieldname": "item_group_channel_mappings",
+   "fieldtype": "Table",
+   "label": "Category Channel Mappings",
+   "options": "Shopware Item Group Channel"
+  },
+  {
+   "description": "Products in these Item Groups will be visible in ALL sales channels",
+   "fieldname": "all_channels_item_groups",
+   "fieldtype": "Table MultiSelect",
+   "label": "Item Groups Visible in ALL Channels",
+   "options": "Item Group"
+  },
+  {
+   "fieldname": "channel_mapping_info_html",
+   "fieldtype": "HTML",
+   "label": "Channel Mapping Info",
+   "options": "<div class=\"alert alert-info\"><h5>Multi-Storefront Configuration</h5><p><strong>How it works:</strong></p><ul><li>Map Item Groups to specific Sales Channels above</li><li>Products inherit channel visibility from their Item Group</li><li>Add Item Groups to 'ALL Channels' list to make products visible everywhere</li><li>Override per-item via the Item form (Shopware Sales Channels section)</li></ul><p><strong>Priority:</strong> Item Override > Item Group Mapping > Default Channel</p></div>"
   },
   {
    "collapsible": 1,

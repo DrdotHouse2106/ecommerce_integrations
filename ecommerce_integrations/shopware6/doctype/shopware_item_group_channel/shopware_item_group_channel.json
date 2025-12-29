@@ -1,0 +1,72 @@
+{
+ "actions": [],
+ "creation": "2024-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_group",
+  "sales_channel_id",
+  "sales_channel_name",
+  "column_break_1",
+  "include_subcategories",
+  "visibility"
+ ],
+ "fields": [
+  {
+   "fieldname": "item_group",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Item Group",
+   "options": "Item Group",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sales_channel_id",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Sales Channel ID",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sales_channel_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sales Channel",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "Apply this mapping to all child Item Groups",
+   "fieldname": "include_subcategories",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Include Subcategories"
+  },
+  {
+   "default": "All (30)",
+   "description": "10=link only, 20=search+list, 30=all (recommended)",
+   "fieldname": "visibility",
+   "fieldtype": "Select",
+   "label": "Visibility Level",
+   "options": "All (30)\nSearch & List (20)\nLink Only (10)"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "shopware6",
+ "name": "Shopware Item Group Channel",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

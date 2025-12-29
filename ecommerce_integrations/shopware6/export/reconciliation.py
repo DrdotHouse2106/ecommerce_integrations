@@ -267,8 +267,8 @@ def compare_item_with_shopware(
         from ecommerce_integrations.shopware6.export.category_handler import get_all_item_categories
         erpnext_cats = sorted(get_all_item_categories(erpnext_item.item_code) or [])
         shopware_cats = sorted([
-            c.get("name") or c.get("translated", {}).get("name", "")
-            for c in shopware_data.get("categories", [])
+            c.get("name") or (c.get("translated") or {}).get("name", "")
+            for c in shopware_data.get("categories") or []
         ])
         if erpnext_cats != shopware_cats:
             differences.append("categories")
@@ -277,7 +277,7 @@ def compare_item_with_shopware(
     # Images
     erpnext_has_image = bool(erpnext_item.image)
     shopware_has_image = bool(shopware_data.get("media")) or bool(
-        shopware_data.get("cover", {}).get("media")
+        (shopware_data.get("cover") or {}).get("media")
     )
     if erpnext_has_image != shopware_has_image:
         differences.append("image")

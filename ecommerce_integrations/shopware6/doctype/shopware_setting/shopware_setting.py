@@ -183,3 +183,78 @@ class ShopwareSetting(Document):
         """Clear all bulk sync queues."""
         from ecommerce_integrations.shopware6.bulk_sync import clear_all_queues
         return clear_all_queues()
+
+    @frappe.whitelist()
+    def fetch_sales_channels(self):
+        """Fetch all Sales Channels from Shopware API and update the table."""
+        from ecommerce_integrations.shopware6.connection import get_shopware_client
+
+        if not self.is_enabled():
+            frappe.throw(_("Please enable Shopware integration first"))
+
+        try:
+            client = get_shopware_client()
+            response = client.request_get("sales-channel")
+            channels = response.get("data", [])
+
+            # Remember which channel was default before
+            previous_default = None
+            for sc in self.sales_channels:
+                if sc.is_default:
+                    previous_default = sc.sales_channel_id
+                    break
+
+            # Clear existing and populate with fresh data
+            self.sales_channels = []
+            for channel in channels:
+                channel_id = channel.get("id")
+                channel_name = channel.get("name") or channel.get("translated", {}).get("name", "")
+
+                self.append("sales_channels", {
+                    "sales_channel_id": channel_id,
+                    "sales_channel_name": channel_name,
+                    "active": channel.get("active", True),
+                    "access_key": channel.get("accessKey", ""),
+                    "is_default": 1 if channel_id == previous_default else 0
+                })
+
+            # If no default was set before, mark first active channel as default
+            if not previous_default and self.sales_channels:
+                for sc in self.sales_channels:
+                    if sc.active:
+                        sc.is_default = 1
+                        break
+
+            self.save()
+            frappe.msgprint(
+                _("Found {0} Sales Channel(s)").format(len(channels)),
+                title=_("Success"),
+                indicator="green"
+            )
+            return {"channels": len(channels)}
+
+        except Exception as e:
+            frappe.log_error(str(e), "Shopware Sales Channel Fetch Error")
+            frappe.throw(_("Failed to fetch Sales Channels: {0}").format(str(e)))
+
+    def get_default_sales_channel_id(self):
+        """Get the default Sales Channel ID."""
+        for sc in self.sales_channels or []:
+            if sc.is_default:
+                return sc.sales_channel_id
+        # Fallback to first active channel
+        for sc in self.sales_channels or []:
+            if sc.active:
+                return sc.sales_channel_id
+        return None
+
+    def get_sales_channel_name(self, sales_channel_id):
+        """Get Sales Channel name by ID."""
+        for sc in self.sales_channels or []:
+            if sc.sales_channel_id == sales_channel_id:
+                return sc.sales_channel_name
+        return None
+
+    def get_all_active_sales_channel_ids(self):
+        """Get list of all active Sales Channel IDs."""
+        return [sc.sales_channel_id for sc in self.sales_channels or [] if sc.active]

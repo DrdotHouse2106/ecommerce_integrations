@@ -60,6 +60,22 @@ frappe.ui.form.on('Shopware Setting', {
 			}, __('Bulk Sync'));
 		}
 
+		// Add Refresh Sales Channels button handler
+		frm.fields_dict.fetch_sales_channels_btn && frm.fields_dict.fetch_sales_channels_btn.$input &&
+		frm.fields_dict.fetch_sales_channels_btn.$input.on('click', function() {
+			frm.call({
+				method: 'fetch_sales_channels',
+				doc: frm.doc,
+				freeze: true,
+				freeze_message: __('Fetching Sales Channels from Shopware...'),
+				callback: function(r) {
+					if (r.message) {
+						frm.reload_doc();
+					}
+				}
+			});
+		});
+
 		// Add Test Connection button
 		if (!frm.is_new()) {
 			frm.add_custom_button(__('Test Connection'), function() {

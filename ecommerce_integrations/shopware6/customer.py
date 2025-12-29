@@ -44,28 +44,28 @@ class ShopwareCustomer(EcommerceCustomer):
         self.setting = frappe.get_doc(SETTING_DOCTYPE)
         super().__init__(customer_id, CUSTOMER_ID_FIELD, MODULE_NAME)
     
-    def sync_customer(self, customer: Dict[str, Any]) -> None:
+    def sync_customer(self, customer: Dict[str, Any], sales_channel_id: str = None) -> None:
         """Create Customer in ERPNext using Shopware's Customer dict."""
-        
+
         # Determine customer name
         first_name = customer.get("firstName", "") or ""
         last_name = customer.get("lastName", "") or ""
         company = customer.get("company", "") or ""
         email = customer.get("email", "")
-        
+
         if company:
             customer_name = company
         else:
             customer_name = f"{first_name} {last_name}".strip()
-        
+
         if not customer_name:
             customer_name = email or f"Shopware Customer {self.customer_id[:8]}"
-        
+
         customer_group = self.setting.customer_group
-        
+
         # Use base class to create customer
         super().sync_customer(customer_name, customer_group)
-        
+
         # Update additional fields after creation
         customer_doc = self.get_customer_doc()
         if email:
@@ -83,6 +83,17 @@ class ShopwareCustomer(EcommerceCustomer):
         account_type = customer.get("accountType", "")
         is_business = account_type == "business" or bool(company)
         customer_doc.customer_type = "Company" if is_business else "Individual"
+
+        # Multi-Storefront: Track source sales channel (where customer first registered)
+        source_channel_id = sales_channel_id or customer.get("salesChannelId", "")
+        if source_channel_id:
+            customer_doc.shopware_source_sales_channel_id = source_channel_id
+            # Try to get channel name from settings
+            for sc in (self.setting.sales_channels or []):
+                if sc.sales_channel_id == source_channel_id:
+                    customer_doc.shopware_source_sales_channel_name = sc.sales_channel_name
+                    break
+
         customer_doc.save(ignore_permissions=True)
 
         # Trigger VAT ID validation if VAT ID was provided
@@ -411,10 +422,13 @@ def get_customer_from_shopware_order(order: Dict[str, Any]) -> str:
 
     # Use ShopwareCustomer class (following Shopify pattern)
     customer = ShopwareCustomer(customer_id=customer_id)
-    
+
+    # Multi-Storefront: Get sales channel from order
+    sales_channel_id = order.get("salesChannelId", "")
+
     if not customer.is_synced():
-        # Customer not synced - create it
-        customer.sync_customer(customer_data)
+        # Customer not synced - create it with source sales channel
+        customer.sync_customer(customer_data, sales_channel_id=sales_channel_id)
     else:
         # Customer exists - update core data, addresses and contact
         customer.update_customer_data(customer_data)
@@ -873,7 +887,10 @@ def create_customer_from_shopware_data(customer_data: Dict[str, Any]) -> str:
     
     # Use ShopwareCustomer class (following Shopify pattern)
     customer = ShopwareCustomer(customer_id=customer_id)
-    
+
+    # Multi-Storefront: Get sales channel ID from customer data
+    sales_channel_id = customer_data.get("salesChannelId", "")
+
     if not customer.is_synced():
         # Check if customer exists by email first
         email = customer_data.get("email", "")
@@ -882,11 +899,19 @@ def create_customer_from_shopware_data(customer_data: Dict[str, Any]) -> str:
             if existing_by_email:
                 # Link existing customer to Shopware ID
                 frappe.db.set_value("Customer", existing_by_email, "shopware_customer_id", customer_id)
+                # Also set source sales channel if available
+                if sales_channel_id:
+                    frappe.db.set_value("Customer", existing_by_email, "shopware_source_sales_channel_id", sales_channel_id)
+                    setting = frappe.get_doc(SETTING_DOCTYPE)
+                    for sc in (setting.sales_channels or []):
+                        if sc.sales_channel_id == sales_channel_id:
+                            frappe.db.set_value("Customer", existing_by_email, "shopware_source_sales_channel_name", sc.sales_channel_name)
+                            break
                 frappe.logger("shopware6").info(f"Linked existing customer {existing_by_email} (by email) to Shopware ID {customer_id}")
                 return existing_by_email
-        
-        # Create new customer
-        customer.sync_customer(customer_data)
+
+        # Create new customer with source sales channel
+        customer.sync_customer(customer_data, sales_channel_id=sales_channel_id)
     else:
         # Customer exists - update addresses if needed
         customer.update_existing_addresses(customer_data)

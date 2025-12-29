@@ -20,6 +20,7 @@ from ecommerce_integrations.shopware6.export.product_mapper import (
     get_or_create_manufacturer,
     get_cached_currency_id,
     get_cached_sales_channel_id,
+    get_product_visibilities,
 )
 from ecommerce_integrations.shopware6.export.category_handler import sync_all_item_categories
 from ecommerce_integrations.shopware6.export.property_handler import (
@@ -97,6 +98,77 @@ class ShopwareProduct:
         # Simple product
         return self._upload_simple_product(client, item)
 
+    def _update_product_visibilities(self, client, product_id: str, new_visibilities: list):
+        """
+        Update product visibility across sales channels.
+
+        Compares existing visibilities with new ones and:
+        - Deletes visibilities for channels no longer needed
+        - Creates visibilities for new channels
+        - Updates visibility level for existing channels if changed
+
+        Args:
+            client: Shopware API client
+            product_id: Shopware product ID
+            new_visibilities: List of new visibility dicts
+        """
+        try:
+            # Get current visibilities
+            response = client.request_get(
+                f"product/{product_id}?associations[visibilities]={{}}"
+            )
+            current_vis = response.get("data", {}).get("visibilities", [])
+
+            # Build lookup of current visibilities
+            current_by_channel = {
+                v.get("salesChannelId"): {
+                    "id": v.get("id"),
+                    "visibility": v.get("visibility")
+                }
+                for v in current_vis
+            }
+
+            # Build set of new channel IDs
+            new_channel_ids = {v["salesChannelId"] for v in new_visibilities}
+            new_by_channel = {v["salesChannelId"]: v["visibility"] for v in new_visibilities}
+
+            # Delete visibilities for channels no longer needed
+            for channel_id, vis_data in current_by_channel.items():
+                if channel_id not in new_channel_ids:
+                    try:
+                        client.request_delete(f"product-visibility/{vis_data['id']}")
+                    except Exception:
+                        pass
+
+            # Create or update visibilities for new channels
+            for channel_id, visibility in new_by_channel.items():
+                if channel_id in current_by_channel:
+                    # Check if visibility level changed
+                    if current_by_channel[channel_id]["visibility"] != visibility:
+                        try:
+                            client.request_patch(
+                                f"product-visibility/{current_by_channel[channel_id]['id']}",
+                                {"visibility": visibility}
+                            )
+                        except Exception:
+                            pass
+                else:
+                    # Create new visibility
+                    try:
+                        client.request_post("product-visibility", {
+                            "productId": product_id,
+                            "salesChannelId": channel_id,
+                            "visibility": visibility
+                        })
+                    except Exception:
+                        pass
+
+        except Exception as e:
+            frappe.log_error(
+                f"Failed to update visibilities for product {product_id}: {e}",
+                "Shopware Multi-Channel Visibility"
+            )
+
     def _upload_simple_product(self, client, item) -> Optional[str]:
         """
         Upload a simple (non-variant) product.
@@ -124,13 +196,18 @@ class ShopwareProduct:
             if category_ids:
                 payload["categories"] = category_ids
 
-            # Sales channel visibility
-            sales_channel_id = get_cached_sales_channel_id(client)
-            if sales_channel_id:
-                payload["visibilities"] = [{
-                    "salesChannelId": sales_channel_id,
-                    "visibility": 30
-                }]
+            # Sales channel visibility - Multi-Storefront support
+            visibilities = get_product_visibilities(item, self.setting)
+            if visibilities:
+                payload["visibilities"] = visibilities
+            else:
+                # Fallback to legacy single-channel mode
+                sales_channel_id = get_cached_sales_channel_id(client)
+                if sales_channel_id:
+                    payload["visibilities"] = [{
+                        "salesChannelId": sales_channel_id,
+                        "visibility": 30
+                    }]
 
             # Tax
             tax_rate = payload.pop("_tax_rate", 19.0)
@@ -179,8 +256,13 @@ class ShopwareProduct:
                 pass
 
             if product_exists:
-                payload.pop("visibilities", None)
+                # For updates with multi-channel support, update visibilities separately
+                new_visibilities = payload.pop("visibilities", None)
                 client.request_patch(f"product/{product_id}", payload)
+
+                # Update visibilities if multi-channel is configured
+                if new_visibilities and len(self.setting.sales_channels or []) > 0:
+                    self._update_product_visibilities(client, product_id, new_visibilities)
             else:
                 client.request_post("product", payload)
 
