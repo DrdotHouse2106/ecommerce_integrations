@@ -10,7 +10,10 @@
   "sales_channel_name",
   "column_break_1",
   "include_subcategories",
-  "visibility"
+  "visibility",
+  "section_break_filter",
+  "manufacturer_filter",
+  "manufacturer_filter_mode"
  ],
  "fields": [
   {
@@ -54,6 +57,28 @@
    "fieldtype": "Select",
    "label": "Visibility Level",
    "options": "All (30)\nSearch & List (20)\nLink Only (10)"
+  },
+  {
+   "fieldname": "section_break_filter",
+   "fieldtype": "Section Break",
+   "label": "Brand/Manufacturer Filter (Optional)"
+  },
+  {
+   "description": "Only include products from this manufacturer/brand. Leave empty to include all products in the Item Group.",
+   "fieldname": "manufacturer_filter",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Manufacturer Filter",
+   "options": "Brand"
+  },
+  {
+   "default": "Include Only",
+   "depends_on": "eval:doc.manufacturer_filter",
+   "description": "Include Only: Only products with this brand. Exclude: All products EXCEPT this brand.",
+   "fieldname": "manufacturer_filter_mode",
+   "fieldtype": "Select",
+   "label": "Filter Mode",
+   "options": "Include Only\nExclude"
   }
  ],
  "index_web_pages_for_search": 1,

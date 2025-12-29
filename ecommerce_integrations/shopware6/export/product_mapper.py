@@ -445,7 +445,12 @@ def get_product_visibilities(item, setting) -> Optional[List[Dict[str, Any]]]:
 
     # Priority 2: Use Item Group channels (default behavior)
     if getattr(item, 'shopware_use_item_group_channels', True):
-        channel_mappings = _get_channels_from_item_group(item.item_group, setting)
+        # Get item's brand/manufacturer for filtering
+        item_brand = (
+            getattr(item, 'brand', None) or
+            getattr(item, 'default_item_manufacturer', None)
+        )
+        channel_mappings = _get_channels_from_item_group(item.item_group, setting, item_brand)
         if channel_mappings:
             return channel_mappings
 
@@ -475,14 +480,20 @@ def get_product_visibilities(item, setting) -> Optional[List[Dict[str, Any]]]:
     return None
 
 
-def _get_channels_from_item_group(item_group: str, setting) -> Optional[List[Dict[str, Any]]]:
+def _get_channels_from_item_group(
+    item_group: str,
+    setting,
+    item_brand: Optional[str] = None
+) -> Optional[List[Dict[str, Any]]]:
     """
     Get Sales Channel visibility mappings for an Item Group.
     Also checks if Item Group is in 'all_channels_item_groups' list.
+    Supports manufacturer/brand filtering per channel.
 
     Args:
         item_group: ERPNext Item Group name
         setting: Shopware Setting document
+        item_brand: Item's brand/manufacturer name for filtering
 
     Returns:
         List of visibility dicts or None
@@ -516,6 +527,20 @@ def _get_channels_from_item_group(item_group: str, setting) -> Optional[List[Dic
                 matched = True
 
         if matched:
+            # Check manufacturer filter if set
+            manufacturer_filter = getattr(mapping, 'manufacturer_filter', None)
+            if manufacturer_filter:
+                filter_mode = getattr(mapping, 'manufacturer_filter_mode', 'Include Only')
+
+                if filter_mode == "Include Only":
+                    # Only include if item brand matches filter
+                    if item_brand != manufacturer_filter:
+                        continue  # Skip this mapping - brand doesn't match
+                elif filter_mode == "Exclude":
+                    # Exclude if item brand matches filter
+                    if item_brand == manufacturer_filter:
+                        continue  # Skip this mapping - brand is excluded
+
             vis_value = _parse_visibility(mapping.visibility)
             visibilities.append({
                 "salesChannelId": mapping.sales_channel_id,

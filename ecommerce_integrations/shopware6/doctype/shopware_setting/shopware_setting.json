@@ -160,7 +160,7 @@
    "fieldname": "channel_mapping_info_html",
    "fieldtype": "HTML",
    "label": "Channel Mapping Info",
-   "options": "<div class=\"alert alert-info\"><h5>Multi-Storefront Configuration</h5><p><strong>How it works:</strong></p><ul><li>Map Item Groups to specific Sales Channels above</li><li>Products inherit channel visibility from their Item Group</li><li>Add Item Groups to 'ALL Channels' list to make products visible everywhere</li><li>Override per-item via the Item form (Shopware Sales Channels section)</li></ul><p><strong>Priority:</strong> Item Override > Item Group Mapping > Default Channel</p></div>"
+   "options": "<div class=\"alert alert-info\"><h5>Multi-Storefront Configuration</h5><p><strong>How it works:</strong></p><ul><li>Map Item Groups to specific Sales Channels above</li><li>Products inherit channel visibility from their Item Group</li><li>Add Item Groups to 'ALL Channels' list to make products visible everywhere</li><li>Override per-item via the Item form (Shopware Sales Channels section)</li><li><strong>NEW: Manufacturer Filter</strong> - Optionally filter by Brand/Manufacturer per mapping</li></ul><p><strong>Priority:</strong> Item Override > Item Group Mapping (with Brand Filter) > Default Channel</p><p><strong>Tip:</strong> Use Manufacturer Filter to create brand-specific storefronts from a shared product catalog.</p></div>"
   },
   {
    "collapsible": 1,

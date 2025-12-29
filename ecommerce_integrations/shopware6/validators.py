@@ -298,11 +298,11 @@ class ERPNextDataValidator:
             )
 
         # Validate price for simple products (not templates)
+        # Skip price validation for discount items (configured in Shopware Settings)
         if not item.has_variants:
-            if not cls._item_has_price(item_code):
-                frappe.logger("shopware6").warning(
-                    f"Item {item_code} has no selling price set"
-                )
+            is_discount_item = cls._is_discount_item(item_code)
+            if not is_discount_item and not cls._item_has_price(item_code):
+                errors.append(f"Item {item_code} has no selling price - cannot sync to Shopware")
 
         return len(errors) == 0, errors
 
@@ -345,6 +345,18 @@ class ERPNextDataValidator:
             "price_list_rate"
         )
         return bool(item_price and float(item_price) > 0)
+
+    @staticmethod
+    def _is_discount_item(item_code: str) -> bool:
+        """Check if item is the configured discount item (should be skipped for price validation)."""
+        from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE
+
+        try:
+            setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+            discount_item = getattr(setting, "discount_item", None)
+            return bool(discount_item and item_code == discount_item)
+        except Exception:
+            return False
 
 
 def validate_and_log(

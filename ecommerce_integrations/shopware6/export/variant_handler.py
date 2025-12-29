@@ -39,6 +39,15 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
     Returns:
         Shopware product ID if successful, None otherwise
     """
+    from ecommerce_integrations.shopware6.validators import ShopwareDataValidator
+
+    # Validate variant before upload (skip if no price, except RABATT items)
+    is_valid, errors = ShopwareDataValidator.validate_item_for_export(variant_item.name)
+    if not is_valid:
+        for error in errors:
+            frappe.logger("shopware6").info(f"Skipping variant {variant_item.name}: {error}")
+        return None
+
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
 
     # Check if already synced

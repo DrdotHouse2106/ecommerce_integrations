@@ -20,6 +20,7 @@ from ecommerce_integrations.shopware6.export.product_mapper import (
     get_cached_currency_id,
     get_cached_sales_channel_id,
     get_actual_variant_values,
+    get_product_visibilities,
 )
 from ecommerce_integrations.shopware6.export.category_handler import (
     sync_all_item_categories,
@@ -73,13 +74,18 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
             if category_id:
                 product_payload["categories"] = [{"id": category_id}]
 
-        # Sales channel visibility
-        sales_channel_id = get_cached_sales_channel_id(client)
-        if sales_channel_id:
-            product_payload["visibilities"] = [{
-                "salesChannelId": sales_channel_id,
-                "visibility": 30
-            }]
+        # Sales channel visibility - Multi-Storefront support
+        visibilities = get_product_visibilities(template_item, setting)
+        if visibilities:
+            product_payload["visibilities"] = visibilities
+        else:
+            # Fallback to legacy single-channel mode
+            sales_channel_id = get_cached_sales_channel_id(client)
+            if sales_channel_id:
+                product_payload["visibilities"] = [{
+                    "salesChannelId": sales_channel_id,
+                    "visibility": 30
+                }]
 
         # Tax
         tax_rate = product_payload.pop("_tax_rate", 19.0)

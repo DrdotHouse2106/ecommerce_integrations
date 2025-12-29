@@ -77,6 +77,15 @@ class ShopwareProduct:
             Shopware product ID if successful, None otherwise
         """
         from ecommerce_integrations.shopware6.connection import get_shopware_client
+        from ecommerce_integrations.shopware6.validators import ShopwareDataValidator
+
+        # Validate item before upload
+        is_valid, errors = ShopwareDataValidator.validate_item_for_export(self.item_code)
+        if not is_valid:
+            # Log and skip - don't throw error
+            for error in errors:
+                frappe.logger("shopware6").info(f"Skipping {self.item_code}: {error}")
+            return None
 
         client = get_shopware_client()
         item = self.get_erpnext_item()
