@@ -17,6 +17,8 @@ from ecommerce_integrations.shopware6.export.product_mapper import (
     map_erpnext_item_to_shopware,
     get_tax_id_by_rate,
     get_cached_currency_id,
+    get_product_visibilities,
+    build_channel_prices,
 )
 from ecommerce_integrations.shopware6.export.property_handler import (
     get_or_create_property_group,
@@ -80,14 +82,35 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
 
         # Currency
         currency_id = get_cached_currency_id(client, "EUR")
-        if currency_id and product_payload.get("price"):
-            product_payload["price"][0]["currencyId"] = currency_id
 
         # Tax
         tax_rate = product_payload.pop("_tax_rate", 19.0)
         tax_id = get_tax_id_by_rate(client, tax_rate)
         if tax_id:
             product_payload["taxId"] = tax_id
+
+        # Get parent item to determine visibility/channels for pricing
+        parent_item = frappe.get_doc("Item", variant_item.variant_of)
+        visibilities = get_product_visibilities(parent_item, setting)
+
+        # Build channel-specific prices with Shopware Rules
+        if visibilities and len(setting.sales_channels or []) > 0:
+            # Multi-channel mode: use build_channel_prices for variant
+            channel_prices = build_channel_prices(
+                item=variant_item,  # Use variant for price lookup
+                visibilities=visibilities,  # Use parent's visibility
+                setting=setting,
+                client=client,
+                tax_rate=tax_rate,
+                currency_id=currency_id
+            )
+            product_payload["prices"] = channel_prices
+            # Remove single price, use prices array instead
+            product_payload.pop("price", None)
+        else:
+            # Single-channel mode: keep original price logic
+            if currency_id and product_payload.get("price"):
+                product_payload["price"][0]["currencyId"] = currency_id
 
         # Build options array from variant attributes
         attr_values = get_variant_attribute_values(variant_item)

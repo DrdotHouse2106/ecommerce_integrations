@@ -21,6 +21,7 @@ from ecommerce_integrations.shopware6.export.product_mapper import (
     get_cached_currency_id,
     get_cached_sales_channel_id,
     get_product_visibilities,
+    build_channel_prices,
 )
 from ecommerce_integrations.shopware6.export.category_handler import sync_all_item_categories
 from ecommerce_integrations.shopware6.export.property_handler import (
@@ -197,8 +198,6 @@ class ShopwareProduct:
 
             # Currency
             currency_id = get_cached_currency_id(client, "EUR")
-            if currency_id and payload.get("price"):
-                payload["price"][0]["currencyId"] = currency_id
 
             # Categories
             category_ids = sync_all_item_categories(client, item.item_code)
@@ -213,14 +212,35 @@ class ShopwareProduct:
                 # Fallback to legacy single-channel mode
                 sales_channel_id = get_cached_sales_channel_id(client)
                 if sales_channel_id:
-                    payload["visibilities"] = [{
+                    visibilities = [{
                         "salesChannelId": sales_channel_id,
                         "visibility": 30
                     }]
+                    payload["visibilities"] = visibilities
 
             # Tax
             tax_rate = payload.pop("_tax_rate", 19.0)
             tax_id = get_tax_id_by_rate(client, tax_rate)
+
+            # Build channel-specific prices with Shopware Rules
+            # This replaces the single-price logic with multi-channel pricing
+            if visibilities and len(self.setting.sales_channels or []) > 0:
+                # Multi-channel mode: use build_channel_prices
+                channel_prices = build_channel_prices(
+                    item=item,
+                    visibilities=visibilities,
+                    setting=self.setting,
+                    client=client,
+                    tax_rate=tax_rate,
+                    currency_id=currency_id
+                )
+                payload["prices"] = channel_prices
+                # Remove single price, use prices array instead
+                payload.pop("price", None)
+            else:
+                # Single-channel mode: keep original price logic
+                if currency_id and payload.get("price"):
+                    payload["price"][0]["currencyId"] = currency_id
             if tax_id:
                 payload["taxId"] = tax_id
 

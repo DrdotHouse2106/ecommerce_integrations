@@ -46,6 +46,7 @@
   "column_break_company",
   "cost_center",
   "price_handling_section",
+  "default_selling_price_list",
   "import_prices_as_net",
   "default_tax_rate",
   "column_break_price_handling",
@@ -361,6 +362,13 @@
    "fieldname": "price_handling_section",
    "fieldtype": "Section Break",
    "label": "Price Handling (B2B/B2C)"
+  },
+  {
+   "description": "Default price list for product export. Used as base price for channel-specific adjustments and as fallback when no channel price list is set.",
+   "fieldname": "default_selling_price_list",
+   "fieldtype": "Link",
+   "label": "Default Selling Price List",
+   "options": "Price List"
   },
   {
    "default": "1",

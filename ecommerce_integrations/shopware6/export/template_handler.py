@@ -21,6 +21,7 @@ from ecommerce_integrations.shopware6.export.product_mapper import (
     get_cached_sales_channel_id,
     get_actual_variant_values,
     get_product_visibilities,
+    build_channel_prices,
 )
 from ecommerce_integrations.shopware6.export.category_handler import (
     sync_all_item_categories,
@@ -62,8 +63,6 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
 
         # Currency
         currency_id = get_cached_currency_id(client, "EUR")
-        if currency_id and product_payload.get("price"):
-            product_payload["price"][0]["currencyId"] = currency_id
 
         # Categories
         category_ids = sync_all_item_categories(client, template_item.item_code)
@@ -82,16 +81,36 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
             # Fallback to legacy single-channel mode
             sales_channel_id = get_cached_sales_channel_id(client)
             if sales_channel_id:
-                product_payload["visibilities"] = [{
+                visibilities = [{
                     "salesChannelId": sales_channel_id,
                     "visibility": 30
                 }]
+                product_payload["visibilities"] = visibilities
 
         # Tax
         tax_rate = product_payload.pop("_tax_rate", 19.0)
         tax_id = get_tax_id_by_rate(client, tax_rate)
         if tax_id:
             product_payload["taxId"] = tax_id
+
+        # Build channel-specific prices with Shopware Rules
+        if visibilities and len(setting.sales_channels or []) > 0:
+            # Multi-channel mode: use build_channel_prices
+            channel_prices = build_channel_prices(
+                item=template_item,
+                visibilities=visibilities,
+                setting=setting,
+                client=client,
+                tax_rate=tax_rate,
+                currency_id=currency_id
+            )
+            product_payload["prices"] = channel_prices
+            # Remove single price, use prices array instead
+            product_payload.pop("price", None)
+        else:
+            # Single-channel mode: keep original price logic
+            if currency_id and product_payload.get("price"):
+                product_payload["price"][0]["currencyId"] = currency_id
 
         # Manufacturer
         manufacturer_name = (

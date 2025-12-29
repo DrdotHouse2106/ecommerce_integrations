@@ -594,3 +594,94 @@ def _parse_visibility(visibility_str: str) -> int:
         return 10
 
     return 30  # Default
+
+
+def build_channel_prices(
+    item,
+    visibilities: List[Dict[str, Any]],
+    setting,
+    client,
+    tax_rate: float = 19.0,
+    currency_id: str = None
+) -> List[Dict[str, Any]]:
+    """
+    Build multi-channel prices array with Shopware Rules.
+
+    Creates a prices array where each entry is linked to a sales channel rule.
+    This enables channel-specific pricing in Shopware.
+
+    Args:
+        item: ERPNext Item document
+        visibilities: List of visibility dicts with salesChannelId
+        setting: Shopware Setting document
+        client: Shopware API client
+        tax_rate: Tax rate for gross price calculation
+        currency_id: Shopware currency ID
+
+    Returns:
+        List of price dicts with ruleId for each channel
+    """
+    from ecommerce_integrations.shopware6.export.price_handler import get_channel_price
+    from ecommerce_integrations.shopware6.export.rule_handler import get_channel_rule_id
+
+    prices = []
+    processed_channels = set()
+
+    # Build lookup for sales channels
+    channel_lookup = {
+        sc.sales_channel_id: sc
+        for sc in (setting.sales_channels or [])
+    }
+
+    for vis in visibilities:
+        channel_id = vis.get("salesChannelId")
+        if not channel_id or channel_id in processed_channels:
+            continue
+
+        processed_channels.add(channel_id)
+
+        # Get channel config
+        channel = channel_lookup.get(channel_id)
+        if not channel:
+            continue
+
+        # Get channel-specific price
+        net_price = get_channel_price(item.name, channel, setting)
+        if net_price <= 0:
+            net_price = 0.01
+
+        gross_price = round(net_price * (1 + tax_rate / 100), 2)
+
+        # Get rule ID for this channel
+        rule_id = get_channel_rule_id(client, channel_id, setting)
+
+        price_entry = {
+            "currencyId": currency_id,
+            "gross": gross_price,
+            "net": net_price,
+            "linked": False,
+        }
+
+        # Only add ruleId if we have one (otherwise it's the default price)
+        if rule_id:
+            price_entry["ruleId"] = rule_id
+
+        prices.append(price_entry)
+
+    # Ensure at least one price exists (without ruleId = default)
+    if not prices:
+        from ecommerce_integrations.shopware6.export.price_handler import get_item_price
+        default_price_list = getattr(setting, 'default_selling_price_list', None)
+        net_price = get_item_price(item.name, default_price_list)
+        if net_price <= 0:
+            net_price = 0.01
+        gross_price = round(net_price * (1 + tax_rate / 100), 2)
+
+        prices.append({
+            "currencyId": currency_id,
+            "gross": gross_price,
+            "net": net_price,
+            "linked": False,
+        })
+
+    return prices

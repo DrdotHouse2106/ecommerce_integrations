@@ -11,7 +11,12 @@
   "column_break_1",
   "is_default",
   "active",
-  "access_key"
+  "access_key",
+  "pricing_section",
+  "price_list",
+  "column_break_pricing",
+  "price_adjustment_percent",
+  "shopware_rule_id"
  ],
  "fields": [
   {
@@ -60,6 +65,38 @@
    "fieldname": "access_key",
    "fieldtype": "Data",
    "label": "Access Key",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pricing_section",
+   "fieldtype": "Section Break",
+   "label": "Channel Pricing"
+  },
+  {
+   "description": "Price list to use for this channel. If empty, uses default price list from settings.",
+   "fieldname": "price_list",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Price List",
+   "options": "Price List"
+  },
+  {
+   "fieldname": "column_break_pricing",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Percentage adjustment on base price. E.g., +10 = 10% markup, -5 = 5% discount. Applied when no Price List is set.",
+   "fieldname": "price_adjustment_percent",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Price Adjustment %"
+  },
+  {
+   "fieldname": "shopware_rule_id",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Shopware Rule ID",
    "read_only": 1
   }
  ],

@@ -197,12 +197,16 @@ class ShopwareSetting(Document):
             response = client.request_get("sales-channel")
             channels = response.get("data", [])
 
-            # Remember which channel was default before
-            previous_default = None
+            # Remember existing channel configurations before refresh
+            existing_config = {}
             for sc in self.sales_channels:
-                if sc.is_default:
-                    previous_default = sc.sales_channel_id
-                    break
+                existing_config[sc.sales_channel_id] = {
+                    "is_default": sc.is_default,
+                    "short_code": getattr(sc, 'short_code', ''),
+                    "price_list": getattr(sc, 'price_list', None),
+                    "price_adjustment_percent": getattr(sc, 'price_adjustment_percent', 0),
+                    "shopware_rule_id": getattr(sc, 'shopware_rule_id', None),
+                }
 
             # Clear existing and populate with fresh data
             self.sales_channels = []
@@ -210,32 +214,84 @@ class ShopwareSetting(Document):
                 channel_id = channel.get("id")
                 channel_name = channel.get("name") or channel.get("translated", {}).get("name", "")
 
+                # Restore existing config if available
+                prev_config = existing_config.get(channel_id, {})
+
                 self.append("sales_channels", {
                     "sales_channel_id": channel_id,
                     "sales_channel_name": channel_name,
                     "active": channel.get("active", True),
                     "access_key": channel.get("accessKey", ""),
-                    "is_default": 1 if channel_id == previous_default else 0
+                    "is_default": prev_config.get("is_default", 0),
+                    "short_code": prev_config.get("short_code", ""),
+                    "price_list": prev_config.get("price_list"),
+                    "price_adjustment_percent": prev_config.get("price_adjustment_percent", 0),
+                    "shopware_rule_id": prev_config.get("shopware_rule_id"),
                 })
 
-            # If no default was set before, mark first active channel as default
-            if not previous_default and self.sales_channels:
+            # If no default was set, mark first active channel as default
+            has_default = any(sc.is_default for sc in self.sales_channels)
+            if not has_default and self.sales_channels:
                 for sc in self.sales_channels:
                     if sc.active:
                         sc.is_default = 1
                         break
 
+            # Create/update Shopware Rules for each active channel
+            rules_created = self._ensure_channel_rules(client)
+
             self.save()
             frappe.msgprint(
-                _("Found {0} Sales Channel(s)").format(len(channels)),
+                _("Found {0} Sales Channel(s). Created/verified {1} pricing rule(s).").format(
+                    len(channels), rules_created
+                ),
                 title=_("Success"),
                 indicator="green"
             )
-            return {"channels": len(channels)}
+            return {"channels": len(channels), "rules": rules_created}
 
         except Exception as e:
             frappe.log_error(str(e), "Shopware Sales Channel Fetch Error")
             frappe.throw(_("Failed to fetch Sales Channels: {0}").format(str(e)))
+
+    def _ensure_channel_rules(self, client) -> int:
+        """
+        Ensure all active sales channels have corresponding Shopware Rules.
+
+        Creates rules for channels that don't have one yet.
+
+        Args:
+            client: Shopware API client
+
+        Returns:
+            Number of rules created/verified
+        """
+        from ecommerce_integrations.shopware6.export.rule_handler import (
+            get_or_create_sales_channel_rule
+        )
+
+        rules_count = 0
+        for sc in self.sales_channels:
+            if not sc.active:
+                continue
+
+            # Skip if rule already exists
+            if sc.shopware_rule_id:
+                rules_count += 1
+                continue
+
+            # Create rule for this channel
+            rule_id = get_or_create_sales_channel_rule(
+                client,
+                sc.sales_channel_id,
+                sc.sales_channel_name
+            )
+
+            if rule_id:
+                sc.shopware_rule_id = rule_id
+                rules_count += 1
+
+        return rules_count
 
     def get_default_sales_channel_id(self):
         """Get the default Sales Channel ID."""

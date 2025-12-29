@@ -22,22 +22,35 @@ def get_item_price(item_code: str, price_list: str = None) -> float:
 
     Args:
         item_code: ERPNext Item code
-        price_list: Price list to use (optional)
+        price_list: Price list to use (optional). If specified, only looks in that price list.
 
     Returns:
         Price as float
     """
-    # Try standard_rate first
+    # If price_list is specified, prioritize Item Price table
+    if price_list:
+        item_price = frappe.db.get_value(
+            "Item Price",
+            {
+                "item_code": item_code,
+                "price_list": price_list,
+                "selling": 1,
+                "price_list_rate": [">", 0]
+            },
+            "price_list_rate"
+        )
+        if item_price:
+            return flt(item_price)
+
+    # Try standard_rate as fallback
     item = frappe.get_doc("Item", item_code)
     price = flt(item.get(ITEM_SELLING_RATE_FIELD) or 0)
 
     if price > 0:
         return price
 
-    # Try Item Price table
+    # Try Item Price table (any price list)
     filters = {"item_code": item_code, "selling": 1, "price_list_rate": [">", 0]}
-    if price_list:
-        filters["price_list"] = price_list
 
     item_price = frappe.db.get_value(
         "Item Price",
@@ -47,6 +60,41 @@ def get_item_price(item_code: str, price_list: str = None) -> float:
     )
 
     return flt(item_price) if item_price else 0.0
+
+
+def get_channel_price(item_code: str, sales_channel, setting) -> float:
+    """
+    Get the price for an item in a specific sales channel.
+
+    Priority:
+    1. If channel has price_list set -> use that price list
+    2. If channel has price_adjustment_percent -> apply to base price
+    3. Fallback -> use setting.default_selling_price_list
+
+    Args:
+        item_code: ERPNext Item code
+        sales_channel: Shopware Sales Channel row from setting
+        setting: Shopware Setting document
+
+    Returns:
+        Price as float
+    """
+    # Priority 1: Channel has its own price list
+    if sales_channel.price_list:
+        return get_item_price(item_code, sales_channel.price_list)
+
+    # Get base price from default price list
+    default_price_list = getattr(setting, 'default_selling_price_list', None)
+    base_price = get_item_price(item_code, default_price_list)
+
+    # Priority 2: Channel has percentage adjustment
+    adjustment_percent = flt(getattr(sales_channel, 'price_adjustment_percent', 0))
+    if adjustment_percent != 0:
+        adjusted_price = base_price * (1 + adjustment_percent / 100)
+        return round(adjusted_price, 2)
+
+    # Priority 3: Return base price as-is
+    return base_price
 
 
 def get_item_tax_rate(item_code: str) -> float:
