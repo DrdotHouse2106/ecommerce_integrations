@@ -154,7 +154,7 @@
    "fieldname": "all_channels_item_groups",
    "fieldtype": "Table MultiSelect",
    "label": "Item Groups Visible in ALL Channels",
-   "options": "Item Group"
+   "options": "Shopware All Channels Item Group"
   },
   {
    "fieldname": "channel_mapping_info_html",

@@ -493,11 +493,9 @@ def _get_channels_from_item_group(item_group: str, setting) -> Optional[List[Dic
     # Check if in "all channels" list
     all_channel_groups = []
     for link in (setting.all_channels_item_groups or []):
-        # Table MultiSelect stores links differently
-        if hasattr(link, 'item_group'):
+        # Table MultiSelect with Shopware All Channels Item Group child table
+        if hasattr(link, 'item_group') and link.item_group:
             all_channel_groups.append(link.item_group)
-        elif hasattr(link, 'link_name'):
-            all_channel_groups.append(link.link_name)
 
     if item_group in all_channel_groups:
         return [
