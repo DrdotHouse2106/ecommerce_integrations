@@ -9,7 +9,6 @@ from typing import Optional
 
 import frappe
 
-from ecommerce_integrations.shopware6.connection import temp_shopware_session
 from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCTYPE
 from ecommerce_integrations.shopware6.utils import create_shopware_log
 from ecommerce_integrations.shopware6.export.utils import generate_uuid, get_shopware_document_id
@@ -26,6 +25,7 @@ from ecommerce_integrations.shopware6.export.product_mapper import (
 from ecommerce_integrations.shopware6.export.category_handler import (
     sync_all_item_categories,
     sync_category_hierarchy,
+    clear_product_categories,
 )
 from ecommerce_integrations.shopware6.export.property_handler import (
     get_or_create_property_group,
@@ -40,6 +40,7 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
     Export an ERPNext template item (has_variants=1) to Shopware as a parent product.
 
     Creates the parent product with configuratorSettings for all variant options.
+    Updates existing products including categories.
 
     Args:
         client: Shopware API client
@@ -50,15 +51,13 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
     """
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
 
-    # Check if already synced
-    shopware_product_id = get_shopware_document_id("Item", template_item.name)
-    if shopware_product_id:
-        return shopware_product_id
+    # Check if already synced - but continue to update categories
+    existing_shopware_id = get_shopware_document_id("Item", template_item.name)
 
     try:
         # Build base payload
         product_payload = map_erpnext_item_to_shopware(template_item)
-        product_id = generate_uuid(f"product_{template_item.item_code}")
+        product_id = existing_shopware_id or generate_uuid(f"product_{template_item.item_code}")
         product_payload["id"] = product_id
 
         # Currency
@@ -153,18 +152,24 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
         if configurator_settings:
             product_payload["configuratorSettings"] = configurator_settings
 
-        # Check if product exists
-        product_exists = False
-        try:
-            client.request_get(f"product/{product_id}")
-            product_exists = True
-        except BaseException:
-            pass
+        # Check if product exists (use existing_shopware_id if available to avoid API call)
+        product_exists = bool(existing_shopware_id)
+        if not product_exists:
+            try:
+                client.request_get(f"product/{product_id}")
+                product_exists = True
+            except BaseException:
+                pass
 
         if product_exists:
+            # Pop visibilities for update (handled separately if needed)
             product_payload.pop("visibilities", None)
+            # Clear old categories before setting new ones
+            if product_payload.get("categories"):
+                clear_product_categories(client, product_id)
+            # Update product with new categories
             client.request_patch(f"product/{product_id}", product_payload)
-            frappe.logger().info(f"Template {template_item.item_code} updated in Shopware")
+            frappe.logger().info(f"Template {template_item.item_code} updated in Shopware (categories: {len(product_payload.get('categories', []))})")
         else:
             client.request_post("product", product_payload)
 

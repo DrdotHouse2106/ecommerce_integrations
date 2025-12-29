@@ -23,7 +23,10 @@ from ecommerce_integrations.shopware6.export.product_mapper import (
     get_product_visibilities,
     build_channel_prices,
 )
-from ecommerce_integrations.shopware6.export.category_handler import sync_all_item_categories
+from ecommerce_integrations.shopware6.export.category_handler import (
+    sync_all_item_categories,
+    clear_product_categories,
+)
 from ecommerce_integrations.shopware6.export.property_handler import (
     ensure_shopware_custom_field_set,
     get_item_custom_fields,
@@ -287,6 +290,9 @@ class ShopwareProduct:
             if product_exists:
                 # For updates with multi-channel support, update visibilities separately
                 new_visibilities = payload.pop("visibilities", None)
+                # Clear old categories before setting new ones
+                if payload.get("categories"):
+                    clear_product_categories(client, product_id)
                 client.request_patch(f"product/{product_id}", payload)
 
                 # Update visibilities if multi-channel is configured
