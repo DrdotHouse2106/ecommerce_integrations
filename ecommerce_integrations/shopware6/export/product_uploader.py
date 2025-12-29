@@ -78,10 +78,10 @@ class ShopwareProduct:
             Shopware product ID if successful, None otherwise
         """
         from ecommerce_integrations.shopware6.connection import get_shopware_client
-        from ecommerce_integrations.shopware6.validators import ShopwareDataValidator
+        from ecommerce_integrations.shopware6.validators import ERPNextDataValidator
 
         # Validate item before upload
-        is_valid, errors = ShopwareDataValidator.validate_item_for_export(self.item_code)
+        is_valid, errors = ERPNextDataValidator.validate_item_for_export(self.item_code)
         if not is_valid:
             # Log and skip - don't throw error
             for error in errors:

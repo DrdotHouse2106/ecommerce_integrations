@@ -74,7 +74,10 @@ def get_or_create_sales_channel_rule(
                     "children": [
                         {
                             "type": "salesChannel",
-                            "salesChannelIds": [sales_channel_id]
+                            "value": {
+                                "salesChannelIds": [sales_channel_id],
+                                "operator": "="
+                            }
                         }
                     ]
                 }

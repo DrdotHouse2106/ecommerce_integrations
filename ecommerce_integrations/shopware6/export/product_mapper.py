@@ -655,11 +655,17 @@ def build_channel_prices(
         # Get rule ID for this channel
         rule_id = get_channel_rule_id(client, channel_id, setting)
 
+        # Shopware prices structure requires nested price array
         price_entry = {
-            "currencyId": currency_id,
-            "gross": gross_price,
-            "net": net_price,
-            "linked": False,
+            "quantityStart": 1,
+            "price": [
+                {
+                    "currencyId": currency_id,
+                    "gross": gross_price,
+                    "net": net_price,
+                    "linked": False,
+                }
+            ]
         }
 
         # Only add ruleId if we have one (otherwise it's the default price)
@@ -678,10 +684,15 @@ def build_channel_prices(
         gross_price = round(net_price * (1 + tax_rate / 100), 2)
 
         prices.append({
-            "currencyId": currency_id,
-            "gross": gross_price,
-            "net": net_price,
-            "linked": False,
+            "quantityStart": 1,
+            "price": [
+                {
+                    "currencyId": currency_id,
+                    "gross": gross_price,
+                    "net": net_price,
+                    "linked": False,
+                }
+            ]
         })
 
     return prices
