@@ -1084,13 +1084,22 @@ def _run_force_image_sync_batched(batch_size: int, total: int):
 
     client = get_shopware_client()
     if not client:
-        frappe.logger().error("[Force Image Sync] No Shopware client available")
+        create_shopware_log(
+            status="Error",
+            method="force_sync_all_images",
+            message="No Shopware client available",
+        )
         return
 
     cache = get_cache()
     stats = {"processed": 0, "synced": 0, "failed": 0}
-
     num_batches = (total + batch_size - 1) // batch_size
+
+    create_shopware_log(
+        status="Queued",
+        method="force_sync_all_images",
+        message=f"Starting image sync for {total} products in {num_batches} batches (batch size: {batch_size})",
+    )
 
     for batch_num in range(num_batches):
         offset = batch_num * batch_size
@@ -1124,18 +1133,21 @@ def _run_force_image_sync_batched(batch_size: int, total: int):
             except Exception as e:
                 stats["failed"] += 1
                 stats["processed"] += 1
-                frappe.logger().warning(f"[Force Image Sync] Error for {item_code}: {e}")
+                frappe.log_error(f"Force Image Sync error for {item_code}: {e}")
 
         frappe.db.commit()
 
         pct = round(stats["processed"] / total * 100, 1)
-        frappe.logger().info(
-            f"[Force Image Sync] {pct}% - Batch {batch_num + 1}/{num_batches} - "
-            f"Synced: {stats['synced']}, Failed: {stats['failed']}"
+        create_shopware_log(
+            status="Success",
+            method="force_sync_all_images",
+            message=f"Batch {batch_num + 1}/{num_batches} ({pct}%) - Synced: {stats['synced']}, Failed: {stats['failed']}",
         )
 
-    frappe.logger().info(
-        f"[Force Image Sync] COMPLETED - Synced: {stats['synced']}, Failed: {stats['failed']}"
+    create_shopware_log(
+        status="Success",
+        method="force_sync_all_images",
+        message=f"COMPLETED - Total synced: {stats['synced']}, Failed: {stats['failed']}",
     )
 
 
