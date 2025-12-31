@@ -930,6 +930,105 @@ def _run_batch_reconciliation(
 
 
 # =============================================================================
+# FORCE IMAGE SYNC
+# =============================================================================
+
+@frappe.whitelist()
+@temp_shopware_session
+def force_sync_all_images(
+    client,
+    limit: int = 100,
+    offset: int = 0,
+) -> Dict[str, Any]:
+    """
+    Force re-sync all product images to Shopware.
+
+    This will:
+    1. Clear the image hash cache
+    2. Delete existing images in Shopware
+    3. Re-upload all images from ERPNext
+
+    Args:
+        limit: Maximum number of products to process
+        offset: Starting offset for pagination
+
+    Returns:
+        Dict with sync statistics
+    """
+    from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
+    from ecommerce_integrations.shopware6.base.cache_manager import get_cache
+
+    limit = cint(limit) or 100
+    offset = cint(offset) or 0
+
+    stats = {
+        "processed": 0,
+        "synced": 0,
+        "failed": 0,
+        "errors": [],
+    }
+
+    # Get all products with Shopware ID that have images
+    # Join with Item to filter only items with images
+    ecommerce_items = frappe.db.sql("""
+        SELECT ei.erpnext_item_code, ei.integration_item_code
+        FROM `tabEcommerce Item` ei
+        INNER JOIN `tabItem` i ON i.name = ei.erpnext_item_code
+        WHERE ei.integration = 'Shopware6'
+        AND i.image IS NOT NULL
+        AND i.image != ''
+        ORDER BY ei.erpnext_item_code
+        LIMIT %s OFFSET %s
+    """, (limit, offset), as_dict=True)
+
+    cache = get_cache()
+
+    for ei in ecommerce_items:
+        item_code = ei.erpnext_item_code
+        shopware_id = ei.integration_item_code
+
+        try:
+            # Get the Item document
+            item = frappe.get_doc("Item", item_code)
+
+            # Clear cached hashes for this item to force re-upload
+            cache.clear_image_hashes(item_code)
+
+            # Sync images (this deletes old and uploads new)
+            success = sync_product_images_to_shopware(client, item, shopware_id)
+
+            if success:
+                stats["synced"] += 1
+            else:
+                stats["failed"] += 1
+                stats["errors"].append({"item_code": item_code, "error": "sync failed"})
+
+            stats["processed"] += 1
+
+            # Commit every 10 items
+            if stats["processed"] % 10 == 0:
+                frappe.db.commit()
+                frappe.logger().info(
+                    f"[Force Image Sync] Progress: {stats['processed']}/{len(ecommerce_items)} "
+                    f"(synced: {stats['synced']}, failed: {stats['failed']})"
+                )
+
+        except Exception as e:
+            stats["failed"] += 1
+            stats["errors"].append({"item_code": item_code, "error": str(e)})
+            stats["processed"] += 1
+            frappe.logger().warning(f"[Force Image Sync] Error for {item_code}: {e}")
+
+    frappe.db.commit()
+
+    return {
+        "success": True,
+        "statistics": stats,
+        "message": f"Processed {stats['processed']} items: {stats['synced']} synced, {stats['failed']} failed",
+    }
+
+
+# =============================================================================
 # UTILITIES
 # =============================================================================
 

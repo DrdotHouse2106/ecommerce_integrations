@@ -6,8 +6,9 @@ Implements delta-sync using MD5 hashes to avoid redundant uploads.
 """
 
 import hashlib
-import os
 import mimetypes
+import os
+import re
 from typing import List, Optional, Tuple
 
 import frappe
@@ -64,9 +65,36 @@ def get_product_media_folder_id(client) -> Optional[str]:
         return None
 
 
+def _get_file_doc_from_url(file_url: str):
+    """
+    Get File document from a dfp_external_storage URL.
+
+    URLs have format: /file/{file_id}/{filename}
+
+    Args:
+        file_url: ERPNext file URL
+
+    Returns:
+        File document or None
+    """
+    match = re.search(r'^/file/([^/]+)/(.+)$', file_url)
+    if match:
+        file_id = match.group(1)
+        try:
+            return frappe.get_doc("File", file_id)
+        except Exception:
+            pass
+    return None
+
+
 def get_file_content_and_type(file_url: str) -> Tuple[Optional[bytes], Optional[str], Optional[str]]:
     """
     Get file content and mime type from ERPNext file URL.
+
+    Supports:
+    - HTTP/HTTPS URLs
+    - Local files (/files/, /private/files/)
+    - dfp_external_storage URLs (/file/{id}/{filename})
 
     Args:
         file_url: ERPNext file URL
@@ -84,6 +112,21 @@ def get_file_content_and_type(file_url: str) -> Tuple[Optional[bytes], Optional[
                 content_type = response.headers.get('Content-Type', 'image/jpeg')
                 ext = mimetypes.guess_extension(content_type) or '.jpg'
                 return response.content, content_type, ext.lstrip('.')
+            return None, None, None
+
+        # dfp_external_storage URL format: /file/{file_id}/{filename}
+        if file_url.startswith('/file/'):
+            file_doc = _get_file_doc_from_url(file_url)
+            if file_doc:
+                try:
+                    content = file_doc.get_content()
+                    if content:
+                        mime_type, _ = mimetypes.guess_type(file_doc.file_name)
+                        mime_type = mime_type or 'image/jpeg'
+                        ext = os.path.splitext(file_doc.file_name)[1].lstrip('.') or 'jpg'
+                        return content, mime_type, ext
+                except Exception as e:
+                    frappe.log_error(f"Failed to get content from external storage for {file_url}: {e}")
             return None, None, None
 
         # Local file
@@ -113,6 +156,10 @@ def get_file_hash(file_url: str) -> Optional[str]:
     """
     Calculate MD5 hash of a file for delta-sync.
 
+    Supports:
+    - Local files (/files/, /private/files/)
+    - dfp_external_storage URLs (/file/{id}/{filename})
+
     Args:
         file_url: ERPNext file URL
 
@@ -121,6 +168,22 @@ def get_file_hash(file_url: str) -> Optional[str]:
     """
     try:
         if not file_url or file_url.startswith(('http://', 'https://')):
+            return None
+
+        # dfp_external_storage URL format: /file/{file_id}/{filename}
+        if file_url.startswith('/file/'):
+            file_doc = _get_file_doc_from_url(file_url)
+            if file_doc:
+                # Use content_hash from File doc if available (more efficient)
+                if file_doc.content_hash:
+                    return file_doc.content_hash
+                # Otherwise fetch content and calculate hash
+                try:
+                    content = file_doc.get_content()
+                    if content:
+                        return hashlib.md5(content).hexdigest()
+                except Exception:
+                    pass
             return None
 
         if file_url.startswith('/private/files/'):
@@ -249,7 +312,8 @@ def get_item_images(item) -> List[str]:
         if main_basename:
             seen_filenames.add(main_basename)
 
-    # Get attachments
+    # Get attachments sorted by filename for consistent ordering
+    # This ensures images like item_01.jpg, item_02.jpg are in correct order
     attachments = frappe.get_all(
         "File",
         filters={
@@ -258,7 +322,7 @@ def get_item_images(item) -> List[str]:
             "is_folder": 0,
         },
         fields=["file_url", "file_name"],
-        order_by="creation asc"
+        order_by="file_name asc"
     )
 
     image_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp')
