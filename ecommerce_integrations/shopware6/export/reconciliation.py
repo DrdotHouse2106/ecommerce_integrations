@@ -1028,6 +1028,117 @@ def force_sync_all_images(
     }
 
 
+@frappe.whitelist()
+def enqueue_force_sync_all_images(
+    batch_size: int = 500,
+) -> Dict[str, Any]:
+    """
+    Enqueue force image sync as a background job.
+
+    Processes all products with images in batches.
+
+    Args:
+        batch_size: Number of items per batch
+
+    Returns:
+        Dict with job info
+    """
+    batch_size = cint(batch_size) or 500
+
+    # Count total items with images
+    total = frappe.db.sql("""
+        SELECT COUNT(*) FROM `tabEcommerce Item` ei
+        INNER JOIN `tabItem` i ON i.name = ei.erpnext_item_code
+        WHERE ei.integration = 'Shopware6'
+        AND i.image IS NOT NULL AND i.image != ''
+    """)[0][0]
+
+    job_name = f"shopware6_force_image_sync_{now()}"
+
+    frappe.enqueue(
+        "ecommerce_integrations.shopware6.export.reconciliation._run_force_image_sync_batched",
+        queue="long",
+        job_name=job_name,
+        timeout=3600 * 4,  # 4 hours
+        batch_size=batch_size,
+        total=total,
+    )
+
+    return {
+        "success": True,
+        "message": f"Force image sync enqueued for {total} products (batch size: {batch_size})",
+        "job_name": job_name,
+    }
+
+
+def _run_force_image_sync_batched(batch_size: int, total: int):
+    """
+    Run force image sync in batches.
+
+    Args:
+        batch_size: Number of items per batch
+        total: Total items to process
+    """
+    from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
+    from ecommerce_integrations.shopware6.base.cache_manager import get_cache
+
+    client = get_shopware_client()
+    if not client:
+        frappe.logger().error("[Force Image Sync] No Shopware client available")
+        return
+
+    cache = get_cache()
+    stats = {"processed": 0, "synced": 0, "failed": 0}
+
+    num_batches = (total + batch_size - 1) // batch_size
+
+    for batch_num in range(num_batches):
+        offset = batch_num * batch_size
+
+        items = frappe.db.sql("""
+            SELECT ei.erpnext_item_code, ei.integration_item_code
+            FROM `tabEcommerce Item` ei
+            INNER JOIN `tabItem` i ON i.name = ei.erpnext_item_code
+            WHERE ei.integration = 'Shopware6'
+            AND i.image IS NOT NULL AND i.image != ''
+            ORDER BY ei.erpnext_item_code
+            LIMIT %s OFFSET %s
+        """, (batch_size, offset), as_dict=True)
+
+        for ei in items:
+            item_code = ei.erpnext_item_code
+            shopware_id = ei.integration_item_code
+
+            try:
+                item = frappe.get_doc("Item", item_code)
+                cache.clear_image_hashes(item_code)
+                success = sync_product_images_to_shopware(client, item, shopware_id)
+
+                if success:
+                    stats["synced"] += 1
+                else:
+                    stats["failed"] += 1
+
+                stats["processed"] += 1
+
+            except Exception as e:
+                stats["failed"] += 1
+                stats["processed"] += 1
+                frappe.logger().warning(f"[Force Image Sync] Error for {item_code}: {e}")
+
+        frappe.db.commit()
+
+        pct = round(stats["processed"] / total * 100, 1)
+        frappe.logger().info(
+            f"[Force Image Sync] {pct}% - Batch {batch_num + 1}/{num_batches} - "
+            f"Synced: {stats['synced']}, Failed: {stats['failed']}"
+        )
+
+    frappe.logger().info(
+        f"[Force Image Sync] COMPLETED - Synced: {stats['synced']}, Failed: {stats['failed']}"
+    )
+
+
 # =============================================================================
 # UTILITIES
 # =============================================================================
