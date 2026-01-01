@@ -487,10 +487,11 @@ def full_reconciliation(
     category_root: str = None,
     skip_root_category: bool = False,
     sync_empty_categories: bool = True,
-    cleanup_orphaned_categories: bool = False
+    cleanup_orphaned_categories: bool = False,
+    cleanup_orphaned_variants: bool = True
 ) -> Dict[str, Any]:
     """
-    Full reconciliation: Categories first, then Products.
+    Full reconciliation: Categories first, then Products, then Variant Cleanup.
 
     Args:
         limit: Maximum products to process
@@ -501,6 +502,7 @@ def full_reconciliation(
         skip_root_category: Skip the root category itself
         sync_empty_categories: Sync categories even without products
         cleanup_orphaned_categories: Delete Shopware categories not in ERPNext
+        cleanup_orphaned_variants: Delete Shopware variants not in ERPNext
 
     Returns:
         Combined results from category and product sync
@@ -512,6 +514,7 @@ def full_reconciliation(
     skip_root_category = _parse_bool(skip_root_category)
     sync_empty_categories = _parse_bool(sync_empty_categories)
     cleanup_orphaned_categories = _parse_bool(cleanup_orphaned_categories)
+    cleanup_orphaned_variants = _parse_bool(cleanup_orphaned_variants)
 
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
     if not category_root:
@@ -522,7 +525,8 @@ def full_reconciliation(
         "dry_run": dry_run,
         "category_sync": None,
         "product_sync": None,
-        "category_cleanup": None
+        "category_cleanup": None,
+        "variant_cleanup": None
     }
 
     frappe.logger().info(
@@ -530,7 +534,7 @@ def full_reconciliation(
     )
 
     # Phase 1: Sync categories
-    _notify_user("Phase 1/3: Syncing categories...", "blue")
+    _notify_user("Phase 1/4: Syncing categories...", "blue")
     results["category_sync"] = sync_all_categories_to_shopware(
         root_category=category_root,
         skip_root=skip_root_category,
@@ -539,7 +543,7 @@ def full_reconciliation(
     )
 
     # Phase 2: Sync products
-    _notify_user("Phase 2/3: Syncing products...", "blue")
+    _notify_user("Phase 2/4: Syncing products...", "blue")
     results["product_sync"] = reconcile_erpnext_with_shopware(
         limit=cint(limit),
         dry_run=dry_run,
@@ -548,9 +552,14 @@ def full_reconciliation(
         compare_categories=True
     )
 
-    # Phase 3: Cleanup orphaned categories
+    # Phase 3: Cleanup orphaned variants
+    if cleanup_orphaned_variants and not dry_run:
+        _notify_user("Phase 3/4: Cleaning up orphaned variants...", "blue")
+        results["variant_cleanup"] = _cleanup_all_orphaned_variants()
+
+    # Phase 4: Cleanup orphaned categories
     if cleanup_orphaned_categories:
-        _notify_user("Phase 3/3: Cleaning up orphaned categories...", "blue")
+        _notify_user("Phase 4/4: Cleaning up orphaned categories...", "blue")
         results["category_cleanup"] = cleanup_orphaned_shopware_categories(
             root_category=category_root,
             dry_run=dry_run
@@ -565,9 +574,13 @@ def full_reconciliation(
         f"Products: {prod_stats.get('synced', 0)}/{prod_stats.get('total_checked', 0)}"
     ]
 
+    if results.get("variant_cleanup"):
+        var_stats = results["variant_cleanup"]
+        message_parts.append(f"Variants deleted: {var_stats.get('total_deleted', 0)}")
+
     if cleanup_orphaned_categories and results.get("category_cleanup"):
         cleanup_stats = results["category_cleanup"].get("statistics", {})
-        message_parts.append(f"Cleanup: {cleanup_stats.get('deleted', 0)} deleted")
+        message_parts.append(f"Categories deleted: {cleanup_stats.get('deleted', 0)}")
 
     results["message"] = ". ".join(message_parts)
     if dry_run:
@@ -580,6 +593,68 @@ def full_reconciliation(
     )
 
     return results
+
+
+@temp_shopware_session
+def _cleanup_all_orphaned_variants(client) -> Dict[str, Any]:
+    """
+    Cleanup orphaned variants for all template products.
+
+    Iterates through all ERPNext template items that are synced to Shopware
+    and removes variants in Shopware that don't exist in ERPNext.
+
+    Returns:
+        Dict with cleanup statistics
+    """
+    from ecommerce_integrations.shopware6.export.template_handler import cleanup_orphaned_variants
+
+    stats = {
+        "templates_checked": 0,
+        "total_deleted": 0,
+        "errors": []
+    }
+
+    # Get all template items with Shopware link
+    template_links = frappe.get_all(
+        "Ecommerce Item",
+        filters={
+            "integration": MODULE_NAME,
+            "has_variants": 1
+        },
+        fields=["erpnext_item_code", "integration_item_code"]
+    )
+
+    frappe.logger().info(f"[Variant Cleanup] Checking {len(template_links)} templates")
+
+    for link in template_links:
+        try:
+            cleanup_result = cleanup_orphaned_variants(
+                client,
+                link.erpnext_item_code,
+                link.integration_item_code
+            )
+            stats["templates_checked"] += 1
+            stats["total_deleted"] += cleanup_result.get("deleted", 0)
+            stats["errors"].extend(cleanup_result.get("errors", []))
+
+            # Commit periodically
+            if stats["templates_checked"] % 20 == 0:
+                frappe.db.commit()
+
+        except Exception as e:
+            stats["errors"].append({
+                "template": link.erpnext_item_code,
+                "error": str(e)[:100]
+            })
+
+    frappe.db.commit()
+
+    frappe.logger().info(
+        f"[Variant Cleanup] Done: {stats['templates_checked']} templates, "
+        f"{stats['total_deleted']} variants deleted"
+    )
+
+    return stats
 
 
 @frappe.whitelist()

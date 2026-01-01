@@ -505,3 +505,47 @@ def get_item_properties(erpnext_item) -> List[Dict[str, str]]:
                     })
 
     return properties
+
+
+def clear_product_properties(client, product_id: str) -> bool:
+    """
+    Clear all property assignments from a product in Shopware.
+
+    This ensures that when properties are updated, old/stale property
+    assignments are removed before new ones are set.
+
+    Args:
+        client: Shopware API client
+        product_id: Shopware product UUID
+
+    Returns:
+        True if successful
+    """
+    try:
+        response = client.request_get(f"product/{product_id}?associations[properties][]")
+        product_data = response.get("data", {})
+        properties = product_data.get("properties", [])
+
+        if not properties:
+            return True
+
+        # Delete each property assignment
+        for prop in properties:
+            prop_id = prop.get("id")
+            if prop_id:
+                try:
+                    client.request_delete(f"product/{product_id}/properties/{prop_id}")
+                except Exception as e:
+                    frappe.log_error(
+                        f"Failed to remove property {prop_id} from product {product_id}: {e}",
+                        "Shopware Property Clear"
+                    )
+
+        return True
+
+    except Exception as e:
+        frappe.log_error(
+            f"Failed to clear properties for product {product_id}: {e}",
+            "Shopware Property Clear Error"
+        )
+        return False

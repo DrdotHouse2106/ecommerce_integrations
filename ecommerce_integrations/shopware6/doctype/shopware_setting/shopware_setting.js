@@ -634,6 +634,153 @@ frappe.ui.form.on('Shopware Setting', {
 				dialog.fields_dict.cleanup_section.$wrapper.show();
 			}, __('Sync'));
 
+			// Force Sync Options button (Price & Images)
+			frm.add_custom_button(__('Force Sync'), function() {
+				let dialog = new frappe.ui.Dialog({
+					title: __('Force Sync to Shopware'),
+					size: 'large',
+					fields: [
+						{
+							fieldname: 'info_html',
+							fieldtype: 'HTML',
+							options: `<div class="alert alert-warning">
+								<p><strong>⚠️ Force Sync</strong> deletes ALL existing data and recreates it from ERPNext.</p>
+								<p>Use this to clean up duplicates or fix inconsistencies.</p>
+							</div>`
+						},
+						{
+							fieldname: 'sync_type',
+							fieldtype: 'Select',
+							label: __('Force Sync Type'),
+							options: [
+								{value: 'prices', label: __('Force Price Sync - Delete all prices & recreate')},
+								{value: 'images', label: __('Force Image Sync - Delete all images & re-upload')}
+							],
+							default: 'prices',
+							reqd: 1,
+							onchange: function() {
+								let type = dialog.get_value('sync_type');
+								dialog.fields_dict.price_section.$wrapper.toggle(type === 'prices');
+								dialog.fields_dict.image_section.$wrapper.toggle(type === 'images');
+								dialog.fields_dict.dry_run.$wrapper.toggle(type === 'prices'); // dry_run only for prices
+
+								let infos = {
+									'prices': `<div class="alert alert-warning">
+										<p><strong>⚠️ Force Price Sync</strong></p>
+										<ul>
+											<li>Deletes ALL advanced prices (rules, channel prices)</li>
+											<li>Sets single clean price from ERPNext</li>
+											<li>Ensures each product has only ONE price</li>
+										</ul>
+									</div>`,
+									'images': `<div class="alert alert-warning">
+										<p><strong>⚠️ Force Image Sync</strong></p>
+										<ul>
+											<li>Deletes ALL product images in Shopware</li>
+											<li>Re-uploads all images from ERPNext</li>
+											<li>Fixes broken image links or missing covers</li>
+										</ul>
+									</div>`
+								};
+								dialog.fields_dict.info_html.$wrapper.html(infos[type] || '');
+							}
+						},
+						// Price Options Section
+						{
+							fieldname: 'price_section',
+							fieldtype: 'Section Break',
+							label: __('Price Sync Options')
+						},
+						{
+							fieldname: 'price_list',
+							fieldtype: 'Link',
+							label: __('Price List'),
+							options: 'Price List',
+							default: 'Standard-Vertrieb',
+							description: __('ERPNext Price List to use for prices')
+						},
+						{
+							fieldname: 'col_break_price',
+							fieldtype: 'Column Break'
+						},
+						{
+							fieldname: 'price_batch_size',
+							fieldtype: 'Int',
+							label: __('Batch Size'),
+							default: 20,
+							description: __('Products per batch (20-50 recommended)')
+						},
+						// Image Options Section
+						{
+							fieldname: 'image_section',
+							fieldtype: 'Section Break',
+							label: __('Image Sync Options'),
+							hidden: 1
+						},
+						{
+							fieldname: 'image_batch_size',
+							fieldtype: 'Int',
+							label: __('Batch Size'),
+							default: 20,
+							description: __('Products per batch for image sync')
+						},
+						// Execution Options
+						{
+							fieldname: 'exec_section',
+							fieldtype: 'Section Break',
+							label: __('Execution')
+						},
+						{
+							fieldname: 'dry_run',
+							fieldtype: 'Check',
+							label: __('Dry Run'),
+							default: 0,
+							description: __('Preview changes without applying')
+						}
+					],
+					primary_action_label: __('Start Force Sync'),
+					primary_action: function(values) {
+						dialog.hide();
+
+						if (values.sync_type === 'prices') {
+							frappe.call({
+								method: 'ecommerce_integrations.shopware6.export.price_handler.enqueue_force_sync_all_prices',
+								args: {
+									batch_size: values.price_batch_size || 20,
+									price_list: values.price_list || 'Standard-Vertrieb',
+									dry_run: values.dry_run
+								},
+								callback: function(r) {
+									if (r.message && r.message.success) {
+										frappe.show_alert({
+											message: r.message.message,
+											indicator: 'green'
+										});
+									}
+								}
+							});
+						} else if (values.sync_type === 'images') {
+							frappe.call({
+								method: 'ecommerce_integrations.shopware6.export.reconciliation.enqueue_force_sync_all_images',
+								args: {
+									batch_size: values.image_batch_size || 20
+								},
+								callback: function(r) {
+									if (r.message && r.message.success) {
+										frappe.show_alert({
+											message: r.message.message,
+											indicator: 'green'
+										});
+									}
+								}
+							});
+						}
+					}
+				});
+				dialog.show();
+				dialog.fields_dict.image_section.$wrapper.hide();
+			}, __('Sync'));
+
 			// Add Clear Cache button
 			frm.add_custom_button(__('Clear Cache'), function() {
 				frappe.call({

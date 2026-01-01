@@ -35,6 +35,57 @@ from ecommerce_integrations.shopware6.export.property_handler import (
 from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
 
 
+def clear_product_configurator_settings(client, product_id: str) -> bool:
+    """
+    Clear all configuratorSettings from a template product in Shopware.
+
+    This ensures that when variant options are updated, old/stale options
+    are removed before new ones are set.
+
+    Args:
+        client: Shopware API client
+        product_id: Shopware product UUID
+
+    Returns:
+        True if successful
+    """
+    try:
+        response = client.request_get(
+            f"product/{product_id}?associations[configuratorSettings][]"
+        )
+        product_data = response.get("data", {})
+        configurator_settings = product_data.get("configuratorSettings", [])
+
+        if not configurator_settings:
+            return True
+
+        # Delete each configurator setting
+        for setting in configurator_settings:
+            setting_id = setting.get("id")
+            if setting_id:
+                try:
+                    client.request_delete(
+                        f"product/{product_id}/configurator-settings/{setting_id}"
+                    )
+                except Exception as e:
+                    frappe.log_error(
+                        f"Failed to remove configuratorSetting {setting_id}: {e}",
+                        "Shopware Configurator Clear"
+                    )
+
+        frappe.logger().info(
+            f"Cleared {len(configurator_settings)} configuratorSettings from {product_id}"
+        )
+        return True
+
+    except Exception as e:
+        frappe.log_error(
+            f"Failed to clear configuratorSettings for {product_id}: {e}",
+            "Shopware Configurator Clear Error"
+        )
+        return False
+
+
 def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
     """
     Export an ERPNext template item (has_variants=1) to Shopware as a parent product.
@@ -167,7 +218,10 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
             # Clear old categories before setting new ones
             if product_payload.get("categories"):
                 clear_product_categories(client, product_id)
-            # Update product with new categories
+            # Clear old configuratorSettings before setting new ones
+            if product_payload.get("configuratorSettings"):
+                clear_product_configurator_settings(client, product_id)
+            # Update product
             client.request_patch(f"product/{product_id}", product_payload)
             frappe.logger().info(f"Template {template_item.item_code} updated in Shopware (categories: {len(product_payload.get('categories', []))})")
         else:
@@ -207,3 +261,137 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
         )
         frappe.log_error(f"Shopware template upload failed for {template_item.name}: {e}")
         return None
+
+
+def cleanup_orphaned_variants(client, template_item_code: str, parent_shopware_id: str) -> dict:
+    """
+    Delete variants in Shopware that no longer exist in ERPNext.
+
+    Args:
+        client: Shopware API client
+        template_item_code: ERPNext template item code
+        parent_shopware_id: Shopware parent product ID
+
+    Returns:
+        Dict with cleanup statistics
+    """
+    stats = {"checked": 0, "deleted": 0, "errors": []}
+
+    try:
+        # Get ERPNext variant item codes
+        erpnext_variants = set(frappe.get_all(
+            "Item",
+            filters={"variant_of": template_item_code, "disabled": 0},
+            pluck="name"
+        ))
+
+        # Get Shopware child products
+        response = client.request_post("search/product", {
+            "filter": [{"type": "equals", "field": "parentId", "value": parent_shopware_id}],
+            "limit": 500
+        })
+        shopware_variants = response.get("data", [])
+        stats["checked"] = len(shopware_variants)
+
+        for sw_variant in shopware_variants:
+            product_number = sw_variant.get("productNumber", "")
+            sw_variant_id = sw_variant.get("id")
+
+            # Check if this variant exists in ERPNext
+            if product_number not in erpnext_variants:
+                try:
+                    # Delete from Shopware
+                    client.request_delete(f"product/{sw_variant_id}")
+                    stats["deleted"] += 1
+                    frappe.logger().info(
+                        f"Deleted orphaned variant {product_number} from Shopware"
+                    )
+
+                    # Delete Ecommerce Item link if exists
+                    ecom_item = frappe.db.exists("Ecommerce Item", {
+                        "integration": MODULE_NAME,
+                        "integration_item_code": sw_variant_id
+                    })
+                    if ecom_item:
+                        frappe.delete_doc("Ecommerce Item", ecom_item, ignore_permissions=True)
+
+                except Exception as e:
+                    stats["errors"].append({
+                        "variant": product_number,
+                        "error": str(e)[:100]
+                    })
+
+        if stats["deleted"] > 0:
+            create_shopware_log(
+                status="Success",
+                message=f"Cleanup: Deleted {stats['deleted']} orphaned variants for {template_item_code}",
+                method="cleanup_orphaned_variants"
+            )
+
+    except Exception as e:
+        stats["errors"].append({"error": str(e)[:200]})
+        frappe.log_error(f"Variant cleanup failed for {template_item_code}: {e}")
+
+    return stats
+
+
+def sync_template_with_variant_cleanup(client, template_item) -> dict:
+    """
+    Sync a template item and cleanup orphaned variants.
+
+    This is the recommended function to use for full variant sync:
+    1. Upload/update template product
+    2. Sync all ERPNext variants
+    3. Delete Shopware variants not in ERPNext
+
+    Args:
+        client: Shopware API client
+        template_item: ERPNext Item document with has_variants=1
+
+    Returns:
+        Dict with sync and cleanup statistics
+    """
+    from ecommerce_integrations.shopware6.export.variant_handler import upload_variant_item_to_shopware
+
+    result = {
+        "template_id": None,
+        "variants_synced": 0,
+        "variants_deleted": 0,
+        "errors": []
+    }
+
+    # Step 1: Upload/update template
+    parent_id = upload_template_item_to_shopware(client, template_item)
+    if not parent_id:
+        result["errors"].append("Failed to sync template")
+        return result
+
+    result["template_id"] = parent_id
+
+    # Step 2: Sync all ERPNext variants
+    variants = frappe.get_all(
+        "Item",
+        filters={"variant_of": template_item.name, "disabled": 0},
+        pluck="name"
+    )
+
+    for variant_code in variants:
+        try:
+            variant_item = frappe.get_doc("Item", variant_code)
+            variant_id = upload_variant_item_to_shopware(client, variant_item)
+            if variant_id:
+                result["variants_synced"] += 1
+        except Exception as e:
+            result["errors"].append(f"{variant_code}: {str(e)[:100]}")
+
+    # Step 3: Cleanup orphaned variants in Shopware
+    cleanup_stats = cleanup_orphaned_variants(client, template_item.name, parent_id)
+    result["variants_deleted"] = cleanup_stats.get("deleted", 0)
+    result["errors"].extend(cleanup_stats.get("errors", []))
+
+    frappe.logger().info(
+        f"Template sync complete: {template_item.name} - "
+        f"synced: {result['variants_synced']}, deleted: {result['variants_deleted']}"
+    )
+
+    return result

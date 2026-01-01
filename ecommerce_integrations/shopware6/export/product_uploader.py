@@ -33,6 +33,7 @@ from ecommerce_integrations.shopware6.export.property_handler import (
     get_item_properties,
     get_or_create_property_group,
     get_or_create_property_option,
+    clear_product_properties,
 )
 from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
 
@@ -293,6 +294,9 @@ class ShopwareProduct:
                 # Clear old categories before setting new ones
                 if payload.get("categories"):
                     clear_product_categories(client, product_id)
+                # Clear old properties before setting new ones
+                if payload.get("properties"):
+                    clear_product_properties(client, product_id)
                 client.request_patch(f"product/{product_id}", payload)
 
                 # Update visibilities if multi-channel is configured
