@@ -297,6 +297,20 @@ class ShopwareProduct:
                 # Clear old properties before setting new ones
                 if payload.get("properties"):
                     clear_product_properties(client, product_id)
+                # CRITICAL: Clear ALL old advanced/rule-based prices before setting new ones
+                # This ensures product has ONLY prices from ERPNext
+                try:
+                    prices_response = client.request_post("search/product-price", {
+                        "filter": [{"type": "equals", "field": "productId", "value": product_id}],
+                        "limit": 100
+                    })
+                    for price_entry in prices_response.get("data", []):
+                        try:
+                            client.request_delete(f"product-price/{price_entry.get('id')}")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
                 client.request_patch(f"product/{product_id}", payload)
 
                 # Update visibilities if multi-channel is configured

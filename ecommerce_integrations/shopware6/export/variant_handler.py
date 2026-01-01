@@ -123,20 +123,34 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
         if options:
             product_payload["options"] = options
 
-        # Check if product exists (use existing_shopware_id if available to avoid API call)
-        product_exists = bool(existing_shopware_id)
-        if not product_exists:
-            try:
-                client.request_get(f"product/{product_id}")
-                product_exists = True
-            except BaseException:
-                pass
+        # Always check if product exists in Shopware (API call to verify)
+        product_exists = False
+        try:
+            client.request_get(f"product/{product_id}")
+            product_exists = True
+        except BaseException:
+            pass
 
         if product_exists:
+            # CRITICAL: Clear ALL old advanced/rule-based prices before setting new ones
+            # This ensures variant has ONLY prices from ERPNext
+            try:
+                prices_response = client.request_post("search/product-price", {
+                    "filter": [{"type": "equals", "field": "productId", "value": product_id}],
+                    "limit": 100
+                })
+                for price_entry in prices_response.get("data", []):
+                    try:
+                        client.request_delete(f"product-price/{price_entry.get('id')}")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             client.request_patch(f"product/{product_id}", product_payload)
             frappe.logger().info(f"Variant {variant_item.item_code} updated in Shopware")
         else:
             client.request_post("product", product_payload)
+            frappe.logger().info(f"Variant {variant_item.item_code} created in Shopware")
 
         # Create Ecommerce Item link
         if not get_shopware_document_id("Item", variant_item.name):

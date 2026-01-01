@@ -1227,6 +1227,554 @@ def _run_force_image_sync_batched(batch_size: int, total: int):
 
 
 # =============================================================================
+# FORCE VARIANT SYNC
+# =============================================================================
+
+@frappe.whitelist()
+@temp_shopware_session
+def force_sync_all_variants(
+    client,
+    limit: int = 0,
+    dry_run: bool = False
+) -> Dict[str, Any]:
+    """
+    Force re-sync all variant products to Shopware.
+
+    This function:
+    1. Finds all template products (has_variants=1) synced to Shopware
+    2. For each template: deletes ALL variants in Shopware
+    3. Re-uploads all variants from ERPNext
+
+    Args:
+        client: Shopware API client (injected by decorator)
+        limit: Max products to process (0 = all)
+        dry_run: Preview changes without applying
+
+    Returns:
+        Dict with sync statistics
+    """
+    from ecommerce_integrations.shopware6.export.variant_handler import upload_variant_item_to_shopware
+    from ecommerce_integrations.shopware6.export.template_handler import (
+        upload_template_item_to_shopware,
+        clear_product_configurator_settings,
+    )
+
+    stats = {
+        "templates_processed": 0,
+        "variants_deleted": 0,
+        "variants_synced": 0,
+        "failed": 0,
+        "dry_run": dry_run,
+        "errors": []
+    }
+
+    create_shopware_log(
+        status="Info",
+        method="force_sync_all_variants",
+        message=f"Starting force variant sync (limit={limit}, dry_run={dry_run})"
+    )
+
+    # Get all template items synced to Shopware
+    filters = {
+        "integration": MODULE_NAME,
+        "has_variants": 1
+    }
+
+    template_ecom_items = frappe.get_all(
+        "Ecommerce Item",
+        filters=filters,
+        fields=["erpnext_item_code", "integration_item_code"],
+        limit=limit if limit > 0 else None
+    )
+
+    total = len(template_ecom_items)
+    frappe.logger().info(f"[Force Variant Sync] Found {total} template products")
+
+    for idx, ecom_item in enumerate(template_ecom_items):
+        template_code = ecom_item.erpnext_item_code
+        parent_shopware_id = ecom_item.integration_item_code
+
+        try:
+            # Get ERPNext variants
+            erpnext_variants = frappe.get_all(
+                "Item",
+                filters={"variant_of": template_code, "disabled": 0},
+                pluck="name"
+            )
+
+            if not erpnext_variants:
+                frappe.logger().info(f"[Force Variant Sync] {template_code} has no variants, skipping")
+                continue
+
+            # Step 1: Get all Shopware variants for this parent
+            try:
+                response = client.request_post("search/product", {
+                    "filter": [{"type": "equals", "field": "parentId", "value": parent_shopware_id}],
+                    "limit": 500
+                })
+                shopware_variants = response.get("data", [])
+            except Exception as e:
+                frappe.logger().warning(f"[Force Variant Sync] Could not fetch variants for {template_code}: {e}")
+                shopware_variants = []
+
+            # Step 2: Delete ALL variants in Shopware
+            if not dry_run:
+                for sw_variant in shopware_variants:
+                    sw_variant_id = sw_variant.get("id")
+                    try:
+                        client.request_delete(f"product/{sw_variant_id}")
+                        stats["variants_deleted"] += 1
+                    except Exception as e:
+                        frappe.logger().warning(f"[Force Variant Sync] Could not delete variant {sw_variant_id}: {e}")
+
+                # Clear configurator settings from parent
+                clear_product_configurator_settings(client, parent_shopware_id)
+
+                # Delete Ecommerce Item records for variants
+                frappe.db.delete("Ecommerce Item", {
+                    "integration": MODULE_NAME,
+                    "variant_of": template_code
+                })
+            else:
+                stats["variants_deleted"] += len(shopware_variants)
+
+            # Step 3: Re-sync template (to rebuild configuratorSettings)
+            if not dry_run:
+                template_item = frappe.get_doc("Item", template_code)
+                upload_template_item_to_shopware(client, template_item)
+
+            # Step 4: Re-upload all variants from ERPNext
+            for variant_code in erpnext_variants:
+                try:
+                    if not dry_run:
+                        variant_item = frappe.get_doc("Item", variant_code)
+                        result = upload_variant_item_to_shopware(client, variant_item)
+                        if result:
+                            stats["variants_synced"] += 1
+                        else:
+                            stats["failed"] += 1
+                    else:
+                        stats["variants_synced"] += 1
+                except Exception as e:
+                    stats["failed"] += 1
+                    stats["errors"].append(f"{variant_code}: {str(e)[:100]}")
+
+            stats["templates_processed"] += 1
+
+            if (idx + 1) % 5 == 0:
+                frappe.logger().info(
+                    f"[Force Variant Sync] Progress: {idx + 1}/{total} templates, "
+                    f"deleted: {stats['variants_deleted']}, synced: {stats['variants_synced']}"
+                )
+                if not dry_run:
+                    frappe.db.commit()
+
+        except Exception as e:
+            stats["failed"] += 1
+            stats["errors"].append(f"{template_code}: {str(e)[:100]}")
+            frappe.logger().warning(f"[Force Variant Sync] Error for {template_code}: {e}")
+
+    create_shopware_log(
+        status="Success",
+        method="force_sync_all_variants",
+        message=f"Force variant sync completed: {stats['templates_processed']} templates, "
+                f"{stats['variants_deleted']} deleted, {stats['variants_synced']} synced, "
+                f"{stats['failed']} failed"
+    )
+
+    return {
+        "success": True,
+        "stats": stats,
+        "message": f"Processed {stats['templates_processed']} templates: "
+                   f"{stats['variants_deleted']} deleted, {stats['variants_synced']} synced"
+    }
+
+
+@frappe.whitelist()
+@temp_shopware_session
+def force_sync_single_template_variants(
+    client,
+    template_item_code: str,
+    dry_run: bool = False,
+    sync_prices: bool = True,
+    price_list: str = "Standard-Vertrieb"
+) -> Dict[str, Any]:
+    """
+    Force re-sync all variants for a SINGLE template product.
+
+    Deletes all variants in Shopware and re-uploads from ERPNext.
+    Also syncs prices after variant creation.
+
+    Args:
+        client: Shopware API client (injected)
+        template_item_code: ERPNext template item code (e.g. '4702A-Parent')
+        dry_run: Preview mode
+        sync_prices: Also force sync prices after variant creation (default: True)
+        price_list: Price list to use for price sync
+
+    Returns:
+        Dict with sync statistics
+    """
+    from ecommerce_integrations.shopware6.export.variant_handler import upload_variant_item_to_shopware
+    from ecommerce_integrations.shopware6.export.template_handler import (
+        upload_template_item_to_shopware,
+        clear_product_configurator_settings,
+    )
+    from ecommerce_integrations.shopware6.export.utils import get_shopware_document_id
+
+    stats = {
+        "template": template_item_code,
+        "variants_deleted": 0,
+        "variants_synced": 0,
+        "prices_synced": 0,
+        "failed": 0,
+        "dry_run": dry_run,
+        "errors": []
+    }
+
+    # Get Shopware ID for template
+    parent_shopware_id = get_shopware_document_id("Item", template_item_code)
+    if not parent_shopware_id:
+        return {
+            "success": False,
+            "message": f"Template {template_item_code} not synced to Shopware"
+        }
+
+    frappe.logger().info(f"[Force Single Variant Sync] Starting for {template_item_code} (Shopware ID: {parent_shopware_id})")
+
+    try:
+        # Get ERPNext variants
+        erpnext_variants = frappe.get_all(
+            "Item",
+            filters={"variant_of": template_item_code, "disabled": 0},
+            pluck="name"
+        )
+        frappe.logger().info(f"[Force Single Variant Sync] Found {len(erpnext_variants)} ERPNext variants")
+
+        # Get Shopware variants
+        try:
+            response = client.request_post("search/product", {
+                "filter": [{"type": "equals", "field": "parentId", "value": parent_shopware_id}],
+                "limit": 500
+            })
+            shopware_variants = response.get("data", [])
+            frappe.logger().info(f"[Force Single Variant Sync] Found {len(shopware_variants)} Shopware variants")
+        except Exception as e:
+            frappe.logger().warning(f"Could not fetch Shopware variants: {e}")
+            shopware_variants = []
+
+        # Step 1: Delete ALL variants in Shopware
+        if not dry_run:
+            for sw_variant in shopware_variants:
+                sw_variant_id = sw_variant.get("id")
+                product_number = sw_variant.get("productNumber", "")
+                try:
+                    client.request_delete(f"product/{sw_variant_id}")
+                    stats["variants_deleted"] += 1
+                    frappe.logger().info(f"Deleted variant {product_number} ({sw_variant_id})")
+                except Exception as e:
+                    frappe.logger().warning(f"Could not delete variant {sw_variant_id}: {e}")
+
+            # Clear configurator settings from parent
+            frappe.logger().info("Clearing configuratorSettings from parent...")
+            clear_product_configurator_settings(client, parent_shopware_id)
+
+            # Delete Ecommerce Item records for variants
+            frappe.db.delete("Ecommerce Item", {
+                "integration": MODULE_NAME,
+                "variant_of": template_item_code
+            })
+            frappe.db.commit()
+        else:
+            stats["variants_deleted"] = len(shopware_variants)
+
+        # Step 2: Re-sync template (to rebuild configuratorSettings)
+        if not dry_run:
+            frappe.logger().info("Re-syncing template product...")
+            template_item = frappe.get_doc("Item", template_item_code)
+            upload_template_item_to_shopware(client, template_item)
+
+        # Step 3: Re-upload all variants from ERPNext with full Multi-Channel support
+        frappe.logger().info(f"Re-uploading {len(erpnext_variants)} variants...")
+        for variant_code in erpnext_variants:
+            try:
+                if not dry_run:
+                    variant_item = frappe.get_doc("Item", variant_code)
+                    result = upload_variant_item_to_shopware(client, variant_item)
+                    if result:
+                        stats["variants_synced"] += 1
+                        frappe.logger().info(f"Synced variant {variant_code}")
+                    else:
+                        stats["failed"] += 1
+                        stats["errors"].append(f"{variant_code}: upload returned None (no valid price?)")
+                else:
+                    stats["variants_synced"] += 1
+            except Exception as e:
+                stats["failed"] += 1
+                stats["errors"].append(f"{variant_code}: {str(e)[:100]}")
+                frappe.logger().warning(f"Failed to sync {variant_code}: {e}")
+
+        if not dry_run:
+            frappe.db.commit()
+
+        # Prices are set during variant upload (with Multi-Channel support)
+        # No separate price sync needed - upload_variant_item_to_shopware handles it
+        stats["prices_synced"] = stats["variants_synced"]
+
+    except Exception as e:
+        stats["errors"].append(str(e)[:200])
+        frappe.log_error(f"Force single variant sync failed for {template_item_code}: {e}")
+
+    create_shopware_log(
+        status="Success" if stats["failed"] == 0 else "Warning",
+        method="force_sync_single_template_variants",
+        message=f"{template_item_code}: deleted {stats['variants_deleted']}, synced {stats['variants_synced']}, prices {stats['prices_synced']}, failed {stats['failed']}"
+    )
+
+    return {
+        "success": True,
+        "stats": stats,
+        "message": f"Template {template_item_code}: {stats['variants_deleted']} deleted, {stats['variants_synced']} synced, {stats['prices_synced']} prices"
+    }
+
+
+@frappe.whitelist()
+def enqueue_force_sync_all_variants(
+    batch_size: int = 10,
+    dry_run: bool = False,
+    sync_prices: bool = True,
+    price_list: str = "Standard-Vertrieb",
+    brand: str = None
+) -> Dict[str, Any]:
+    """
+    Enqueue force variant sync as a background job.
+
+    Args:
+        batch_size: Templates per batch
+        dry_run: Preview mode
+        sync_prices: Also force sync prices (default: True)
+        price_list: Price list for price sync
+        brand: Filter by brand (e.g. 'vendor')
+
+    Returns:
+        Dict with job info
+    """
+    batch_size = cint(batch_size) or 10
+    dry_run = _parse_bool(dry_run)
+    sync_prices = _parse_bool(sync_prices)
+
+    # Count templates - with optional brand filter
+    if brand:
+        # Get templates filtered by brand
+        template_codes = frappe.get_all(
+            "Item",
+            filters={"has_variants": 1, "brand": brand, "disabled": 0},
+            pluck="name"
+        )
+        # Filter to only those synced to Shopware
+        total = frappe.db.count("Ecommerce Item", {
+            "integration": MODULE_NAME,
+            "has_variants": 1,
+            "erpnext_item_code": ("in", template_codes)
+        }) if template_codes else 0
+    else:
+        total = frappe.db.count("Ecommerce Item", {
+            "integration": MODULE_NAME,
+            "has_variants": 1
+        })
+
+    if total == 0:
+        return {
+            "success": False,
+            "message": "No template products found to sync"
+        }
+
+    job_name = f"shopware6_force_variant_sync_{now()}"
+
+    frappe.enqueue(
+        "ecommerce_integrations.shopware6.export.reconciliation._run_force_variant_sync_batched",
+        queue="long",
+        timeout=14400,  # 4 hours for large syncs
+        job_name=job_name,
+        batch_size=batch_size,
+        total=total,
+        dry_run=dry_run,
+        sync_prices=sync_prices,
+        price_list=price_list,
+        brand=brand,
+    )
+
+    brand_info = f" (brand: {brand})" if brand else ""
+    create_shopware_log(
+        status="Info",
+        method="force_sync_all_variants",
+        message=f"Force variant sync enqueued for {total} templates{brand_info} (batch: {batch_size}, prices: {sync_prices})"
+                + (" DRY RUN" if dry_run else ""),
+    )
+
+    return {
+        "success": True,
+        "job_name": job_name,
+        "message": f"Force variant sync enqueued for {total} templates{brand_info} (batch size: {batch_size})"
+                   + (" - DRY RUN" if dry_run else ""),
+    }
+
+
+def _run_force_variant_sync_batched(
+    batch_size: int,
+    total: int,
+    dry_run: bool = False,
+    sync_prices: bool = True,
+    price_list: str = "Standard-Vertrieb",
+    brand: str = None
+):
+    """
+    Run force variant sync in batches.
+
+    Internal function called by background job.
+    """
+    from ecommerce_integrations.shopware6.export.variant_handler import upload_variant_item_to_shopware
+    from ecommerce_integrations.shopware6.export.template_handler import (
+        upload_template_item_to_shopware,
+        clear_product_configurator_settings,
+    )
+
+    client = get_shopware_client()
+    if not client:
+        create_shopware_log(
+            status="Error",
+            method="force_sync_all_variants",
+            message="Could not connect to Shopware"
+        )
+        return
+
+    stats = {"templates_processed": 0, "variants_deleted": 0, "variants_synced": 0, "prices_synced": 0, "failed": 0}
+
+    # Get templates - with optional brand filter
+    if brand:
+        # Get template codes filtered by brand
+        template_codes = frappe.get_all(
+            "Item",
+            filters={"has_variants": 1, "brand": brand, "disabled": 0},
+            pluck="name"
+        )
+        template_ecom_items = frappe.get_all(
+            "Ecommerce Item",
+            filters={
+                "integration": MODULE_NAME,
+                "has_variants": 1,
+                "erpnext_item_code": ("in", template_codes)
+            },
+            fields=["erpnext_item_code", "integration_item_code"]
+        ) if template_codes else []
+    else:
+        template_ecom_items = frappe.get_all(
+            "Ecommerce Item",
+            filters={"integration": MODULE_NAME, "has_variants": 1},
+            fields=["erpnext_item_code", "integration_item_code"]
+        )
+
+    num_batches = (len(template_ecom_items) + batch_size - 1) // batch_size
+
+    create_shopware_log(
+        status="Info",
+        method="force_sync_all_variants",
+        message=f"Starting force variant sync for {len(template_ecom_items)} templates in {num_batches} batches"
+                + (" DRY RUN" if dry_run else "")
+    )
+
+    for batch_num, batch in enumerate(create_batch(template_ecom_items, batch_size)):
+        for ecom_item in batch:
+            template_code = ecom_item.erpnext_item_code
+            parent_shopware_id = ecom_item.integration_item_code
+
+            try:
+                # Get ERPNext variants
+                erpnext_variants = frappe.get_all(
+                    "Item",
+                    filters={"variant_of": template_code, "disabled": 0},
+                    pluck="name"
+                )
+
+                if not erpnext_variants:
+                    continue
+
+                # Get Shopware variants
+                try:
+                    response = client.request_post("search/product", {
+                        "filter": [{"type": "equals", "field": "parentId", "value": parent_shopware_id}],
+                        "limit": 500
+                    })
+                    shopware_variants = response.get("data", [])
+                except Exception:
+                    shopware_variants = []
+
+                # Delete variants
+                if not dry_run:
+                    for sw_variant in shopware_variants:
+                        try:
+                            client.request_delete(f"product/{sw_variant.get('id')}")
+                            stats["variants_deleted"] += 1
+                        except Exception:
+                            pass
+
+                    clear_product_configurator_settings(client, parent_shopware_id)
+
+                    frappe.db.delete("Ecommerce Item", {
+                        "integration": MODULE_NAME,
+                        "variant_of": template_code
+                    })
+
+                    # Re-sync template
+                    template_item = frappe.get_doc("Item", template_code)
+                    upload_template_item_to_shopware(client, template_item)
+                else:
+                    stats["variants_deleted"] += len(shopware_variants)
+
+                # Re-upload variants with full Multi-Channel support
+                for variant_code in erpnext_variants:
+                    try:
+                        if not dry_run:
+                            variant_item = frappe.get_doc("Item", variant_code)
+                            if upload_variant_item_to_shopware(client, variant_item):
+                                stats["variants_synced"] += 1
+                                stats["prices_synced"] += 1  # Price is set during upload
+                            else:
+                                stats["failed"] += 1
+                        else:
+                            stats["variants_synced"] += 1
+                    except Exception:
+                        stats["failed"] += 1
+
+                stats["templates_processed"] += 1
+
+            except Exception as e:
+                stats["failed"] += 1
+                frappe.log_error(f"Force Variant Sync error for {template_code}: {e}")
+
+        frappe.db.commit()
+
+        pct = round(stats["templates_processed"] / total * 100, 1) if total > 0 else 0
+        create_shopware_log(
+            status="Success",
+            method="force_sync_all_variants",
+            message=f"Batch {batch_num + 1}/{num_batches} ({pct}%) - "
+                    f"Templates: {stats['templates_processed']}, "
+                    f"Deleted: {stats['variants_deleted']}, Synced: {stats['variants_synced']}, "
+                    f"Prices: {stats['prices_synced']}",
+        )
+
+    create_shopware_log(
+        status="Success",
+        method="force_sync_all_variants",
+        message=f"COMPLETED - Templates: {stats['templates_processed']}, "
+                f"Variants deleted: {stats['variants_deleted']}, "
+                f"Variants synced: {stats['variants_synced']}, "
+                f"Prices synced: {stats['prices_synced']}, Failed: {stats['failed']}",
+    )
+
+
+# =============================================================================
 # UTILITIES
 # =============================================================================
 

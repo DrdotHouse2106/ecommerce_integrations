@@ -654,7 +654,8 @@ frappe.ui.form.on('Shopware Setting', {
 							label: __('Force Sync Type'),
 							options: [
 								{value: 'prices', label: __('Force Price Sync - Delete all prices & recreate')},
-								{value: 'images', label: __('Force Image Sync - Delete all images & re-upload')}
+								{value: 'images', label: __('Force Image Sync - Delete all images & re-upload')},
+								{value: 'variants', label: __('Force Variant Sync - Delete all variants & recreate')}
 							],
 							default: 'prices',
 							reqd: 1,
@@ -662,7 +663,8 @@ frappe.ui.form.on('Shopware Setting', {
 								let type = dialog.get_value('sync_type');
 								dialog.fields_dict.price_section.$wrapper.toggle(type === 'prices');
 								dialog.fields_dict.image_section.$wrapper.toggle(type === 'images');
-								dialog.fields_dict.dry_run.$wrapper.toggle(type === 'prices'); // dry_run only for prices
+								dialog.fields_dict.variant_section.$wrapper.toggle(type === 'variants');
+								dialog.fields_dict.dry_run.$wrapper.toggle(type === 'prices' || type === 'variants');
 
 								let infos = {
 									'prices': `<div class="alert alert-warning">
@@ -679,6 +681,15 @@ frappe.ui.form.on('Shopware Setting', {
 											<li>Deletes ALL product images in Shopware</li>
 											<li>Re-uploads all images from ERPNext</li>
 											<li>Fixes broken image links or missing covers</li>
+										</ul>
+									</div>`,
+									'variants': `<div class="alert alert-warning">
+										<p><strong>⚠️ Force Variant Sync</strong></p>
+										<ul>
+											<li>Deletes ALL variant products in Shopware</li>
+											<li>Clears configuratorSettings from parent</li>
+											<li>Re-uploads all variants from ERPNext</li>
+											<li>Rebuilds parent-variant relationships</li>
 										</ul>
 									</div>`
 								};
@@ -723,6 +734,39 @@ frappe.ui.form.on('Shopware Setting', {
 							label: __('Batch Size'),
 							default: 20,
 							description: __('Products per batch for image sync')
+						},
+						// Variant Options Section
+						{
+							fieldname: 'variant_section',
+							fieldtype: 'Section Break',
+							label: __('Variant Sync Options'),
+							hidden: 1
+						},
+						{
+							fieldname: 'variant_batch_size',
+							fieldtype: 'Int',
+							label: __('Batch Size'),
+							default: 10,
+							description: __('Templates per batch (10-20 recommended)')
+						},
+						{
+							fieldname: 'col_break_variant',
+							fieldtype: 'Column Break'
+						},
+						{
+							fieldname: 'variant_sync_prices',
+							fieldtype: 'Check',
+							label: __('Also Sync Prices'),
+							default: 1,
+							description: __('Force sync prices after variant creation')
+						},
+						{
+							fieldname: 'variant_price_list',
+							fieldtype: 'Link',
+							label: __('Price List'),
+							options: 'Price List',
+							default: 'Standard-Vertrieb',
+							depends_on: 'variant_sync_prices'
 						},
 						// Execution Options
 						{
@@ -774,11 +818,30 @@ frappe.ui.form.on('Shopware Setting', {
 									}
 								}
 							});
+						} else if (values.sync_type === 'variants') {
+							frappe.call({
+								method: 'ecommerce_integrations.shopware6.export.reconciliation.enqueue_force_sync_all_variants',
+								args: {
+									batch_size: values.variant_batch_size || 10,
+									dry_run: values.dry_run,
+									sync_prices: values.variant_sync_prices ? 1 : 0,
+									price_list: values.variant_price_list || 'Standard-Vertrieb'
+								},
+								callback: function(r) {
+									if (r.message && r.message.success) {
+										frappe.show_alert({
+											message: r.message.message,
+											indicator: 'green'
+										});
+									}
+								}
+							});
 						}
 					}
 				});
 				dialog.show();
 				dialog.fields_dict.image_section.$wrapper.hide();
+				dialog.fields_dict.variant_section.$wrapper.hide();
 			}, __('Sync'));
 
 			// Add Clear Cache button

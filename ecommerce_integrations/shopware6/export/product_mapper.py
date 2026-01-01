@@ -311,10 +311,9 @@ def map_erpnext_item_to_shopware(erpnext_item) -> Dict[str, Any]:
             """, erpnext_item.name)
             if result and result[0][0]:
                 price = flt(result[0][0])
-            else:
-                price = 0.01
+            # If no variant price found, leave price at 0 - will be caught by validation
         except Exception:
-            price = 0.01
+            pass  # Leave price at 0 - will be caught by validation
 
     # Tax rate
     tax_rate = 19.0
@@ -330,11 +329,18 @@ def map_erpnext_item_to_shopware(erpnext_item) -> Dict[str, Any]:
                     tax_rate = flt(template_rate)
                     break
 
-    gross_price = price if price > 0 else 0.01
-    net_price = price if price > 0 else 0.01
+    # CRITICAL: Do not use 0.01 fallback - products without valid prices should be skipped
+    if price <= 0:
+        # Log warning and raise exception to prevent invalid price sync
+        frappe.log_error(
+            f"No valid price found for item {erpnext_item.name}. "
+            "Product will not be synced to Shopware until a valid price is set in ERPNext.",
+            "Shopware Price Validation"
+        )
+        raise ValueError(f"No valid price for item {erpnext_item.name}. Cannot sync to Shopware with price <= 0.")
 
-    if price > 0:
-        gross_price = round(net_price * (1 + tax_rate / 100), 2)
+    net_price = price
+    gross_price = round(net_price * (1 + tax_rate / 100), 2)
 
     payload["price"] = [{
         "currencyId": None,
@@ -648,7 +654,11 @@ def build_channel_prices(
         # Get channel-specific price
         net_price = get_channel_price(item.name, channel, setting)
         if net_price <= 0:
-            net_price = 0.01
+            # Skip this channel - no valid price available
+            frappe.logger().warning(
+                f"No valid price for {item.name} in channel {channel_id}. Skipping channel price."
+            )
+            continue
 
         gross_price = round(net_price * (1 + tax_rate / 100), 2)
 
@@ -680,7 +690,11 @@ def build_channel_prices(
         default_price_list = getattr(setting, 'default_selling_price_list', None)
         net_price = get_item_price(item.name, default_price_list)
         if net_price <= 0:
-            net_price = 0.01
+            # CRITICAL: No valid price - raise exception instead of using 0.01
+            raise ValueError(
+                f"No valid price for item {item.name} in any channel or default price list. "
+                "Cannot sync to Shopware without a valid price."
+            )
         gross_price = round(net_price * (1 + tax_rate / 100), 2)
 
         prices.append({

@@ -140,9 +140,18 @@ def build_price_payload(
 
     Returns:
         Price array for Shopware product
+
+    Raises:
+        ValueError: If net_price is <= 0
     """
-    gross_price = round(net_price * (1 + tax_rate / 100), 2) if net_price > 0 else 0.01
-    net_price = net_price if net_price > 0 else 0.01
+    # CRITICAL: Never use 0.01 fallback - this causes pricing errors in Shopware
+    if net_price <= 0:
+        raise ValueError(
+            f"Cannot build price payload with net_price <= 0 ({net_price}). "
+            "Ensure a valid price exists in ERPNext before syncing to Shopware."
+        )
+
+    gross_price = round(net_price * (1 + tax_rate / 100), 2)
 
     return [{
         "currencyId": currency_id,
@@ -325,9 +334,17 @@ def force_sync_single_product_price(
         tax_rate = get_item_tax_rate(item_code)
         currency_id = get_cached_currency_id(client, "EUR")
 
+        # CRITICAL: Validate price before syncing - never use 0.01 fallback
+        if net_price <= 0:
+            return {
+                "success": False,
+                "item_code": item_code,
+                "shopware_id": shopware_id,
+                "message": f"No valid price found for {item_code}. Cannot sync to Shopware with price <= 0."
+            }
+
         # Calculate gross price
-        gross_price = round(net_price * (1 + tax_rate / 100), 2) if net_price > 0 else 0.01
-        net_price = net_price if net_price > 0 else 0.01
+        gross_price = round(net_price * (1 + tax_rate / 100), 2)
 
         # Update product with new base price
         price_payload = [{
@@ -448,7 +465,17 @@ def force_sync_all_prices(
                 new_net = get_item_price(item_code)
 
             tax_rate = get_item_tax_rate(item_code)
-            new_gross = round(new_net * (1 + tax_rate / 100), 2) if new_net > 0 else 0.01
+
+            # CRITICAL: Skip items without valid price - never use 0.01 fallback
+            if new_net <= 0:
+                stats["skipped"] += 1
+                stats["errors"].append({
+                    "item_code": item_code,
+                    "error": "No valid price in ERPNext - skipped to prevent 0.01 sync"
+                })
+                continue
+
+            new_gross = round(new_net * (1 + tax_rate / 100), 2)
 
             # Check if price changed
             price_diff = abs(current_net - new_net)
@@ -614,8 +641,17 @@ def _run_force_price_sync_batched(
                     new_net = get_item_price(item_code)
 
                 tax_rate = get_item_tax_rate(item_code)
-                new_gross = round(new_net * (1 + tax_rate / 100), 2) if new_net > 0 else 0.01
-                new_net = new_net if new_net > 0 else 0.01
+
+                # CRITICAL: Skip items without valid price - never use 0.01 fallback
+                if new_net <= 0:
+                    stats["errors"] += 1
+                    stats["processed"] += 1
+                    frappe.logger().warning(
+                        f"[Force Price Sync] Skipping {item_code}: No valid price in ERPNext"
+                    )
+                    continue
+
+                new_gross = round(new_net * (1 + tax_rate / 100), 2)
 
                 if not dry_run:
                     # ALWAYS delete ALL advanced/rule prices
