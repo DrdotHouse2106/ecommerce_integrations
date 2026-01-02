@@ -19,6 +19,7 @@ from ecommerce_integrations.shopware6.constants import (
 from ecommerce_integrations.shopware6.utils import (
     create_shopware_log,
     update_shopware_log,
+    get_logger,
 )
 
 
@@ -60,9 +61,10 @@ def send_invoice_email(sales_invoice_name: str, setting) -> bool:
                 customer_email = frappe.db.get_value("Contact", billing_contact, "email_id")
 
         if not customer_email:
-            frappe.log_error(
+            logger = get_logger("send_invoice_email")
+            logger.warning(
                 f"No email address found for customer {si.customer} (Invoice {si.name})",
-                "Shopware Invoice Email"
+                persist=False
             )
             return False
 
@@ -126,9 +128,11 @@ def send_invoice_email(sales_invoice_name: str, setting) -> bool:
         return True
 
     except Exception as e:
-        frappe.log_error(
-            f"Failed to send invoice email for {sales_invoice_name}: {e}",
-            "Shopware Invoice Email"
+        logger = get_logger("send_invoice_email")
+        logger.error(
+            f"Failed to send invoice email for {sales_invoice_name}",
+            exception=e,
+            persist=True
         )
         return False
 
@@ -280,9 +284,11 @@ def handle_transaction_state_change(payload: Dict[str, Any], request_id: str = N
         frappe.db.commit()
 
     except Exception as e:
-        frappe.log_error(
-            f"Error handling transaction state change: {e}",
-            "Shopware Payment Handler"
+        logger = get_logger("handle_transaction_state_change")
+        logger.error(
+            "Error handling transaction state change",
+            exception=e,
+            persist=True
         )
         if request_id:
             update_shopware_log(request_id, status="Error", exception=str(e))
@@ -407,9 +413,11 @@ def _create_payment_against_invoice(
         return payment_entry.name
 
     except Exception as e:
-        frappe.log_error(
-            f"Failed to create Payment Entry against Invoice {invoice_name}: {e}",
-            "Shopware Payment Entry"
+        logger = get_logger("create_payment_entry_against_invoice")
+        logger.error(
+            f"Failed to create Payment Entry against Invoice {invoice_name}",
+            exception=e,
+            persist=True
         )
         return None
 
@@ -460,9 +468,11 @@ def _create_advance_payment(
         return payment_entry.name
 
     except Exception as e:
-        frappe.log_error(
-            f"Failed to create advance Payment Entry for {sales_order.name}: {e}",
-            "Shopware Advance Payment"
+        logger = get_logger("create_advance_payment_entry")
+        logger.error(
+            f"Failed to create advance Payment Entry for {sales_order.name}",
+            exception=e,
+            persist=True
         )
         return None
 
@@ -572,8 +582,10 @@ def _create_sales_invoice_for_order(
         return si.name
 
     except Exception as e:
-        frappe.log_error(
-            f"Failed to create Sales Invoice for {sales_order_name}: {e}",
-            "Shopware Invoice Creation"
+        logger = get_logger("create_sales_invoice")
+        logger.error(
+            f"Failed to create Sales Invoice for {sales_order_name}",
+            exception=e,
+            persist=True
         )
         return None

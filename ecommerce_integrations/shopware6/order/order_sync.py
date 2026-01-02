@@ -16,6 +16,7 @@ from lib_shopware6_api_base import Shopware6AdminAPIClientBase, Criteria
 from ecommerce_integrations.shopware6.connection import temp_shopware_session, get_shopware_client
 from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE, SERVICE_PRODUCTS
 from ecommerce_integrations.shopware6.utils import (
+    get_logger,
     create_shopware_log,
     update_shopware_log,
     format_shopware_datetime,
@@ -333,10 +334,7 @@ def _handle_invoice_email(customer: str, invoice_email: str, order_data: Dict[st
         if frappe.db.has_column("Customer", "invoice_email"):
             frappe.db.set_value("Customer", customer, "invoice_email", invoice_email)
     except Exception as e:
-        frappe.log_error(
-            f"Failed to create/update billing contact for {customer}: {e}",
-            "Shopware Order Sync"
-        )
+        get_logger().error("Failed to create/update billing contact for {customer}: {e}", persist=True)
 
 
 def _create_delivery_note_if_shipped(
@@ -509,7 +507,7 @@ def update_order_custom_fields(
                 update_shopware_log(request_id, status="Skipped", message=f"No custom field updates for {sales_order_name}")
 
     except Exception as e:
-        frappe.log_error(f"Failed to update custom fields for {sales_order_name}: {e}", "Shopware Order Update")
+        get_logger().error("Failed to update custom fields for {sales_order_name}: {e}", persist=True)
         if request_id:
             update_shopware_log(request_id, status="Error", exception=str(e))
 
@@ -570,10 +568,7 @@ def update_order_status(payload: Dict[str, Any], request_id: str = None):
                                 try:
                                     create_sales_invoice(sales_order, {"id": order_id}, setting)
                                 except Exception as e:
-                                    frappe.log_error(
-                                        f"Failed to create invoice for {sales_order} after payment: {e}",
-                                        "Shopware Payment Status Update"
-                                    )
+                                    get_logger().error("Failed to create invoice for {sales_order} after payment: {e}", persist=True)
 
                 if request_id:
                     update_shopware_log(
