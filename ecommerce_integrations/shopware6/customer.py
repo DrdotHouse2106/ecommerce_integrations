@@ -719,7 +719,8 @@ def create_or_update_billing_contact(
         )
         return contact.name
     except Exception as e:
-        frappe.log_error(f"Failed to create billing contact for {customer}: {e}")
+        logger = get_logger("create_or_update_billing_contact")
+        logger.error(f"Failed to create billing contact for {customer}", exception=e, persist=False)
         return None
 
 
@@ -803,7 +804,8 @@ def create_customer_address(
         address.insert(ignore_permissions=True)
         return address.name
     except Exception as e:
-        frappe.log_error(f"Failed to create address for {customer}: {e}")
+        logger = get_logger("create_customer_address")
+        logger.error(f"Failed to create address for {customer}", exception=e, persist=False)
         return None
 
 
@@ -966,9 +968,11 @@ def sync_customers_from_shopware(limit: int = 100) -> Dict[str, int]:
                 synced += 1
         except Exception as e:
             errors += 1
-            frappe.log_error(
-                f"Failed to sync customer {customer_data.get('id')}: {e}",
-                "Shopware Customer Sync Error"
+            logger = get_logger("sync_customers_from_shopware")
+            logger.error(
+                f"Failed to sync customer {customer_data.get('id')}",
+                exception=e,
+                persist=True
             )
 
     return {
@@ -1029,9 +1033,11 @@ def sync_old_customers(client: Shopware6AdminAPIClientBase):
 
             except Exception as e:
                 errors += 1
-                frappe.log_error(
-                    f"Failed to sync old customer {customer_data.get('id')}: {e}",
-                    "Shopware Old Customer Sync Error",
+                logger = get_logger("scheduled_old_customer_sync")
+                logger.error(
+                    f"Failed to sync old customer {customer_data.get('id')}",
+                    exception=e,
+                    persist=True
                 )
 
         # Disable the flag after successful sync (consistent with Shopify implementation)
@@ -1046,7 +1052,8 @@ def sync_old_customers(client: Shopware6AdminAPIClientBase):
             )
 
     except Exception as e:
-        frappe.log_error(f"Scheduled old customer sync failed: {e}", "Shopware Old Customer Sync")
+        logger = get_logger("scheduled_old_customer_sync")
+        logger.error("Scheduled old customer sync failed", exception=e, persist=True)
 
 
 def trigger_vat_id_check(customer_name: str, vat_id: str) -> Optional[str]:
@@ -1150,8 +1157,10 @@ def trigger_vat_id_check(customer_name: str, vat_id: str) -> Optional[str]:
         return vat_check.name
 
     except Exception as e:
-        frappe.log_error(
-            f"Failed to create VAT ID Check for {customer_name} with VAT ID {vat_id}: {e}",
-            "Shopware VAT ID Check Error"
+        logger = get_logger("trigger_vat_id_check")
+        logger.error(
+            f"Failed to create VAT ID Check for {customer_name} with VAT ID {vat_id}",
+            exception=e,
+            persist=True
         )
         return None
