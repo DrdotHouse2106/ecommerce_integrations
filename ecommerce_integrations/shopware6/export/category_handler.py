@@ -26,6 +26,7 @@ from ecommerce_integrations.shopware6.export.utils import (
     sanitize_filename,
     get_item_group_hierarchy,
 )
+from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
 
 
 def ensure_category_custom_field_set(client) -> Optional[str]:
