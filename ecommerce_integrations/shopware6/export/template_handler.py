@@ -146,53 +146,17 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
         if tax_id:
             product_payload["taxId"] = tax_id
 
-        # Build channel-specific prices with Shopware Rules
-        # For template products, try to get price from first variant as fallback
-        if visibilities and len(setting.sales_channels or []) > 0:
-            # Multi-channel mode: use build_channel_prices
-            try:
-                channel_prices = build_channel_prices(
-                    item=template_item,
-                    visibilities=visibilities,
-                    setting=setting,
-                    client=client,
-                    tax_rate=tax_rate,
-                    currency_id=currency_id
-                )
-                product_payload["prices"] = channel_prices
-                # Remove single price, use prices array instead
-                product_payload.pop("price", None)
-            except ValueError as e:
-                # Template products may not have prices - try first variant
-                frappe.logger().info(f"Template {template_item.name} has no price, trying first variant")
-                first_variant = frappe.db.get_value(
-                    "Item", {"variant_of": template_item.name, "disabled": 0}, "name"
-                )
-                if first_variant:
-                    variant_item = frappe.get_doc("Item", first_variant)
-                    try:
-                        channel_prices = build_channel_prices(
-                            item=variant_item,
-                            visibilities=visibilities,
-                            setting=setting,
-                            client=client,
-                            tax_rate=tax_rate,
-                            currency_id=currency_id
-                        )
-                        product_payload["prices"] = channel_prices
-                        product_payload.pop("price", None)
-                    except ValueError:
-                        # Still no price - skip pricing for template (variants will have their own)
-                        product_payload.pop("price", None)
-                        product_payload.pop("prices", None)
-                else:
-                    # No variants - skip pricing
-                    product_payload.pop("price", None)
-                    product_payload.pop("prices", None)
-        else:
-            # Single-channel mode: keep original price logic
-            if currency_id and product_payload.get("price"):
-                product_payload["price"][0]["currencyId"] = currency_id
+        # IMPORTANT: Parent/Template products should NOT have prices
+        # Only variants should have prices. Setting price to 0 and removing all advanced prices.
+        # This prevents the 0.01 cent price issue in listings and cart.
+        product_payload["price"] = [{
+            "currencyId": currency_id,
+            "gross": 0,
+            "net": 0,
+            "linked": False,
+        }]
+        # Explicitly remove any prices array (advanced/rule-based prices)
+        product_payload.pop("prices", None)
 
         # Manufacturer
         manufacturer_name = (
@@ -294,6 +258,24 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
             # Clear old properties before setting new ones
             if product_payload.get("properties"):
                 clear_product_properties(client, product_id)
+            # CRITICAL: Clear ALL advanced/rule-based prices for parent products
+            # Parent products should not have any prices (only variants should)
+            try:
+                prices_response = client.request_post("search/product-price", {
+                    "filter": [{"type": "equals", "field": "productId", "value": product_id}],
+                    "limit": 100
+                })
+                deleted_prices = 0
+                for price_entry in prices_response.get("data", []):
+                    try:
+                        client.request_delete(f"product-price/{price_entry.get('id')}")
+                        deleted_prices += 1
+                    except Exception:
+                        pass
+                if deleted_prices > 0:
+                    frappe.logger().info(f"Deleted {deleted_prices} advanced prices from parent product {product_id}")
+            except Exception as e:
+                frappe.logger().warning(f"Could not clear advanced prices for {product_id}: {e}")
             # Update product
             client.request_patch(f"product/{product_id}", product_payload)
             frappe.logger().info(f"Template {template_item.item_code} updated in Shopware (categories: {len(product_payload.get('categories', []))})")

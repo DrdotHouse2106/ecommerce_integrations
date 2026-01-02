@@ -1,11 +1,10 @@
 """
-Shopware 6 Product Export Module (Compatibility Layer)
+Shopware 6 Product Export Module
 
 This file re-exports functions from the new modular structure under shopware6/export/.
-It maintains backwards compatibility for existing code that imports from product_export.
 
 The actual implementation is now in:
-- export/product_uploader.py - ShopwareProduct class
+- export/product_uploader.py - ShopwareProductUploader class
 - export/product_mapper.py - Field mapping
 - export/template_handler.py - Template products
 - export/variant_handler.py - Variant products
@@ -16,13 +15,13 @@ The actual implementation is now in:
 - export/utils.py - Utility functions
 
 For new code, import directly from the export module:
-    from ecommerce_integrations.shopware6.export import ShopwareProduct
+    from ecommerce_integrations.shopware6.export import ShopwareProductUploader
 """
 
-# Re-export everything from the new modules for backwards compatibility
+# Re-export everything from the new modules
 from ecommerce_integrations.shopware6.export import (
     # Main class
-    ShopwareProduct,
+    ShopwareProductUploader,
     # Upload functions
     upload_erpnext_item_to_shopware,
     upload_template_item_to_shopware,
@@ -89,17 +88,18 @@ def sync_item_to_shopware(item_code: str) -> dict:
     """
     Sync a single ERPNext item to Shopware.
 
-    This is a backwards-compatible wrapper for external callers like ai_description/api.py.
-
     Args:
         item_code: The ERPNext Item code to sync
 
     Returns:
         dict with success status and message
     """
+    from ecommerce_integrations.shopware6.utils import get_logger
+
+    logger = get_logger("sync_item_to_shopware")
     try:
-        product = ShopwareProduct(item_code=item_code)
-        result = product.upload()
+        uploader = ShopwareProductUploader(item_code=item_code)
+        result = uploader.upload()
 
         return {
             "success": True,
@@ -107,10 +107,7 @@ def sync_item_to_shopware(item_code: str) -> dict:
             "message": f"Item {item_code} synced to Shopware"
         }
     except Exception as e:
-        frappe.log_error(
-            message=f"Failed to sync item {item_code} to Shopware: {str(e)}",
-            title="Shopware Sync Error"
-        )
+        logger.error(f"Failed to sync item {item_code} to Shopware", exception=e)
         return {
             "success": False,
             "message": str(e)
@@ -128,6 +125,9 @@ def sync_template_with_variants_to_shopware(template_item_code: str) -> dict:
     Returns:
         dict with success status and synced variants count
     """
+    from ecommerce_integrations.shopware6.utils import get_logger
+
+    logger = get_logger("sync_template_with_variants")
     try:
         # First sync the template
         template_result = upload_template_item_to_shopware(template_item_code)
@@ -142,10 +142,7 @@ def sync_template_with_variants_to_shopware(template_item_code: str) -> dict:
             "message": f"Template {template_item_code} and variants synced"
         }
     except Exception as e:
-        frappe.log_error(
-            message=f"Failed to sync template {template_item_code}: {str(e)}",
-            title="Shopware Template Sync Error"
-        )
+        logger.error(f"Failed to sync template {template_item_code}", exception=e)
         return {
             "success": False,
             "message": str(e)
@@ -154,7 +151,7 @@ def sync_template_with_variants_to_shopware(template_item_code: str) -> dict:
 
 __all__ = [
     # Main class
-    "ShopwareProduct",
+    "ShopwareProductUploader",
     # Upload functions
     "upload_erpnext_item_to_shopware",
     "upload_template_item_to_shopware",

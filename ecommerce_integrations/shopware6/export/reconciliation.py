@@ -343,8 +343,8 @@ def reconcile_erpnext_with_shopware(
 
     frappe.logger().info(f"Reconciliation: Checking {len(ecom_items)} linked items")
 
-    # Process in batches
-    batch_size = 50
+    # Process in batches - get batch size from settings
+    batch_size = cint(getattr(setting, 'product_batch_size', 50)) or 50
     for batch_start in range(0, len(ecom_items), batch_size):
         batch = ecom_items[batch_start:batch_start + batch_size]
         shopware_ids = [item.integration_item_code for item in batch]
@@ -684,6 +684,9 @@ def cleanup_orphaned_shopware_categories(
     """
     Delete categories in Shopware that no longer exist in ERPNext.
 
+    IMPORTANT: Only affects categories UNDER the root_category in Shopware.
+    Categories outside the sync root are never touched.
+
     Args:
         client: Shopware API client
         root_category: ERPNext root category to compare against
@@ -701,10 +704,10 @@ def cleanup_orphaned_shopware_categories(
     if not root_category:
         root_category = getattr(setting, 'category_sync_root', 'Produkte') or 'Produkte'
 
-    # Get ERPNext categories
+    # Get ERPNext categories under root
     root_info = frappe.db.get_value("Item Group", root_category, ["lft", "rgt"], as_dict=True)
     if not root_info:
-        return {"success": False, "message": f"Root category '{root_category}' not found"}
+        return {"success": False, "message": f"Root category '{root_category}' not found in ERPNext"}
 
     erpnext_categories = set(frappe.get_all(
         "Item Group",
@@ -712,16 +715,43 @@ def cleanup_orphaned_shopware_categories(
         pluck="name"
     )) - {"All Item Groups", "Alle Artikelgruppen"}
 
-    # Get Shopware categories
+    # Step 1: Find the Shopware root category by name
+    try:
+        root_response = client.request_post("search/category", {
+            "filter": [{"type": "equals", "field": "name", "value": root_category}],
+            "limit": 1
+        })
+        root_cats = root_response.get("data", [])
+
+        if not root_cats:
+            return {
+                "success": False,
+                "message": f"Root category '{root_category}' not found in Shopware. "
+                          "Only categories under this root would be cleaned up."
+            }
+
+        shopware_root_id = root_cats[0].get("id")
+        shopware_root_path = root_cats[0].get("path") or ""
+
+        frappe.logger("shopware6").info(
+            f"Found Shopware root category '{root_category}' with ID {shopware_root_id}"
+        )
+
+    except Exception as e:
+        return {"success": False, "message": f"Failed to find Shopware root category: {e}"}
+
+    # Step 2: Get ONLY Shopware categories that are descendants of the root
+    # Shopware uses 'path' field which contains ancestor IDs separated by |
     try:
         all_shopware_cats = []
         page = 1
         while True:
             response = client.request_post("search/category", {
                 "limit": 100, "page": page,
-                "filter": [{"type": "not", "queries": [
-                    {"type": "equals", "field": "parentId", "value": None}
-                ]}]
+                "filter": [
+                    # Category must have a path that contains the root ID
+                    {"type": "contains", "field": "path", "value": shopware_root_id}
+                ]
             })
             cats = response.get("data", [])
             if not cats:
@@ -730,17 +760,32 @@ def cleanup_orphaned_shopware_categories(
             if len(cats) < 100:
                 break
             page += 1
+
+        # Also add direct children of root (their path might not contain root_id yet)
+        response = client.request_post("search/category", {
+            "limit": 500,
+            "filter": [{"type": "equals", "field": "parentId", "value": shopware_root_id}]
+        })
+        direct_children = response.get("data", [])
+        existing_ids = {c["id"] for c in all_shopware_cats}
+        for child in direct_children:
+            if child["id"] not in existing_ids:
+                all_shopware_cats.append(child)
+
     except Exception as e:
         return {"success": False, "message": f"Failed to fetch Shopware categories: {e}"}
 
-    # Find orphaned
+    # Step 3: Find orphaned categories (in Shopware under root but not in ERPNext)
     orphaned = [
         {"id": c.get("id"), "name": c.get("name"), "parent_id": c.get("parentId")}
         for c in all_shopware_cats
         if c.get("name") and c.get("name") not in erpnext_categories
+        and c.get("id") != shopware_root_id  # Never delete the root itself
     ]
 
     stats = {
+        "root_category": root_category,
+        "shopware_root_id": shopware_root_id,
         "erpnext_count": len(erpnext_categories),
         "shopware_count": len(all_shopware_cats),
         "orphaned_count": len(orphaned),
@@ -750,12 +795,11 @@ def cleanup_orphaned_shopware_categories(
     if not orphaned:
         return {
             "success": True, "dry_run": dry_run, "statistics": stats,
-            "message": "No orphaned categories found"
+            "message": f"No orphaned categories found under '{root_category}'"
         }
 
     if not dry_run:
-        # Delete leaf categories first
-        orphaned_ids = {c["id"] for c in orphaned}
+        # Delete leaf categories first (those without children in orphaned list)
         for cat in orphaned:
             cat["has_children"] = any(o["parent_id"] == cat["id"] for o in orphaned)
         orphaned.sort(key=lambda x: x.get("has_children", False))
@@ -773,7 +817,7 @@ def cleanup_orphaned_shopware_categories(
         "dry_run": dry_run,
         "statistics": stats,
         "orphaned_categories": [c["name"] for c in orphaned[:20]],
-        "message": f"Found {len(orphaned)} orphaned, deleted {stats['deleted']}" + (" (DRY RUN)" if dry_run else "")
+        "message": f"Found {len(orphaned)} orphaned under '{root_category}', deleted {stats['deleted']}" + (" (DRY RUN)" if dry_run else "")
     }
 
 
@@ -1122,7 +1166,7 @@ def force_sync_all_images(
 
 @frappe.whitelist()
 def enqueue_force_sync_all_images(
-    batch_size: int = 500,
+    batch_size: int = 50,
 ) -> Dict[str, Any]:
     """
     Enqueue force image sync as a background job.
@@ -1135,7 +1179,11 @@ def enqueue_force_sync_all_images(
     Returns:
         Dict with job info
     """
-    batch_size = cint(batch_size) or 500
+    # Get batch size from settings if not provided
+    if not batch_size:
+        setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+        batch_size = cint(getattr(setting, 'image_batch_size', 50)) or 50
+    batch_size = cint(batch_size) or 50
 
     # Count total items with images
     total = frappe.db.sql("""
@@ -1576,7 +1624,12 @@ def enqueue_force_sync_all_variants(
     Returns:
         Dict with job info
     """
-    batch_size = cint(batch_size) or 10
+    # Use batch size from settings if not provided
+    if not batch_size:
+        setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+        batch_size = cint(getattr(setting, 'variant_batch_size', 10)) or 10
+    else:
+        batch_size = cint(batch_size)
     dry_run = _parse_bool(dry_run)
     sync_prices = _parse_bool(sync_prices)
 

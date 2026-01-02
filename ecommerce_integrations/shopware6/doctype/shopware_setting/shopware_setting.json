@@ -82,6 +82,12 @@
   "column_break_category_sync",
   "sync_empty_categories",
   "category_sync_info_html",
+  "reconciliation_batch_section",
+  "product_batch_size",
+  "image_batch_size",
+  "column_break_batch",
+  "price_batch_size",
+  "variant_batch_size",
   "field_mapping_section",
   "product_field_mappings",
   "column_break_field_mapping",
@@ -588,6 +594,46 @@
    "fieldtype": "HTML",
    "label": "Category Sync Info",
    "options": "<div class=\"alert alert-info\" style=\"margin-top: 10px;\"><h5>Category Sync</h5><p>Categories are synced from ERPNext to Shopware in tree order (parent before children).</p><p><strong>Tip:</strong> Use 'Sync All Categories' button to sync all categories at once, or use 'Full Reconciliation' to sync both categories and products.</p></div>"
+  },
+  {
+   "collapsible": 1,
+   "collapsible_depends_on": "eval:0",
+   "depends_on": "eval:doc.upload_erpnext_items",
+   "fieldname": "reconciliation_batch_section",
+   "fieldtype": "Section Break",
+   "label": "Reconciliation Batch Sizes"
+  },
+  {
+   "default": "50",
+   "description": "Products per batch during reconciliation",
+   "fieldname": "product_batch_size",
+   "fieldtype": "Int",
+   "label": "Product Batch Size"
+  },
+  {
+   "default": "50",
+   "description": "Images per batch during image sync",
+   "fieldname": "image_batch_size",
+   "fieldtype": "Int",
+   "label": "Image Batch Size"
+  },
+  {
+   "fieldname": "column_break_batch",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "500",
+   "description": "Prices per batch during price sync",
+   "fieldname": "price_batch_size",
+   "fieldtype": "Int",
+   "label": "Price Batch Size"
+  },
+  {
+   "default": "10",
+   "description": "Variant templates per batch",
+   "fieldname": "variant_batch_size",
+   "fieldtype": "Int",
+   "label": "Variant Batch Size"
   },
   {
    "collapsible": 1,

@@ -388,3 +388,99 @@ def validate_and_log(
         frappe.log_error(error_msg, f"Shopware Validation Error - {entity_type}")
 
     return is_valid
+
+
+class DestructiveOperationResult:
+    """Result of destructive operation validation."""
+
+    def __init__(self, proceed: bool, message: str, entity_count: int = 0):
+        self.proceed = proceed
+        self.message = message
+        self.entity_count = entity_count
+
+    def __bool__(self):
+        return self.proceed
+
+
+def validate_before_destructive_operation(
+    operation: str,
+    entity_count: int,
+    threshold: int = 50,
+    force: bool = False
+) -> DestructiveOperationResult:
+    """
+    Validate before performing a destructive operation.
+
+    Prevents accidental deletion of large numbers of entities by requiring
+    explicit confirmation (force=True) when the affected count exceeds a threshold.
+
+    Args:
+        operation: Description of the operation (e.g., "delete_product_prices")
+        entity_count: Number of entities that will be affected
+        threshold: Maximum entities to affect without force=True (default: 50)
+        force: If True, bypass the threshold check
+
+    Returns:
+        DestructiveOperationResult with proceed flag and message
+
+    Usage:
+        result = validate_before_destructive_operation(
+            "delete_all_prices",
+            entity_count=len(prices_to_delete),
+            threshold=10,
+            force=False
+        )
+        if not result.proceed:
+            return {"success": False, "message": result.message}
+    """
+    if force:
+        return DestructiveOperationResult(
+            proceed=True,
+            message=f"Force mode: proceeding with {operation} affecting {entity_count} entities",
+            entity_count=entity_count
+        )
+
+    if entity_count > threshold:
+        return DestructiveOperationResult(
+            proceed=False,
+            message=(
+                f"Operation '{operation}' would affect {entity_count} entities. "
+                f"This exceeds the safety threshold of {threshold}. "
+                f"Use force=True to proceed anyway."
+            ),
+            entity_count=entity_count
+        )
+
+    return DestructiveOperationResult(
+        proceed=True,
+        message=f"Proceeding with {operation} affecting {entity_count} entities",
+        entity_count=entity_count
+    )
+
+
+def validate_bulk_delete(
+    items_to_delete: List[Any],
+    item_type: str,
+    threshold: int = 50,
+    force: bool = False
+) -> DestructiveOperationResult:
+    """
+    Validate before bulk deleting items.
+
+    Convenience wrapper around validate_before_destructive_operation for delete operations.
+
+    Args:
+        items_to_delete: List of items that will be deleted
+        item_type: Type of items being deleted (e.g., "prices", "categories", "media")
+        threshold: Maximum items to delete without force=True
+        force: If True, bypass the threshold check
+
+    Returns:
+        DestructiveOperationResult with proceed flag and message
+    """
+    return validate_before_destructive_operation(
+        operation=f"delete_{item_type}",
+        entity_count=len(items_to_delete),
+        threshold=threshold,
+        force=force
+    )

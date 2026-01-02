@@ -1,8 +1,11 @@
 """
 Shopware 6 Product Uploader
 
-Main ShopwareProduct class for uploading ERPNext Items to Shopware.
+Main ShopwareProductUploader class for uploading ERPNext Items to Shopware.
 Follows the pattern from Shopify integration (ShopifyProduct class).
+
+NOTE: This class was renamed from ShopwareProduct to ShopwareProductUploader
+to avoid confusion with the import class in product.py.
 """
 
 from typing import Optional
@@ -12,7 +15,7 @@ from frappe import _
 
 # Note: get_shopware_client is imported inside upload() method to avoid circular imports
 from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCTYPE
-from ecommerce_integrations.shopware6.utils import create_shopware_log
+from ecommerce_integrations.shopware6.utils import get_logger
 from ecommerce_integrations.shopware6.export.utils import generate_uuid, get_shopware_document_id
 from ecommerce_integrations.shopware6.export.product_mapper import (
     map_erpnext_item_to_shopware,
@@ -38,22 +41,22 @@ from ecommerce_integrations.shopware6.export.property_handler import (
 from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
 
 
-class ShopwareProduct:
+class ShopwareProductUploader:
     """
-    Shopware product handler following Shopify integration patterns.
+    Shopware product uploader following Shopify integration patterns.
 
-    Encapsulates all product upload logic into a reusable class.
+    Handles uploading ERPNext Items to Shopware (ERPNext -> Shopware direction).
 
     Usage:
-        product = ShopwareProduct(item_code="ITEM-001")
+        uploader = ShopwareProductUploader(item_code="ITEM-001")
 
-        if not product.is_synced():
-            product.upload()
+        if not uploader.is_synced():
+            uploader.upload()
     """
 
     def __init__(self, item_code: str, shopware_id: str = None):
         """
-        Initialize ShopwareProduct.
+        Initialize ShopwareProductUploader.
 
         Args:
             item_code: ERPNext Item code
@@ -62,6 +65,7 @@ class ShopwareProduct:
         self.item_code = item_code
         self.shopware_id = shopware_id or get_shopware_document_id("Item", item_code)
         self.setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+        self.logger = get_logger("ShopwareProductUploader")
 
         if not self.setting.is_enabled():
             frappe.throw(_("Shopware integration is not enabled."))
@@ -89,7 +93,7 @@ class ShopwareProduct:
         if not is_valid:
             # Log and skip - don't throw error
             for error in errors:
-                frappe.logger("shopware6").info(f"Skipping {self.item_code}: {error}")
+                self.logger.info(f"Skipping {self.item_code}: {error}")
             return None
 
         client = get_shopware_client()
@@ -178,9 +182,10 @@ class ShopwareProduct:
                         pass
 
         except Exception as e:
-            frappe.log_error(
-                f"Failed to update visibilities for product {product_id}: {e}",
-                "Shopware Multi-Channel Visibility"
+            self.logger.error(
+                f"Failed to update visibilities for product {product_id}",
+                exception=e,
+                persist=False  # Don't clutter logs with visibility errors
             )
 
     def _upload_simple_product(self, client, item) -> Optional[str]:
@@ -291,9 +296,12 @@ class ShopwareProduct:
             if product_exists:
                 # For updates with multi-channel support, update visibilities separately
                 new_visibilities = payload.pop("visibilities", None)
+                # Store categories before clearing (for debug)
+                new_categories = payload.get("categories", [])
                 # Clear old categories before setting new ones
-                if payload.get("categories"):
+                if new_categories:
                     clear_product_categories(client, product_id)
+                    frappe.logger().info(f"Cleared categories for {product_id}, will add: {new_categories}")
                 # Clear old properties before setting new ones
                 if payload.get("properties"):
                     clear_product_properties(client, product_id)
@@ -311,7 +319,25 @@ class ShopwareProduct:
                             pass
                 except Exception:
                     pass
-                client.request_patch(f"product/{product_id}", payload)
+                # Log payload for debugging and PATCH
+                import json
+                cat_payload = payload.get('categories', [])
+                frappe.log_error(
+                    f"PATCH payload: {json.dumps(cat_payload)}",
+                    f"Category Sync Debug: {product_id}"
+                )
+                try:
+                    patch_result = client.request_patch(f"product/{product_id}", payload)
+                    frappe.log_error(
+                        f"PATCH result: {json.dumps(patch_result) if patch_result else 'None'}",
+                        f"Category Sync PATCH Result: {product_id}"
+                    )
+                except Exception as patch_err:
+                    frappe.log_error(
+                        f"PATCH failed: {str(patch_err)}",
+                        f"Category Sync PATCH Error: {product_id}"
+                    )
+                    raise
 
                 # Update visibilities if multi-channel is configured
                 if new_visibilities and len(self.setting.sales_channels or []) > 0:
@@ -336,24 +362,19 @@ class ShopwareProduct:
             if getattr(self.setting, 'sync_images_to_shopware', True):
                 sync_product_images_to_shopware(client, item, product_id)
 
-            create_shopware_log(
-                status="Success",
+            self.logger.success(
+                f"Uploaded product: {item.name} -> {product_id}",
                 request_data=payload,
-                message=f"Uploaded product: {item.name} -> {product_id}",
-                method="ShopwareProduct.upload"
             )
 
             return product_id
 
         except Exception as e:
-            create_shopware_log(
-                status="Error",
-                message=f"Failed to upload {item.name}: {str(e)}",
-                exception=str(e),
-                method="ShopwareProduct.upload",
-                rollback=True
+            self.logger.error(
+                f"Failed to upload {item.name}",
+                exception=e,
+                rollback=True,
             )
-            frappe.log_error(f"Shopware product upload failed for {item.name}: {e}")
             return None
 
 
@@ -369,5 +390,165 @@ def upload_erpnext_item_to_shopware(item_code: str) -> Optional[str]:
     Returns:
         Shopware product ID if successful, None otherwise
     """
-    product = ShopwareProduct(item_code)
-    return product.upload()
+    uploader = ShopwareProductUploader(item_code)
+    return uploader.upload()
+
+
+@frappe.whitelist()
+def sync_item_if_changed(item_code: str, force: bool = False) -> dict:
+    """
+    Idempotent sync: Only update Shopware if ERPNext item has changed.
+
+    Compares current Shopware state with ERPNext state and only performs
+    an update if there are actual differences.
+
+    Args:
+        item_code: ERPNext Item code
+        force: Force sync even if no differences detected
+
+    Returns:
+        dict with keys: synced, differences, shopware_id, message
+    """
+    from ecommerce_integrations.shopware6.connection import get_shopware_client
+    from ecommerce_integrations.shopware6.export.reconciliation import compare_item_with_shopware
+    from frappe.utils import flt
+
+    result = {
+        "synced": False,
+        "differences": [],
+        "shopware_id": None,
+        "message": "",
+    }
+
+    uploader = ShopwareProductUploader(item_code)
+
+    if not uploader.shopware_id:
+        # Not synced yet - do full sync
+        result["shopware_id"] = uploader.upload()
+        result["synced"] = True
+        result["message"] = "New product created"
+        return result
+
+    # Fetch current Shopware state
+    client = get_shopware_client()
+    try:
+        response = client.request_get(
+            f"product/{uploader.shopware_id}?associations[categories]={{}}&associations[media]={{}}&associations[cover][associations][media]={{}}"
+        )
+        shopware_data = response.get("data", {})
+    except Exception as e:
+        # Product doesn't exist in Shopware - re-create
+        result["shopware_id"] = uploader.upload()
+        result["synced"] = True
+        result["message"] = f"Product recreated (was missing in Shopware)"
+        return result
+
+    # Compare states
+    item = uploader.get_erpnext_item()
+    comparison = compare_item_with_shopware(item, shopware_data, compare_categories=True)
+
+    result["differences"] = comparison.get("differences", [])
+
+    if force or comparison.get("needs_sync"):
+        result["shopware_id"] = uploader.upload()
+        result["synced"] = True
+        result["message"] = f"Updated: {', '.join(result['differences'])}" if result["differences"] else "Force sync"
+    else:
+        result["shopware_id"] = uploader.shopware_id
+        result["message"] = "Already in sync"
+
+    return result
+
+
+def batch_sync_if_changed(item_codes: list, force: bool = False) -> dict:
+    """
+    Batch idempotent sync for multiple items.
+
+    Uses parallel API calls where possible to improve performance.
+
+    Args:
+        item_codes: List of ERPNext Item codes
+        force: Force sync even if no differences
+
+    Returns:
+        dict with statistics and details
+    """
+    from ecommerce_integrations.shopware6.connection import get_shopware_client
+    from ecommerce_integrations.shopware6.export.reconciliation import (
+        get_shopware_products_batch,
+        compare_item_with_shopware,
+    )
+    from ecommerce_integrations.shopware6.export.utils import get_shopware_document_id
+
+    stats = {
+        "total": len(item_codes),
+        "in_sync": 0,
+        "synced": 0,
+        "created": 0,
+        "failed": 0,
+        "details": [],
+    }
+
+    # Split into existing and new items
+    existing_items = []
+    new_items = []
+
+    for item_code in item_codes:
+        shopware_id = get_shopware_document_id("Item", item_code)
+        if shopware_id:
+            existing_items.append({"item_code": item_code, "shopware_id": shopware_id})
+        else:
+            new_items.append(item_code)
+
+    # Fetch current state for existing items in batch
+    client = get_shopware_client()
+    shopware_ids = [item["shopware_id"] for item in existing_items]
+    shopware_products = get_shopware_products_batch(client, shopware_ids, include_categories=True)
+
+    # Process existing items
+    for item_data in existing_items:
+        item_code = item_data["item_code"]
+        shopware_id = item_data["shopware_id"]
+
+        try:
+            item = frappe.get_doc("Item", item_code)
+            shopware_data = shopware_products.get(shopware_id)
+
+            if not shopware_data:
+                # Product missing in Shopware - recreate
+                uploader = ShopwareProductUploader(item_code)
+                uploader.upload()
+                stats["created"] += 1
+                stats["details"].append({"item_code": item_code, "action": "recreated"})
+                continue
+
+            comparison = compare_item_with_shopware(item, shopware_data, compare_categories=True)
+
+            if force or comparison.get("needs_sync"):
+                uploader = ShopwareProductUploader(item_code, shopware_id)
+                uploader.upload()
+                stats["synced"] += 1
+                stats["details"].append({
+                    "item_code": item_code,
+                    "action": "updated",
+                    "differences": comparison.get("differences", [])
+                })
+            else:
+                stats["in_sync"] += 1
+
+        except Exception as e:
+            stats["failed"] += 1
+            stats["details"].append({"item_code": item_code, "action": "error", "error": str(e)[:100]})
+
+    # Process new items
+    for item_code in new_items:
+        try:
+            uploader = ShopwareProductUploader(item_code)
+            uploader.upload()
+            stats["created"] += 1
+            stats["details"].append({"item_code": item_code, "action": "created"})
+        except Exception as e:
+            stats["failed"] += 1
+            stats["details"].append({"item_code": item_code, "action": "error", "error": str(e)[:100]})
+
+    return stats

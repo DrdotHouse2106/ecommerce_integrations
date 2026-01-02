@@ -11,48 +11,48 @@ from ecommerce_integrations.shopware6.tests.utils import (
 )
 
 
-class TestShopwareProduct(ShopwareTestCase):
-    """Test cases for ShopwareProduct class."""
+class TestShopwareProductUploader(ShopwareTestCase):
+    """Test cases for ShopwareProductUploader class."""
 
     @patch("ecommerce_integrations.shopware6.export.product_uploader.frappe")
     @patch("ecommerce_integrations.shopware6.export.product_uploader.get_shopware_document_id")
-    def test_shopware_product_initialization(self, mock_get_doc_id, mock_frappe):
-        """Test ShopwareProduct class initialization."""
-        from ecommerce_integrations.shopware6.export.product_uploader import ShopwareProduct
+    def test_shopware_product_uploader_initialization(self, mock_get_doc_id, mock_frappe):
+        """Test ShopwareProductUploader class initialization."""
+        from ecommerce_integrations.shopware6.export.product_uploader import ShopwareProductUploader
 
         mock_get_doc_id.return_value = None
         mock_frappe.get_cached_doc.return_value = MagicMock()
 
-        product = ShopwareProduct(item_code="TEST-001")
+        uploader = ShopwareProductUploader(item_code="TEST-001")
 
-        self.assertEqual(product.item_code, "TEST-001")
-        self.assertIsNone(product.shopware_id)
+        self.assertEqual(uploader.item_code, "TEST-001")
+        self.assertIsNone(uploader.shopware_id)
 
     @patch("ecommerce_integrations.shopware6.export.product_uploader.frappe")
     @patch("ecommerce_integrations.shopware6.export.product_uploader.get_shopware_document_id")
-    def test_shopware_product_is_synced_false(self, mock_get_doc_id, mock_frappe):
+    def test_shopware_product_uploader_is_synced_false(self, mock_get_doc_id, mock_frappe):
         """Test is_synced returns False for new products."""
-        from ecommerce_integrations.shopware6.export.product_uploader import ShopwareProduct
+        from ecommerce_integrations.shopware6.export.product_uploader import ShopwareProductUploader
 
         mock_get_doc_id.return_value = None
         mock_frappe.get_cached_doc.return_value = MagicMock()
 
-        product = ShopwareProduct(item_code="NEW-ITEM")
+        uploader = ShopwareProductUploader(item_code="NEW-ITEM")
 
-        self.assertFalse(product.is_synced())
+        self.assertFalse(uploader.is_synced())
 
     @patch("ecommerce_integrations.shopware6.export.product_uploader.frappe")
     @patch("ecommerce_integrations.shopware6.export.product_uploader.get_shopware_document_id")
-    def test_shopware_product_is_synced_true(self, mock_get_doc_id, mock_frappe):
+    def test_shopware_product_uploader_is_synced_true(self, mock_get_doc_id, mock_frappe):
         """Test is_synced returns True for synced products."""
-        from ecommerce_integrations.shopware6.export.product_uploader import ShopwareProduct
+        from ecommerce_integrations.shopware6.export.product_uploader import ShopwareProductUploader
 
         mock_get_doc_id.return_value = "existing-shopware-id"
         mock_frappe.get_cached_doc.return_value = MagicMock()
 
-        product = ShopwareProduct(item_code="SYNCED-ITEM")
+        uploader = ShopwareProductUploader(item_code="SYNCED-ITEM")
 
-        self.assertTrue(product.is_synced())
+        self.assertTrue(uploader.is_synced())
 
 
 class TestProductMapper(ShopwareTestCase):

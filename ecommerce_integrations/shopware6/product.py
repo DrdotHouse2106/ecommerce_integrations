@@ -33,6 +33,7 @@ from ecommerce_integrations.shopware6.utils import (
     update_shopware_log,
     generate_item_code_from_shopware,
     get_price_from_shopware_price_object,
+    get_tax_rate_from_shopware_product,
     convert_gross_to_net,
 )
 
@@ -95,7 +96,7 @@ class ShopwareProduct:
         # Get client - don't use decorator on instance methods
         client = get_shopware_client()
 
-        # Fetch product with associations
+        # Fetch product with associations (including tax for accurate price calculations)
         criteria = Criteria()
         criteria.associations["prices"] = Criteria()
         criteria.associations["options"] = Criteria()
@@ -103,9 +104,11 @@ class ShopwareProduct:
         criteria.associations["children"] = Criteria()
         criteria.associations["children"].associations["prices"] = Criteria()
         criteria.associations["children"].associations["options"] = Criteria()
+        criteria.associations["children"].associations["tax"] = Criteria()
         criteria.associations["manufacturer"] = Criteria()
         criteria.associations["media"] = Criteria()
         criteria.associations["cover"] = Criteria()
+        criteria.associations["tax"] = Criteria()  # For accurate net/gross conversion
 
         response = client.request_post(
             f"search/product",
@@ -191,25 +194,27 @@ class ShopwareProduct:
         """Create ERPNext Item from Shopware product data.
 
         Supports both B2B (net prices) and B2C (gross prices) modes.
-        When import_prices_as_net is enabled, Shopware's gross price
-        is converted to net price using the default tax rate.
+        Uses the actual tax rate from the Shopware product for accurate conversion.
         """
         # Extract basic info
         product_number = product_data.get("productNumber", "")
         name = product_data.get("name", "") or (product_data.get("translated") or {}).get("name", "")
         description = product_data.get("description", "") or (product_data.get("translated") or {}).get("description", "")
 
+        # Get actual tax rate from Shopware product (instead of assuming 19%)
+        tax_rate = get_tax_rate_from_shopware_product(product_data)
+
         # Get price - handle B2B (net) vs B2C (gross) mode
-        # Shopware stores gross prices
+        # Use the actual tax rate for accurate net/gross conversion
         prices = product_data.get("prices", []) or product_data.get("price", [])
         use_net_prices = getattr(self.setting, 'import_prices_as_net', True)
 
         if use_net_prices:
-            # B2B mode: Get net price directly from price object if available
-            price = get_price_from_shopware_price_object(prices, return_net=True)
+            # B2B mode: Get net price, using actual tax rate for conversion if needed
+            price = get_price_from_shopware_price_object(prices, return_net=True, tax_rate=tax_rate)
         else:
             # B2C mode: Use gross price
-            price = get_price_from_shopware_price_object(prices, return_net=False)
+            price = get_price_from_shopware_price_object(prices, return_net=False, tax_rate=tax_rate)
 
         # Get weight
         weight = flt(product_data.get("weight", 0))
@@ -297,16 +302,19 @@ class ShopwareProduct:
                         break
                 variant_attributes.append(attr_copy)
 
+            # Get tax rate for variant (may inherit from parent or have own)
+            variant_tax_rate = get_tax_rate_from_shopware_product(child)
+
             # Get variant price - handle B2B (net) vs B2C (gross) mode
             prices = child.get("prices", []) or child.get("price", [])
             use_net_prices = getattr(self.setting, 'import_prices_as_net', True)
 
             if use_net_prices:
-                # B2B mode: Get net price
-                price = get_price_from_shopware_price_object(prices, return_net=True)
+                # B2B mode: Get net price with actual tax rate
+                price = get_price_from_shopware_price_object(prices, return_net=True, tax_rate=variant_tax_rate)
             else:
                 # B2C mode: Use gross price
-                price = get_price_from_shopware_price_object(prices, return_net=False)
+                price = get_price_from_shopware_price_object(prices, return_net=False, tax_rate=variant_tax_rate)
 
             variant_dict = {
                 "id": product_data.get("id"),
@@ -520,8 +528,11 @@ def sync_products_from_shopware(limit: int = 100):
     criteria.associations["prices"] = Criteria()
     criteria.associations["options"] = Criteria()
     criteria.associations["children"] = Criteria()
+    criteria.associations["children"].associations["tax"] = Criteria()
+    criteria.associations["children"].associations["prices"] = Criteria()
     criteria.associations["manufacturer"] = Criteria()
     criteria.associations["cover"] = Criteria()
+    criteria.associations["tax"] = Criteria()  # For accurate net/gross conversion
 
     response = client.request_post("search/product", criteria)
     products = response.get("data", [])

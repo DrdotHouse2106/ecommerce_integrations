@@ -75,7 +75,7 @@ class ShopwareCacheManager:
         "sales_channel": 86400,      # 24 hours
         "tax": 86400,                # 24 hours
         "field_mappings": 3600,      # 1 hour
-        "image_hash": 604800,        # 7 days
+        "image_hash": 86400,         # 24 hours (reduced from 7 days for better sync reliability)
     }
 
     # In-memory cache for the current request (faster than Redis for repeated access)

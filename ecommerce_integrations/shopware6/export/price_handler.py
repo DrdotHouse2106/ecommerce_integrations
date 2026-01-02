@@ -14,6 +14,8 @@ from ecommerce_integrations.shopware6.connection import temp_shopware_session
 from ecommerce_integrations.shopware6.constants import ITEM_SELLING_RATE_FIELD
 from ecommerce_integrations.shopware6.export.utils import get_shopware_document_id
 from ecommerce_integrations.shopware6.export.product_mapper import get_cached_currency_id
+from ecommerce_integrations.shopware6.utils import get_logger
+from ecommerce_integrations.shopware6.validators import validate_before_destructive_operation
 
 
 def get_item_price(item_code: str, price_list: str = None) -> float:
@@ -275,25 +277,29 @@ def update_item_price_in_shopware(item_code: str = None, doc=None) -> Dict[str, 
 def force_sync_single_product_price(
     client,
     item_code: str,
-    price_list: str = None
+    price_list: str = None,
+    force: bool = True
 ) -> Dict[str, Any]:
     """
     Force sync price for a single product - deletes all existing prices first.
 
     This function:
     1. Gets the Shopware product ID
-    2. Fetches existing prices from Shopware
-    3. Deletes all existing product_price entries
-    4. Creates new prices based on ERPNext data
+    2. Checks if this is a parent/template product (has_variants=True)
+    3. For parent products: Sets price to 0 and deletes all advanced prices
+    4. For regular/variant products: Sets the price from ERPNext
 
     Args:
         client: Shopware API client
         item_code: ERPNext Item code
         price_list: Optional price list to use (defaults to Standard-Vertrieb)
+        force: If True (default for single product), skip validation threshold
 
     Returns:
         Dict with success status and details
     """
+    logger = get_logger("force_sync_single_product_price")
+
     shopware_id = get_shopware_document_id("Item", item_code)
     if not shopware_id:
         return {
@@ -302,6 +308,10 @@ def force_sync_single_product_price(
         }
 
     try:
+        # Check if this is a parent/template product
+        item = frappe.get_doc("Item", item_code)
+        is_parent_product = item.has_variants
+
         # Get current prices from Shopware
         response = client.request_post("search/product-price", {
             "filter": [
@@ -311,7 +321,22 @@ def force_sync_single_product_price(
         })
         existing_prices = response.get("data", [])
 
-        # Delete all existing prices
+        # Validate before destructive operation
+        validation = validate_before_destructive_operation(
+            operation=f"delete_prices_for_{item_code}",
+            entity_count=len(existing_prices),
+            threshold=10,  # Single product shouldn't have more than 10 price rules
+            force=force
+        )
+        if not validation.proceed:
+            logger.warning(validation.message, persist=True)
+            return {
+                "success": False,
+                "item_code": item_code,
+                "message": validation.message
+            }
+
+        # Delete all existing advanced prices (for ALL products - parent and variants)
         deleted_count = 0
         for price_entry in existing_prices:
             price_id = price_entry.get("id")
@@ -320,9 +345,37 @@ def force_sync_single_product_price(
                     client.request_delete(f"product-price/{price_id}")
                     deleted_count += 1
                 except Exception as e:
-                    frappe.logger().warning(f"Failed to delete price {price_id}: {e}")
+                    logger.warning(f"Failed to delete price {price_id}: {e}")
 
-        # Get new price from ERPNext
+        currency_id = get_cached_currency_id(client, "EUR")
+
+        # PARENT PRODUCTS: Set price to 0, no advanced prices
+        # Parent products should never have prices - only their variants should
+        if is_parent_product:
+            price_payload = [{
+                "currencyId": currency_id,
+                "gross": 0,
+                "net": 0,
+                "linked": False,
+            }]
+            client.request_patch(f"product/{shopware_id}", {"price": price_payload})
+
+            logger.success(
+                f"Force synced PARENT product {item_code}: price set to 0, deleted {deleted_count} advanced prices",
+                request_data={"item_code": item_code, "deleted_prices": deleted_count, "is_parent": True}
+            )
+
+            return {
+                "success": True,
+                "item_code": item_code,
+                "shopware_id": shopware_id,
+                "deleted_prices": deleted_count,
+                "is_parent": True,
+                "new_price": {"net": 0, "gross": 0, "tax_rate": 0},
+                "message": f"PARENT product: Deleted {deleted_count} old prices, set price to 0 (only variants should have prices)"
+            }
+
+        # REGULAR/VARIANT PRODUCTS: Get price from ERPNext
         if not price_list:
             price_list = "Standard-Vertrieb"
 
@@ -332,10 +385,10 @@ def force_sync_single_product_price(
             net_price = get_item_price(item_code)
 
         tax_rate = get_item_tax_rate(item_code)
-        currency_id = get_cached_currency_id(client, "EUR")
 
         # CRITICAL: Validate price before syncing - never use 0.01 fallback
         if net_price <= 0:
+            logger.warning(f"No valid price found for {item_code}", persist=True)
             return {
                 "success": False,
                 "item_code": item_code,
@@ -356,6 +409,11 @@ def force_sync_single_product_price(
 
         client.request_patch(f"product/{shopware_id}", {"price": price_payload})
 
+        logger.success(
+            f"Force synced price for {item_code}: {net_price}€ net / {gross_price}€ gross",
+            request_data={"item_code": item_code, "deleted_prices": deleted_count}
+        )
+
         return {
             "success": True,
             "item_code": item_code,
@@ -371,7 +429,7 @@ def force_sync_single_product_price(
         }
 
     except Exception as e:
-        frappe.log_error(f"Force price sync failed for {item_code}: {e}")
+        logger.error(f"Force price sync failed for {item_code}", exception=e)
         return {
             "success": False,
             "item_code": item_code,
@@ -429,10 +487,14 @@ def force_sync_all_prices(
     if not price_list:
         price_list = "Standard-Vertrieb"
 
+    logger = get_logger("force_sync_all_prices")
+
     stats = {
         "processed": 0,
         "updated": 0,
         "skipped": 0,
+        "deactivated": 0,
+        "broken_fixed": 0,  # Products with 0.01€ that were fixed
         "errors": [],
         "price_changes": []
     }
@@ -466,42 +528,93 @@ def force_sync_all_prices(
 
             tax_rate = get_item_tax_rate(item_code)
 
-            # CRITICAL: Skip items without valid price - never use 0.01 fallback
+            # CRITICAL: Items without valid price should be DEACTIVATED in Shopware
+            # This ensures no 0.01€ prices remain and Shopware matches ERPNext exactly
             if new_net <= 0:
+                if not dry_run:
+                    try:
+                        # Deactivate the product in Shopware since it has no valid price
+                        client.request_patch(f"product/{shopware_id}", {"active": False})
+                        stats["errors"].append({
+                            "item_code": item_code,
+                            "error": "No valid price in ERPNext - DEACTIVATED in Shopware",
+                            "action": "deactivated"
+                        })
+                    except Exception as e:
+                        stats["errors"].append({
+                            "item_code": item_code,
+                            "error": f"No valid price, failed to deactivate: {str(e)[:100]}",
+                            "action": "failed"
+                        })
+                else:
+                    stats["errors"].append({
+                        "item_code": item_code,
+                        "error": "No valid price in ERPNext - would be DEACTIVATED in Shopware",
+                        "action": "would_deactivate"
+                    })
                 stats["skipped"] += 1
-                stats["errors"].append({
-                    "item_code": item_code,
-                    "error": "No valid price in ERPNext - skipped to prevent 0.01 sync"
-                })
                 continue
 
             new_gross = round(new_net * (1 + tax_rate / 100), 2)
 
-            # Check if price changed
+            # Check if price needs update
             price_diff = abs(current_net - new_net)
 
-            if price_diff > 0.01:  # Price changed
+            # ALWAYS update if:
+            # 1. Shopware has invalid 0.01€ price (the broken fallback)
+            # 2. Significant price difference exists
+            is_broken_price = current_net <= 0.02  # 0.01€ or 0.02€ are broken fallbacks
+            needs_update = is_broken_price or price_diff > 0.01
+
+            # ALWAYS delete additional price rules (product-price entries) that may have 0.01€
+            # These are separate from the base product price and can cause issues
+            if not dry_run:
+                # Get ALL additional price rules for this product
+                prices_response = client.request_post("search/product-price", {
+                    "filter": [{"type": "equals", "field": "productId", "value": shopware_id}],
+                    "limit": 500  # Increased limit to catch all price rules
+                })
+                additional_prices = prices_response.get("data", [])
+
+                # Check for broken 0.01€ prices in the additional rules
+                broken_prices = [p for p in additional_prices if flt(p.get("price", [{}])[0].get("net", 0)) <= 0.02]
+
+                if broken_prices:
+                    stats["broken_fixed"] += 1
+                    logger.info(
+                        f"Found {len(broken_prices)} broken price rules for {item_code}, deleting all {len(additional_prices)} rules",
+                        persist=True
+                    )
+
+                # Delete ALL additional price rules to ensure clean state
+                for price_entry in additional_prices:
+                    price_id = price_entry.get("id")
+                    if price_id:
+                        try:
+                            client.request_delete(f"product-price/{price_id}")
+                        except Exception:
+                            pass
+            else:
+                # Dry run - just check for broken prices
+                prices_response = client.request_post("search/product-price", {
+                    "filter": [{"type": "equals", "field": "productId", "value": shopware_id}],
+                    "limit": 500
+                })
+                additional_prices = prices_response.get("data", [])
+                broken_prices = [p for p in additional_prices if flt(p.get("price", [{}])[0].get("net", 0)) <= 0.02]
+                if broken_prices:
+                    stats["broken_fixed"] += 1
+
+            if needs_update:
                 stats["price_changes"].append({
                     "item_code": item_code,
                     "old_net": current_net,
                     "new_net": new_net,
-                    "diff": round(new_net - current_net, 2)
+                    "diff": round(new_net - current_net, 2),
+                    "is_broken_price": is_broken_price
                 })
 
                 if not dry_run:
-                    # Delete existing advanced prices
-                    prices_response = client.request_post("search/product-price", {
-                        "filter": [{"type": "equals", "field": "productId", "value": shopware_id}],
-                        "limit": 100
-                    })
-                    for price_entry in prices_response.get("data", []):
-                        price_id = price_entry.get("id")
-                        if price_id:
-                            try:
-                                client.request_delete(f"product-price/{price_id}")
-                            except Exception:
-                                pass
-
                     # Update base price
                     price_payload = [{
                         "currencyId": currency_id,
@@ -518,9 +631,9 @@ def force_sync_all_prices(
             # Commit periodically
             if stats["processed"] % 20 == 0:
                 frappe.db.commit()
-                frappe.logger().info(
-                    f"[Force Price Sync] Progress: {stats['processed']}/{len(ecom_items)} "
-                    f"(updated: {stats['updated']}, skipped: {stats['skipped']})"
+                logger.info(
+                    f"Progress: {stats['processed']}/{len(ecom_items)} "
+                    f"(updated: {stats['updated']}, broken_fixed: {stats['broken_fixed']}, skipped: {stats['skipped']})"
                 )
 
         except Exception as e:
@@ -528,12 +641,23 @@ def force_sync_all_prices(
 
     frappe.db.commit()
 
+    # Log final summary
+    summary = (
+        f"Processed {stats['processed']}: "
+        f"{stats['updated']} prices updated, "
+        f"{stats['broken_fixed']} broken 0.01€ price rules cleaned, "
+        f"{stats.get('deactivated', 0)} products deactivated (no ERPNext price), "
+        f"{stats['skipped']} unchanged, "
+        f"{len(stats['errors'])} errors"
+    )
+    logger.success(summary + (" (DRY RUN)" if dry_run else ""))
+
     return {
         "success": True,
         "dry_run": dry_run,
         "price_list": price_list,
         "statistics": stats,
-        "message": f"Processed {stats['processed']}: {stats['updated']} updated, {stats['skipped']} unchanged, {len(stats['errors'])} errors" + (" (DRY RUN)" if dry_run else "")
+        "message": summary + (" (DRY RUN)" if dry_run else "")
     }
 
 
@@ -556,6 +680,10 @@ def enqueue_force_sync_all_prices(
     """
     from frappe.utils import cint, now
 
+    # Get batch size from settings if not provided
+    if not batch_size:
+        setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+        batch_size = cint(getattr(setting, 'price_batch_size', 500)) or 500
     batch_size = cint(batch_size) or 500
     dry_run = dry_run in [True, "true", "True", 1, "1"]
 
@@ -592,6 +720,9 @@ def _run_force_price_sync_batched(
     Run FORCED price sync in batches.
     FORCE means: Delete ALL prices and recreate - regardless of whether price changed.
     This ensures only one clean price exists per product.
+
+    IMPORTANT: Parent/template products (has_variants=True) get price=0 and NO advanced prices.
+    Only variant products get actual prices from ERPNext.
     """
     from ecommerce_integrations.shopware6.connection import get_shopware_client
     from ecommerce_integrations.shopware6.utils import create_shopware_log
@@ -608,7 +739,7 @@ def _run_force_price_sync_batched(
     if not price_list:
         price_list = "Standard-Vertrieb"
 
-    stats = {"processed": 0, "updated": 0, "deleted_prices": 0, "errors": 0}
+    stats = {"processed": 0, "updated": 0, "deleted_prices": 0, "errors": 0, "parents_fixed": 0}
     num_batches = (total + batch_size - 1) // batch_size
 
     create_shopware_log(
@@ -635,7 +766,42 @@ def _run_force_price_sync_batched(
             shopware_id = ei.integration_item_code
 
             try:
-                # Get ERPNext price
+                # Check if this is a parent/template product
+                is_parent = frappe.db.get_value("Item", item_code, "has_variants")
+
+                if not dry_run:
+                    # ALWAYS delete ALL advanced/rule prices for ALL products
+                    prices_response = client.request_post("search/product-price", {
+                        "filter": [{"type": "equals", "field": "productId", "value": shopware_id}],
+                        "limit": 100
+                    })
+                    deleted = 0
+                    for price_entry in prices_response.get("data", []):
+                        try:
+                            client.request_delete(f"product-price/{price_entry.get('id')}")
+                            deleted += 1
+                        except Exception:
+                            pass
+                    stats["deleted_prices"] += deleted
+
+                # PARENT PRODUCTS: Set price to 0
+                # Parent products should never have prices - only their variants should
+                if is_parent:
+                    if not dry_run:
+                        client.request_patch(f"product/{shopware_id}", {
+                            "price": [{
+                                "currencyId": currency_id,
+                                "gross": 0,
+                                "net": 0,
+                                "linked": False,
+                            }]
+                        })
+                    stats["parents_fixed"] += 1
+                    stats["updated"] += 1
+                    stats["processed"] += 1
+                    continue
+
+                # REGULAR/VARIANT PRODUCTS: Get price from ERPNext
                 new_net = get_item_price(item_code, price_list)
                 if new_net <= 0:
                     new_net = get_item_price(item_code)
@@ -654,20 +820,6 @@ def _run_force_price_sync_batched(
                 new_gross = round(new_net * (1 + tax_rate / 100), 2)
 
                 if not dry_run:
-                    # ALWAYS delete ALL advanced/rule prices
-                    prices_response = client.request_post("search/product-price", {
-                        "filter": [{"type": "equals", "field": "productId", "value": shopware_id}],
-                        "limit": 100
-                    })
-                    deleted = 0
-                    for price_entry in prices_response.get("data", []):
-                        try:
-                            client.request_delete(f"product-price/{price_entry.get('id')}")
-                            deleted += 1
-                        except Exception:
-                            pass
-                    stats["deleted_prices"] += deleted
-
                     # ALWAYS set fresh price
                     client.request_patch(f"product/{shopware_id}", {
                         "price": [{
@@ -692,11 +844,11 @@ def _run_force_price_sync_batched(
         create_shopware_log(
             status="Success",
             method="force_sync_all_prices",
-            message=f"Batch {batch_num + 1}/{num_batches} ({pct}%) - Updated: {stats['updated']}, Deleted prices: {stats['deleted_prices']}"
+            message=f"Batch {batch_num + 1}/{num_batches} ({pct}%) - Updated: {stats['updated']}, Parents fixed: {stats['parents_fixed']}, Deleted prices: {stats['deleted_prices']}"
         )
 
     create_shopware_log(
         status="Success",
         method="force_sync_all_prices",
-        message=f"COMPLETED - {stats['updated']} products updated, {stats['deleted_prices']} old prices deleted, {stats['errors']} errors" + (" (DRY RUN)" if dry_run else "")
+        message=f"COMPLETED - {stats['updated']} products updated ({stats['parents_fixed']} parents set to price=0), {stats['deleted_prices']} old prices deleted, {stats['errors']} errors" + (" (DRY RUN)" if dry_run else "")
     )

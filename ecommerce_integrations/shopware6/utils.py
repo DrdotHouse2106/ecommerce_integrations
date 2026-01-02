@@ -364,7 +364,55 @@ def clean_shopware_id(shopware_id: str) -> str:
     return shopware_id.lower().replace("-", "")
 
 
-def get_price_from_shopware_price_object(price_obj: Dict[str, Any], return_net: bool = False) -> float:
+def get_tax_rate_from_shopware_product(product_data: Dict[str, Any]) -> float:
+    """
+    Extract the tax rate from a Shopware product.
+
+    Shopware stores tax information in the 'tax' association which contains
+    the taxRate field. This function extracts it for accurate price calculations.
+
+    Args:
+        product_data: Shopware product object with tax association
+
+    Returns:
+        Tax rate as float (e.g., 19.0 for 19%), defaults to 19.0 if not found
+    """
+    if not product_data:
+        return 19.0  # German default
+
+    # Try direct tax association
+    tax = product_data.get("tax", {})
+    if tax and isinstance(tax, dict):
+        tax_rate = tax.get("taxRate")
+        if tax_rate is not None:
+            return float(tax_rate)
+
+    # Try nested in price object
+    prices = product_data.get("price", []) or product_data.get("prices", [])
+    if prices and isinstance(prices, list) and prices:
+        price_entry = prices[0]
+        # Some price entries have tax info
+        tax_rules = price_entry.get("taxRules", [])
+        if tax_rules and isinstance(tax_rules, list) and tax_rules:
+            first_rule = tax_rules[0]
+            if first_rule.get("taxRate"):
+                return float(first_rule["taxRate"])
+
+    # Try calculatedPrice structure
+    calculated = product_data.get("calculatedPrice", {})
+    if calculated:
+        calculated_tax = calculated.get("calculatedTaxes", [])
+        if calculated_tax and isinstance(calculated_tax, list) and calculated_tax:
+            return float(calculated_tax[0].get("taxRate", 19.0))
+
+    return 19.0  # Default German VAT
+
+
+def get_price_from_shopware_price_object(
+    price_obj: Dict[str, Any],
+    return_net: bool = False,
+    tax_rate: Optional[float] = None
+) -> float:
     """
     Extract price from a Shopware price object.
 
@@ -374,12 +422,17 @@ def get_price_from_shopware_price_object(price_obj: Dict[str, Any], return_net: 
     Args:
         price_obj: Shopware price object
         return_net: If True, return net price; otherwise return gross price
+        tax_rate: Tax rate for gross/net conversion (defaults to 19.0 if not provided)
 
     Returns:
         Price as float (gross or net depending on return_net parameter)
     """
     if not price_obj:
         return 0.0
+
+    # Use provided tax rate or default to German VAT
+    effective_tax_rate = tax_rate if tax_rate is not None else 19.0
+    tax_divisor = 1 + (effective_tax_rate / 100)
 
     # Handle list of prices (multiple currencies)
     if isinstance(price_obj, list) and price_obj:
@@ -397,8 +450,7 @@ def get_price_from_shopware_price_object(price_obj: Dict[str, Any], return_net: 
         # Fallback: calculate from gross if net not available
         gross = price_obj.get("gross", 0)
         if gross:
-            # Default German VAT 19%
-            return float(gross) / 1.19
+            return round(float(gross) / tax_divisor, 2)
     else:
         gross = price_obj.get("gross", 0)
         if gross:
@@ -413,7 +465,7 @@ def get_price_from_shopware_price_object(price_obj: Dict[str, Any], return_net: 
         # Fallback: calculate from totalPrice
         total_price = calculated.get("totalPrice", 0)
         if total_price:
-            return float(total_price) / 1.19
+            return round(float(total_price) / tax_divisor, 2)
     return float(calculated.get("totalPrice", 0))
 
 
@@ -600,3 +652,204 @@ def generate_item_code_from_shopware(product: Dict[str, Any]) -> str:
         return product_number
 
     return product.get("id", "")[:20]
+
+
+class ShopwareLogger:
+    """
+    Unified logging for Shopware 6 integration.
+
+    Consolidates all logging patterns:
+    - frappe.log_error() -> error() with persist=True
+    - frappe.logger("shopware6") -> info(), warning(), debug()
+    - create_shopware_log() -> success(), error() with structured data
+
+    Usage:
+        logger = ShopwareLogger("sync_product")
+        logger.info("Starting sync")
+        logger.success("Product synced", request_data={"item": "ABC"})
+        logger.error("Sync failed", exception=e)
+    """
+
+    def __init__(self, method: str = None):
+        """
+        Initialize logger with optional method name.
+
+        Args:
+            method: The method/operation name for tracking in logs
+        """
+        self.method = method
+        self._logger = frappe.logger("shopware6")
+
+    def debug(self, message: str):
+        """
+        Log debug message (console only, not persisted).
+
+        Args:
+            message: Debug message
+        """
+        self._logger.debug(f"[{self.method}] {message}" if self.method else message)
+
+    def info(self, message: str, persist: bool = False, request_data: Dict[str, Any] = None):
+        """
+        Log info message, optionally persist to Shopware Log.
+
+        Args:
+            message: Info message
+            persist: If True, create Shopware Log entry
+            request_data: Optional request data to log
+        """
+        self._logger.info(f"[{self.method}] {message}" if self.method else message)
+        if persist:
+            create_shopware_log(
+                status="Info",
+                message=message,
+                method=self.method,
+                request_data=request_data,
+            )
+
+    def warning(self, message: str, persist: bool = False, request_data: Dict[str, Any] = None):
+        """
+        Log warning message, optionally persist to Shopware Log.
+
+        Args:
+            message: Warning message
+            persist: If True, create Shopware Log entry
+            request_data: Optional request data to log
+        """
+        self._logger.warning(f"[{self.method}] {message}" if self.method else message)
+        if persist:
+            create_shopware_log(
+                status="Warning",
+                message=message,
+                method=self.method,
+                request_data=request_data,
+            )
+
+    def error(
+        self,
+        message: str,
+        exception: Exception = None,
+        persist: bool = True,
+        request_data: Dict[str, Any] = None,
+        response_data: Dict[str, Any] = None,
+        rollback: bool = False,
+    ):
+        """
+        Log error message, persists to Shopware Log by default.
+
+        Args:
+            message: Error message
+            exception: Optional exception object
+            persist: If True (default), create Shopware Log entry
+            request_data: Optional request data to log
+            response_data: Optional response data to log
+            rollback: If True, rollback DB transaction before logging
+        """
+        full_message = f"[{self.method}] {message}" if self.method else message
+        self._logger.error(full_message)
+
+        if persist:
+            create_shopware_log(
+                status="Error",
+                message=message,
+                exception=str(exception) if exception else None,
+                method=self.method,
+                request_data=request_data,
+                response_data=response_data,
+                rollback=rollback,
+            )
+
+    def success(
+        self,
+        message: str,
+        request_data: Dict[str, Any] = None,
+        response_data: Dict[str, Any] = None,
+    ):
+        """
+        Log successful operation to Shopware Log.
+
+        Args:
+            message: Success message
+            request_data: Optional request data to log
+            response_data: Optional response data to log
+        """
+        self._logger.info(f"[{self.method}] SUCCESS: {message}" if self.method else f"SUCCESS: {message}")
+        create_shopware_log(
+            status="Success",
+            message=message,
+            method=self.method,
+            request_data=request_data,
+            response_data=response_data,
+        )
+
+    def queued(
+        self,
+        message: str,
+        request_data: Dict[str, Any] = None,
+    ) -> "frappe.Document":
+        """
+        Log queued operation to Shopware Log and return the log document.
+
+        Useful for tracking async operations.
+
+        Args:
+            message: Queue message
+            request_data: Optional request data to log
+
+        Returns:
+            The created Shopware Log document for later updates
+        """
+        self._logger.debug(f"[{self.method}] QUEUED: {message}" if self.method else f"QUEUED: {message}")
+        return create_shopware_log(
+            status="Queued",
+            message=message,
+            method=self.method,
+            request_data=request_data,
+        )
+
+    def update_log(
+        self,
+        log_name: str,
+        status: str = None,
+        message: str = None,
+        response_data: Dict[str, Any] = None,
+        exception: Exception = None,
+    ):
+        """
+        Update an existing Shopware Log entry.
+
+        Args:
+            log_name: Name of the log document to update
+            status: New status
+            message: New message
+            response_data: Response data to add
+            exception: Exception to add
+        """
+        update_shopware_log(
+            log_name=log_name,
+            status=status,
+            message=message,
+            response_data=response_data,
+            exception=str(exception) if exception else None,
+        )
+
+
+def get_logger(method: str = None) -> ShopwareLogger:
+    """
+    Get a ShopwareLogger instance.
+
+    Convenience function for getting a logger.
+
+    Args:
+        method: The method/operation name for tracking in logs
+
+    Returns:
+        ShopwareLogger instance
+
+    Usage:
+        from ecommerce_integrations.shopware6.utils import get_logger
+
+        logger = get_logger("sync_product")
+        logger.info("Starting sync")
+    """
+    return ShopwareLogger(method)

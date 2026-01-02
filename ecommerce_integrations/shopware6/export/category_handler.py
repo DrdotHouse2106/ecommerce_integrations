@@ -605,6 +605,9 @@ def clear_product_categories(client, product_id: str) -> bool:
     """
     Clear all category assignments from a product in Shopware.
 
+    Uses the sync endpoint to properly delete product-category associations,
+    which is more reliable than individual DELETE requests.
+
     Args:
         client: Shopware API client
         product_id: Shopware product UUID
@@ -613,25 +616,170 @@ def clear_product_categories(client, product_id: str) -> bool:
         True if successful
     """
     try:
-        response = client.request_get(f"product/{product_id}?associations[categories][]")
+        response = client.request_get(f"product/{product_id}?associations[categories][]=")
         product_data = response.get("data", {})
         categories = product_data.get("categories", [])
 
         if not categories:
             return True
 
+        # Build delete operations for sync endpoint
+        # Shopware 6 product_category uses composite key: productId + categoryId
+        delete_operations = []
         for cat in categories:
             cat_id = cat.get("id")
             if cat_id:
-                try:
-                    client.request_delete(f"product/{product_id}/categories/{cat_id}")
-                except Exception:
-                    pass
+                delete_operations.append({
+                    "productId": product_id,
+                    "categoryId": cat_id
+                })
+
+        if delete_operations:
+            # Use sync endpoint with delete action for product_category
+            sync_payload = {
+                "delete-product_category": {
+                    "entity": "product_category",
+                    "action": "delete",
+                    "payload": delete_operations
+                }
+            }
+            try:
+                result = client.request_post("_action/sync", sync_payload)
+                # Log success for debugging
+                frappe.logger().info(f"Cleared {len(delete_operations)} categories from product {product_id}")
+            except Exception as e:
+                # Fallback: try individual deletes with logging
+                frappe.log_error(f"Sync delete failed for product {product_id}, trying individual deletes: {e}")
+                for cat in categories:
+                    cat_id = cat.get("id")
+                    if cat_id:
+                        try:
+                            client.request_delete(f"product/{product_id}/categories/{cat_id}")
+                        except Exception as del_err:
+                            frappe.log_error(f"Failed to delete category {cat_id} from product {product_id}: {del_err}")
 
         return True
     except Exception as e:
         frappe.log_error(f"Error clearing categories for product {product_id}: {e}")
         return False
+
+
+@frappe.whitelist()
+@temp_shopware_session
+def debug_get_item_categories(client, item_code: str) -> dict:
+    """Debug function to see what categories would be synced for an item."""
+    from ecommerce_integrations.shopware6.export.category_handler import get_all_item_categories, sync_category_hierarchy
+
+    result = {
+        "item_code": item_code,
+        "erpnext_categories": [],
+        "shopware_category_ids": []
+    }
+
+    try:
+        item = frappe.get_doc("Item", item_code)
+        result["item_group"] = item.item_group
+
+        all_cats = get_all_item_categories(item_code)
+        result["erpnext_categories"] = all_cats
+
+        for cat_name in all_cats:
+            cat_id = sync_category_hierarchy(client, cat_name)
+            result["shopware_category_ids"].append({
+                "name": cat_name,
+                "shopware_id": cat_id
+            })
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result
+
+
+@frappe.whitelist()
+@temp_shopware_session
+def debug_clear_product_categories(client, product_id: str) -> dict:
+    """
+    Debug function to test clearing product categories.
+    Returns detailed information about what happened.
+    """
+    result = {
+        "product_id": product_id,
+        "categories_before": [],
+        "delete_operations": [],
+        "sync_response": None,
+        "categories_after": [],
+        "success": False,
+        "error": None
+    }
+
+    try:
+        # Get current categories
+        response = client.request_get(f"product/{product_id}?associations[categories][]=")
+        product_data = response.get("data", {})
+        categories = product_data.get("categories", [])
+
+        result["categories_before"] = [
+            {"id": c.get("id"), "name": c.get("translated", {}).get("name", c.get("name"))}
+            for c in categories
+        ]
+
+        if not categories:
+            result["success"] = True
+            result["message"] = "No categories to clear"
+            return result
+
+        # Build delete operations
+        delete_operations = []
+        for cat in categories:
+            cat_id = cat.get("id")
+            if cat_id:
+                delete_operations.append({
+                    "productId": product_id,
+                    "categoryId": cat_id
+                })
+
+        result["delete_operations"] = delete_operations
+
+        # Try sync endpoint
+        sync_payload = {
+            "delete-product_category": {
+                "entity": "product_category",
+                "action": "delete",
+                "payload": delete_operations
+            }
+        }
+
+        try:
+            sync_result = client.request_post("_action/sync", sync_payload)
+            result["sync_response"] = sync_result
+        except Exception as e:
+            result["sync_error"] = str(e)
+            # Try fallback
+            for cat in categories:
+                cat_id = cat.get("id")
+                if cat_id:
+                    try:
+                        client.request_delete(f"product/{product_id}/categories/{cat_id}")
+                    except Exception as del_err:
+                        result["fallback_errors"] = result.get("fallback_errors", [])
+                        result["fallback_errors"].append(str(del_err))
+
+        # Check categories after
+        response = client.request_get(f"product/{product_id}?associations[categories][]=")
+        product_data = response.get("data", {})
+        categories_after = product_data.get("categories", [])
+
+        result["categories_after"] = [
+            {"id": c.get("id"), "name": c.get("translated", {}).get("name", c.get("name"))}
+            for c in categories_after
+        ]
+
+        result["success"] = len(categories_after) == 0
+
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result
 
 
 @frappe.whitelist()

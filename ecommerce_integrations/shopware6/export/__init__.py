@@ -7,22 +7,24 @@ Refactored from the monolithic product_export.py (5446 lines) into focused modul
 - category_handler: Category hierarchy and sync
 - image_handler: Image upload and delta-sync
 - product_mapper: ERPNext to Shopware field mapping
-- product_uploader: Main ShopwareProduct class
+- product_uploader: Main ShopwareProductUploader class
 - template_handler: Template/parent product handling
 - variant_handler: Variant product handling
 - price_handler: Price synchronization
 
 Usage:
-    from ecommerce_integrations.shopware6.export import ShopwareProduct
+    from ecommerce_integrations.shopware6.export import ShopwareProductUploader
 
-    product = ShopwareProduct(item_code="ITEM-001")
-    product.upload()
+    uploader = ShopwareProductUploader(item_code="ITEM-001")
+    uploader.upload()
 """
 
 # Product uploader
 from ecommerce_integrations.shopware6.export.product_uploader import (
-    ShopwareProduct,
+    ShopwareProductUploader,
     upload_erpnext_item_to_shopware,
+    sync_item_if_changed,
+    batch_sync_if_changed,
 )
 
 # Template/Variant handlers
@@ -95,9 +97,11 @@ from ecommerce_integrations.shopware6.export.reconciliation import (
 
 __all__ = [
     # Main class
-    "ShopwareProduct",
+    "ShopwareProductUploader",
     # Upload functions
     "upload_erpnext_item_to_shopware",
+    "sync_item_if_changed",
+    "batch_sync_if_changed",
     "upload_template_item_to_shopware",
     "upload_variant_item_to_shopware",
     "sync_all_variants",
