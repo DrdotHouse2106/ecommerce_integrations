@@ -310,8 +310,7 @@ def sync_single_item_to_shopware(item_code: str):
     from ecommerce_integrations.shopware6.product_export import upload_erpnext_item_to_shopware
 
     try:
-        item = frappe.get_doc("Item", item_code)
-        upload_erpnext_item_to_shopware(doc=item)
+        upload_erpnext_item_to_shopware(item_code)
     except Exception as e:
         frappe.log_error(f"Failed to sync item {item_code} to Shopware: {e}", "Shopware Item Sync")
 
@@ -503,7 +502,11 @@ def process_bulk_sync_queue():
         frappe.logger().info("Shopware6 Bulk Sync: Queue processing completed")
 
     except Exception as e:
-        frappe.log_error(f"Shopware6 Bulk Sync Error: {e}")
+        error_msg = str(e)[:500]  # Truncate long error messages
+        try:
+            frappe.log_error(title="Shopware6 Bulk Sync Error", message=error_msg)
+        except Exception:
+            frappe.logger().error(f"Shopware6 Bulk Sync Error: {error_msg}")
     finally:
         release_sync_lock()
         deactivate_bulk_mode()
@@ -540,8 +543,9 @@ def process_product_batch(item_codes: List[str]):
             else:
                 simple_items.append(item)
         except Exception as e:
-            errors.append((item_code, str(e)))
-            frappe.log_error(f"Failed to load item {item_code}: {e}")
+            error_msg = str(e)[:200]  # Truncate long error messages
+            errors.append((item_code, error_msg))
+            frappe.logger().error(f"Failed to load item {item_code}: {error_msg}")
 
     # Process templates first (parents must exist before variants)
     client = get_shopware_client()
@@ -557,8 +561,9 @@ def process_product_batch(item_codes: List[str]):
                 upload_template_item_to_shopware(client, item)
                 processed.append(item.name)
             except Exception as e:
-                errors.append((item.name, str(e)))
-                frappe.log_error(f"Bulk sync failed for template {item.name}: {e}")
+                error_msg = str(e)[:200]
+                errors.append((item.name, error_msg))
+                frappe.logger().error(f"Bulk sync failed for template {item.name}: {error_msg}")
 
         # Commit after each batch
         frappe.db.commit()
@@ -570,11 +575,12 @@ def process_product_batch(item_codes: List[str]):
         for item in batch:
             try:
                 item.flags.from_integration = False
-                upload_erpnext_item_to_shopware(item)
+                upload_erpnext_item_to_shopware(item.name)
                 processed.append(item.name)
             except Exception as e:
-                errors.append((item.name, str(e)))
-                frappe.log_error(f"Bulk sync failed for item {item.name}: {e}")
+                error_msg = str(e)[:200]
+                errors.append((item.name, error_msg))
+                frappe.logger().error(f"Bulk sync failed for item {item.name}: {error_msg}")
 
         frappe.db.commit()
         time.sleep(BATCH_DELAY)
@@ -592,8 +598,9 @@ def process_product_batch(item_codes: List[str]):
                 else:
                     errors.append((item.name, "Parent template not synced"))
             except Exception as e:
-                errors.append((item.name, str(e)))
-                frappe.log_error(f"Bulk sync failed for variant {item.name}: {e}")
+                error_msg = str(e)[:200]
+                errors.append((item.name, error_msg))
+                frappe.logger().error(f"Bulk sync failed for variant {item.name}: {error_msg}")
 
         frappe.db.commit()
         time.sleep(BATCH_DELAY)
@@ -607,8 +614,20 @@ def process_product_batch(item_codes: List[str]):
     )
 
     if errors:
-        error_summary = "\n".join([f"{code}: {err}" for code, err in errors[:20]])
-        frappe.log_error(f"Shopware6 Bulk Sync Errors:\n{error_summary}")
+        # Remove failed items from queue so they don't block processing
+        failed_items = [code for code, _ in errors]
+        remove_from_queue(failed_items, "product")
+
+        # Truncate error messages to avoid CharacterLengthExceededError
+        error_summary = "\n".join([f"{code}: {str(err)[:80]}" for code, err in errors[:10]])
+        try:
+            frappe.log_error(
+                title="Shopware6 Bulk Sync Errors",
+                message=f"Failed items removed from queue:\n{error_summary}"
+            )
+        except Exception:
+            # If logging fails, just log to console
+            frappe.logger().error(f"Shopware6 Bulk Sync: {len(errors)} errors occurred")
 
 
 def process_properties_batch(item_codes: List[str]):

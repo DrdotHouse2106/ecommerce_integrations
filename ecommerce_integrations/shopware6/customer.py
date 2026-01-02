@@ -216,7 +216,7 @@ class ShopwareCustomer(EcommerceCustomer):
             
             old_address.update({k: v for k, v in new_values.items() if k not in exclude_in_update})
             old_address.flags.ignore_mandatory = True
-            old_address.save()
+            old_address.save(ignore_permissions=True)
     
     def create_customer_contact(self, shopware_customer: Dict[str, Any]) -> None:
         """Create contact from Shopware customer data."""
@@ -1034,7 +1034,7 @@ def sync_old_customers(client: Shopware6AdminAPIClientBase):
         if errors == 0:
             setting = frappe.get_doc(SETTING_DOCTYPE)
             setting.sync_old_customers = 0
-            setting.save()
+            setting.save(ignore_permissions=True)
 
         if synced > 0 or errors > 0:
             frappe.logger("shopware6").info(
