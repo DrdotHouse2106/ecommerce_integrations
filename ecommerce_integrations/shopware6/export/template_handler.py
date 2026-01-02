@@ -144,19 +144,48 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
             product_payload["taxId"] = tax_id
 
         # Build channel-specific prices with Shopware Rules
+        # For template products, try to get price from first variant as fallback
         if visibilities and len(setting.sales_channels or []) > 0:
             # Multi-channel mode: use build_channel_prices
-            channel_prices = build_channel_prices(
-                item=template_item,
-                visibilities=visibilities,
-                setting=setting,
-                client=client,
-                tax_rate=tax_rate,
-                currency_id=currency_id
-            )
-            product_payload["prices"] = channel_prices
-            # Remove single price, use prices array instead
-            product_payload.pop("price", None)
+            try:
+                channel_prices = build_channel_prices(
+                    item=template_item,
+                    visibilities=visibilities,
+                    setting=setting,
+                    client=client,
+                    tax_rate=tax_rate,
+                    currency_id=currency_id
+                )
+                product_payload["prices"] = channel_prices
+                # Remove single price, use prices array instead
+                product_payload.pop("price", None)
+            except ValueError as e:
+                # Template products may not have prices - try first variant
+                frappe.logger().info(f"Template {template_item.name} has no price, trying first variant")
+                first_variant = frappe.db.get_value(
+                    "Item", {"variant_of": template_item.name, "disabled": 0}, "name"
+                )
+                if first_variant:
+                    variant_item = frappe.get_doc("Item", first_variant)
+                    try:
+                        channel_prices = build_channel_prices(
+                            item=variant_item,
+                            visibilities=visibilities,
+                            setting=setting,
+                            client=client,
+                            tax_rate=tax_rate,
+                            currency_id=currency_id
+                        )
+                        product_payload["prices"] = channel_prices
+                        product_payload.pop("price", None)
+                    except ValueError:
+                        # Still no price - skip pricing for template (variants will have their own)
+                        product_payload.pop("price", None)
+                        product_payload.pop("prices", None)
+                else:
+                    # No variants - skip pricing
+                    product_payload.pop("price", None)
+                    product_payload.pop("prices", None)
         else:
             # Single-channel mode: keep original price logic
             if currency_id and product_payload.get("price"):
@@ -202,6 +231,28 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
 
         if configurator_settings:
             product_payload["configuratorSettings"] = configurator_settings
+
+        # Build variantListingConfig to show all variants individually in product listings
+        # This configures "Expand property values in product listings" with all properties
+        # Each variant will get its own displayGroup and appear separately
+        if attributes:
+            configurator_group_config = []
+            for attr in attributes:
+                attr_name = attr["name"]
+                group_id = get_or_create_property_group(client, attr_name)
+                if group_id:
+                    configurator_group_config.append({
+                        "id": group_id,
+                        "expressionForListings": True,
+                        "representation": "box"
+                    })
+
+            if configurator_group_config:
+                product_payload["variantListingConfig"] = {
+                    "displayParent": False,  # Don't show parent in listing
+                    "mainVariantId": None,   # No specific main variant
+                    "configuratorGroupConfig": configurator_group_config
+                }
 
         # Check if product exists (use existing_shopware_id if available to avoid API call)
         product_exists = bool(existing_shopware_id)

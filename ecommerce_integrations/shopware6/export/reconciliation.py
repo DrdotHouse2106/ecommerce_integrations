@@ -488,7 +488,8 @@ def full_reconciliation(
     skip_root_category: bool = False,
     sync_empty_categories: bool = True,
     cleanup_orphaned_categories: bool = False,
-    cleanup_orphaned_variants: bool = True
+    cleanup_orphaned_variants: bool = True,
+    sync_mehrpreis: bool = True
 ) -> Dict[str, Any]:
     """
     Full reconciliation: Categories first, then Products, then Variant Cleanup.
@@ -503,6 +504,7 @@ def full_reconciliation(
         sync_empty_categories: Sync categories even without products
         cleanup_orphaned_categories: Delete Shopware categories not in ERPNext
         cleanup_orphaned_variants: Delete Shopware variants not in ERPNext
+        sync_mehrpreis: Sync Mehrpreis properties for items with is_sales_item=0
 
     Returns:
         Combined results from category and product sync
@@ -515,6 +517,7 @@ def full_reconciliation(
     sync_empty_categories = _parse_bool(sync_empty_categories)
     cleanup_orphaned_categories = _parse_bool(cleanup_orphaned_categories)
     cleanup_orphaned_variants = _parse_bool(cleanup_orphaned_variants)
+    sync_mehrpreis = _parse_bool(sync_mehrpreis)
 
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
     if not category_root:
@@ -526,15 +529,22 @@ def full_reconciliation(
         "category_sync": None,
         "product_sync": None,
         "category_cleanup": None,
-        "variant_cleanup": None
+        "variant_cleanup": None,
+        "mehrpreis_sync": None
     }
 
     frappe.logger().info(
         f"Full Reconciliation: Starting (categories: {category_root}, products: {limit})"
     )
 
+    # Phase 0: Sync Mehrpreis properties (before product sync)
+    if sync_mehrpreis and not dry_run:
+        from ecommerce_integrations.shopware6.export.property_handler import sync_mehrpreis_properties_batch
+        _notify_user("Phase 0/5: Syncing Mehrpreis properties...", "blue")
+        results["mehrpreis_sync"] = sync_mehrpreis_properties_batch()
+
     # Phase 1: Sync categories
-    _notify_user("Phase 1/4: Syncing categories...", "blue")
+    _notify_user("Phase 1/5: Syncing categories...", "blue")
     results["category_sync"] = sync_all_categories_to_shopware(
         root_category=category_root,
         skip_root=skip_root_category,
@@ -543,7 +553,7 @@ def full_reconciliation(
     )
 
     # Phase 2: Sync products
-    _notify_user("Phase 2/4: Syncing products...", "blue")
+    _notify_user("Phase 2/5: Syncing products...", "blue")
     results["product_sync"] = reconcile_erpnext_with_shopware(
         limit=cint(limit),
         dry_run=dry_run,
@@ -554,12 +564,12 @@ def full_reconciliation(
 
     # Phase 3: Cleanup orphaned variants
     if cleanup_orphaned_variants and not dry_run:
-        _notify_user("Phase 3/4: Cleaning up orphaned variants...", "blue")
+        _notify_user("Phase 3/5: Cleaning up orphaned variants...", "blue")
         results["variant_cleanup"] = _cleanup_all_orphaned_variants()
 
     # Phase 4: Cleanup orphaned categories
     if cleanup_orphaned_categories:
-        _notify_user("Phase 4/4: Cleaning up orphaned categories...", "blue")
+        _notify_user("Phase 4/5: Cleaning up orphaned categories...", "blue")
         results["category_cleanup"] = cleanup_orphaned_shopware_categories(
             root_category=category_root,
             dry_run=dry_run
@@ -569,10 +579,17 @@ def full_reconciliation(
     cat_stats = results["category_sync"].get("statistics", {})
     prod_stats = results["product_sync"].get("statistics", {})
 
-    message_parts = [
+    message_parts = []
+
+    # Mehrpreis sync stats
+    if results.get("mehrpreis_sync"):
+        mehrpreis_stats = results["mehrpreis_sync"]
+        message_parts.append(f"Mehrpreis: {mehrpreis_stats.get('added', 0)} added")
+
+    message_parts.extend([
         f"Categories: {cat_stats.get('synced', 0)}/{cat_stats.get('total', 0)}",
         f"Products: {prod_stats.get('synced', 0)}/{prod_stats.get('total_checked', 0)}"
-    ]
+    ])
 
     if results.get("variant_cleanup"):
         var_stats = results["variant_cleanup"]

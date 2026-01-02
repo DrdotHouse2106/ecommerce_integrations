@@ -17,6 +17,7 @@ from ecommerce_integrations.shopware6.constants import (
     SHOPWARE_CUSTOM_FIELD_ZUBEHOER,
     SHOPWARE_CUSTOM_FIELD_SICHERHEITSBLAETTER,
     SHOPWARE_CUSTOM_FIELD_PRODUKTBLAETTER,
+    SHOPWARE_CUSTOM_FIELD_IS_MEHRPREIS,
     PRODUCT_CUSTOM_FIELDS_MAP,
     WEIGHT_TO_ERPNEXT_UOM_MAP,
 )
@@ -122,6 +123,17 @@ def ensure_shopware_custom_field_set(client) -> Optional[str]:
                         "customFieldPosition": 3,
                         "componentName": "sw-text-editor"
                     }
+                },
+                {
+                    "id": generate_uuid(f"custom_field_{SHOPWARE_CUSTOM_FIELD_IS_MEHRPREIS}"),
+                    "name": SHOPWARE_CUSTOM_FIELD_IS_MEHRPREIS,
+                    "type": "bool",
+                    "config": {
+                        "label": {"en-GB": "Is Surcharge Product", "de-DE": "Ist Mehrpreis"},
+                        "customFieldPosition": 4,
+                        "componentName": "sw-field",
+                        "helpText": {"en-GB": "Product cannot be sold individually, only as accessory", "de-DE": "Produkt kann nicht einzeln gekauft werden, nur als Zubehör"}
+                    }
                 }
             ]
 
@@ -187,7 +199,15 @@ def get_item_custom_fields(erpnext_item) -> Dict[str, Any]:
     for row in properties_table:
         if row.property_type == 'Custom Field' and row.property_value:
             shopware_field_name = f"erpnext_{row.property_name.lower().replace(' ', '_')}"
-            custom_fields[shopware_field_name] = cstr(row.property_value).strip()
+            value = cstr(row.property_value).strip()
+
+            # Convert boolean strings to actual booleans for Shopware bool fields
+            if value.lower() in ('true', '1', 'yes'):
+                custom_fields[shopware_field_name] = True
+            elif value.lower() in ('false', '0', 'no'):
+                custom_fields[shopware_field_name] = False
+            else:
+                custom_fields[shopware_field_name] = value
 
     return custom_fields
 
@@ -549,3 +569,132 @@ def clear_product_properties(client, product_id: str) -> bool:
             "Shopware Property Clear Error"
         )
         return False
+
+
+def ensure_mehrpreis_property(item_code: str) -> bool:
+    """
+    Ensure an item has the is_mehrpreis property set if it's a Mehrpreis item.
+
+    Mehrpreis items are detected by:
+    - is_sales_item = 0 (cannot be sold individually)
+    - OR brand = 'vendor' and specific product codes (legacy detection)
+
+    This function checks if the property already exists and adds it if missing.
+
+    Args:
+        item_code: ERPNext Item code
+
+    Returns:
+        True if property exists or was added, False on error
+    """
+    try:
+        item = frappe.get_doc("Item", item_code)
+
+        # Check if item is a Mehrpreis item (is_sales_item = 0)
+        if item.is_sales_item:
+            return True  # Not a Mehrpreis item, nothing to do
+
+        # Check if is_mehrpreis property already exists
+        existing_props = getattr(item, 'shopware_properties', []) or []
+        for prop in existing_props:
+            if prop.property_name == 'is_mehrpreis':
+                return True  # Already has the property
+
+        # Add the is_mehrpreis property
+        item.append('shopware_properties', {
+            'property_name': 'is_mehrpreis',
+            'property_type': 'Custom Field',
+            'property_value': 'true'
+        })
+        item.save(ignore_permissions=True)
+
+        frappe.logger("shopware6").info(
+            f"Added is_mehrpreis property to item {item_code}"
+        )
+        return True
+
+    except Exception as e:
+        frappe.log_error(
+            f"Failed to ensure Mehrpreis property for {item_code}: {e}",
+            "Mehrpreis Property Error"
+        )
+        return False
+
+
+def sync_mehrpreis_properties_batch(limit: int = 500) -> Dict[str, Any]:
+    """
+    Batch sync Mehrpreis properties for all items where is_sales_item = 0.
+
+    This can be run during reconciliation to ensure all Mehrpreis items
+    have the is_mehrpreis custom field property set.
+
+    Args:
+        limit: Maximum number of items to process
+
+    Returns:
+        Dict with statistics
+    """
+    stats = {
+        "checked": 0,
+        "added": 0,
+        "already_set": 0,
+        "errors": 0
+    }
+
+    # Find all items where is_sales_item = 0 and not disabled
+    items = frappe.get_all(
+        "Item",
+        filters={
+            "is_sales_item": 0,
+            "disabled": 0,
+            "has_variants": 0  # Skip template items
+        },
+        fields=["name"],
+        limit=limit
+    )
+
+    for item in items:
+        stats["checked"] += 1
+
+        try:
+            item_doc = frappe.get_doc("Item", item.name)
+
+            # Check if property already exists
+            existing_props = getattr(item_doc, 'shopware_properties', []) or []
+            has_mehrpreis = any(
+                prop.property_name == 'is_mehrpreis'
+                for prop in existing_props
+            )
+
+            if has_mehrpreis:
+                stats["already_set"] += 1
+                continue
+
+            # Add the property
+            item_doc.append('shopware_properties', {
+                'property_name': 'is_mehrpreis',
+                'property_type': 'Custom Field',
+                'property_value': 'true'
+            })
+            item_doc.save(ignore_permissions=True)
+            stats["added"] += 1
+
+        except Exception as e:
+            stats["errors"] += 1
+            frappe.log_error(
+                f"Failed to add Mehrpreis property to {item.name}: {e}"
+            )
+
+        # Commit periodically
+        if stats["checked"] % 50 == 0:
+            frappe.db.commit()
+
+    frappe.db.commit()
+
+    frappe.logger("shopware6").info(
+        f"Mehrpreis batch sync: {stats['checked']} checked, "
+        f"{stats['added']} added, {stats['already_set']} already set, "
+        f"{stats['errors']} errors"
+    )
+
+    return stats

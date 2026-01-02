@@ -58,6 +58,9 @@ SHOPWARE_CUSTOM_FIELD_AI_SHORT_DESCRIPTION = "erpnext_ai_short_description"
 SHOPWARE_CUSTOM_FIELD_AI_BENEFITS = "erpnext_ai_benefits"
 SHOPWARE_CUSTOM_FIELD_AI_SEO_DESCRIPTION = "erpnext_ai_seo_description"
 
+# Mehrpreis (Surcharge) Custom Field - products that cannot be sold individually
+SHOPWARE_CUSTOM_FIELD_IS_MEHRPREIS = "erpnext_is_mehrpreis"
+
 # Mapping: ERPNext field -> Shopware custom field
 PRODUCT_CUSTOM_FIELDS_MAP = {
     ITEM_ZUBEHOER_FIELD: SHOPWARE_CUSTOM_FIELD_ZUBEHOER,
