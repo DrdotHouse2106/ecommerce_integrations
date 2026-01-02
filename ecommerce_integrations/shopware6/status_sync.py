@@ -18,7 +18,7 @@ from ecommerce_integrations.shopware6.constants import (
     DELIVERY_ID_FIELD,
     TRANSACTION_ID_FIELD,
 )
-from ecommerce_integrations.shopware6.utils import create_shopware_log
+from ecommerce_integrations.shopware6.utils import get_logger
 
 
 def is_shopware_enabled() -> bool:
@@ -43,16 +43,19 @@ def update_shopware_order_status(client, order_id: str, action: str) -> bool:
     Returns:
         bool: True if successful
     """
+    logger = get_logger("update_shopware_order_status")
     try:
         # Shopware uses state machine transitions
         # POST /_action/state-machine/order/{orderId}/state/{action}
         endpoint = f"_action/state-machine/order/{order_id}/state/{action}"
         client.request_post(endpoint, {})
+        logger.info(f"Updated Shopware order {order_id} status to {action}")
         return True
     except Exception as e:
-        frappe.log_error(
-            f"Failed to update Shopware order {order_id} status to {action}: {e}",
-            "Shopware Status Sync Error"
+        logger.error(
+            f"Failed to update Shopware order {order_id} status to {action}",
+            exception=e,
+            persist=True
         )
         return False
 
@@ -70,6 +73,7 @@ def update_shopware_delivery_status(client, order_id: str, action: str) -> bool:
     Returns:
         bool: True if successful
     """
+    logger = get_logger("update_shopware_delivery_status")
     try:
         # First get the delivery ID for this order
         response = client.request_post("search/order-delivery", {
@@ -79,9 +83,9 @@ def update_shopware_delivery_status(client, order_id: str, action: str) -> bool:
 
         deliveries = response.get("data", [])
         if not deliveries:
-            frappe.log_error(
+            logger.warning(
                 f"No delivery found for Shopware order {order_id}",
-                "Shopware Status Sync Error"
+                persist=True
             )
             return False
 
@@ -90,11 +94,13 @@ def update_shopware_delivery_status(client, order_id: str, action: str) -> bool:
         # Update delivery state
         endpoint = f"_action/state-machine/order_delivery/{delivery_id}/state/{action}"
         client.request_post(endpoint, {})
+        logger.info(f"Updated Shopware delivery for order {order_id} to {action}")
         return True
     except Exception as e:
-        frappe.log_error(
-            f"Failed to update Shopware delivery for order {order_id} to {action}: {e}",
-            "Shopware Status Sync Error"
+        logger.error(
+            f"Failed to update Shopware delivery for order {order_id} to {action}",
+            exception=e,
+            persist=True
         )
         return False
 

@@ -35,6 +35,7 @@ from ecommerce_integrations.shopware6.utils import (
     get_price_from_shopware_price_object,
     get_tax_rate_from_shopware_product,
     convert_gross_to_net,
+    get_logger,
 )
 
 
@@ -431,6 +432,7 @@ def create_items_if_not_exist(order: Dict[str, Any]) -> None:
     Args:
         order: Shopware order data
     """
+    logger = get_logger("create_items_if_not_exist")
     line_items = order.get("lineItems", [])
 
     for item in line_items:
@@ -449,9 +451,10 @@ def create_items_if_not_exist(order: Dict[str, Any]) -> None:
             try:
                 product.sync_product()
             except Exception as e:
-                frappe.log_error(
-                    f"Failed to sync product {product_id}: {e}",
-                    "Shopware Product Sync Error"
+                logger.error(
+                    f"Failed to sync product {product_id}",
+                    exception=e,
+                    persist=True
                 )
 
 
@@ -521,6 +524,7 @@ def sync_products_from_shopware(limit: int = 100):
     Returns:
         dict: Sync results
     """
+    logger = get_logger("sync_products_from_shopware")
     client = get_shopware_client()
 
     criteria = Criteria(limit=int(limit))
@@ -537,6 +541,8 @@ def sync_products_from_shopware(limit: int = 100):
     response = client.request_post("search/product", criteria)
     products = response.get("data", [])
 
+    logger.info(f"Starting product sync for {len(products)} products")
+
     synced = 0
     errors = 0
 
@@ -552,10 +558,13 @@ def sync_products_from_shopware(limit: int = 100):
                 synced += 1
         except Exception as e:
             errors += 1
-            frappe.log_error(
-                f"Failed to sync product {product_data.get('id')}: {e}",
-                "Shopware Product Sync Error"
+            logger.error(
+                f"Failed to sync product {product_data.get('id')}",
+                exception=e,
+                persist=True
             )
+
+    logger.info(f"Product sync completed: {synced} synced, {errors} errors", persist=True)
 
     return {
         "synced": synced,
