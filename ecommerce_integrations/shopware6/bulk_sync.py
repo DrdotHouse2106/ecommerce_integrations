@@ -18,6 +18,7 @@ from typing import List, Optional, Set
 import frappe
 from frappe.utils import now_datetime, cint
 from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE
+from ecommerce_integrations.shopware6.utils import get_logger
 
 
 # Redis key prefixes
@@ -309,10 +310,11 @@ def sync_single_item_to_shopware(item_code: str):
     """
     from ecommerce_integrations.shopware6.product_export import upload_erpnext_item_to_shopware
 
+    logger = get_logger("_sync_single_item")
     try:
         upload_erpnext_item_to_shopware(item_code)
     except Exception as e:
-        frappe.log_error(f"Failed to sync item {item_code} to Shopware: {e}", "Shopware Item Sync")
+        logger.error(f"Failed to sync item {item_code} to Shopware", exception=e, persist=True)
 
 
 def queue_properties_for_sync(doc, method=None):
@@ -502,11 +504,8 @@ def process_bulk_sync_queue():
         frappe.logger().info("Shopware6 Bulk Sync: Queue processing completed")
 
     except Exception as e:
-        error_msg = str(e)[:500]  # Truncate long error messages
-        try:
-            frappe.log_error(title="Shopware6 Bulk Sync Error", message=error_msg)
-        except Exception:
-            frappe.logger().error(f"Shopware6 Bulk Sync Error: {error_msg}")
+        logger = get_logger("check_and_process_queue")
+        logger.error("Shopware6 Bulk Sync Error", exception=e, persist=True)
     finally:
         release_sync_lock()
         deactivate_bulk_mode()

@@ -29,6 +29,7 @@ from ecommerce_integrations.shopware6.utils import (
     update_shopware_log,
     map_country_code,
     map_state_from_shopware,
+    get_logger,
 )
 
 
@@ -604,7 +605,8 @@ def create_customer_contact(customer: str, customer_data: Dict[str, Any], is_pri
         contact.insert(ignore_permissions=True)
         return contact.name
     except Exception as e:
-        frappe.log_error(f"Failed to create contact for {customer}: {e}")
+        logger = get_logger("create_contact")
+        logger.error(f"Failed to create contact for {customer}", exception=e, persist=False)
         return None
 
 
@@ -662,11 +664,13 @@ def create_or_update_billing_contact(
             
             try:
                 contact.save(ignore_permissions=True)
-                frappe.logger("shopware6").info(
+                logger = get_logger("create_or_update_billing_contact")
+                logger.info(
                     f"Updated billing contact {contact_name} for {customer} with new email {billing_email}"
                 )
             except Exception as e:
-                frappe.log_error(f"Failed to update billing contact for {customer}: {e}")
+                logger = get_logger("create_or_update_billing_contact")
+                logger.error(f"Failed to update billing contact for {customer}", exception=e, persist=False)
         
         return contact_name
     
