@@ -30,7 +30,10 @@ from ecommerce_integrations.shopware6.export.category_handler import (
 from ecommerce_integrations.shopware6.export.property_handler import (
     get_or_create_property_group,
     get_or_create_variant_option,
+    get_or_create_property_option,
     get_template_item_attributes,
+    get_item_properties,
+    clear_product_properties,
 )
 from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
 
@@ -254,6 +257,22 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
                     "configuratorGroupConfig": configurator_group_config
                 }
 
+        # Properties (filter properties like Material, Farbe etc.)
+        properties = get_item_properties(template_item)
+        if properties:
+            property_ids = []
+            for prop in properties:
+                group_id = get_or_create_property_group(client, prop["group_name"])
+                if group_id:
+                    option_id = get_or_create_property_option(
+                        client, group_id, prop["group_name"], prop["option_value"]
+                    )
+                    if option_id:
+                        property_ids.append({"id": option_id})
+
+            if property_ids:
+                product_payload["properties"] = property_ids
+
         # Check if product exists (use existing_shopware_id if available to avoid API call)
         product_exists = bool(existing_shopware_id)
         if not product_exists:
@@ -272,6 +291,9 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
             # Clear old configuratorSettings before setting new ones
             if product_payload.get("configuratorSettings"):
                 clear_product_configurator_settings(client, product_id)
+            # Clear old properties before setting new ones
+            if product_payload.get("properties"):
+                clear_product_properties(client, product_id)
             # Update product
             client.request_patch(f"product/{product_id}", product_payload)
             frappe.logger().info(f"Template {template_item.item_code} updated in Shopware (categories: {len(product_payload.get('categories', []))})")

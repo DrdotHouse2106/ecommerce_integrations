@@ -22,7 +22,10 @@ from ecommerce_integrations.shopware6.export.product_mapper import (
 from ecommerce_integrations.shopware6.export.property_handler import (
     get_or_create_property_group,
     get_or_create_variant_option,
+    get_or_create_property_option,
     get_variant_attribute_values,
+    get_item_properties,
+    clear_product_properties,
 )
 from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
 
@@ -123,6 +126,22 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
         if options:
             product_payload["options"] = options
 
+        # Properties (filter properties like Material, Farbe etc.)
+        properties = get_item_properties(variant_item)
+        if properties:
+            property_ids = []
+            for prop in properties:
+                group_id = get_or_create_property_group(client, prop["group_name"])
+                if group_id:
+                    option_id = get_or_create_property_option(
+                        client, group_id, prop["group_name"], prop["option_value"]
+                    )
+                    if option_id:
+                        property_ids.append({"id": option_id})
+
+            if property_ids:
+                product_payload["properties"] = property_ids
+
         # Always check if product exists in Shopware (API call to verify)
         product_exists = False
         try:
@@ -146,6 +165,9 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
                         pass
             except Exception:
                 pass
+            # Clear old properties before setting new ones
+            if product_payload.get("properties"):
+                clear_product_properties(client, product_id)
             client.request_patch(f"product/{product_id}", product_payload)
             frappe.logger().info(f"Variant {variant_item.item_code} updated in Shopware")
         else:
