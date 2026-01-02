@@ -36,7 +36,7 @@ from ecommerce_integrations.shopware6.constants import (
     SETTING_DOCTYPE,
     ITEM_SELLING_RATE_FIELD,
 )
-from ecommerce_integrations.shopware6.utils import create_shopware_log
+from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
 
 
 # =============================================================================
@@ -133,7 +133,8 @@ def sync_all_categories_to_shopware(
                 stats["skipped"] += 1
         except Exception as e:
             stats["errors"].append({"category": cat.name, "error": str(e)[:200]})
-            frappe.log_error(f"Category sync failed: {cat.name}: {e}", "Shopware Category Sync")
+            logger = get_logger("sync_all_categories_to_shopware")
+            logger.error(f"Category sync failed: {cat.name}", exception=e, persist=True)
 
         # Commit periodically
         if stats["synced"] % 20 == 0:
@@ -194,7 +195,8 @@ def get_shopware_products_batch(
         return {p.get("id"): p for p in response.get("data", []) if p.get("id")}
 
     except Exception as e:
-        frappe.log_error(f"Batch product fetch failed: {e}", "Shopware Reconciliation")
+        logger = get_logger("_fetch_shopware_products_batch")
+        logger.error("Batch product fetch failed", exception=e, persist=True)
         return {}
 
 
@@ -1273,7 +1275,8 @@ def _run_force_image_sync_batched(batch_size: int, total: int):
             except Exception as e:
                 stats["failed"] += 1
                 stats["processed"] += 1
-                frappe.log_error(f"Force Image Sync error for {item_code}: {e}")
+                logger = get_logger("force_sync_all_images")
+                logger.error(f"Force Image Sync error for {item_code}", exception=e, persist=False)
 
         frappe.db.commit()
 
@@ -1588,7 +1591,8 @@ def force_sync_single_template_variants(
 
     except Exception as e:
         stats["errors"].append(str(e)[:200])
-        frappe.log_error(f"Force single variant sync failed for {template_item_code}: {e}")
+        logger = get_logger("force_sync_single_template_variants")
+        logger.error(f"Force single variant sync failed for {template_item_code}", exception=e, persist=True)
 
     create_shopware_log(
         status="Success" if stats["failed"] == 0 else "Warning",
@@ -1820,7 +1824,8 @@ def _run_force_variant_sync_batched(
 
             except Exception as e:
                 stats["failed"] += 1
-                frappe.log_error(f"Force Variant Sync error for {template_code}: {e}")
+                logger = get_logger("force_sync_all_variants")
+                logger.error(f"Force Variant Sync error for {template_code}", exception=e, persist=False)
 
         frappe.db.commit()
 

@@ -319,23 +319,20 @@ class ShopwareProductUploader:
                             pass
                 except Exception:
                     pass
-                # Log payload for debugging and PATCH
-                import json
-                cat_payload = payload.get('categories', [])
-                frappe.log_error(
-                    f"PATCH payload: {json.dumps(cat_payload)}",
-                    f"Category Sync Debug: {product_id}"
-                )
+                
+                # Log payload for debugging
+                logger = get_logger("product_uploader")
+                logger.debug(f"PATCH payload for {product_id}: categories={payload.get('categories', [])}")
+                
                 try:
                     patch_result = client.request_patch(f"product/{product_id}", payload)
-                    frappe.log_error(
-                        f"PATCH result: {json.dumps(patch_result) if patch_result else 'None'}",
-                        f"Category Sync PATCH Result: {product_id}"
-                    )
+                    logger.debug(f"PATCH result for {product_id}: {patch_result if patch_result else 'None'}")
                 except Exception as patch_err:
-                    frappe.log_error(
-                        f"PATCH failed: {str(patch_err)}",
-                        f"Category Sync PATCH Error: {product_id}"
+                    logger.error(
+                        f"PATCH failed for product {product_id}",
+                        exception=patch_err,
+                        persist=True,
+                        request_data={"payload": payload}
                     )
                     raise
 
