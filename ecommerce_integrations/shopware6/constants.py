@@ -5,7 +5,10 @@ from frappe import _
 # Module and DocType names
 MODULE_NAME = "shopware6"
 SETTING_DOCTYPE = "Shopware Setting"
-LOG_DOCTYPE = "Shopware Log"
+
+# DEPRECATED: Using shared Ecommerce Integration Log instead of custom Shopware Log
+# This maintains consistency with other integrations (Shopify, Unicommerce)
+LOG_DOCTYPE = "Ecommerce Integration Log"  # Changed from "Shopware Log"
 
 # Shopware API version (used for documentation, SDK handles versioning)
 API_VERSION = "6.5"
