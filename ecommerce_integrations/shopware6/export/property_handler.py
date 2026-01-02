@@ -159,7 +159,7 @@ def ensure_shopware_custom_field_set(client) -> Optional[str]:
         return set_id
 
     except Exception as e:
-        frappe.log_error(f"Failed to create/get Shopware custom field set: {e}")
+        get_logger().error("Failed to create/get Shopware custom field set", persist=False)
         return None
 
 
@@ -255,7 +255,7 @@ def get_or_create_property_group(client, group_name: str) -> Optional[str]:
         return group_id
 
     except Exception as e:
-        frappe.log_error(f"Failed to get/create PropertyGroup {group_name}: {e}")
+        get_logger().error("Failed to get/create PropertyGroup {group_name}", persist=False)
         return None
 
 
@@ -314,7 +314,7 @@ def get_or_create_property_option(client, group_id: str, group_name: str, option
         return option_id
 
     except Exception as e:
-        frappe.log_error(f"Failed to get/create PropertyOption {group_name}:{option_value}: {e}")
+        get_logger().error("Failed to get/create PropertyOption {group_name}", persist=False)
         return None
 
 
@@ -376,7 +376,7 @@ def get_or_create_variant_option(client, group_id: str, group_name: str, option_
         return option_id
 
     except Exception as e:
-        frappe.log_error(f"Failed to get/create variant option {group_name}:{option_value}: {e}")
+        get_logger().error("Failed to get/create variant option {group_name}", persist=False)
         return None
 
 
@@ -441,9 +441,7 @@ def get_template_item_attributes(template_item) -> List[Dict[str, Any]]:
                     f"Added variant attribute '{attr_name}' for template {template_item.name}"
                 )
             except Exception as e:
-                frappe.log_error(
-                    f"Failed to get attribute {attr_name} for template {template_item.name}: {e}"
-                )
+                get_logger().error("Error occurred", persist=False)
 
     return attributes
 
@@ -556,18 +554,12 @@ def clear_product_properties(client, product_id: str) -> bool:
                 try:
                     client.request_delete(f"product/{product_id}/properties/{prop_id}")
                 except Exception as e:
-                    frappe.log_error(
-                        f"Failed to remove property {prop_id} from product {product_id}: {e}",
-                        "Shopware Property Clear"
-                    )
+                    get_logger().error("Error occurred", persist=False)
 
         return True
 
     except Exception as e:
-        frappe.log_error(
-            f"Failed to clear properties for product {product_id}: {e}",
-            "Shopware Property Clear Error"
-        )
+        get_logger().error("Error occurred", persist=False)
         return False
 
 
@@ -614,10 +606,7 @@ def ensure_mehrpreis_property(item_code: str) -> bool:
         return True
 
     except Exception as e:
-        frappe.log_error(
-            f"Failed to ensure Mehrpreis property for {item_code}: {e}",
-            "Mehrpreis Property Error"
-        )
+        get_logger().error("Error occurred", persist=False)
         return False
 
 
@@ -681,9 +670,7 @@ def sync_mehrpreis_properties_batch(limit: int = 500) -> Dict[str, Any]:
 
         except Exception as e:
             stats["errors"] += 1
-            frappe.log_error(
-                f"Failed to add Mehrpreis property to {item.name}: {e}"
-            )
+            get_logger().error("Error occurred", persist=False)
 
         # Commit periodically
         if stats["checked"] % 50 == 0:

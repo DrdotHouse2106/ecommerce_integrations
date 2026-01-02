@@ -10,7 +10,7 @@ from typing import Optional
 import frappe
 
 from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCTYPE
-from ecommerce_integrations.shopware6.utils import create_shopware_log
+from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
 from ecommerce_integrations.shopware6.export.utils import generate_uuid, get_shopware_document_id
 from ecommerce_integrations.shopware6.export.product_mapper import (
     map_erpnext_item_to_shopware,
@@ -68,9 +68,7 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
         parent_id = upload_template_item_to_shopware(client, parent_item)
 
         if not parent_id:
-            frappe.log_error(
-                f"Cannot upload variant {variant_item.name}: parent {variant_item.variant_of} not synced"
-            )
+            get_logger().error("Error occurred", persist=False)
             return None
 
     try:
@@ -207,7 +205,7 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
             method="upload_variant_item_to_shopware",
             rollback=True
         )
-        frappe.log_error(f"Shopware variant upload failed for {variant_item.name}: {e}")
+        get_logger().error("Shopware variant upload failed for {variant_item.name}", persist=False)
         return None
 
 

@@ -7,6 +7,8 @@ Handles service items like Tel. Avis and Forklift/Hebebühne.
 from typing import Any, Dict
 
 import frappe
+
+from ecommerce_integrations.shopware6.utils import get_logger
 from frappe.utils import flt
 
 from ecommerce_integrations.shopware6.constants import SERVICE_PRODUCTS
@@ -90,10 +92,7 @@ def _add_tel_avis_item(
         )
     else:
         # Item doesn't exist - log a warning so the admin knows to create it
-        frappe.log_error(
-            f"Tel. Avis item '{tel_avis_item_code}' not found in ERPNext. Please create this item.",
-            "Shopware Order Sync - Missing Service Item"
-        )
+        get_logger().error("Error occurred", persist=False)
 
 
 def _add_forklift_item(
@@ -135,10 +134,7 @@ def _add_forklift_item(
         )
     else:
         # Item doesn't exist - log a warning so the admin knows to create it
-        frappe.log_error(
-            f"Forklift item '{forklift_item_code}' not found in ERPNext. Please create this item.",
-            "Shopware Order Sync - Missing Service Item"
-        )
+        get_logger().error("Error occurred", persist=False)
 
 
 def add_service_item_if_needed(

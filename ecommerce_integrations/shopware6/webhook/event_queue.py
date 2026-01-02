@@ -84,10 +84,7 @@ class WebhookEventQueue:
                 return False
 
         except Exception as e:
-            frappe.log_error(
-                f"Error processing webhook event {event_type} for {entity_id}: {e}",
-                "Shopware Webhook Queue Error"
-            )
+            get_logger().error("Error processing webhook event {event_type} for {entity_id}", persist=True)
             raise
 
         finally:

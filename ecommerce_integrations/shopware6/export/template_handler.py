@@ -10,7 +10,7 @@ from typing import Optional
 import frappe
 
 from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCTYPE
-from ecommerce_integrations.shopware6.utils import create_shopware_log
+from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
 from ecommerce_integrations.shopware6.export.utils import generate_uuid, get_shopware_document_id
 from ecommerce_integrations.shopware6.export.product_mapper import (
     map_erpnext_item_to_shopware,
@@ -71,10 +71,7 @@ def clear_product_configurator_settings(client, product_id: str) -> bool:
                         f"product/{product_id}/configurator-settings/{setting_id}"
                     )
                 except Exception as e:
-                    frappe.log_error(
-                        f"Failed to remove configuratorSetting {setting_id}: {e}",
-                        "Shopware Configurator Clear"
-                    )
+                    get_logger().error("Error occurred", persist=False)
 
         frappe.logger().info(
             f"Cleared {len(configurator_settings)} configuratorSettings from {product_id}"
@@ -82,10 +79,7 @@ def clear_product_configurator_settings(client, product_id: str) -> bool:
         return True
 
     except Exception as e:
-        frappe.log_error(
-            f"Failed to clear configuratorSettings for {product_id}: {e}",
-            "Shopware Configurator Clear Error"
-        )
+        get_logger().error("Error occurred", persist=False)
         return False
 
 
@@ -314,7 +308,7 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
             method="upload_template_item_to_shopware",
             rollback=True
         )
-        frappe.log_error(f"Shopware template upload failed for {template_item.name}: {e}")
+        get_logger().error("Shopware template upload failed for {template_item.name}", persist=False)
         return None
 
 
@@ -385,7 +379,7 @@ def cleanup_orphaned_variants(client, template_item_code: str, parent_shopware_i
 
     except Exception as e:
         stats["errors"].append({"error": str(e)[:200]})
-        frappe.log_error(f"Variant cleanup failed for {template_item_code}: {e}")
+        get_logger().error("Variant cleanup failed for {template_item_code}", persist=False)
 
     return stats
 

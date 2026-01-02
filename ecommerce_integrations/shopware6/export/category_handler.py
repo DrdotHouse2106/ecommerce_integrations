@@ -111,7 +111,7 @@ def ensure_category_custom_field_set(client) -> Optional[str]:
         return set_id
 
     except BaseException as e:
-        frappe.log_error(f"Failed to ensure category custom field set: {e}")
+        get_logger().error("Failed to ensure category custom field set", persist=False)
         return None
 
 
@@ -240,11 +240,11 @@ def get_or_create_media_folder(client, folder_name: str) -> Optional[str]:
                     folder_id = folders[0]["id"]
                     cache.set("media_folder", cache_key, folder_id)
                     return folder_id
-            frappe.log_error(f"Failed to create media folder '{folder_name}': {e}")
+            get_logger().error("Failed to create media folder '{folder_name}'", persist=False)
             return None
 
     except BaseException as e:
-        frappe.log_error(f"Failed to get or create media folder '{folder_name}': {e}")
+        get_logger().error("Failed to get or create media folder '{folder_name}'", persist=False)
         return None
 
 
@@ -291,7 +291,7 @@ def get_image_content_and_filename(image_path: str) -> tuple:
         return image_content, filename_without_ext, ext
 
     except Exception as e:
-        frappe.log_error(f"Failed to get image content from {image_path}: {e}")
+        get_logger().error("Failed to get image content from {image_path}", persist=False)
         return None, None, None
 
 
@@ -362,7 +362,7 @@ def upload_category_media(client, category_id: str, image_path: str) -> Optional
         return media_id
 
     except BaseException as e:
-        frappe.log_error(f"Failed to upload category media: {str(e)[:100]}")
+        get_logger().error("Failed to upload category media", persist=False)
         return None
 
 
@@ -464,7 +464,7 @@ def get_or_create_category(
         return cat_id
 
     except BaseException as e:
-        frappe.log_error(f"Failed to get/create Category {category_name}: {e}")
+        get_logger().error("Failed to get/create Category {category_name}", persist=False)
         return None
 
 
@@ -570,7 +570,7 @@ def get_all_item_categories(item_code: str, include_variant_categories: bool = T
                                 categories.append(vg.item_group)
 
     except Exception as e:
-        frappe.log_error(f"Error getting categories for {item_code}: {e}")
+        get_logger().error("Error getting categories for {item_code}", persist=False)
 
     return categories
 
@@ -597,7 +597,7 @@ def sync_all_item_categories(client, item_code: str) -> List[Dict[str, str]]:
                 seen_ids.add(category_id)
                 category_ids.append({"id": category_id})
         except Exception as e:
-            frappe.log_error(f"Error syncing category {item_group_name} for {item_code}: {e}")
+            get_logger().error("Error syncing category {item_group_name} for {item_code}", persist=False)
 
     return category_ids
 
@@ -650,18 +650,18 @@ def clear_product_categories(client, product_id: str) -> bool:
                 frappe.logger().info(f"Cleared {len(delete_operations)} categories from product {product_id}")
             except Exception as e:
                 # Fallback: try individual deletes with logging
-                frappe.log_error(f"Sync delete failed for product {product_id}, trying individual deletes: {e}")
+                get_logger().error("Sync delete failed for product {product_id}, trying individual deletes", persist=False)
                 for cat in categories:
                     cat_id = cat.get("id")
                     if cat_id:
                         try:
                             client.request_delete(f"product/{product_id}/categories/{cat_id}")
                         except Exception as del_err:
-                            frappe.log_error(f"Failed to delete category {cat_id} from product {product_id}: {del_err}")
+                            get_logger().error("Failed to delete category {cat_id} from product {product_id}", persist=False)
 
         return True
     except Exception as e:
-        frappe.log_error(f"Error clearing categories for product {product_id}: {e}")
+        get_logger().error("Error clearing categories for product {product_id}", persist=False)
         return False
 
 
@@ -805,7 +805,7 @@ def force_resync_category_image(client, item_group_name: str) -> bool:
         categories = response.get("data", [])
 
         if not categories:
-            frappe.log_error(f"Category not found in Shopware: {item_group_name}")
+            get_logger().error("Category not found in Shopware", persist=False)
             return False
 
         cat = categories[0]
@@ -856,7 +856,7 @@ def force_resync_category_image(client, item_group_name: str) -> bool:
         # Get image content using helper
         image_content, filename_without_ext, ext = get_image_content_and_filename(image_path)
         if not image_content:
-            frappe.log_error(f"Could not load image: {image_path}")
+            get_logger().error("Could not load image", persist=False)
             return False
 
         # Upload new media with fresh UUID (not deterministic)
@@ -873,7 +873,7 @@ def force_resync_category_image(client, item_group_name: str) -> bool:
         try:
             client.request_post("media", {"id": fresh_media_id, "mediaFolderId": folder_id})
         except Exception as e:
-            frappe.log_error(f"Failed to create media: {e}")
+            get_logger().error("Failed to create media", persist=False)
             return False
 
         # Upload content
@@ -885,7 +885,7 @@ def force_resync_category_image(client, item_group_name: str) -> bool:
                 additional_query_params={"extension": ext, "fileName": unique_filename}
             )
         except Exception as e:
-            frappe.log_error(f"Failed to upload media content: {e}")
+            get_logger().error("Failed to upload media content", persist=False)
             return False
 
         # Assign to category
@@ -893,13 +893,13 @@ def force_resync_category_image(client, item_group_name: str) -> bool:
             client.request_patch(f"category/{cat_id}", {"mediaId": fresh_media_id})
             frappe.logger().info(f"Assigned new media {fresh_media_id} to category {item_group_name}")
         except Exception as e:
-            frappe.log_error(f"Failed to assign media to category: {e}")
+            get_logger().error("Failed to assign media to category", persist=False)
             return False
 
         return True
 
     except Exception as e:
-        frappe.log_error(f"Error force resyncing category image for {item_group_name}: {e}")
+        get_logger().error("Error force resyncing category image for {item_group_name}", persist=False)
         return False
 
 
@@ -927,7 +927,7 @@ def sync_item_group_to_shopware(client, item_group_name: str) -> bool:
         # Get Item Group data
         item_group_data = get_item_group_data(item_group_name)
         if not item_group_data:
-            frappe.log_error(f"Item Group not found: {item_group_name}")
+            get_logger().error("Item Group not found", persist=False)
             return False
 
         # Sync the category hierarchy
@@ -939,9 +939,9 @@ def sync_item_group_to_shopware(client, item_group_name: str) -> bool:
             )
             return True
         else:
-            frappe.log_error(f"Failed to sync Item Group '{item_group_name}' to Shopware")
+            get_logger().error("Failed to sync Item Group '{item_group_name}' to Shopware", persist=False)
             return False
 
     except Exception as e:
-        frappe.log_error(f"Error syncing Item Group '{item_group_name}': {e}")
+        get_logger().error("Error syncing Item Group '{item_group_name}'", persist=False)
         return False

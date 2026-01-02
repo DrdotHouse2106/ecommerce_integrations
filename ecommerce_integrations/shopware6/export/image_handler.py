@@ -61,7 +61,7 @@ def get_product_media_folder_id(client) -> Optional[str]:
         return None
 
     except Exception as e:
-        frappe.log_error(f"Failed to get Product Media folder: {e}")
+        get_logger().error("Failed to get Product Media folder", persist=False)
         return None
 
 
@@ -126,7 +126,7 @@ def get_file_content_and_type(file_url: str) -> Tuple[Optional[bytes], Optional[
                         ext = os.path.splitext(file_doc.file_name)[1].lstrip('.') or 'jpg'
                         return content, mime_type, ext
                 except Exception as e:
-                    frappe.log_error(f"Failed to get content from external storage for {file_url}: {e}")
+                    get_logger().error("Failed to get content from external storage for {file_url}", persist=False)
             return None, None, None
 
         # Local file
@@ -148,7 +148,7 @@ def get_file_content_and_type(file_url: str) -> Tuple[Optional[bytes], Optional[
         return None, None, None
 
     except Exception as e:
-        frappe.log_error(f"Failed to get file content for {file_url}: {e}")
+        get_logger().error("Failed to get file content for {file_url}", persist=False)
         return None, None, None
 
 
@@ -218,7 +218,7 @@ def upload_media_to_shopware(client, file_url: str, item_code: str, position: in
     try:
         file_content, mime_type, extension = get_file_content_and_type(file_url)
         if not file_content:
-            frappe.log_error(f"Could not read file: {file_url}")
+            get_logger().error("Could not read file", persist=False)
             return None
 
         folder_id = get_product_media_folder_id(client)
@@ -243,7 +243,7 @@ def upload_media_to_shopware(client, file_url: str, item_code: str, position: in
             except BaseException as e:
                 error_str = str(e).lower()
                 if "already exists" not in error_str and "updatecommand" not in error_str:
-                    frappe.log_error(f"Failed to create media for {item_code}: {e}")
+                    get_logger().error("Failed to create media for {item_code}", persist=False)
                     return None
 
         # Check if already has content
@@ -252,7 +252,7 @@ def upload_media_to_shopware(client, file_url: str, item_code: str, position: in
             if media_check.get("data", {}).get("fileName"):
                 return media_id
         except BaseException as e:
-            frappe.log_error(f"Media check failed for {item_code}: {e}")
+            get_logger().error("Media check failed for {item_code}", persist=False)
             return None
 
         # Upload file
@@ -267,13 +267,13 @@ def upload_media_to_shopware(client, file_url: str, item_code: str, position: in
         except BaseException as e:
             error_str = str(e).lower()
             if "already exists" not in error_str and "duplicate" not in error_str:
-                frappe.log_error(f"Failed to upload for {item_code}: {e}")
+                get_logger().error("Failed to upload for {item_code}", persist=False)
                 return None
 
         return media_id
 
     except BaseException as e:
-        frappe.log_error(f"Failed to upload media for {item_code}: {e}")
+        get_logger().error("Failed to upload media for {item_code}", persist=False)
         return None
 
 
@@ -454,5 +454,5 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> b
         return True
 
     except Exception as e:
-        frappe.log_error(f"Failed to sync images for {item.name}: {e}")
+        get_logger().error("Failed to sync images for {item.name}", persist=False)
         return False

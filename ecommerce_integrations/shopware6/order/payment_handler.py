@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 import frappe
 
 from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE, PAYMENT_STATE_MAP
-from ecommerce_integrations.shopware6.utils import create_shopware_log
+from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
 
 
 def create_sales_invoice(
@@ -63,7 +63,7 @@ def create_sales_invoice(
         return si.name
 
     except Exception as e:
-        frappe.log_error(f"Failed to create Sales Invoice for {sales_order}: {e}")
+        get_logger().error("Error occurred", persist=False)
         return None
 
 
@@ -114,10 +114,7 @@ def make_payment_entry_against_sales_invoice(
         return payment_entry.name
 
     except Exception as e:
-        frappe.log_error(
-            f"Failed to create Payment Entry for {sales_invoice.name}: {e}",
-            "Shopware Payment Entry Error"
-        )
+        get_logger().error("Error occurred", persist=False)
         return None
 
 
@@ -234,7 +231,4 @@ def verify_payment_status_from_shopware(order_id: str, sales_order_name: str):
             frappe.db.commit()
 
     except Exception as e:
-        frappe.log_error(
-            f"Failed to verify payment status for {sales_order_name}: {e}",
-            "Shopware Payment Verification"
-        )
+        get_logger().error("Error occurred", persist=False)

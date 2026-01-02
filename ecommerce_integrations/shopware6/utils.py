@@ -83,17 +83,18 @@ def retry_on_gateway_error(
 
                     # If we've exhausted retries, raise the last exception
                     if attempt >= max_retries:
-                        frappe.log_error(
-                            f"Gateway error after {max_retries} retries: {e}",
-                            "Shopware Gateway Error - Max Retries Exceeded"
+                        logger = get_logger("retry_on_gateway_error")
+                        logger.error(
+                            f"Gateway error after {max_retries} retries",
+                            exception=e,
+                            persist=True
                         )
                         raise
 
                     # Log the retry attempt
-                    frappe.log_error(
-                        f"Gateway error (attempt {attempt + 1}/{max_retries + 1}): {e}\n"
-                        f"Retrying in {delay:.1f} seconds...",
-                        "Shopware Gateway Error - Retrying"
+                    frappe.logger().warning(
+                        f"Gateway error (attempt {attempt + 1}/{max_retries + 1}): {e}. "
+                        f"Retrying in {delay:.1f} seconds..."
                     )
 
                     # Wait before retrying
@@ -157,17 +158,18 @@ def execute_with_retry(
 
             # If we've exhausted retries, raise the last exception
             if attempt >= max_retries:
-                frappe.log_error(
-                    f"Gateway error after {max_retries} retries: {e}",
-                    "Shopware Gateway Error - Max Retries Exceeded"
+                logger = get_logger("execute_with_retry")
+                logger.error(
+                    f"Gateway error after {max_retries} retries",
+                    exception=e,
+                    persist=True
                 )
                 raise
 
             # Log the retry attempt
-            frappe.log_error(
-                f"Gateway error (attempt {attempt + 1}/{max_retries + 1}): {e}\n"
-                f"Retrying in {delay:.1f} seconds...",
-                "Shopware Gateway Error - Retrying"
+            frappe.logger().warning(
+                f"Gateway error (attempt {attempt + 1}/{max_retries + 1}): {e}. "
+                f"Retrying in {delay:.1f} seconds..."
             )
 
             # Wait before retrying
@@ -255,7 +257,8 @@ def update_shopware_log(
         log.save(ignore_permissions=True)
         frappe.db.commit()
     except Exception as e:
-        frappe.log_error(f"Failed to update Shopware log {log_name}: {e}")
+        # Fallback to frappe logger if log update fails
+        frappe.logger().error(f"Failed to update Shopware log {log_name}: {e}")
 
 
 def get_shopware_setting():

@@ -111,7 +111,7 @@ class ShopwareSetting(Document):
             return {"locations": locations}
 
         except Exception as e:
-            frappe.log_error(str(e), "Shopware Warehouse Fetch Error")
+            get_logger().error("Error occurred", persist=False)
             frappe.throw(_("Failed to fetch Shopware warehouses: {0}").format(str(e)))
 
     def load_bulk_sync_status(self):
@@ -251,7 +251,7 @@ class ShopwareSetting(Document):
             return {"channels": len(channels), "rules": rules_created}
 
         except Exception as e:
-            frappe.log_error(str(e), "Shopware Sales Channel Fetch Error")
+            get_logger().error("Error occurred", persist=False)
             frappe.throw(_("Failed to fetch Sales Channels: {0}").format(str(e)))
 
     def _ensure_channel_rules(self, client) -> int:

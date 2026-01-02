@@ -8,6 +8,8 @@ and provide clear error messages.
 from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
+
+from ecommerce_integrations.shopware6.utils import get_logger
 from frappe import _
 
 
@@ -385,7 +387,7 @@ def validate_and_log(
             error_msg += f" ({entity_id})"
         error_msg += f": {', '.join(errors)}"
 
-        frappe.log_error(error_msg, f"Shopware Validation Error - {entity_type}")
+        get_logger().error("Error occurred", persist=False)
 
     return is_valid
 

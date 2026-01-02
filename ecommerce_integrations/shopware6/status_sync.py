@@ -127,9 +127,9 @@ def update_shopware_transaction_status(client, order_id: str, action: str) -> bo
 
         transactions = response.get("data", [])
         if not transactions:
-            frappe.log_error(
+            logger.warning(
                 f"No transaction found for Shopware order {order_id}",
-                "Shopware Status Sync Error"
+                persist=True
             )
             return False
 
@@ -138,11 +138,13 @@ def update_shopware_transaction_status(client, order_id: str, action: str) -> bo
         # Update transaction state
         endpoint = f"_action/state-machine/order_transaction/{transaction_id}/state/{action}"
         client.request_post(endpoint, {})
+        logger.info(f"Updated Shopware transaction for order {order_id} to {action}")
         return True
     except Exception as e:
-        frappe.log_error(
-            f"Failed to update Shopware transaction for order {order_id} to {action}: {e}",
-            "Shopware Status Sync Error"
+        logger.error(
+            f"Failed to update Shopware transaction for order {order_id} to {action}",
+            exception=e,
+            persist=True
         )
         return False
 

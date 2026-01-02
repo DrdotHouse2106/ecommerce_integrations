@@ -10,7 +10,7 @@ import frappe
 from frappe import _
 
 from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE
-from ecommerce_integrations.shopware6.utils import create_shopware_log
+from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
 from ecommerce_integrations.shopware6.validators import ShopwareDataValidator
 
 
@@ -78,10 +78,7 @@ class WebhookHandler:
         # Validate payload
         is_valid, errors = ShopwareDataValidator.validate_webhook_payload(payload)
         if not is_valid:
-            frappe.log_error(
-                f"Invalid webhook payload for {event_type}: {', '.join(errors)}",
-                "Shopware Webhook Validation Error"
-            )
+            get_logger().error("Invalid webhook payload for {event_type}", persist=True)
             return False
 
         # Find handler
@@ -96,19 +93,13 @@ class WebhookHandler:
         # Get handler method
         handler = getattr(self, handler_name, None)
         if not handler:
-            frappe.log_error(
-                f"Handler method not found: {handler_name}",
-                "Shopware Webhook Handler Error"
-            )
+            get_logger().error("Handler method not found", persist=True)
             return False
 
         try:
             return handler(entity_id, payload, request_id)
         except Exception as e:
-            frappe.log_error(
-                f"Error in webhook handler {handler_name}: {e}",
-                "Shopware Webhook Handler Error"
-            )
+            get_logger().error("Error in webhook handler {handler_name}", persist=True)
             if request_id:
                 from ecommerce_integrations.shopware6.utils import update_shopware_log
                 update_shopware_log(request_id, status="Error", exception=str(e))
