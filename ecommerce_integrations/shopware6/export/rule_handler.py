@@ -94,10 +94,7 @@ def get_or_create_sales_channel_rule(
         return rule_id
 
     except Exception as e:
-        frappe.log_error(
-            f"Failed to create/get rule for sales channel {sales_channel_name}: {e}",
-            "Shopware Rule Handler"
-        )
+        get_logger().error("Error occurred", persist=False)
         return None
 
 
@@ -191,5 +188,5 @@ def delete_sales_channel_rule(client, rule_id: str) -> bool:
         client.request_delete(f"rule/{rule_id}")
         return True
     except Exception as e:
-        frappe.log_error(f"Failed to delete rule {rule_id}: {e}")
+        get_logger().error("Failed to delete rule {rule_id}", persist=False)
         return False

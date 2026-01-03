@@ -32,7 +32,7 @@ from ecommerce_integrations.shopware6.constants import (
     SETTING_DOCTYPE,
     MODULE_NAME,
 )
-from ecommerce_integrations.shopware6.utils import is_retriable_error
+from ecommerce_integrations.shopware6.utils import get_logger, is_retriable_error
 
 
 # Retry configuration for gateway errors
@@ -150,10 +150,8 @@ def temp_shopware_session(
 
                     # If we've exhausted retries, raise the last exception
                     if attempt >= max_retries:
-                        frappe.log_error(
-                            f"Shopware API gateway error after {max_retries} retries in {fn.__name__}: {e}",
-                            "Shopware Gateway Error - Max Retries Exceeded"
-                        )
+                        logger = get_logger("retry_on_gateway_errors")
+                        logger.error(f"Gateway error after {max_retries} retries in {fn.__name__}", exception=e, persist=True)
                         raise
 
                     # Log the retry attempt (as info, not error, to avoid log spam)
@@ -277,7 +275,7 @@ def webhook_handler():
         try:
             data = json.loads(frappe.request.data)
         except json.JSONDecodeError as e:
-            from ecommerce_integrations.shopware6.utils import create_shopware_log
+            from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
             create_shopware_log(
                 method="webhook_handler",
                 request_data={"raw": frappe.request.data.decode("utf-8", errors="replace")[:1000]},
@@ -294,9 +292,12 @@ def webhook_handler():
         return {"success": True}
 
     except Exception as e:
-        frappe.log_error(
-            message=f"Shopware webhook error: {str(e)}\n\nPayload: {frappe.request.data}",
-            title="Shopware Webhook Error"
+        logger = get_logger("handle_webhook")
+        logger.error(
+            f"Webhook processing error: {e}",
+            exception=e,
+            persist=True,
+            request_data={"payload": frappe.request.data}
         )
         raise
 
@@ -309,7 +310,7 @@ def process_webhook(event_type: str, data: Dict[str, Any]) -> None:
         event_type: Shopware event type (e.g., 'order.placed', 'product.written')
         data: Webhook payload data
     """
-    from ecommerce_integrations.shopware6.utils import create_shopware_log
+    from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
 
     # Map event types to handler methods
     EVENT_HANDLERS = {

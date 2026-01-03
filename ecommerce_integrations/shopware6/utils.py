@@ -7,6 +7,9 @@ from typing import Any, Callable, Dict, Optional, Tuple, Type, Union
 import frappe
 from frappe import _
 
+from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_integration_log.ecommerce_integration_log import (
+    create_log,
+)
 from ecommerce_integrations.shopware6.constants import (
     MODULE_NAME,
     LOG_DOCTYPE,
@@ -80,17 +83,18 @@ def retry_on_gateway_error(
 
                     # If we've exhausted retries, raise the last exception
                     if attempt >= max_retries:
-                        frappe.log_error(
-                            f"Gateway error after {max_retries} retries: {e}",
-                            "Shopware Gateway Error - Max Retries Exceeded"
+                        logger = get_logger("retry_on_gateway_error")
+                        logger.error(
+                            f"Gateway error after {max_retries} retries",
+                            exception=e,
+                            persist=True
                         )
                         raise
 
                     # Log the retry attempt
-                    frappe.log_error(
-                        f"Gateway error (attempt {attempt + 1}/{max_retries + 1}): {e}\n"
-                        f"Retrying in {delay:.1f} seconds...",
-                        "Shopware Gateway Error - Retrying"
+                    frappe.logger().warning(
+                        f"Gateway error (attempt {attempt + 1}/{max_retries + 1}): {e}. "
+                        f"Retrying in {delay:.1f} seconds..."
                     )
 
                     # Wait before retrying
@@ -154,17 +158,18 @@ def execute_with_retry(
 
             # If we've exhausted retries, raise the last exception
             if attempt >= max_retries:
-                frappe.log_error(
-                    f"Gateway error after {max_retries} retries: {e}",
-                    "Shopware Gateway Error - Max Retries Exceeded"
+                logger = get_logger("execute_with_retry")
+                logger.error(
+                    f"Gateway error after {max_retries} retries",
+                    exception=e,
+                    persist=True
                 )
                 raise
 
             # Log the retry attempt
-            frappe.log_error(
-                f"Gateway error (attempt {attempt + 1}/{max_retries + 1}): {e}\n"
-                f"Retrying in {delay:.1f} seconds...",
-                "Shopware Gateway Error - Retrying"
+            frappe.logger().warning(
+                f"Gateway error (attempt {attempt + 1}/{max_retries + 1}): {e}. "
+                f"Retrying in {delay:.1f} seconds..."
             )
 
             # Wait before retrying
@@ -186,9 +191,13 @@ def create_shopware_log(
     exception: Optional[str] = None,
     method: Optional[str] = None,
     rollback: bool = False,
+    make_new: bool = False,
 ) -> "frappe.Document":
     """
-    Create a log entry for Shopware sync operations.
+    Create a log entry for Shopware sync operations using shared Ecommerce Integration Log.
+    
+    This function now uses the shared logging infrastructure from ecommerce_integration_log
+    to maintain consistency with other integrations (Shopify, Unicommerce).
 
     Args:
         status: Log status (Queued, Success, Error, Skipped)
@@ -198,37 +207,22 @@ def create_shopware_log(
         exception: Exception traceback if any
         method: The method that created this log
         rollback: Whether to rollback transaction before logging
+        make_new: Force creation of new log entry
 
     Returns:
-        The created Shopware Log document
+        The created Ecommerce Integration Log document
     """
-    if rollback:
-        frappe.db.rollback()
-
-    log = frappe.new_doc(LOG_DOCTYPE)
-    log.status = status
-    log.method = method
-    log.message = message
-
-    if request_data:
-        log.request_data = frappe.as_json(request_data, indent=2)
-
-    if response_data:
-        log.response_data = frappe.as_json(response_data, indent=2)
-
-    if exception:
-        # Wrap in repr() to ensure it's valid Python code (string literal)
-        # because the 'exception' field is of type Code with options=Python
-        log.exception = repr(str(exception))
-
-    try:
-        log.insert(ignore_permissions=True)
-        if rollback:
-            frappe.db.commit()
-    except Exception as e:
-        frappe.log_error(f"Failed to create Shopware log: {e}")
-
-    return log
+    return create_log(
+        module_def=MODULE_NAME,
+        status=status,
+        request_data=request_data,
+        response_data=response_data,
+        message=message,
+        exception=exception,
+        method=method,
+        rollback=rollback,
+        make_new=make_new,
+    )
 
 
 def update_shopware_log(
@@ -239,7 +233,7 @@ def update_shopware_log(
     exception: Optional[str] = None,
 ):
     """
-    Update an existing Shopware log entry.
+    Update an existing Shopware log entry (Ecommerce Integration Log).
 
     Args:
         log_name: Name of the log document to update
@@ -249,21 +243,22 @@ def update_shopware_log(
         exception: Exception to add
     """
     try:
-        updates = {}
+        log = frappe.get_doc("Ecommerce Integration Log", log_name)
+        
         if status:
-            updates["status"] = status
+            log.status = status
         if response_data:
-            updates["response_data"] = frappe.as_json(response_data, indent=2)
+            log.response_data = frappe.as_json(response_data, indent=2)
         if message:
-            updates["message"] = message
+            log.message = message
         if exception:
-            # Wrap in repr() for consistency, although set_value might bypass validation
-            updates["exception"] = repr(str(exception))
-
-        if updates:
-            frappe.db.set_value(LOG_DOCTYPE, log_name, updates)
+            log.traceback = frappe.get_traceback() if not isinstance(exception, str) else exception
+            
+        log.save(ignore_permissions=True)
+        frappe.db.commit()
     except Exception as e:
-        frappe.log_error(f"Failed to update Shopware log {log_name}: {e}")
+        # Fallback to frappe logger if log update fails
+        frappe.logger().error(f"Failed to update Shopware log {log_name}: {e}")
 
 
 def get_shopware_setting():

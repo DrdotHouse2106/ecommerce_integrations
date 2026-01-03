@@ -22,7 +22,7 @@ from ecommerce_integrations.shopware6.constants import (
     MODULE_NAME,
     SETTING_DOCTYPE,
 )
-from ecommerce_integrations.shopware6.utils import create_shopware_log
+from ecommerce_integrations.shopware6.utils import get_logger
 
 
 def sync_inventory_to_shopware():
@@ -31,13 +31,18 @@ def sync_inventory_to_shopware():
 
     This function is called by the scheduler based on the configured frequency.
     """
+    logger = get_logger("sync_inventory_to_shopware")
     setting = frappe.get_doc(SETTING_DOCTYPE)
 
     if not setting.is_enabled() or not setting.update_erpnext_stock_levels_to_shopware:
         return
 
     try:
-        sync_all_inventory()
+        result = sync_all_inventory()
+        logger.info(
+            f"Inventory sync completed: {result['synced']} synced, {result['errors']} errors",
+            persist=True
+        )
 
         # Update last sync time
         setting.last_inventory_sync = now_datetime()
@@ -45,9 +50,10 @@ def sync_inventory_to_shopware():
         frappe.db.commit()
 
     except Exception as e:
-        frappe.log_error(
-            f"Shopware inventory sync failed: {e}",
-            "Shopware Inventory Sync Error"
+        logger.error(
+            "Shopware inventory sync failed",
+            exception=e,
+            persist=True
         )
 
 
@@ -61,6 +67,7 @@ def sync_all_inventory() -> Dict[str, int]:
     Returns:
         dict: Sync results with success/error counts
     """
+    logger = get_logger("sync_all_inventory")
     setting = frappe.get_doc(SETTING_DOCTYPE)
     client = get_shopware_client()
 
@@ -70,6 +77,8 @@ def sync_all_inventory() -> Dict[str, int]:
         filters={"integration": MODULE_NAME, "has_variants": 0},
         fields=["name", "erpnext_item_code", "integration_item_code", "variant_id"],
     )
+
+    logger.info(f"Starting inventory sync for {len(ecommerce_items)} items")
 
     synced = 0
     errors = 0
@@ -103,9 +112,10 @@ def sync_all_inventory() -> Dict[str, int]:
 
         except Exception as e:
             errors += 1
-            frappe.log_error(
-                f"Failed to prepare stock for {ecom_item.erpnext_item_code}: {e}",
-                "Shopware Inventory Sync"
+            logger.error(
+                f"Failed to prepare stock for {ecom_item.erpnext_item_code}",
+                exception=e,
+                persist=False
             )
 
     # Send remaining updates
@@ -115,6 +125,7 @@ def sync_all_inventory() -> Dict[str, int]:
         errors += batch_result["errors"]
         frappe.db.commit()
 
+    logger.info(f"Inventory sync completed: {synced} synced, {errors} errors")
     return {"synced": synced, "errors": errors}
 
 
@@ -128,6 +139,7 @@ def _send_stock_updates_with_tracking(client: Shopware6AdminAPIClientBase, updat
     Returns:
         dict: {"success": count, "errors": count}
     """
+    logger = get_logger("_send_stock_updates_with_tracking")
     success = 0
     errors = 0
 
@@ -135,11 +147,12 @@ def _send_stock_updates_with_tracking(client: Shopware6AdminAPIClientBase, updat
     try:
         _send_stock_updates(client, updates)
         success = len(updates)
+        logger.debug(f"Batch stock update successful for {success} items")
     except Exception as batch_error:
         # Fall back to individual updates with tracking
-        frappe.log_error(
+        logger.warning(
             f"Batch stock update failed, falling back to individual: {batch_error}",
-            "Shopware Inventory Sync"
+            persist=False
         )
         for update in updates:
             try:
@@ -148,9 +161,10 @@ def _send_stock_updates_with_tracking(client: Shopware6AdminAPIClientBase, updat
             except Exception as e:
                 errors += 1
                 item_code = update.get("item_code", update["id"])
-                frappe.log_error(
-                    f"Failed to update stock for {item_code}: {e}",
-                    "Shopware Inventory Sync"
+                logger.error(
+                    f"Failed to update stock for {item_code}",
+                    exception=e,
+                    persist=False
                 )
 
     return {"success": success, "errors": errors}

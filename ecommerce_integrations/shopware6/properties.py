@@ -32,6 +32,7 @@ from ecommerce_integrations.shopware6.export.property_handler import (
     get_or_create_property_group as _get_or_create_property_group,
     get_or_create_property_option as _get_or_create_property_option,
 )
+from ecommerce_integrations.shopware6.utils import get_logger
 
 
 # Prefix for JTL attribute custom fields
@@ -184,9 +185,11 @@ def sync_all_item_properties(limit: int = 100) -> Dict[str, Any]:
                 errors += 1
         except Exception as e:
             errors += 1
-            frappe.log_error(
-                f"Failed to sync properties for {ecom_item.erpnext_item_code}: {e}",
-                "Shopware Property Sync Error"
+            logger = get_logger("bulk_sync_all_properties")
+            logger.error(
+                f"Failed to sync properties for {ecom_item.erpnext_item_code}",
+                exception=e,
+                persist=True
             )
 
     return {
@@ -252,7 +255,8 @@ def create_all_property_groups() -> Dict[str, Any]:
                 errors += 1
         except Exception as e:
             errors += 1
-            frappe.log_error(f"Failed to create PropertyGroup {label}: {e}")
+            logger = get_logger("ensure_property_groups_exist")
+            logger.error(f"Failed to create PropertyGroup {label}", exception=e, persist=False)
 
     return {
         "success": True,

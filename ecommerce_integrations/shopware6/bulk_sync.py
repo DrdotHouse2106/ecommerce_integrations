@@ -18,6 +18,7 @@ from typing import List, Optional, Set
 import frappe
 from frappe.utils import now_datetime, cint
 from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE
+from ecommerce_integrations.shopware6.utils import get_logger
 
 
 # Redis key prefixes
@@ -309,10 +310,11 @@ def sync_single_item_to_shopware(item_code: str):
     """
     from ecommerce_integrations.shopware6.product_export import upload_erpnext_item_to_shopware
 
+    logger = get_logger("_sync_single_item")
     try:
         upload_erpnext_item_to_shopware(item_code)
     except Exception as e:
-        frappe.log_error(f"Failed to sync item {item_code} to Shopware: {e}", "Shopware Item Sync")
+        logger.error(f"Failed to sync item {item_code} to Shopware", exception=e, persist=True)
 
 
 def queue_properties_for_sync(doc, method=None):
@@ -502,11 +504,8 @@ def process_bulk_sync_queue():
         frappe.logger().info("Shopware6 Bulk Sync: Queue processing completed")
 
     except Exception as e:
-        error_msg = str(e)[:500]  # Truncate long error messages
-        try:
-            frappe.log_error(title="Shopware6 Bulk Sync Error", message=error_msg)
-        except Exception:
-            frappe.logger().error(f"Shopware6 Bulk Sync Error: {error_msg}")
+        logger = get_logger("check_and_process_queue")
+        logger.error("Shopware6 Bulk Sync Error", exception=e, persist=True)
     finally:
         release_sync_lock()
         deactivate_bulk_mode()
@@ -550,7 +549,7 @@ def process_product_batch(item_codes: List[str]):
     # Process templates first (parents must exist before variants)
     client = get_shopware_client()
     if not client:
-        frappe.log_error("Shopware6 Bulk Sync: Could not get Shopware client")
+        get_logger().error("Error occurred", persist=False)
         return
 
     for batch_start in range(0, len(templates), batch_size):
@@ -621,10 +620,7 @@ def process_product_batch(item_codes: List[str]):
         # Truncate error messages to avoid CharacterLengthExceededError
         error_summary = "\n".join([f"{code}: {str(err)[:80]}" for code, err in errors[:10]])
         try:
-            frappe.log_error(
-                title="Shopware6 Bulk Sync Errors",
-                message=f"Failed items removed from queue:\n{error_summary}"
-            )
+            get_logger().error("Error occurred", persist=False)
         except Exception:
             # If logging fails, just log to console
             frappe.logger().error(f"Shopware6 Bulk Sync: {len(errors)} errors occurred")
@@ -648,7 +644,7 @@ def process_properties_batch(item_codes: List[str]):
                 processed.append(item_code)
             except Exception as e:
                 errors.append((item_code, str(e)))
-                frappe.log_error(f"Property sync failed for {item_code}: {e}")
+                get_logger().error("Property sync failed for {item_code}", persist=False)
 
         frappe.db.commit()
         time.sleep(BATCH_DELAY)
@@ -681,7 +677,7 @@ def process_price_batch(item_codes: List[str]):
                     errors.append((item_code, result.get("message", "Unknown error")))
             except Exception as e:
                 errors.append((item_code, str(e)))
-                frappe.log_error(f"Price sync failed for {item_code}: {e}")
+                get_logger().error("Price sync failed for {item_code}", persist=False)
 
         frappe.db.commit()
         time.sleep(BATCH_DELAY)
@@ -694,7 +690,7 @@ def process_price_batch(item_codes: List[str]):
 
     if errors:
         error_summary = "\n".join([f"{code}: {err}" for code, err in errors[:20]])
-        frappe.log_error(f"Shopware6 Price Sync Errors:\n{error_summary}")
+        get_logger().error("Shopware6 Price Sync Errors:\n{error_summary}", persist=False)
 
 
 def is_processing() -> bool:

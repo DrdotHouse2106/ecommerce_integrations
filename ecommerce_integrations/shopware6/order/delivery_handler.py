@@ -51,7 +51,7 @@ def create_delivery_note(
         return dn.name
 
     except Exception as e:
-        frappe.log_error(f"Failed to create Delivery Note for {sales_order}: {e}")
+        get_logger().error("Failed to create Delivery Note for {sales_order}", persist=False)
         return None
 
 

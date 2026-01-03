@@ -100,10 +100,7 @@ def sync_orders_from_shopware(
                 synced += 1
         except Exception as e:
             errors += 1
-            frappe.log_error(
-                f"Failed to sync order {order_data.get('orderNumber')}: {e}",
-                "Shopware Order Sync Error"
-            )
+            get_logger().error("Failed to sync order {order_data.get('orderNumber')}: {e}", persist=True)
 
     return {
         "synced": synced,
@@ -152,7 +149,7 @@ def scheduled_order_sync():
             )
 
     except Exception as e:
-        frappe.log_error(f"Scheduled order sync failed: {e}", "Shopware Order Sync")
+        get_logger().error("Scheduled order sync failed: {e}", persist=True)
 
 
 def sync_old_orders():
@@ -174,8 +171,10 @@ def sync_old_orders():
         return
 
     if not setting.old_orders_from or not setting.old_orders_to:
-        frappe.log_error(
-            "old_orders_from and old_orders_to are required for syncing old orders", "Shopware Order Sync"
+        logger = get_logger("scheduled_old_order_sync")
+        logger.warning(
+            "old_orders_from and old_orders_to are required for syncing old orders",
+            persist=True
         )
         return
 
@@ -232,9 +231,11 @@ def sync_old_orders():
 
             except Exception as e:
                 errors += 1
-                frappe.log_error(
-                    f"Failed to sync old order {order_data.get('orderNumber')}: {e}",
-                    "Shopware Old Order Sync Error",
+                logger = get_logger("scheduled_old_order_sync")
+                logger.error(
+                    f"Failed to sync old order {order_data.get('orderNumber')}",
+                    exception=e,
+                    persist=True
                 )
 
         # Disable the flag after successful sync (consistent with Shopify implementation)
@@ -248,4 +249,4 @@ def sync_old_orders():
         )
 
     except Exception as e:
-        frappe.log_error(f"Scheduled old order sync failed: {e}", "Shopware Old Order Sync")
+        get_logger().error("Scheduled old order sync failed: {e}", persist=True)

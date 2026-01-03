@@ -11,6 +11,7 @@ from frappe.utils import flt
 
 from ecommerce_integrations.shopware6.product import get_item_code
 from ecommerce_integrations.shopware6.utils import (
+    get_logger,
     get_net_unit_price_from_line_item,
     get_tax_rate_from_line_item,
     convert_gross_to_net,
@@ -58,9 +59,10 @@ def add_order_item(so: "frappe.Document", line_item: Dict[str, Any], setting) ->
             item_code = get_item_code(line_item)
 
     if not item_code:
-        frappe.log_error(
+        logger = get_logger("add_order_item")
+        logger.warning(
             f"Could not find/create item for Shopware product: {line_item.get('productId')}",
-            "Shopware Order Sync",
+            persist=True
         )
         return
 
@@ -143,10 +145,11 @@ def _add_discount_item(so: "frappe.Document", line_item: Dict[str, Any], setting
         discount_item = frappe.db.get_value("Item", {"item_code": "DISCOUNT"}, "name")
         if not discount_item:
             # Log and skip if no discount item configured
-            frappe.log_error(
+            logger = get_logger("add_discount_item")
+            logger.warning(
                 f"Discount line item found in Shopware order but no discount item configured. "
                 f"Discount label: {line_item.get('label')}, Amount: {line_item.get('totalPrice')}",
-                "Shopware Discount Handling"
+                persist=True
             )
             return
 

@@ -177,7 +177,7 @@ def sync_product_price(client, item_code: str) -> bool:
     """
     shopware_id = get_shopware_document_id("Item", item_code)
     if not shopware_id:
-        frappe.log_error(f"Cannot sync price for {item_code}: not synced to Shopware")
+        get_logger().error("Cannot sync price for {item_code}: not synced to Shopware", persist=False)
         return False
 
     try:
@@ -196,7 +196,7 @@ def sync_product_price(client, item_code: str) -> bool:
         return True
 
     except Exception as e:
-        frappe.log_error(f"Failed to sync price for {item_code}: {e}")
+        get_logger().error("Failed to sync price for {item_code}", persist=False)
         return False
 
 
@@ -230,7 +230,7 @@ def sync_bulk_prices(client, item_codes: List[str]) -> Dict[str, bool]:
             results[item_code] = True
 
         except Exception as e:
-            frappe.log_error(f"Failed to sync price for {item_code}: {e}")
+            get_logger().error("Failed to sync price for {item_code}", persist=False)
             results[item_code] = False
 
     success_count = sum(1 for v in results.values() if v)
@@ -836,7 +836,7 @@ def _run_force_price_sync_batched(
             except Exception as e:
                 stats["errors"] += 1
                 stats["processed"] += 1
-                frappe.log_error(f"Force price sync error for {item_code}: {e}")
+                get_logger().error("Force price sync error for {item_code}", persist=False)
 
         frappe.db.commit()
 
