@@ -302,9 +302,12 @@ class ShopwareProductUploader:
                 if new_categories:
                     clear_product_categories(client, product_id)
                     frappe.logger().info(f"Cleared categories for {product_id}, will add: {new_categories}")
-                # Clear old properties before setting new ones
+                # Clear old properties before setting new ones (don't let errors break sync)
                 if payload.get("properties"):
-                    clear_product_properties(client, product_id)
+                    try:
+                        clear_product_properties(client, product_id)
+                    except BaseException:
+                        pass  # Property clearing is optional, don't break sync
                 # CRITICAL: Clear ALL old advanced/rule-based prices before setting new ones
                 # This ensures product has ONLY prices from ERPNext
                 try:

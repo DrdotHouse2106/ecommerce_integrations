@@ -360,11 +360,76 @@ def get_item_images(item) -> List[str]:
     return images
 
 
+def clear_product_images_in_shopware(client, shopware_product_id: str, item_code: str = None) -> int:
+    """
+    Delete all images from a Shopware product.
+
+    Use this when ERPNext has no images but Shopware still has linked media.
+
+    Args:
+        client: Shopware API client
+        shopware_product_id: Shopware product UUID
+        item_code: Item code for cache clearing (optional)
+
+    Returns:
+        Number of images deleted
+    """
+    deleted_count = 0
+    cache = get_cache()
+
+    try:
+        # Get all product-media relationships
+        search_result = client.request_post("search/product-media", {
+            "filter": [{"type": "equals", "field": "productId", "value": shopware_product_id}],
+            "includes": {"product_media": ["id", "mediaId"]}
+        })
+        existing = search_result.get("data", []) or []
+
+        if not existing:
+            return 0
+
+        media_ids_to_delete = []
+
+        # Delete product-media relationships first
+        for pm in existing:
+            pm_id = pm.get("id")
+            media_id = pm.get("mediaId")
+            if pm_id:
+                try:
+                    client.request_delete(f"product-media/{pm_id}")
+                    deleted_count += 1
+                    if media_id:
+                        media_ids_to_delete.append(media_id)
+                except BaseException as e:
+                    frappe.logger().warning(f"Could not delete product-media {pm_id}: {str(e)[:50]}")
+
+        # Then delete the media objects themselves
+        for media_id in media_ids_to_delete:
+            try:
+                client.request_delete(f"media/{media_id}")
+            except BaseException:
+                pass  # Media might be used elsewhere
+
+        # Clear cache
+        if item_code:
+            cache.clear_image_hashes(item_code)
+
+        if deleted_count > 0:
+            frappe.logger().info(f"Cleared {deleted_count} images from Shopware product {shopware_product_id}")
+
+        return deleted_count
+
+    except BaseException as e:
+        frappe.logger().warning(f"Error clearing images for {shopware_product_id}: {str(e)[:100]}")
+        return deleted_count
+
+
 def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> bool:
     """
     Sync all images from ERPNext Item to Shopware product.
 
     Uses delta-sync: only uploads images if content has changed.
+    If ERPNext has no images, all Shopware images are deleted.
 
     Args:
         client: Shopware API client
@@ -379,7 +444,12 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> b
     try:
         images = get_item_images(item)
 
-        # Remove existing product-media relationships
+        # If no images in ERPNext, clear all Shopware images and return
+        if not images:
+            clear_product_images_in_shopware(client, shopware_product_id, item.item_code)
+            return True
+
+        # Remove existing product-media relationships before uploading new ones
         try:
             search_result = client.request_post("search/product-media", {
                 "filter": [{"type": "equals", "field": "productId", "value": shopware_product_id}]
@@ -408,9 +478,6 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> b
                 cache.clear_image_hashes(item.item_code)
         except BaseException as e:
             frappe.logger().warning(f"Could not clean media for {item.item_code}: {e}")
-
-        if not images:
-            return True
 
         product_media_list = []
         cover_id = None

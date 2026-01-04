@@ -25,6 +25,7 @@ from ecommerce_integrations.shopware6.export.property_handler import (
     get_or_create_property_option,
     get_variant_attribute_values,
     get_item_properties,
+    get_item_custom_fields,
     clear_product_properties,
 )
 from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
@@ -140,6 +141,11 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
             if property_ids:
                 product_payload["properties"] = property_ids
 
+        # Custom Fields (Zubehör, AI fields, etc.)
+        custom_fields = get_item_custom_fields(variant_item)
+        if custom_fields:
+            product_payload["customFields"] = custom_fields
+
         # Always check if product exists in Shopware (API call to verify)
         product_exists = False
         try:
@@ -163,9 +169,12 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
                         pass
             except Exception:
                 pass
-            # Clear old properties before setting new ones
+            # Clear old properties before setting new ones (don't let errors break sync)
             if product_payload.get("properties"):
-                clear_product_properties(client, product_id)
+                try:
+                    clear_product_properties(client, product_id)
+                except BaseException:
+                    pass  # Property clearing is optional, don't break sync
             client.request_patch(f"product/{product_id}", product_payload)
             frappe.logger().info(f"Variant {variant_item.item_code} updated in Shopware")
         else:

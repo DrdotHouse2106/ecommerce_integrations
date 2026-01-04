@@ -253,7 +253,7 @@ def get_image_content_and_filename(image_path: str) -> tuple:
     Get image content and filename from a path (local or URL).
 
     Args:
-        image_path: Local file path or URL
+        image_path: Local file path or URL (supports /file/... external storage URLs)
 
     Returns:
         Tuple of (image_content, filename, extension) or (None, None, None) on error
@@ -261,6 +261,15 @@ def get_image_content_and_filename(image_path: str) -> tuple:
     try:
         if image_path.startswith("http"):
             response = requests.get(image_path, timeout=30)
+            if response.status_code != 200:
+                return None, None, None
+            image_content = response.content
+            filename = image_path.split("/")[-1].split("?")[0]
+        elif image_path.startswith("/file/"):
+            # External storage URL - needs to be fetched via HTTP
+            site_url = frappe.utils.get_url()
+            full_url = f"{site_url}{image_path}"
+            response = requests.get(full_url, timeout=30)
             if response.status_code != 200:
                 return None, None, None
             image_content = response.content

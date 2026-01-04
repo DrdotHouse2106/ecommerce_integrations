@@ -553,13 +553,22 @@ def clear_product_properties(client, product_id: str) -> bool:
             if prop_id:
                 try:
                     client.request_delete(f"product/{product_id}/properties/{prop_id}")
-                except Exception as e:
-                    get_logger().error("Error occurred", persist=False)
+                except BaseException as e:
+                    # Catch ALL exceptions including ShopwareAPIError
+                    # Don't let property deletion errors break the sync
+                    get_logger().warning(
+                        f"Failed to delete property {prop_id} from product {product_id}: {str(e)[:100]}",
+                        persist=False
+                    )
+                    continue  # Continue with next property
 
         return True
 
-    except Exception as e:
-        get_logger().error("Error occurred", persist=False)
+    except BaseException as e:
+        get_logger().warning(
+            f"Failed to clear properties for product {product_id}: {str(e)[:100]}",
+            persist=False
+        )
         return False
 
 

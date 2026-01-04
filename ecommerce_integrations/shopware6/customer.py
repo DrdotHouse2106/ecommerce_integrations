@@ -521,7 +521,10 @@ def map_shopware_salutation(salutation_data: Dict[str, Any]) -> tuple:
     """
     Map Shopware salutation to ERPNext salutation and gender.
 
-    Shopware salutationKey: mr, mrs, not_specified
+    Shopware salutationKey can be:
+    - English: mr, mrs, ms, not_specified (Shopware default)
+    - German: herr, frau, nicht_angegeben (custom German shops)
+
     ERPNext Gender: Male, Female, Other
     ERPNext Salutation: Herr, Frau, etc.
 
@@ -534,20 +537,32 @@ def map_shopware_salutation(salutation_data: Dict[str, Any]) -> tuple:
     salutation_key = salutation_data.get("salutationKey", "") if isinstance(salutation_data, dict) else ""
     display_name = salutation_data.get("displayName", "") if isinstance(salutation_data, dict) else str(salutation_data)
 
-    # Map salutation key to gender
+    # Map salutation key to gender (supports both English and German keys)
     gender_map = {
+        # English keys (Shopware default)
         "mr": "Male",
         "mrs": "Female",
         "ms": "Female",
         "not_specified": "Other",
+        # German keys (custom shops)
+        "herr": "Male",
+        "frau": "Female",
+        "nicht_angegeben": "Other",
+        "divers": "Other",
     }
 
-    # Map to ERPNext salutation
+    # Map to ERPNext salutation (supports both English and German keys)
     salutation_map = {
+        # English keys (Shopware default)
         "mr": "Herr",
         "mrs": "Frau",
         "ms": "Frau",
         "not_specified": None,
+        # German keys (custom shops)
+        "herr": "Herr",
+        "frau": "Frau",
+        "nicht_angegeben": None,
+        "divers": None,
     }
 
     gender = gender_map.get(salutation_key.lower() if salutation_key else "", None)

@@ -14,6 +14,7 @@
   "access_key",
   "pricing_section",
   "price_list",
+  "price_list_includes_tax",
   "column_break_pricing",
   "price_adjustment_percent",
   "shopware_rule_id"
@@ -79,6 +80,14 @@
    "in_list_view": 1,
    "label": "Price List",
    "options": "Price List"
+  },
+  {
+   "default": "0",
+   "depends_on": "price_list",
+   "description": "Enable if the Price List contains gross prices (including tax). The price will be converted to net before syncing to Shopware.",
+   "fieldname": "price_list_includes_tax",
+   "fieldtype": "Check",
+   "label": "Price List Includes Tax"
   },
   {
    "fieldname": "column_break_pricing",

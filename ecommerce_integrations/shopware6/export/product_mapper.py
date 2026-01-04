@@ -647,8 +647,8 @@ def build_channel_prices(
         if not channel:
             continue
 
-        # Get channel-specific price
-        net_price = get_channel_price(item.name, channel, setting)
+        # Get channel-specific price (pass tax_rate for gross-to-net conversion if needed)
+        net_price = get_channel_price(item.name, channel, setting, tax_rate=tax_rate)
         if net_price <= 0:
             # Skip this channel - no valid price available
             frappe.logger().warning(

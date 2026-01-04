@@ -64,30 +64,50 @@ def get_item_price(item_code: str, price_list: str = None) -> float:
     return flt(item_price) if item_price else 0.0
 
 
-def get_channel_price(item_code: str, sales_channel, setting) -> float:
+def get_channel_price(item_code: str, sales_channel, setting, tax_rate: float = None) -> float:
     """
-    Get the price for an item in a specific sales channel.
+    Get the NET price for an item in a specific sales channel.
 
     Priority:
     1. If channel has price_list set -> use that price list
     2. If channel has price_adjustment_percent -> apply to base price
     3. Fallback -> use setting.default_selling_price_list
 
+    IMPORTANT: If the price list contains gross prices (price_list_includes_tax=True),
+    the price is converted to net using the item's tax rate.
+
     Args:
         item_code: ERPNext Item code
         sales_channel: Shopware Sales Channel row from setting
         setting: Shopware Setting document
+        tax_rate: Optional tax rate for gross-to-net conversion. If not provided, fetched from item.
 
     Returns:
-        Price as float
+        NET price as float (without tax)
     """
     # Priority 1: Channel has its own price list
     if sales_channel.price_list:
-        return get_item_price(item_code, sales_channel.price_list)
+        price = get_item_price(item_code, sales_channel.price_list)
+
+        # Check if this price list contains gross prices (including tax)
+        if getattr(sales_channel, 'price_list_includes_tax', False) and price > 0:
+            # Convert gross to net
+            if tax_rate is None:
+                tax_rate = get_item_tax_rate(item_code)
+            price = round(price / (1 + tax_rate / 100), 2)
+
+        return price
 
     # Get base price from default price list
     default_price_list = getattr(setting, 'default_selling_price_list', None)
     base_price = get_item_price(item_code, default_price_list)
+
+    # Check if default price list contains gross prices
+    if getattr(setting, 'default_price_list_includes_tax', False) and base_price > 0:
+        # Convert gross to net
+        if tax_rate is None:
+            tax_rate = get_item_tax_rate(item_code)
+        base_price = round(base_price / (1 + tax_rate / 100), 2)
 
     # Priority 2: Channel has percentage adjustment
     adjustment_percent = flt(getattr(sales_channel, 'price_adjustment_percent', 0))

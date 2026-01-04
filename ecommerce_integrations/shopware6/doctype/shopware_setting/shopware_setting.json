@@ -47,6 +47,7 @@
   "cost_center",
   "price_handling_section",
   "default_selling_price_list",
+  "default_price_list_includes_tax",
   "import_prices_as_net",
   "default_tax_rate",
   "column_break_price_handling",
@@ -375,6 +376,14 @@
    "fieldtype": "Link",
    "label": "Default Selling Price List",
    "options": "Price List"
+  },
+  {
+   "default": "0",
+   "depends_on": "default_selling_price_list",
+   "description": "Enable if the Default Price List contains gross prices (including tax). Prices will be converted to net before syncing to Shopware.",
+   "fieldname": "default_price_list_includes_tax",
+   "fieldtype": "Check",
+   "label": "Default Price List Includes Tax (Gross)"
   },
   {
    "default": "1",
