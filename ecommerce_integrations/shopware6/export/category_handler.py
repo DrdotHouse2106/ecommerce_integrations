@@ -266,14 +266,19 @@ def get_image_content_and_filename(image_path: str) -> tuple:
             image_content = response.content
             filename = image_path.split("/")[-1].split("?")[0]
         elif image_path.startswith("/file/"):
-            # External storage URL - needs to be fetched via HTTP
-            site_url = frappe.utils.get_url()
-            full_url = f"{site_url}{image_path}"
-            response = requests.get(full_url, timeout=30)
-            if response.status_code != 200:
+            # External storage URL - load via Frappe File API
+            # Path format: /file/{file_id}/{filename}
+            parts = image_path.split("/")
+            if len(parts) >= 3:
+                file_id = parts[2]  # e.g. "392be7e0e5"
+                try:
+                    file_doc = frappe.get_doc("File", file_id)
+                    image_content = file_doc.get_content()
+                    filename = parts[-1].split("?")[0]
+                except Exception:
+                    return None, None, None
+            else:
                 return None, None, None
-            image_content = response.content
-            filename = image_path.split("/")[-1].split("?")[0]
         else:
             if image_path.startswith("/files/"):
                 full_path = get_files_path() + image_path[6:]
