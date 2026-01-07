@@ -52,6 +52,8 @@ def clear_product_configurator_settings(client, product_id: str) -> bool:
     Returns:
         True if successful
     """
+    import time
+    
     try:
         response = client.request_get(
             f"product/{product_id}?associations[configuratorSettings][]"
@@ -62,31 +64,72 @@ def clear_product_configurator_settings(client, product_id: str) -> bool:
         if not configurator_settings:
             return True
 
-        # Delete each configurator setting
+        # Delete each configurator setting with retry logic
+        deleted_count = 0
+        error_count = 0
+        
         for setting in configurator_settings:
             setting_id = setting.get("id")
-            if setting_id:
+            if not setting_id:
+                continue
+                
+            max_retries = 3
+            retry_delay = 0.5  # seconds
+            
+            for attempt in range(max_retries):
                 try:
                     client.request_delete(
                         f"product/{product_id}/configurator-settings/{setting_id}"
                     )
+                    deleted_count += 1
+                    break  # Success, exit retry loop
+                    
                 except BaseException as e:
+                    error_str = str(e)
+                    
                     # Ignore 404 errors - setting already deleted/doesn't exist
-                    # Note: ShopwareAPIError inherits from BaseException, not Exception
-                    if "404" in str(e) or "Not Found" in str(e):
+                    if "404" in error_str or "Not Found" in error_str:
                         frappe.logger().debug(
                             f"ConfiguratorSetting {setting_id} already deleted (404)"
                         )
+                        deleted_count += 1
+                        break
+                    
+                    # Handle 500 errors with retry
+                    elif "500" in error_str or "Internal Server Error" in error_str:
+                        if attempt < max_retries - 1:
+                            frappe.logger().warning(
+                                f"500 error deleting configuratorSetting {setting_id}, "
+                                f"retrying ({attempt + 1}/{max_retries})..."
+                            )
+                            time.sleep(retry_delay)
+                            retry_delay *= 2  # Exponential backoff
+                            continue
+                        else:
+                            get_logger().error(
+                                f"Failed to delete configuratorSetting {setting_id} after {max_retries} attempts: {e}",
+                                persist=False
+                            )
+                            error_count += 1
+                            break
+                    
+                    # Other errors
                     else:
-                        get_logger().error(f"Error deleting configuratorSetting {setting_id}: {e}", persist=False)
+                        get_logger().error(
+                            f"Error deleting configuratorSetting {setting_id}: {e}",
+                            persist=False
+                        )
+                        error_count += 1
+                        break
 
         frappe.logger().info(
-            f"Cleared {len(configurator_settings)} configuratorSettings from {product_id}"
+            f"Cleared {deleted_count}/{len(configurator_settings)} configuratorSettings from {product_id} "
+            f"({error_count} errors)"
         )
-        return True
+        return error_count == 0
 
     except Exception as e:
-        get_logger().error("Error occurred", persist=False)
+        get_logger().error(f"Error clearing configuratorSettings: {e}", persist=False)
         return False
 
 
