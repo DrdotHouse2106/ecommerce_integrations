@@ -315,6 +315,122 @@ frappe.ui.form.on('Shopware Setting', {
 				);
 			}, __('Sync'));
 
+			// Cleanup Orphaned Products in Shopware
+			frm.add_custom_button(__('Verwaiste Produkte löschen'), function() {
+				let dialog = new frappe.ui.Dialog({
+					title: __('Verwaiste Produkte in Shopware löschen'),
+					fields: [
+						{
+							fieldname: 'info_html',
+							fieldtype: 'HTML',
+							options: `<div class="alert alert-danger">
+								<p><strong>⚠️ Achtung:</strong> Diese Funktion löscht Produkte in Shopware, die in ERPNext nicht mehr existieren!</p>
+								<ul>
+									<li>Findet alle Produkte in Shopware</li>
+									<li>Prüft ob die Artikelnummer in ERPNext existiert</li>
+									<li>Löscht Produkte die in ERPNext nicht gefunden werden</li>
+								</ul>
+								<p class="text-muted">Dry-Run zeigt Vorschau sofort, echtes Löschen läuft im Hintergrund.</p>
+							</div>`
+						},
+						{
+							fieldname: 'dry_run',
+							fieldtype: 'Check',
+							label: __('Dry Run (nur Vorschau)'),
+							default: 1,
+							description: __('Zeigt was gelöscht werden würde, ohne es zu tun')
+						},
+						{
+							fieldname: 'batch_size',
+							fieldtype: 'Int',
+							label: __('Batch Size'),
+							default: 100,
+							description: __('Produkte pro API-Aufruf')
+						}
+					],
+					primary_action_label: __('Ausführen'),
+					primary_action: function(values) {
+						dialog.hide();
+
+						if (values.dry_run) {
+							// Dry Run: synchron für direkte Vorschau
+							frappe.call({
+								method: 'ecommerce_integrations.shopware6.export.reconciliation.cleanup_orphaned_shopware_products',
+								args: {
+									dry_run: 1,
+									batch_size: values.batch_size || 100
+								},
+								freeze: true,
+								freeze_message: __('Analysiere verwaiste Produkte...'),
+								callback: function(r) {
+									if (r.message) {
+										let stats = r.message.statistics || {};
+										let orphaned = r.message.orphaned_products || [];
+
+										let html = `
+											<h5>Zusammenfassung</h5>
+											<table class="table table-bordered">
+												<tr><td>Produkte in Shopware</td><td><strong>${stats.shopware_total || 0}</strong></td></tr>
+												<tr><td>Existieren in ERPNext</td><td><strong>${stats.erpnext_exists || 0}</strong></td></tr>
+												<tr><td>⚠️ Verwaist (nicht in ERPNext)</td><td><strong>${stats.orphaned_count || 0}</strong></td></tr>
+											</table>
+										`;
+
+										if (orphaned.length > 0) {
+											html += '<h5>Verwaiste Produkte (erste 50)</h5><ul>';
+											orphaned.forEach(p => {
+												html += `<li><strong>${p.productNumber}</strong>: ${p.name} <span class="text-muted">(${p.type})</span></li>`;
+											});
+											if (stats.orphaned_count > 50) {
+												html += `<li>... und ${stats.orphaned_count - 50} weitere</li>`;
+											}
+											html += '</ul>';
+										}
+
+										html += '<p class="alert alert-info">Dies war nur eine Vorschau (Dry Run). Führe ohne Dry Run aus um die Produkte zu löschen.</p>';
+
+										frappe.msgprint({
+											title: __('Vorschau: Verwaiste Produkte'),
+											message: html,
+											indicator: 'blue'
+										});
+									}
+								}
+							});
+						} else {
+							// Echtes Löschen: Background Job
+							frappe.confirm(
+								__('Sind Sie sicher? Diese Aktion löscht Produkte unwiderruflich aus Shopware! Der Vorgang läuft im Hintergrund.'),
+								function() {
+									frappe.call({
+										method: 'ecommerce_integrations.shopware6.export.reconciliation.enqueue_cleanup_orphaned_products',
+										args: {
+											dry_run: 0,
+											batch_size: values.batch_size || 100
+										},
+										callback: function(r) {
+											if (r.message && r.message.success) {
+												frappe.show_alert({
+													message: __('Cleanup gestartet im Hintergrund. Prüfe Shopware Logs für Ergebnis.'),
+													indicator: 'green'
+												});
+											} else {
+												frappe.msgprint({
+													title: __('Fehler'),
+													message: r.message?.message || __('Unbekannter Fehler'),
+													indicator: 'red'
+												});
+											}
+										}
+									});
+								}
+							);
+						}
+					}
+				});
+				dialog.show();
+			}, __('Sync'));
+
 			// =====================================================
 			// ANALYZE: Conflict Detection & Analysis
 			// =====================================================

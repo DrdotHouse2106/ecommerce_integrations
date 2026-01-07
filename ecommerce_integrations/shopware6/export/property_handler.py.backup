@@ -461,8 +461,7 @@ def get_variant_attribute_values(variant_item) -> Dict[str, str]:
     if not variant_item.attributes:
         return attr_values
 
-    # Sort by idx to maintain attribute order from ERPNext
-    for attr_row in sorted(variant_item.attributes, key=lambda x: x.idx):
+    for attr_row in variant_item.attributes:
         attr_values[attr_row.attribute] = attr_row.attribute_value
 
     return attr_values
@@ -502,8 +501,7 @@ def get_item_properties(erpnext_item) -> List[Dict[str, str]]:
 
     # Priority 1: Read from shopware_properties table
     properties_table = getattr(erpnext_item, 'shopware_properties', None) or []
-    # Sort by idx to maintain property order from ERPNext
-    for row in sorted(properties_table, key=lambda x: getattr(x, 'idx', 0)):
+    for row in properties_table:
         if row.property_type == 'Property' and row.property_value:
             properties.append({
                 "group_name": row.property_name,

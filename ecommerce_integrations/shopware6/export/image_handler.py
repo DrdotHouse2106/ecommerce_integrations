@@ -17,6 +17,7 @@ from frappe.utils import get_files_path
 
 from ecommerce_integrations.shopware6.base.cache_manager import get_cache
 from ecommerce_integrations.shopware6.export.utils import generate_uuid, sanitize_filename
+from ecommerce_integrations.shopware6.utils import get_logger
 
 
 def get_product_media_folder_id(client) -> Optional[str]:
@@ -126,7 +127,7 @@ def get_file_content_and_type(file_url: str) -> Tuple[Optional[bytes], Optional[
                         ext = os.path.splitext(file_doc.file_name)[1].lstrip('.') or 'jpg'
                         return content, mime_type, ext
                 except Exception as e:
-                    get_logger().error("Failed to get content from external storage for {file_url}", persist=False)
+                    get_logger().error(f"Failed to get content from external storage for {file_url}: {str(e)}", persist=False)
             return None, None, None
 
         # Local file
@@ -148,7 +149,7 @@ def get_file_content_and_type(file_url: str) -> Tuple[Optional[bytes], Optional[
         return None, None, None
 
     except Exception as e:
-        get_logger().error("Failed to get file content for {file_url}", persist=False)
+        get_logger().error(f"Failed to get file content for {file_url}: {str(e)}", persist=False)
         return None, None, None
 
 
@@ -218,7 +219,7 @@ def upload_media_to_shopware(client, file_url: str, item_code: str, position: in
     try:
         file_content, mime_type, extension = get_file_content_and_type(file_url)
         if not file_content:
-            get_logger().error("Could not read file", persist=False)
+            get_logger().warning(f"Could not read file {file_url} for item {item_code}", persist=False)
             return None
 
         folder_id = get_product_media_folder_id(client)
@@ -243,7 +244,7 @@ def upload_media_to_shopware(client, file_url: str, item_code: str, position: in
             except BaseException as e:
                 error_str = str(e).lower()
                 if "already exists" not in error_str and "updatecommand" not in error_str:
-                    get_logger().error("Failed to create media for {item_code}", persist=False)
+                    get_logger().error(f"Failed to create media for {item_code}: {str(e)}", persist=False)
                     return None
 
         # Check if already has content
@@ -252,8 +253,8 @@ def upload_media_to_shopware(client, file_url: str, item_code: str, position: in
             if media_check.get("data", {}).get("fileName"):
                 return media_id
         except BaseException as e:
-            get_logger().error("Media check failed for {item_code}", persist=False)
-            return None
+            get_logger().warning(f"Media check failed for {item_code}: {str(e)}", persist=False)
+            # Continue with upload attempt
 
         # Upload file
         filename = sanitize_filename(f"{item_code}_{position}")
@@ -267,13 +268,13 @@ def upload_media_to_shopware(client, file_url: str, item_code: str, position: in
         except BaseException as e:
             error_str = str(e).lower()
             if "already exists" not in error_str and "duplicate" not in error_str:
-                get_logger().error("Failed to upload for {item_code}", persist=False)
+                get_logger().error(f"Failed to upload file for {item_code}: {str(e)}", persist=False)
                 return None
 
         return media_id
 
     except BaseException as e:
-        get_logger().error("Failed to upload media for {item_code}", persist=False)
+        get_logger().error(f"Failed to upload media for {item_code}: {str(e)}", persist=False)
         return None
 
 
@@ -521,5 +522,5 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> b
         return True
 
     except Exception as e:
-        get_logger().error("Failed to sync images for {item.name}", persist=False)
+        get_logger().error(f"Failed to sync images for {item.name}: {str(e)}", persist=False)
         return False

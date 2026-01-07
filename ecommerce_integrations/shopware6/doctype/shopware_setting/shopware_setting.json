@@ -14,6 +14,8 @@
   "item_group_channel_mappings",
   "all_channels_item_groups",
   "channel_mapping_info_html",
+  "reconciliation_section",
+  "skip_category_sync_on_full_reconciliation",
   "bulk_sync_section",
   "enable_bulk_sync",
   "bulk_sync_threshold",
@@ -169,6 +171,20 @@
    "fieldtype": "HTML",
    "label": "Channel Mapping Info",
    "options": "<div class=\"alert alert-info\"><h5>Multi-Storefront Configuration</h5><p><strong>How it works:</strong></p><ul><li>Map Item Groups to specific Sales Channels above</li><li>Products inherit channel visibility from their Item Group</li><li>Add Item Groups to 'ALL Channels' list to make products visible everywhere</li><li>Override per-item via the Item form (Shopware Sales Channels section)</li><li><strong>NEW: Manufacturer Filter</strong> - Optionally filter by Brand/Manufacturer per mapping</li></ul><p><strong>Priority:</strong> Item Override > Item Group Mapping (with Brand Filter) > Default Channel</p><p><strong>Tip:</strong> Use Manufacturer Filter to create brand-specific storefronts from a shared product catalog.</p></div>"
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:doc.enable_shopware",
+   "fieldname": "reconciliation_section",
+   "fieldtype": "Section Break",
+   "label": "Complete Sync Settings"
+  },
+  {
+   "default": "0",
+   "fieldname": "skip_category_sync_on_full_reconciliation",
+   "fieldtype": "Check",
+   "label": "Skip Category Sync on Complete Sync",
+   "description": "When enabled, Complete Sync will skip Phase 1 (Category Sync) and only sync products. Useful when categories are already up-to-date."
   },
   {
    "collapsible": 1,
@@ -480,7 +496,7 @@
    "fieldtype": "Link",
    "label": "Invoice Print Format",
    "options": "Print Format",
-   "description": "Print Format to use for invoice PDF attachment. Default: Legacy Invoice with Payment"
+   "description": "Print Format to use for invoice PDF attachment."
   },
   {
    "depends_on": "eval:doc.auto_send_invoice_email",

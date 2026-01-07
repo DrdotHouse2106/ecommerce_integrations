@@ -68,8 +68,8 @@ def send_invoice_email(sales_invoice_name: str, setting) -> bool:
             )
             return False
 
-        # Get Print Format from setting or use default
-        print_format = getattr(setting, 'invoice_print_format', None) or "Legacy Invoice with Payment"
+        # Get Print Format from setting or use Standard
+        print_format = getattr(setting, 'invoice_print_format', None) or "Standard"
 
         # Get company name for email
         company_name = frappe.db.get_value("Company", si.company, "company_name") or si.company

@@ -135,12 +135,34 @@ def sync_all_categories_to_shopware(
             stats["errors"].append({"category": cat.name, "error": str(e)[:200]})
             logger = get_logger("sync_all_categories_to_shopware")
             logger.error(f"Category sync failed: {cat.name}", exception=e, persist=True)
+            # Check for DB connection error and reconnect
+            if "InterfaceError" in str(type(e).__name__) or "(0, '')" in str(e):
+                try:
+                    frappe.connect()
+                    frappe.logger().info(f"Category sync: Reconnected after DB error for {cat.name}")
+                except Exception:
+                    pass
 
-        # Commit periodically
+        # Commit periodically with error handling
         if stats["synced"] % 20 == 0:
-            frappe.db.commit()
+            try:
+                frappe.db.commit()
+            except Exception as commit_error:
+                frappe.logger().warning(f"Category sync: Commit failed, trying reconnect: {commit_error}")
+                try:
+                    frappe.connect()
+                    frappe.db.commit()
+                except Exception:
+                    pass
 
-    frappe.db.commit()
+    try:
+        frappe.db.commit()
+    except Exception:
+        try:
+            frappe.connect()
+            frappe.db.commit()
+        except Exception:
+            pass
 
     create_shopware_log(
         status="Success" if not stats["errors"] else "Partial",
@@ -348,6 +370,15 @@ def reconcile_erpnext_with_shopware(
     # Process in batches - get batch size from settings
     batch_size = cint(getattr(setting, 'product_batch_size', 50)) or 50
     for batch_start in range(0, len(ecom_items), batch_size):
+        # Ensure database connection is active before each batch
+        try:
+            if not frappe.db or not frappe.db.is_connected():
+                frappe.connect()
+                frappe.logger().info(f"Reconciliation: Reconnected to database at batch {batch_start // batch_size + 1}")
+        except Exception as reconnect_error:
+            frappe.logger().error(f"Reconciliation: Failed to reconnect: {reconnect_error}")
+            continue
+
         batch = ecom_items[batch_start:batch_start + batch_size]
         shopware_ids = [item.integration_item_code for item in batch]
         shopware_products = get_shopware_products_batch(client, shopware_ids, compare_categories)
@@ -402,10 +433,25 @@ def reconcile_erpnext_with_shopware(
 
             except Exception as e:
                 stats["errors"].append({"item": item_code, "error": str(e)[:200]})
+                # Check if this is a database connection error and try to reconnect
+                if "InterfaceError" in str(type(e).__name__) or "(0, '')" in str(e):
+                    try:
+                        frappe.connect()
+                        frappe.logger().info(f"Reconciliation: Reconnected after DB error for {item_code}")
+                    except Exception:
+                        pass
 
-        # Commit periodically
-        if stats["total_checked"] % 20 == 0:
-            frappe.db.commit()
+        # Commit periodically with error handling
+        try:
+            if stats["total_checked"] % 20 == 0:
+                frappe.db.commit()
+        except Exception as commit_error:
+            frappe.logger().warning(f"Reconciliation: Commit failed, trying reconnect: {commit_error}")
+            try:
+                frappe.connect()
+                frappe.db.commit()
+            except Exception:
+                pass
 
     # Optionally sync unlinked items
     if include_unlinked and not dry_run:
@@ -491,7 +537,8 @@ def full_reconciliation(
     sync_empty_categories: bool = True,
     cleanup_orphaned_categories: bool = False,
     cleanup_orphaned_variants: bool = True,
-    sync_mehrpreis: bool = True
+    sync_mehrpreis: bool = True,
+    skip_category_sync: bool = None
 ) -> Dict[str, Any]:
     """
     Full reconciliation: Categories first, then Products, then Variant Cleanup.
@@ -507,6 +554,7 @@ def full_reconciliation(
         cleanup_orphaned_categories: Delete Shopware categories not in ERPNext
         cleanup_orphaned_variants: Delete Shopware variants not in ERPNext
         sync_mehrpreis: Sync Mehrpreis properties for items with is_sales_item=0
+        skip_category_sync: Skip category sync phase (defaults to setting if None)
 
     Returns:
         Combined results from category and product sync
@@ -522,13 +570,20 @@ def full_reconciliation(
     sync_mehrpreis = _parse_bool(sync_mehrpreis)
 
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+    
+    # If skip_category_sync not explicitly set, use setting value
+    if skip_category_sync is None:
+        skip_category_sync = getattr(setting, 'skip_category_sync_on_full_reconciliation', False)
+    else:
+        skip_category_sync = _parse_bool(skip_category_sync)
+    
     if not category_root:
         category_root = getattr(setting, 'category_sync_root', 'Produkte') or 'Produkte'
 
     results = {
         "success": True,
         "dry_run": dry_run,
-        "category_sync": None,
+        "category_sync": None if skip_category_sync else "skipped",
         "product_sync": None,
         "category_cleanup": None,
         "variant_cleanup": None,
@@ -536,50 +591,94 @@ def full_reconciliation(
     }
 
     frappe.logger().info(
-        f"Full Reconciliation: Starting (categories: {category_root}, products: {limit})"
+        f"Full Reconciliation: Starting (categories: {category_root if not skip_category_sync else 'SKIPPED'}, products: {limit})"
     )
+
+    def _ensure_db_connection():
+        """Ensure database connection is active before each phase."""
+        try:
+            if not frappe.db or not frappe.db.is_connected():
+                frappe.connect()
+                frappe.logger().info("Full Reconciliation: Reconnected to database")
+        except Exception as e:
+            frappe.logger().warning(f"Full Reconciliation: Reconnect attempt failed: {e}")
 
     # Phase 0: Sync Mehrpreis properties (before product sync)
     if sync_mehrpreis and not dry_run:
         from ecommerce_integrations.shopware6.export.property_handler import sync_mehrpreis_properties_batch
+        _ensure_db_connection()
         _notify_user("Phase 0/5: Syncing Mehrpreis properties...", "blue")
-        results["mehrpreis_sync"] = sync_mehrpreis_properties_batch()
+        try:
+            results["mehrpreis_sync"] = sync_mehrpreis_properties_batch()
+        except Exception as e:
+            frappe.logger().error(f"Full Reconciliation: Mehrpreis sync failed: {e}")
+            results["mehrpreis_sync"] = {"error": str(e)[:200]}
+            _ensure_db_connection()
 
     # Phase 1: Sync categories
-    _notify_user("Phase 1/5: Syncing categories...", "blue")
-    results["category_sync"] = sync_all_categories_to_shopware(
-        root_category=category_root,
-        skip_root=skip_root_category,
-        sync_empty_categories=sync_empty_categories,
-        dry_run=dry_run
-    )
+    if not skip_category_sync:
+        _ensure_db_connection()
+        _notify_user("Phase 1/5: Syncing categories...", "blue")
+        try:
+            results["category_sync"] = sync_all_categories_to_shopware(
+                root_category=category_root,
+                skip_root=skip_root_category,
+                sync_empty_categories=sync_empty_categories,
+                dry_run=dry_run
+            )
+        except Exception as e:
+            frappe.logger().error(f"Full Reconciliation: Category sync failed: {e}")
+            results["category_sync"] = {"success": False, "error": str(e)[:200], "statistics": {}}
+            _ensure_db_connection()
+    else:
+        frappe.logger().info("Full Reconciliation: Skipping category sync (skip_category_sync=True)")
+        _notify_user("Phase 1/5: Skipping categories (disabled in settings)...", "orange")
+        results["category_sync"] = {"success": True, "skipped": True, "message": "Category sync skipped per settings"}
 
     # Phase 2: Sync products
+    _ensure_db_connection()
     _notify_user("Phase 2/5: Syncing products...", "blue")
-    results["product_sync"] = reconcile_erpnext_with_shopware(
-        limit=cint(limit),
-        dry_run=dry_run,
-        sync_images=sync_images,
-        include_unlinked=include_unlinked,
-        compare_categories=True
-    )
+    try:
+        results["product_sync"] = reconcile_erpnext_with_shopware(
+            limit=cint(limit),
+            dry_run=dry_run,
+            sync_images=sync_images,
+            include_unlinked=include_unlinked,
+            compare_categories=True
+        )
+    except Exception as e:
+        frappe.logger().error(f"Full Reconciliation: Product sync failed: {e}")
+        results["product_sync"] = {"success": False, "error": str(e)[:200], "statistics": {}}
+        _ensure_db_connection()
 
     # Phase 3: Cleanup orphaned variants
     if cleanup_orphaned_variants and not dry_run:
+        _ensure_db_connection()
         _notify_user("Phase 3/5: Cleaning up orphaned variants...", "blue")
-        results["variant_cleanup"] = _cleanup_all_orphaned_variants()
+        try:
+            results["variant_cleanup"] = _cleanup_all_orphaned_variants()
+        except Exception as e:
+            frappe.logger().error(f"Full Reconciliation: Variant cleanup failed: {e}")
+            results["variant_cleanup"] = {"error": str(e)[:200]}
+            _ensure_db_connection()
 
     # Phase 4: Cleanup orphaned categories
     if cleanup_orphaned_categories:
+        _ensure_db_connection()
         _notify_user("Phase 4/5: Cleaning up orphaned categories...", "blue")
-        results["category_cleanup"] = cleanup_orphaned_shopware_categories(
-            root_category=category_root,
-            dry_run=dry_run
-        )
+        try:
+            results["category_cleanup"] = cleanup_orphaned_shopware_categories(
+                root_category=category_root,
+                dry_run=dry_run
+            )
+        except Exception as e:
+            frappe.logger().error(f"Full Reconciliation: Category cleanup failed: {e}")
+            results["category_cleanup"] = {"success": False, "error": str(e)[:200], "statistics": {}}
+            _ensure_db_connection()
 
     # Build summary message
-    cat_stats = results["category_sync"].get("statistics", {})
-    prod_stats = results["product_sync"].get("statistics", {})
+    cat_stats = (results.get("category_sync") or {}).get("statistics", {})
+    prod_stats = (results.get("product_sync") or {}).get("statistics", {})
 
     message_parts = []
 
@@ -656,17 +755,39 @@ def _cleanup_all_orphaned_variants(client) -> Dict[str, Any]:
             stats["total_deleted"] += cleanup_result.get("deleted", 0)
             stats["errors"].extend(cleanup_result.get("errors", []))
 
-            # Commit periodically
+            # Commit periodically with error handling
             if stats["templates_checked"] % 20 == 0:
-                frappe.db.commit()
+                try:
+                    frappe.db.commit()
+                except Exception as commit_error:
+                    frappe.logger().warning(f"[Variant Cleanup] Commit failed, trying reconnect: {commit_error}")
+                    try:
+                        frappe.connect()
+                        frappe.db.commit()
+                    except Exception:
+                        pass
 
         except Exception as e:
             stats["errors"].append({
                 "template": link.erpnext_item_code,
                 "error": str(e)[:100]
             })
+            # Check for DB connection error and reconnect
+            if "InterfaceError" in str(type(e).__name__) or "(0, '')" in str(e):
+                try:
+                    frappe.connect()
+                    frappe.logger().info(f"[Variant Cleanup] Reconnected after DB error for {link.erpnext_item_code}")
+                except Exception:
+                    pass
 
-    frappe.db.commit()
+    try:
+        frappe.db.commit()
+    except Exception:
+        try:
+            frappe.connect()
+            frappe.db.commit()
+        except Exception:
+            pass
 
     frappe.logger().info(
         f"[Variant Cleanup] Done: {stats['templates_checked']} templates, "
@@ -820,6 +941,337 @@ def cleanup_orphaned_shopware_categories(
         "statistics": stats,
         "orphaned_categories": [c["name"] for c in orphaned[:20]],
         "message": f"Found {len(orphaned)} orphaned under '{root_category}', deleted {stats['deleted']}" + (" (DRY RUN)" if dry_run else "")
+    }
+
+
+# =============================================================================
+# ORPHANED PRODUCTS CLEANUP
+# =============================================================================
+
+@frappe.whitelist()
+@temp_shopware_session
+def cleanup_orphaned_shopware_products(
+    client,
+    dry_run: bool = True,
+    batch_size: int = 100
+) -> Dict[str, Any]:
+    """
+    Delete products in Shopware that no longer exist in ERPNext.
+
+    This function finds all products in Shopware and checks if they have
+    a corresponding Item in ERPNext. If not, the product is deleted.
+
+    IMPORTANT:
+    - Only deletes products that were originally synced from ERPNext
+      (have a productNumber that matches an ERPNext item_code pattern)
+    - Deletes both simple products and variants
+    - Parent products are deleted AFTER their variants
+
+    Args:
+        client: Shopware API client (injected by decorator)
+        dry_run: If True, only report what would be deleted
+        batch_size: Number of products to fetch per API call
+
+    Returns:
+        Cleanup results with statistics
+    """
+    dry_run = _parse_bool(dry_run)
+    batch_size = cint(batch_size) or 100
+
+    setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+    if not setting.is_enabled():
+        return {"success": False, "message": "Shopware integration is not enabled"}
+
+    stats = {
+        "shopware_total": 0,
+        "erpnext_exists": 0,
+        "orphaned_count": 0,
+        "deleted": 0,
+        "failed": 0,
+        "errors": []
+    }
+
+    frappe.logger().info(
+        f"[Orphaned Products Cleanup] Starting (dry_run={dry_run}, batch_size={batch_size})"
+    )
+
+    def _ensure_db_connection():
+        """Ensure database connection is active."""
+        try:
+            if not frappe.db or not frappe.db.is_connected():
+                frappe.connect()
+                frappe.logger().info("[Orphaned Products Cleanup] Reconnected to database")
+        except Exception as e:
+            frappe.logger().warning(f"[Orphaned Products Cleanup] Reconnect attempt failed: {e}")
+
+    def _safe_commit():
+        """Commit with reconnect on failure."""
+        try:
+            frappe.db.commit()
+        except Exception as commit_error:
+            frappe.logger().warning(f"[Orphaned Products Cleanup] Commit failed, trying reconnect: {commit_error}")
+            try:
+                frappe.connect()
+                frappe.db.commit()
+            except Exception:
+                pass
+
+    # Step 1: Get ALL products from Shopware (paginated)
+    all_shopware_products = []
+    page = 1
+
+    try:
+        while True:
+            try:
+                response = client.request_post("search/product", {
+                    "limit": batch_size,
+                    "page": page,
+                    "fields": ["id", "productNumber", "name", "parentId", "active"],
+                    "filter": [
+                        # Only get root-level products and variants, not child products of bundles etc.
+                        {"type": "multi", "operator": "OR", "queries": [
+                            {"type": "equals", "field": "parentId", "value": None},
+                            {"type": "not", "queries": [{"type": "equals", "field": "parentId", "value": None}]}
+                        ]}
+                    ]
+                })
+            except Exception as api_error:
+                # Log and try to continue with what we have
+                frappe.logger().error(f"[Orphaned Products Cleanup] API error on page {page}: {api_error}")
+                if all_shopware_products:
+                    frappe.logger().info(f"[Orphaned Products Cleanup] Continuing with {len(all_shopware_products)} products fetched so far")
+                    break
+                raise
+
+            products = response.get("data", [])
+            if not products:
+                break
+
+            all_shopware_products.extend(products)
+            stats["shopware_total"] = len(all_shopware_products)
+
+            if page % 10 == 0:
+                frappe.logger().info(
+                    f"[Orphaned Products Cleanup] Fetched page {page}, total so far: {len(all_shopware_products)}"
+                )
+
+            if len(products) < batch_size:
+                break
+            page += 1
+
+            # Safety limit to prevent infinite loops
+            if page > 1000:
+                frappe.logger().warning("[Orphaned Products Cleanup] Reached page limit of 1000")
+                break
+
+    except Exception as e:
+        return {"success": False, "message": f"Failed to fetch Shopware products: {e}"}
+
+    frappe.logger().info(
+        f"[Orphaned Products Cleanup] Found {len(all_shopware_products)} products in Shopware"
+    )
+
+    # Ensure DB connection is still alive after Shopware pagination
+    _ensure_db_connection()
+
+    # Step 2: Get all ERPNext item codes for comparison (using SQL for memory efficiency)
+    try:
+        erpnext_item_codes = set(
+            row[0] for row in frappe.db.sql("SELECT name FROM `tabItem`")
+        )
+    except Exception as db_error:
+        frappe.logger().error(f"[Orphaned Products Cleanup] DB error fetching items: {db_error}")
+        _ensure_db_connection()
+        erpnext_item_codes = set(
+            row[0] for row in frappe.db.sql("SELECT name FROM `tabItem`")
+        )
+
+    frappe.logger().info(
+        f"[Orphaned Products Cleanup] Found {len(erpnext_item_codes)} items in ERPNext"
+    )
+
+    # Step 3: Find orphaned products (in Shopware but not in ERPNext)
+    orphaned_products = []
+    orphaned_variants = []
+
+    for product in all_shopware_products:
+        product_number = product.get("productNumber", "")
+        shopware_id = product.get("id")
+        parent_id = product.get("parentId")
+        name = product.get("name", "")
+
+        # Check if this product exists in ERPNext
+        if product_number in erpnext_item_codes:
+            stats["erpnext_exists"] += 1
+            continue
+
+        # Product doesn't exist in ERPNext - it's orphaned
+        orphaned_item = {
+            "id": shopware_id,
+            "productNumber": product_number,
+            "name": name,
+            "parentId": parent_id,
+            "active": product.get("active", False)
+        }
+
+        if parent_id:
+            # This is a variant
+            orphaned_variants.append(orphaned_item)
+        else:
+            # This is a parent/simple product
+            orphaned_products.append(orphaned_item)
+
+    stats["orphaned_count"] = len(orphaned_products) + len(orphaned_variants)
+
+    frappe.logger().info(
+        f"[Orphaned Products Cleanup] Found {len(orphaned_products)} orphaned parents, "
+        f"{len(orphaned_variants)} orphaned variants"
+    )
+
+    if stats["orphaned_count"] == 0:
+        return {
+            "success": True,
+            "dry_run": dry_run,
+            "statistics": stats,
+            "message": "No orphaned products found in Shopware"
+        }
+
+    # Step 4: Delete orphaned products (variants first, then parents)
+    if not dry_run:
+        # Delete variants first
+        for idx, variant in enumerate(orphaned_variants):
+            try:
+                client.request_delete(f"product/{variant['id']}")
+                stats["deleted"] += 1
+                if stats["deleted"] % 100 == 0:
+                    frappe.logger().info(
+                        f"[Orphaned Products Cleanup] Progress: {stats['deleted']} deleted"
+                    )
+            except Exception as e:
+                stats["failed"] += 1
+                error_str = str(e)[:100]
+                stats["errors"].append({
+                    "product": variant["productNumber"],
+                    "error": error_str
+                })
+                # Log but continue - don't abort on single product failure
+                if stats["failed"] <= 10:
+                    frappe.logger().warning(
+                        f"[Orphaned Products Cleanup] Failed to delete variant {variant['productNumber']}: {error_str}"
+                    )
+
+            # Commit and check DB connection periodically
+            if (idx + 1) % 50 == 0:
+                _safe_commit()
+                _ensure_db_connection()
+
+        # Then delete parent/simple products
+        for idx, product in enumerate(orphaned_products):
+            try:
+                client.request_delete(f"product/{product['id']}")
+                stats["deleted"] += 1
+                if stats["deleted"] % 100 == 0:
+                    frappe.logger().info(
+                        f"[Orphaned Products Cleanup] Progress: {stats['deleted']} deleted"
+                    )
+            except Exception as e:
+                stats["failed"] += 1
+                error_str = str(e)[:100]
+                stats["errors"].append({
+                    "product": product["productNumber"],
+                    "error": error_str
+                })
+                if stats["failed"] <= 10:
+                    frappe.logger().warning(
+                        f"[Orphaned Products Cleanup] Failed to delete product {product['productNumber']}: {error_str}"
+                    )
+
+            # Commit and check DB connection periodically
+            if (idx + 1) % 50 == 0:
+                _safe_commit()
+                _ensure_db_connection()
+
+        _safe_commit()
+
+        # Also delete Ecommerce Item records for deleted products
+        deleted_product_numbers = [p["productNumber"] for p in orphaned_products + orphaned_variants
+                                   if p["productNumber"] not in [e["product"] for e in stats["errors"]]]
+        if deleted_product_numbers:
+            try:
+                # Delete in batches to avoid query size limits
+                for batch_start in range(0, len(deleted_product_numbers), 100):
+                    batch = deleted_product_numbers[batch_start:batch_start + 100]
+                    frappe.db.delete("Ecommerce Item", {
+                        "integration": MODULE_NAME,
+                        "erpnext_item_code": ("in", batch)
+                    })
+                _safe_commit()
+            except Exception as e:
+                frappe.logger().warning(f"[Orphaned Products Cleanup] Failed to delete Ecommerce Items: {e}")
+                _ensure_db_connection()
+
+    # Build result
+    orphaned_list = [
+        {"productNumber": p["productNumber"], "name": (p["name"] or "")[:50], "type": "variant" if p.get("parentId") else "product"}
+        for p in (orphaned_variants + orphaned_products)[:50]
+    ]
+
+    create_shopware_log(
+        status="Success" if stats["failed"] == 0 else "Warning",
+        method="cleanup_orphaned_shopware_products",
+        message=f"Orphaned: {stats['orphaned_count']}, Deleted: {stats['deleted']}, Failed: {stats['failed']}"
+                + (" (DRY RUN)" if dry_run else "")
+    )
+
+    return {
+        "success": True,
+        "dry_run": dry_run,
+        "statistics": stats,
+        "orphaned_products": orphaned_list,
+        "message": f"Found {stats['orphaned_count']} orphaned products, deleted {stats['deleted']}"
+                   + (" (DRY RUN)" if dry_run else "")
+    }
+
+
+@frappe.whitelist()
+def enqueue_cleanup_orphaned_products(
+    dry_run: bool = False,
+    batch_size: int = 100
+) -> Dict[str, Any]:
+    """
+    Enqueue orphaned products cleanup as a background job.
+
+    Args:
+        dry_run: If True, only report what would be deleted
+        batch_size: Products per API call
+
+    Returns:
+        Job enqueue status
+    """
+    dry_run = _parse_bool(dry_run)
+    batch_size = cint(batch_size) or 100
+
+    job_name = f"shopware6_cleanup_orphaned_products_{now()}"
+
+    frappe.enqueue(
+        "ecommerce_integrations.shopware6.export.reconciliation.cleanup_orphaned_shopware_products",
+        queue="long",
+        timeout=3600,  # 1 hour
+        job_name=job_name,
+        dry_run=dry_run,
+        batch_size=batch_size
+    )
+
+    create_shopware_log(
+        status="Queued",
+        method="cleanup_orphaned_shopware_products",
+        message=f"Cleanup queued (dry_run={dry_run}, batch_size={batch_size})"
+    )
+
+    return {
+        "success": True,
+        "job_name": job_name,
+        "message": f"Orphaned products cleanup enqueued" + (" (DRY RUN)" if dry_run else "")
     }
 
 
@@ -1046,7 +1498,18 @@ def _run_batch_reconciliation(
 
         except Exception as e:
             frappe.logger().error(f"[Reconciliation] Batch {batch_num} failed: {e}")
-            frappe.db.rollback()
+            try:
+                frappe.db.rollback()
+            except Exception:
+                pass
+
+            # Reconnect to database after connection error
+            try:
+                if not frappe.db or not frappe.db.is_connected():
+                    frappe.connect()
+                    frappe.logger().info(f"[Reconciliation] Reconnected to database after batch {batch_num} failure")
+            except Exception as reconnect_error:
+                frappe.logger().error(f"[Reconciliation] Failed to reconnect: {reconnect_error}")
 
     stats["end_time"] = now()
     frappe.logger().info(

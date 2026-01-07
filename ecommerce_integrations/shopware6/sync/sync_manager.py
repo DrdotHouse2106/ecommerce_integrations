@@ -216,35 +216,47 @@ class SyncManager:
             # Phase 1: Categories
             if sync_categories:
                 self._notify("Phase 1/6: Syncing categories...")
+                self.logger.info("Full Reconciliation: Starting Phase 1 (Categories)")
                 cat_result = self._sync_all_categories(client, dry_run)
                 result.categories_synced = cat_result.get("synced", 0)
                 result.categories_created = cat_result.get("created", 0)
+                self.logger.info(f"Full Reconciliation: Phase 1 complete - synced={result.categories_synced}, created={result.categories_created}")
+            else:
+                self._notify("Phase 1/6: Skipping categories (disabled in settings)...")
+                self.logger.info("Full Reconciliation: Phase 1 (Categories) skipped per settings")
 
             # Phase 2: Products (creates/updates)
             if sync_products:
                 self._notify("Phase 2/6: Syncing products...")
+                self.logger.info("Full Reconciliation: Starting Phase 2 (Products)")
                 prod_result = self._sync_all_products(client, limit, sync_images, dry_run)
                 result.products_checked = prod_result.get("total", 0)
                 result.products_synced = prod_result.get("synced", 0)
                 result.products_in_sync = prod_result.get("in_sync", 0)
                 result.products_created = prod_result.get("created", 0)
                 result.errors.extend(prod_result.get("errors", []))
+                self.logger.info(f"Full Reconciliation: Phase 2 complete - checked={result.products_checked}, synced={result.products_synced}")
 
             # Phase 3: Variants
             if sync_variants:
                 self._notify("Phase 3/6: Syncing variants...")
+                self.logger.info("Full Reconciliation: Starting Phase 3 (Variants)")
                 var_result = self._sync_all_variants(client, dry_run)
                 result.variants_synced = var_result.get("synced", 0)
+                self.logger.info(f"Full Reconciliation: Phase 3 complete - synced={result.variants_synced}")
 
             # Phase 4: Force Price Sync
             if sync_prices:
                 self._notify("Phase 4/6: Syncing prices...")
+                self.logger.info("Full Reconciliation: Starting Phase 4 (Prices)")
                 price_result = self._force_sync_all_prices(client, limit, dry_run)
                 result.prices_synced = price_result.get("synced", 0)
                 result.prices_fixed = price_result.get("broken_fixed", 0)
+                self.logger.info(f"Full Reconciliation: Phase 4 complete - synced={result.prices_synced}, fixed={result.prices_fixed}")
 
             # Phase 5: Cleanup orphans
             self._notify("Phase 5/6: Cleaning up orphans...")
+            self.logger.info("Full Reconciliation: Starting Phase 5 (Cleanup)")
 
             if cleanup_orphan_variants and not dry_run:
                 cleanup = self._cleanup_orphan_variants(client)
@@ -257,14 +269,19 @@ class SyncManager:
             if deactivate_missing_products and not dry_run:
                 deactivated = self._deactivate_orphan_products(client)
                 result.products_deactivated = deactivated
+            
+            self.logger.info(f"Full Reconciliation: Phase 5 complete - variants_deleted={result.variants_deleted}, categories_deleted={result.categories_deleted}, products_deactivated={result.products_deactivated}")
 
             # Phase 6: Stock sync (if enabled)
             if sync_stock:
                 self._notify("Phase 6/6: Syncing stock levels...")
+                self.logger.info("Full Reconciliation: Starting Phase 6 (Stock)")
                 stock_result = self._sync_all_stock(client, limit, dry_run)
                 result.stock_adjusted = stock_result.get("adjusted", 0)
+                self.logger.info(f"Full Reconciliation: Phase 6 complete - adjusted={result.stock_adjusted}")
             else:
                 self._notify("Phase 6/6: Stock sync skipped (disabled)")
+                self.logger.info("Full Reconciliation: Phase 6 (Stock) skipped")
 
             result.completed_at = now()
             result.success = True
@@ -525,7 +542,7 @@ def full_reconciliation_no_brainer(
     THE NO-BRAINER FUNCTION.
 
     When this completes, Shopware will be 100% identical to ERPNext.
-    - All categories synced (only under category_root)
+    - All categories synced (only under category_root) - UNLESS skipped in settings
     - All products synced
     - All variants synced
     - All prices corrected (including broken 0.01€ prices)
@@ -551,16 +568,19 @@ def full_reconciliation_no_brainer(
     # Override category root if provided
     if category_root:
         manager.setting.category_sync_root = category_root
+    
+    # Check if category sync should be skipped (from settings)
+    skip_category_sync = getattr(manager.setting, 'skip_category_sync_on_full_reconciliation', False)
 
     result = manager.full_reconciliation(
-        sync_categories=True,
+        sync_categories=not skip_category_sync,  # Respect setting
         sync_products=True,
         sync_variants=True,
         sync_prices=True,
         sync_images=sync_images,
         sync_stock=sync_stock,
         cleanup_orphan_variants=True,
-        cleanup_orphan_categories=cleanup_orphan_categories,
+        cleanup_orphan_categories=cleanup_orphan_categories and not skip_category_sync,  # Don't cleanup categories if sync is skipped
         deactivate_missing_products=True,
         limit=0,  # No limit - process ALL
         dry_run=dry_run
@@ -571,11 +591,13 @@ def full_reconciliation_no_brainer(
         "summary": result.summary,
         "started_at": result.started_at,
         "completed_at": result.completed_at,
+        "category_sync_skipped": skip_category_sync,
         "statistics": {
             "categories": {
                 "synced": result.categories_synced,
                 "created": result.categories_created,
                 "deleted": result.categories_deleted,
+                "skipped": skip_category_sync,
             },
             "products": {
                 "checked": result.products_checked,

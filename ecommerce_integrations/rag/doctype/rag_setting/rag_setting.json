@@ -63,7 +63,7 @@
       "fieldtype": "Data",
       "label": "Index Name",
       "mandatory_depends_on": "eval:doc.enabled",
-      "description": "e.g. example-products"
+      "description": "e.g. products-index"
     },
     {
       "fieldname": "column_break_pc",

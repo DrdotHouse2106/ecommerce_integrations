@@ -70,8 +70,15 @@ def clear_product_configurator_settings(client, product_id: str) -> bool:
                     client.request_delete(
                         f"product/{product_id}/configurator-settings/{setting_id}"
                     )
-                except Exception as e:
-                    get_logger().error("Error occurred", persist=False)
+                except BaseException as e:
+                    # Ignore 404 errors - setting already deleted/doesn't exist
+                    # Note: ShopwareAPIError inherits from BaseException, not Exception
+                    if "404" in str(e) or "Not Found" in str(e):
+                        frappe.logger().debug(
+                            f"ConfiguratorSetting {setting_id} already deleted (404)"
+                        )
+                    else:
+                        get_logger().error(f"Error deleting configuratorSetting {setting_id}: {e}", persist=False)
 
         frappe.logger().info(
             f"Cleared {len(configurator_settings)} configuratorSettings from {product_id}"
@@ -274,7 +281,18 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
             client.request_patch(f"product/{product_id}", product_payload)
             frappe.logger().info(f"Template {template_item.item_code} updated in Shopware (categories: {len(product_payload.get('categories', []))})")
         else:
-            client.request_post("product", product_payload)
+            try:
+                client.request_post("product", product_payload)
+            except Exception as e:
+                error_str = str(e).lower()
+                # If product already exists in Shopware but not in ERPNext mapping, update instead
+                if "updatecommand" in error_str or "already exists" in error_str:
+                    get_logger().warning(f"Product {product_id} already exists in Shopware, updating instead")
+                    # Remove ID from payload for PATCH
+                    update_payload = {k: v for k, v in product_payload.items() if k != "id"}
+                    client.request_patch(f"product/{product_id}", update_payload)
+                else:
+                    raise
 
         # Create Ecommerce Item link
         if not get_shopware_document_id("Item", template_item.name):

@@ -178,8 +178,20 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
             client.request_patch(f"product/{product_id}", product_payload)
             frappe.logger().info(f"Variant {variant_item.item_code} updated in Shopware")
         else:
-            client.request_post("product", product_payload)
-            frappe.logger().info(f"Variant {variant_item.item_code} created in Shopware")
+            try:
+                client.request_post("product", product_payload)
+                frappe.logger().info(f"Variant {variant_item.item_code} created in Shopware")
+            except Exception as e:
+                error_str = str(e).lower()
+                # If product already exists in Shopware but not in ERPNext mapping, update instead
+                if "updatecommand" in error_str or "already exists" in error_str:
+                    get_logger().warning(f"Variant {product_id} already exists in Shopware, updating instead")
+                    # Remove ID from payload for PATCH
+                    update_payload = {k: v for k, v in product_payload.items() if k != "id"}
+                    client.request_patch(f"product/{product_id}", update_payload)
+                    frappe.logger().info(f"Variant {variant_item.item_code} updated in Shopware")
+                else:
+                    raise
 
         # Create Ecommerce Item link
         if not get_shopware_document_id("Item", variant_item.name):

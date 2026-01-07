@@ -14,6 +14,7 @@ from ecommerce_integrations.shopware6.constants import ITEM_SELLING_RATE_FIELD
 # Note: Internal functions - client is passed from caller
 from ecommerce_integrations.shopware6.base.cache_manager import get_cache
 from ecommerce_integrations.shopware6.export.utils import generate_uuid
+from ecommerce_integrations.shopware6.utils import get_logger
 
 
 def get_tax_id_by_rate(client, tax_rate: float = 19.0) -> Optional[str]:
