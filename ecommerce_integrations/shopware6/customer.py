@@ -832,6 +832,8 @@ def sync_customer_from_webhook(payload: Dict[str, Any], request_id: str = None):
         payload: Webhook payload from Shopware
         request_id: Log entry ID for tracking
     """
+    logger = get_logger("sync_customer_from_webhook")
+    
     try:
         # Support multiple payload formats
         customer_id = payload.get("primaryKey") or payload.get("id")
@@ -842,6 +844,14 @@ def sync_customer_from_webhook(payload: Dict[str, Any], request_id: str = None):
             # Custom webhook format from ERPNextWebhookSubscriber
             data = payload.get("data", {})
             customer_id = data.get("customerId")
+            
+            # Check if this is a login event with null email - these can be skipped
+            email = data.get("email")
+            if customer_id and email is None:
+                logger.info(f"Skipping customer sync for {customer_id} - login event with null email (likely guest or incomplete registration)")
+                if request_id:
+                    update_shopware_log(request_id, status="Skipped", message=f"Customer {customer_id} - login event with null email")
+                return
 
         if customer_id:
             sync_customer_by_id(customer_id)
@@ -853,6 +863,7 @@ def sync_customer_from_webhook(payload: Dict[str, Any], request_id: str = None):
                 update_shopware_log(request_id, status="Error", message="No customer ID in webhook payload")
 
     except Exception as e:
+        logger.error(f"Failed to sync customer from webhook", exception=e, persist=False)
         if request_id:
             update_shopware_log(request_id, status="Error", exception=str(e))
         raise
@@ -870,6 +881,8 @@ def sync_customer_by_id(client: Shopware6AdminAPIClientBase, customer_id: str) -
     Returns:
         ERPNext Customer name if synced
     """
+    logger = get_logger("sync_customer_by_id")
+    
     criteria = Criteria(ids=[customer_id])
     criteria.associations["salutation"] = Criteria()
     criteria.associations["defaultBillingAddress"] = Criteria()
@@ -883,9 +896,15 @@ def sync_customer_by_id(client: Shopware6AdminAPIClientBase, customer_id: str) -
     customers = response.get("data", [])
 
     if not customers:
+        logger.info(f"Customer {customer_id} not found in Shopware (may have been deleted)")
         return None
 
     customer_data = customers[0]
+    
+    # Log if email is missing for debugging
+    if not customer_data.get("email"):
+        logger.warning(f"Customer {customer_id} has no email address - will use fallback naming")
+    
     return create_customer_from_shopware_data(customer_data)
 
 
