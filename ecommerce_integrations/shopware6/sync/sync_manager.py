@@ -497,13 +497,6 @@ class SyncManager:
                 )
 
         return stats
-                self.logger.error(
-                    f"Variant sync failed for {template.erpnext_item_code}",
-                    exception=e,
-                    persist=False
-                )
-
-        return stats
 
     def _force_sync_all_prices(
         self,
