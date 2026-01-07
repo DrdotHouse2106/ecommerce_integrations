@@ -360,18 +360,15 @@ class SyncManager:
             for item_data in batch:
                 try:
                     if not dry_run:
-                        result = upload_erpnext_item_to_shopware(
-                            item_data.erpnext_item_code,
-                            sync_images=sync_images
-                        )
-                        if result.get("success"):
+                        result = upload_erpnext_item_to_shopware(item_data.erpnext_item_code)
+                        if result:  # Returns Shopware ID on success, None on failure
                             batch_success += 1
                             stats["synced"] += 1
                         else:
                             batch_errors += 1
                             stats["errors"] += 1
                             # Log individual error
-                            error_msg = f"Failed to sync {item_data.erpnext_item_code}: {result.get('message', 'Unknown error')}"
+                            error_msg = f"Failed to sync {item_data.erpnext_item_code}"
                             stats["error_details"].append(error_msg)
                             self.logger.error(error_msg)
                             
@@ -391,7 +388,7 @@ class SyncManager:
                     stats["errors"] += 1
                     error_msg = f"Exception syncing {item_data.erpnext_item_code}: {str(e)}"
                     stats["error_details"].append(error_msg)
-                    self.logger.error(error_msg, exc_info=True)
+                    self.logger.error(error_msg, exception=e, persist=False)
                     
                     # Create individual error log in DB
                     create_shopware_log(
