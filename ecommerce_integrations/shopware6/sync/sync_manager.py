@@ -322,26 +322,120 @@ class SyncManager:
         sync_images: bool,
         dry_run: bool
     ) -> Dict[str, Any]:
-        """Sync all products from ERPNext to Shopware."""
-        from ecommerce_integrations.shopware6.export.reconciliation import (
-            reconcile_erpnext_with_shopware
+        """Sync all products from ERPNext to Shopware with batch logging."""
+        from ecommerce_integrations.shopware6.export.product_uploader import upload_erpnext_item_to_shopware
+        
+        stats = {
+            "total": 0,
+            "synced": 0,
+            "in_sync": 0,
+            "created": 0,
+            "errors": 0,
+            "error_details": []
+        }
+        
+        # Get all linked items
+        ecom_items = frappe.get_all(
+            "Ecommerce Item",
+            filters={"integration": MODULE_NAME},
+            fields=["erpnext_item_code", "integration_item_code", "has_variants"],
+            limit=limit if limit > 0 else 0
         )
-
-        return reconcile_erpnext_with_shopware(
-            limit=limit if limit > 0 else 10000,
-            dry_run=dry_run,
-            sync_images=sync_images,
-            include_unlinked=True,  # Also sync products not yet in Shopware
-            compare_categories=True
-        )
+        
+        stats["total"] = len(ecom_items)
+        batch_size = 50
+        batch_num = 0
+        
+        self.logger.info(f"Starting product sync: {stats['total']} products")
+        
+        for i in range(0, len(ecom_items), batch_size):
+            batch = ecom_items[i:i + batch_size]
+            batch_num += 1
+            batch_success = 0
+            batch_errors = 0
+            batch_start_time = frappe.utils.now()
+            
+            self.logger.info(f"Processing batch {batch_num}/{(len(ecom_items) + batch_size - 1) // batch_size}: Items {i+1}-{min(i+batch_size, len(ecom_items))}")
+            
+            for item_data in batch:
+                try:
+                    if not dry_run:
+                        result = upload_erpnext_item_to_shopware(
+                            item_data.erpnext_item_code,
+                            sync_images=sync_images
+                        )
+                        if result.get("success"):
+                            batch_success += 1
+                            stats["synced"] += 1
+                        else:
+                            batch_errors += 1
+                            stats["errors"] += 1
+                            # Log individual error
+                            error_msg = f"Failed to sync {item_data.erpnext_item_code}: {result.get('message', 'Unknown error')}"
+                            stats["error_details"].append(error_msg)
+                            self.logger.error(error_msg)
+                            
+                            # Create individual error log in DB
+                            create_shopware_log(
+                                status="Error",
+                                method="SyncManager._sync_all_products",
+                                message=error_msg,
+                                request_data={"item_code": item_data.erpnext_item_code}
+                            )
+                    else:
+                        batch_success += 1
+                        stats["synced"] += 1
+                        
+                except Exception as e:
+                    batch_errors += 1
+                    stats["errors"] += 1
+                    error_msg = f"Exception syncing {item_data.erpnext_item_code}: {str(e)}"
+                    stats["error_details"].append(error_msg)
+                    self.logger.error(error_msg, exc_info=True)
+                    
+                    # Create individual error log in DB
+                    create_shopware_log(
+                        status="Error",
+                        method="SyncManager._sync_all_products",
+                        message=error_msg,
+                        request_data={"item_code": item_data.erpnext_item_code},
+                        traceback=frappe.get_traceback()
+                    )
+            
+            # Create batch summary log in DB
+            batch_summary = f"Batch {batch_num}: Processed {len(batch)} items - Success: {batch_success}, Errors: {batch_errors}"
+            self.logger.info(batch_summary)
+            
+            if not dry_run:
+                create_shopware_log(
+                    status="Success" if batch_errors == 0 else "Partial Success",
+                    method="SyncManager._sync_all_products.batch",
+                    message=batch_summary,
+                    request_data={
+                        "batch_num": batch_num,
+                        "batch_size": len(batch),
+                        "success": batch_success,
+                        "errors": batch_errors,
+                        "items": [item.erpnext_item_code for item in batch]
+                    }
+                )
+            
+            # Ensure DB connection after each batch
+            try:
+                if not frappe.db or not frappe.db.is_connected():
+                    frappe.connect()
+            except Exception:
+                pass
+        
+        return stats
 
     def _sync_all_variants(self, client, dry_run: bool) -> Dict[str, Any]:
-        """Sync all variant products."""
+        """Sync all variant products with batch logging."""
         from ecommerce_integrations.shopware6.export.template_handler import (
             upload_template_item_to_shopware
         )
 
-        stats = {"synced": 0, "errors": 0}
+        stats = {"synced": 0, "errors": 0, "error_details": []}
 
         # Get all template items
         template_items = frappe.get_all(
@@ -349,15 +443,60 @@ class SyncManager:
             filters={"integration": MODULE_NAME, "has_variants": 1},
             fields=["erpnext_item_code", "integration_item_code"]
         )
+        
+        batch_size = 10
+        batch_num = 0
+        
+        self.logger.info(f"Starting variant sync: {len(template_items)} templates")
 
-        for template in template_items:
-            try:
-                if not dry_run:
-                    item = frappe.get_doc("Item", template.erpnext_item_code)
-                    upload_template_item_to_shopware(client, item)
-                stats["synced"] += 1
-            except Exception as e:
-                stats["errors"] += 1
+        for i in range(0, len(template_items), batch_size):
+            batch = template_items[i:i + batch_size]
+            batch_num += 1
+            batch_success = 0
+            batch_errors = 0
+            
+            self.logger.info(f"Processing variant batch {batch_num}: Templates {i+1}-{min(i+batch_size, len(template_items))}")
+            
+            for template in batch:
+                try:
+                    if not dry_run:
+                        item = frappe.get_doc("Item", template.erpnext_item_code)
+                        upload_template_item_to_shopware(client, item)
+                    batch_success += 1
+                    stats["synced"] += 1
+                except Exception as e:
+                    batch_errors += 1
+                    stats["errors"] += 1
+                    error_msg = f"Failed to sync template {template.erpnext_item_code}: {str(e)}"
+                    stats["error_details"].append(error_msg)
+                    self.logger.error(error_msg, exc_info=True)
+                    
+                    # Individual error log
+                    if not dry_run:
+                        create_shopware_log(
+                            status="Error",
+                            method="SyncManager._sync_all_variants",
+                            message=error_msg,
+                            request_data={"template": template.erpnext_item_code},
+                            traceback=frappe.get_traceback()
+                        )
+            
+            # Batch summary log
+            if not dry_run:
+                batch_summary = f"Variant Batch {batch_num}: {batch_success} success, {batch_errors} errors"
+                self.logger.info(batch_summary)
+                create_shopware_log(
+                    status="Success" if batch_errors == 0 else "Partial Success",
+                    method="SyncManager._sync_all_variants.batch",
+                    message=batch_summary,
+                    request_data={
+                        "batch_num": batch_num,
+                        "success": batch_success,
+                        "errors": batch_errors
+                    }
+                )
+
+        return stats
                 self.logger.error(
                     f"Variant sync failed for {template.erpnext_item_code}",
                     exception=e,
@@ -390,7 +529,7 @@ class SyncManager:
             cleanup_orphaned_variants
         )
 
-        stats = {"deleted": 0, "errors": 0}
+        stats = {"deleted": 0, "errors": 0, "error_details": []}
 
         # Get all template items
         template_items = frappe.get_all(
@@ -398,17 +537,38 @@ class SyncManager:
             filters={"integration": MODULE_NAME, "has_variants": 1},
             fields=["erpnext_item_code", "integration_item_code"]
         )
-
-        for template in template_items:
-            try:
-                result = cleanup_orphaned_variants(
-                    client,
-                    template.erpnext_item_code,
-                    template.integration_item_code
-                )
-                stats["deleted"] += result.get("deleted", 0)
-            except Exception as e:
-                stats["errors"] += 1
+        
+        self.logger.info(f"Cleaning up orphaned variants for {len(template_items)} templates")
+        
+        batch_size = 20
+        for i in range(0, len(template_items), batch_size):
+            batch = template_items[i:i + batch_size]
+            batch_deleted = 0
+            batch_errors = 0
+            
+            for template in batch:
+                try:
+                    result = cleanup_orphaned_variants(
+                        client,
+                        template.erpnext_item_code,
+                        template.integration_item_code
+                    )
+                    deleted_count = result.get("deleted", 0)
+                    batch_deleted += deleted_count
+                    stats["deleted"] += deleted_count
+                    
+                    if deleted_count > 0:
+                        self.logger.info(f"Deleted {deleted_count} orphaned variants from template {template.erpnext_item_code}")
+                        
+                except Exception as e:
+                    batch_errors += 1
+                    stats["errors"] += 1
+                    error_msg = f"Failed to cleanup variants for {template.erpnext_item_code}: {str(e)}"
+                    stats["error_details"].append(error_msg)
+                    self.logger.error(error_msg)
+            
+            if batch_deleted > 0 or batch_errors > 0:
+                self.logger.info(f"Variant cleanup batch: {batch_deleted} deleted, {batch_errors} errors")
 
         return stats
 
