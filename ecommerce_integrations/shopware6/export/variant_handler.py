@@ -226,7 +226,7 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
             method="upload_variant_item_to_shopware",
             rollback=True
         )
-        get_logger().error("Shopware variant upload failed for {variant_item.name}", persist=False)
+        get_logger().error(f"Shopware variant upload failed for {variant_item.name}: {e}", persist=False)
         return None
 
 

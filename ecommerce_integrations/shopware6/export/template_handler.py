@@ -38,6 +38,68 @@ from ecommerce_integrations.shopware6.export.property_handler import (
 from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
 
 
+def _delete_and_recreate_product(client, product_id: str, product_payload: dict, item_code: str) -> None:
+    """
+    Delete a corrupted product in Shopware and recreate it.
+
+    This is a workaround for the Shopware VariantListingUpdater bug that causes
+    "Cardinality violation: 1242 Subquery returns more than 1 row" errors
+    when updating products with corrupted variant option data.
+
+    Args:
+        client: Shopware API client
+        product_id: Shopware product UUID to delete and recreate
+        product_payload: The product payload to create
+        item_code: ERPNext item code for logging
+    """
+    import time
+
+    # Step 1: Delete all variants first (required before deleting parent)
+    try:
+        variants_response = client.request_post("search/product", {
+            "filter": [{"type": "equals", "field": "parentId", "value": product_id}],
+            "limit": 500
+        })
+        variants = variants_response.get("data", [])
+        for variant in variants:
+            try:
+                client.request_delete(f"product/{variant['id']}")
+            except Exception:
+                pass
+        if variants:
+            frappe.logger().info(f"Deleted {len(variants)} variants of {item_code}")
+    except Exception as e:
+        frappe.logger().warning(f"Could not delete variants for {item_code}: {e}")
+
+    # Step 2: Delete the parent product
+    try:
+        client.request_delete(f"product/{product_id}")
+        frappe.logger().info(f"Deleted corrupted product {item_code} ({product_id})")
+    except Exception as e:
+        frappe.logger().error(f"Could not delete product {item_code}: {e}")
+        raise
+
+    # Step 3: Wait a moment for Shopware to process
+    time.sleep(0.5)
+
+    # Step 4: Recreate the product with visibilities
+    # Make sure visibilities are included for new product
+    if "visibilities" not in product_payload:
+        sales_channel_id = get_cached_sales_channel_id(client)
+        if sales_channel_id:
+            product_payload["visibilities"] = [{
+                "salesChannelId": sales_channel_id,
+                "visibility": 30
+            }]
+
+    try:
+        client.request_post("product", product_payload)
+        frappe.logger().info(f"Recreated product {item_code} ({product_id})")
+    except Exception as e:
+        frappe.logger().error(f"Could not recreate product {item_code}: {e}")
+        raise
+
+
 def clear_product_configurator_settings(client, product_id: str) -> bool:
     """
     Clear all configuratorSettings from a template product in Shopware.
@@ -321,8 +383,21 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
             except Exception as e:
                 frappe.logger().warning(f"Could not clear advanced prices for {product_id}: {e}")
             # Update product
-            client.request_patch(f"product/{product_id}", product_payload)
-            frappe.logger().info(f"Template {template_item.item_code} updated in Shopware (categories: {len(product_payload.get('categories', []))})")
+            try:
+                client.request_patch(f"product/{product_id}", product_payload)
+                frappe.logger().info(f"Template {template_item.item_code} updated in Shopware (categories: {len(product_payload.get('categories', []))})")
+            except BaseException as patch_error:
+                # Note: ShopwareAPIError inherits from BaseException, not Exception!
+                error_str = str(patch_error)
+                # Handle Shopware VariantListingUpdater bug (Cardinality violation 1242)
+                if "1242" in error_str and "Cardinality" in error_str:
+                    frappe.logger().warning(
+                        f"Cardinality violation for {template_item.item_code} - deleting and recreating product"
+                    )
+                    # Delete corrupted product and recreate
+                    _delete_and_recreate_product(client, product_id, product_payload, template_item.item_code)
+                else:
+                    raise
         else:
             try:
                 client.request_post("product", product_payload)
@@ -369,7 +444,7 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
             method="upload_template_item_to_shopware",
             rollback=True
         )
-        get_logger().error("Shopware template upload failed for {template_item.name}", persist=False)
+        get_logger().error(f"Shopware template upload failed for {template_item.name}: {e}", persist=False)
         return None
 
 
@@ -440,7 +515,7 @@ def cleanup_orphaned_variants(client, template_item_code: str, parent_shopware_i
 
     except Exception as e:
         stats["errors"].append({"error": str(e)[:200]})
-        get_logger().error("Variant cleanup failed for {template_item_code}", persist=False)
+        get_logger().error(f"Variant cleanup failed for {template_item_code}: {e}", persist=False)
 
     return stats
 

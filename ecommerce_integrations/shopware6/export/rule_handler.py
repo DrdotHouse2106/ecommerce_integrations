@@ -188,5 +188,5 @@ def delete_sales_channel_rule(client, rule_id: str) -> bool:
         client.request_delete(f"rule/{rule_id}")
         return True
     except Exception as e:
-        get_logger().error("Failed to delete rule {rule_id}", persist=False)
+        get_logger().error(f"Failed to delete rule {rule_id}: {e}", persist=False)
         return False

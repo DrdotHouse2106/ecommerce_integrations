@@ -524,3 +524,64 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> b
     except Exception as e:
         get_logger().error(f"Failed to sync images for {item.name}: {str(e)}", persist=False)
         return False
+
+
+def batch_sync_images(item_codes: list) -> dict:
+    """
+    Batch sync images for multiple items to Shopware.
+
+    Args:
+        item_codes: List of ERPNext item codes to sync images for
+
+    Returns:
+        Dict with sync statistics
+    """
+    from ecommerce_integrations.shopware6.connection import get_shopware_client
+    from ecommerce_integrations.shopware6.export.utils import get_shopware_document_id
+    from ecommerce_integrations.shopware6.utils import get_logger
+
+    logger = get_logger("ImageSync")
+    result = {"success": 0, "failed": 0, "skipped": 0, "errors": []}
+
+    client = get_shopware_client()
+    if not client:
+        result["errors"].append("Could not get Shopware client")
+        return result
+
+    total = len(item_codes)
+    logger.info(f"Starting batch image sync for {total} items", persist=True)
+
+    for i, item_code in enumerate(item_codes, 1):
+        try:
+            shopware_id = get_shopware_document_id("Item", item_code)
+            if not shopware_id:
+                result["skipped"] += 1
+                continue
+
+            item = frappe.get_doc("Item", item_code)
+            success = sync_product_images_to_shopware(client, item, shopware_id)
+
+            if success:
+                result["success"] += 1
+            else:
+                result["failed"] += 1
+
+        except Exception as e:
+            result["failed"] += 1
+            if len(result["errors"]) < 50:
+                result["errors"].append(f"{item_code}: {str(e)[:80]}")
+
+        # Progress log every 100 items - persist to Ecommerce Integration Log for UI visibility
+        if i % 100 == 0:
+            logger.info(
+                f"Image Sync Progress: {i}/{total} items - "
+                f"{result['success']} success, {result['failed']} failed, {result['skipped']} skipped",
+                persist=True
+            )
+            frappe.db.commit()  # Ensure logs are visible immediately
+
+    logger.info(
+        f"Image Sync Complete: {result['success']} success, {result['failed']} failed, {result['skipped']} skipped",
+        persist=True
+    )
+    return result

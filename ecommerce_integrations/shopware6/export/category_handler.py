@@ -240,11 +240,11 @@ def get_or_create_media_folder(client, folder_name: str) -> Optional[str]:
                     folder_id = folders[0]["id"]
                     cache.set("media_folder", cache_key, folder_id)
                     return folder_id
-            get_logger().error("Failed to create media folder '{folder_name}'", persist=False)
+            get_logger().error(f"Failed to create media folder '{folder_name}'", persist=False)
             return None
 
     except BaseException as e:
-        get_logger().error("Failed to get or create media folder '{folder_name}'", persist=False)
+        get_logger().error(f"Failed to get or create media folder '{folder_name}': {e}", persist=False)
         return None
 
 
@@ -305,7 +305,7 @@ def get_image_content_and_filename(image_path: str) -> tuple:
         return image_content, filename_without_ext, ext
 
     except Exception as e:
-        get_logger().error("Failed to get image content from {image_path}", persist=False)
+        get_logger().error(f"Failed to get image content from {image_path}: {e}", persist=False)
         return None, None, None
 
 
@@ -478,7 +478,7 @@ def get_or_create_category(
         return cat_id
 
     except BaseException as e:
-        get_logger().error("Failed to get/create Category {category_name}", persist=False)
+        get_logger().error(f"Failed to get/create Category {category_name}: {e}", persist=False)
         return None
 
 
@@ -584,7 +584,7 @@ def get_all_item_categories(item_code: str, include_variant_categories: bool = T
                                 categories.append(vg.item_group)
 
     except Exception as e:
-        get_logger().error("Error getting categories for {item_code}", persist=False)
+        get_logger().error(f"Error getting categories for {item_code}: {e}", persist=False)
 
     return categories
 
@@ -611,7 +611,7 @@ def sync_all_item_categories(client, item_code: str) -> List[Dict[str, str]]:
                 seen_ids.add(category_id)
                 category_ids.append({"id": category_id})
         except Exception as e:
-            get_logger().error("Error syncing category {item_group_name} for {item_code}", persist=False)
+            get_logger().error(f"Error syncing category {item_group_name} for {item_code}: {e}", persist=False)
 
     return category_ids
 
@@ -620,8 +620,11 @@ def clear_product_categories(client, product_id: str) -> bool:
     """
     Clear all category assignments from a product in Shopware.
 
-    Uses the sync endpoint to properly delete product-category associations,
-    which is more reliable than individual DELETE requests.
+    Uses Shopware Sync API with criteria-based delete which is:
+    - Faster than individual DELETE requests
+    - More reliable than payload-based delete (avoids Cardinality violation 1242)
+
+    Reference: https://forum.shopware.com/t/produkt-kategoriezuweiesung-ueber-api-loeschen/99563
 
     Args:
         client: Shopware API client
@@ -631,6 +634,38 @@ def clear_product_categories(client, product_id: str) -> bool:
         True if successful
     """
     try:
+        # Use criteria-based delete - deletes all product_category entries for this product
+        # This avoids the "Cardinality violation 1242" SQL error that happens with payload-based delete
+        sync_payload = {
+            "clear-product-categories": {
+                "entity": "product_category",
+                "action": "delete",
+                "criteria": [
+                    {
+                        "type": "equals",
+                        "field": "productId",
+                        "value": product_id
+                    }
+                ]
+            }
+        }
+
+        result = client.request_post("_action/sync", sync_payload)
+        frappe.logger().debug(f"Cleared categories from product {product_id}")
+        return True
+
+    except Exception as e:
+        error_str = str(e)
+        # If criteria-based delete fails, fall back to individual deletes
+        if "404" not in error_str and "not found" not in error_str.lower():
+            frappe.logger().warning(f"Criteria-based category clear failed for {product_id}, trying fallback: {e}")
+            return _clear_product_categories_fallback(client, product_id)
+        return True
+
+
+def _clear_product_categories_fallback(client, product_id: str) -> bool:
+    """Fallback: Clear categories using individual DELETE requests."""
+    try:
         response = client.request_get(f"product/{product_id}?associations[categories][]=")
         product_data = response.get("data", {})
         categories = product_data.get("categories", [])
@@ -638,44 +673,17 @@ def clear_product_categories(client, product_id: str) -> bool:
         if not categories:
             return True
 
-        # Build delete operations for sync endpoint
-        # Shopware 6 product_category uses composite key: productId + categoryId
-        delete_operations = []
         for cat in categories:
             cat_id = cat.get("id")
             if cat_id:
-                delete_operations.append({
-                    "productId": product_id,
-                    "categoryId": cat_id
-                })
-
-        if delete_operations:
-            # Use sync endpoint with delete action for product_category
-            sync_payload = {
-                "delete-product_category": {
-                    "entity": "product_category",
-                    "action": "delete",
-                    "payload": delete_operations
-                }
-            }
-            try:
-                result = client.request_post("_action/sync", sync_payload)
-                # Log success for debugging
-                frappe.logger().info(f"Cleared {len(delete_operations)} categories from product {product_id}")
-            except Exception as e:
-                # Fallback: try individual deletes with logging
-                get_logger().error("Sync delete failed for product {product_id}, trying individual deletes", persist=False)
-                for cat in categories:
-                    cat_id = cat.get("id")
-                    if cat_id:
-                        try:
-                            client.request_delete(f"product/{product_id}/categories/{cat_id}")
-                        except Exception as del_err:
-                            get_logger().error("Failed to delete category {cat_id} from product {product_id}", persist=False)
+                try:
+                    client.request_delete(f"product/{product_id}/categories/{cat_id}")
+                except Exception:
+                    pass  # Ignore individual delete errors
 
         return True
     except Exception as e:
-        get_logger().error("Error clearing categories for product {product_id}", persist=False)
+        frappe.logger().error(f"Fallback category clear failed for {product_id}: {e}")
         return False
 
 
@@ -913,7 +921,7 @@ def force_resync_category_image(client, item_group_name: str) -> bool:
         return True
 
     except Exception as e:
-        get_logger().error("Error force resyncing category image for {item_group_name}", persist=False)
+        get_logger().error(f"Error force resyncing category image for {item_group_name}: {e}", persist=False)
         return False
 
 
@@ -953,9 +961,9 @@ def sync_item_group_to_shopware(client, item_group_name: str) -> bool:
             )
             return True
         else:
-            get_logger().error("Failed to sync Item Group '{item_group_name}' to Shopware", persist=False)
+            get_logger().error(f"Failed to sync Item Group '{item_group_name}' to Shopware", persist=False)
             return False
 
     except Exception as e:
-        get_logger().error("Error syncing Item Group '{item_group_name}'", persist=False)
+        get_logger().error(f"Error syncing Item Group '{item_group_name}': {e}", persist=False)
         return False

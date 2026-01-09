@@ -334,7 +334,7 @@ def _handle_invoice_email(customer: str, invoice_email: str, order_data: Dict[st
         if frappe.db.has_column("Customer", "invoice_email"):
             frappe.db.set_value("Customer", customer, "invoice_email", invoice_email)
     except Exception as e:
-        get_logger().error("Failed to create/update billing contact for {customer}: {e}", persist=True)
+        get_logger().error(f"Failed to create/update billing contact for {customer}: {e}", persist=True)
 
 
 def _create_delivery_note_if_shipped(
@@ -507,7 +507,7 @@ def update_order_custom_fields(
                 update_shopware_log(request_id, status="Skipped", message=f"No custom field updates for {sales_order_name}")
 
     except Exception as e:
-        get_logger().error("Failed to update custom fields for {sales_order_name}: {e}", persist=True)
+        get_logger().error(f"Failed to update custom fields for {sales_order_name}: {e}", persist=True)
         if request_id:
             update_shopware_log(request_id, status="Error", exception=str(e))
 
@@ -568,7 +568,7 @@ def update_order_status(payload: Dict[str, Any], request_id: str = None):
                                 try:
                                     create_sales_invoice(sales_order, {"id": order_id}, setting)
                                 except Exception as e:
-                                    get_logger().error("Failed to create invoice for {sales_order} after payment: {e}", persist=True)
+                                    get_logger().error(f"Failed to create invoice for {sales_order} after payment: {e}", persist=True)
 
                 if request_id:
                     update_shopware_log(

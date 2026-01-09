@@ -462,9 +462,9 @@ def sync_item_if_changed(item_code: str, force: bool = False) -> dict:
 
 def batch_sync_if_changed(item_codes: list, force: bool = False) -> dict:
     """
-    Batch idempotent sync for multiple items.
+    Batch idempotent sync for multiple items using Batch API.
 
-    Uses parallel API calls where possible to improve performance.
+    Uses BatchProductUploader for high-performance bulk operations.
 
     Args:
         item_codes: List of ERPNext Item codes
@@ -474,6 +474,7 @@ def batch_sync_if_changed(item_codes: list, force: bool = False) -> dict:
         dict with statistics and details
     """
     from ecommerce_integrations.shopware6.connection import get_shopware_client
+    from ecommerce_integrations.shopware6.export.batch_uploader import BatchProductUploader
     from ecommerce_integrations.shopware6.export.reconciliation import (
         get_shopware_products_batch,
         compare_item_with_shopware,
@@ -489,7 +490,10 @@ def batch_sync_if_changed(item_codes: list, force: bool = False) -> dict:
         "details": [],
     }
 
-    # Split into existing and new items
+    if not item_codes:
+        return stats
+
+    # Split into existing and new items, and by type (template/variant/simple)
     existing_items = []
     new_items = []
 
@@ -500,55 +504,98 @@ def batch_sync_if_changed(item_codes: list, force: bool = False) -> dict:
         else:
             new_items.append(item_code)
 
-    # Fetch current state for existing items in batch
-    client = get_shopware_client()
-    shopware_ids = [item["shopware_id"] for item in existing_items]
-    shopware_products = get_shopware_products_batch(client, shopware_ids, include_categories=True)
+    # Items that need sync
+    items_to_sync = []
 
-    # Process existing items
-    for item_data in existing_items:
-        item_code = item_data["item_code"]
-        shopware_id = item_data["shopware_id"]
+    # If force mode, sync all existing items
+    if force:
+        items_to_sync = [item["item_code"] for item in existing_items]
+    else:
+        # Fetch current state for existing items in batch and compare
+        client = get_shopware_client()
+        shopware_ids = [item["shopware_id"] for item in existing_items]
+        shopware_products = get_shopware_products_batch(client, shopware_ids, include_categories=True)
 
+        for item_data in existing_items:
+            item_code = item_data["item_code"]
+            shopware_id = item_data["shopware_id"]
+
+            try:
+                item = frappe.get_doc("Item", item_code)
+                shopware_data = shopware_products.get(shopware_id)
+
+                if not shopware_data:
+                    # Product missing in Shopware - needs sync
+                    items_to_sync.append(item_code)
+                    continue
+
+                comparison = compare_item_with_shopware(item, shopware_data, compare_categories=True)
+
+                if comparison.get("needs_sync"):
+                    items_to_sync.append(item_code)
+                    stats["details"].append({
+                        "item_code": item_code,
+                        "action": "needs_update",
+                        "differences": comparison.get("differences", [])
+                    })
+                else:
+                    stats["in_sync"] += 1
+
+            except Exception as e:
+                stats["failed"] += 1
+                stats["details"].append({"item_code": item_code, "action": "error", "error": str(e)[:100]})
+
+    # Combine items to sync (existing that need update + new items)
+    all_items_to_sync = items_to_sync + new_items
+
+    if not all_items_to_sync:
+        return stats
+
+    # Categorize items by type for BatchProductUploader
+    templates = []
+    variants = []
+    simple_items = []
+
+    for item_code in all_items_to_sync:
         try:
-            item = frappe.get_doc("Item", item_code)
-            shopware_data = shopware_products.get(shopware_id)
-
-            if not shopware_data:
-                # Product missing in Shopware - recreate
-                uploader = ShopwareProductUploader(item_code)
-                uploader.upload()
-                stats["created"] += 1
-                stats["details"].append({"item_code": item_code, "action": "recreated"})
-                continue
-
-            comparison = compare_item_with_shopware(item, shopware_data, compare_categories=True)
-
-            if force or comparison.get("needs_sync"):
-                uploader = ShopwareProductUploader(item_code, shopware_id)
-                uploader.upload()
-                stats["synced"] += 1
-                stats["details"].append({
-                    "item_code": item_code,
-                    "action": "updated",
-                    "differences": comparison.get("differences", [])
-                })
+            item = frappe.get_cached_doc("Item", item_code)
+            if item.has_variants:
+                templates.append(item_code)
+            elif item.variant_of:
+                variants.append(item_code)
             else:
-                stats["in_sync"] += 1
+                simple_items.append(item_code)
+        except Exception:
+            simple_items.append(item_code)  # Fallback
 
-        except Exception as e:
-            stats["failed"] += 1
-            stats["details"].append({"item_code": item_code, "action": "error", "error": str(e)[:100]})
+    # Use BatchProductUploader for bulk operations
+    uploader = BatchProductUploader()
 
-    # Process new items
-    for item_code in new_items:
-        try:
-            uploader = ShopwareProductUploader(item_code)
-            uploader.upload()
-            stats["created"] += 1
-            stats["details"].append({"item_code": item_code, "action": "created"})
-        except Exception as e:
-            stats["failed"] += 1
-            stats["details"].append({"item_code": item_code, "action": "error", "error": str(e)[:100]})
+    # Sync templates first
+    if templates:
+        result = uploader.upload_templates(templates, skip_images=True)
+        stats["synced"] += result.success
+        stats["created"] += len(result.created_ids)
+        stats["failed"] += result.failed
+        for err in result.errors:
+            stats["details"].append({"item_code": err.get("item_code", "?"), "action": "error", "error": err.get("error", "")[:100]})
+
+    # Then simple items
+    if simple_items:
+        result = uploader.upload_items(simple_items, skip_images=True)
+        stats["synced"] += result.success
+        stats["created"] += len(result.created_ids)
+        stats["failed"] += result.failed
+        for err in result.errors:
+            stats["details"].append({"item_code": err.get("item_code", "?"), "action": "error", "error": err.get("error", "")[:100]})
+
+    # Finally variants
+    if variants:
+        result = uploader.upload_variants(variants, skip_images=True)
+        stats["synced"] += result.success
+        stats["created"] += len(result.created_ids)
+        stats["failed"] += result.failed
+        for err in result.errors:
+            stats["details"].append({"item_code": err.get("item_code", "?"), "action": "error", "error": err.get("error", "")[:100]})
 
     return stats

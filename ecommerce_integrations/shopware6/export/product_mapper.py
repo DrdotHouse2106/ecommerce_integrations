@@ -73,7 +73,7 @@ def get_tax_id_by_rate(client, tax_rate: float = 19.0) -> Optional[str]:
         return None
 
     except Exception as e:
-        get_logger().error("Failed to get tax ID for rate {tax_rate}%", persist=False)
+        get_logger().error(f"Failed to get tax ID for rate {tax_rate}%: {e}", persist=True)
         return None
 
 
@@ -146,7 +146,7 @@ def get_or_create_delivery_time(client, delivery_time_name: str) -> Optional[str
         return dt_id
 
     except Exception as e:
-        get_logger().error("Failed to get/create DeliveryTime {delivery_time_name}", persist=False)
+        get_logger().error(f"Failed to get/create DeliveryTime {delivery_time_name}: {e}", persist=True)
         return None
 
 
@@ -187,7 +187,7 @@ def get_or_create_manufacturer(client, manufacturer_name: str) -> Optional[str]:
         return mfr_id
 
     except Exception as e:
-        get_logger().error("Failed to get/create Manufacturer {manufacturer_name}", persist=False)
+        get_logger().error(f"Failed to get/create Manufacturer {manufacturer_name}: {e}", persist=True)
         return None
 
 
@@ -218,7 +218,7 @@ def get_cached_currency_id(client, currency_code: str = "EUR") -> Optional[str]:
             cache.set_currency_id(currency_code, currency_id)
             return currency_id
     except Exception as e:
-        get_logger().error("Failed to get currency ID for {currency_code}", persist=False)
+        get_logger().error(f"Failed to get currency ID for {currency_code}: {e}", persist=True)
 
     return None
 
@@ -246,7 +246,7 @@ def get_cached_sales_channel_id(client) -> Optional[str]:
             cache.set_sales_channel_id(sc_id)
             return sc_id
     except Exception as e:
-        get_logger().error("Failed to get sales channel ID", persist=False)
+        get_logger().error(f"Failed to get sales channel ID: {e}", persist=True)
 
     return None
 
@@ -331,7 +331,10 @@ def map_erpnext_item_to_shopware(erpnext_item) -> Dict[str, Any]:
                     break
 
     # CRITICAL: Do not use 0.01 fallback - products without valid prices should be skipped
-    if price <= 0:
+    # EXCEPTION: Template items (has_variants=1) don't need prices - their variants have the prices
+    # The template_handler will set price to 0 for templates after this function returns
+    is_template = getattr(erpnext_item, 'has_variants', 0) == 1
+    if price <= 0 and not is_template:
         # Log warning and raise exception to prevent invalid price sync
         get_logger().error("Error occurred", persist=False)
         raise ValueError(f"No valid price for item {erpnext_item.name}. Cannot sync to Shopware with price <= 0.")

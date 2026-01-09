@@ -118,6 +118,9 @@ WEIGHT_TO_ERPNEXT_UOM_MAP = {
 # Default pagination settings
 DEFAULT_PAGE_SIZE = 100
 
+# Default tax rate (German VAT)
+DEFAULT_TAX_RATE = 19.0
+
 # Sync status values
 SYNC_STATUS = {
     "PENDING": "Pending",

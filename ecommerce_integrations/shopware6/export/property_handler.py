@@ -255,7 +255,7 @@ def get_or_create_property_group(client, group_name: str) -> Optional[str]:
         return group_id
 
     except Exception as e:
-        get_logger().error("Failed to get/create PropertyGroup {group_name}", persist=False)
+        get_logger().error(f"Failed to get/create PropertyGroup {group_name}: {e}", persist=False)
         return None
 
 
@@ -314,7 +314,7 @@ def get_or_create_property_option(client, group_id: str, group_name: str, option
         return option_id
 
     except Exception as e:
-        get_logger().error("Failed to get/create PropertyOption {group_name}", persist=False)
+        get_logger().error(f"Failed to get/create PropertyOption {group_name}: {e}", persist=False)
         return None
 
 
@@ -376,7 +376,7 @@ def get_or_create_variant_option(client, group_id: str, group_name: str, option_
         return option_id
 
     except Exception as e:
-        get_logger().error("Failed to get/create variant option {group_name}", persist=False)
+        get_logger().error(f"Failed to get/create variant option {group_name}: {e}", persist=False)
         return None
 
 
@@ -403,7 +403,24 @@ def get_template_item_attributes(template_item) -> List[Dict[str, Any]]:
             attr_name = attr_row.attribute
             seen_attributes.add(attr_name)
 
-            attr_doc = frappe.get_doc("Item Attribute", attr_name)
+            try:
+                attr_doc = frappe.get_doc("Item Attribute", attr_name)
+            except frappe.DoesNotExistError:
+                # Auto-create missing Item Attribute
+                frappe.logger("shopware6").warning(
+                    f"Item Attribute '{attr_name}' not found, creating it automatically"
+                )
+                attr_doc = frappe.get_doc({
+                    "doctype": "Item Attribute",
+                    "attribute_name": attr_name,
+                    "numeric_values": 0
+                })
+                attr_doc.insert(ignore_permissions=True)
+                frappe.db.commit()
+                frappe.logger("shopware6").info(
+                    f"Created Item Attribute '{attr_name}' for template {template_item.name}"
+                )
+
             values = []
             if not attr_doc.numeric_values:
                 values = [v.attribute_value for v in attr_doc.item_attribute_values]
@@ -429,19 +446,33 @@ def get_template_item_attributes(template_item) -> List[Dict[str, Any]]:
 
             try:
                 attr_doc = frappe.get_doc("Item Attribute", attr_name)
-                values = []
-                if not attr_doc.numeric_values:
-                    values = [v.attribute_value for v in attr_doc.item_attribute_values]
-
-                attributes.append({
-                    "name": attr_name,
-                    "values": values,
-                })
-                frappe.logger("shopware6").info(
-                    f"Added variant attribute '{attr_name}' for template {template_item.name}"
+            except frappe.DoesNotExistError:
+                # Auto-create missing Item Attribute
+                frappe.logger("shopware6").warning(
+                    f"Variant Item Attribute '{attr_name}' not found, creating it automatically"
                 )
-            except Exception as e:
-                get_logger().error("Error occurred", persist=False)
+                attr_doc = frappe.get_doc({
+                    "doctype": "Item Attribute",
+                    "attribute_name": attr_name,
+                    "numeric_values": 0
+                })
+                attr_doc.insert(ignore_permissions=True)
+                frappe.db.commit()
+                frappe.logger("shopware6").info(
+                    f"Created Item Attribute '{attr_name}' for template {template_item.name}"
+                )
+
+            values = []
+            if not attr_doc.numeric_values:
+                values = [v.attribute_value for v in attr_doc.item_attribute_values]
+
+            attributes.append({
+                "name": attr_name,
+                "values": values,
+            })
+            frappe.logger("shopware6").info(
+                f"Added variant attribute '{attr_name}' for template {template_item.name}"
+            )
 
     return attributes
 
@@ -696,3 +727,141 @@ def sync_mehrpreis_properties_batch(limit: int = 500) -> Dict[str, Any]:
     )
 
     return stats
+
+
+def cleanup_orphaned_shopware_properties(client, dry_run: bool = True) -> Dict[str, Any]:
+    """
+    Remove property groups and options from Shopware that are not used by any ERPNext item.
+
+    This cleans up orphaned properties that were created but are no longer referenced.
+    Only removes properties that:
+    1. Are not assigned to any product in Shopware
+    2. Are not used by any Item Attribute in ERPNext
+
+    Args:
+        client: Shopware API client
+        dry_run: If True, only report what would be deleted without actually deleting
+
+    Returns:
+        Dict with cleanup statistics
+    """
+    stats = {
+        "groups_checked": 0,
+        "groups_deleted": 0,
+        "options_checked": 0,
+        "options_deleted": 0,
+        "errors": [],
+        "dry_run": dry_run
+    }
+
+    try:
+        # Get all property groups from Shopware
+        response = client.request_post(
+            "search/property-group",
+            {
+                "limit": 500,
+                "associations": {
+                    "options": {}
+                }
+            }
+        )
+        groups = response.get("data", [])
+        stats["groups_checked"] = len(groups)
+
+        # Get all Item Attributes from ERPNext (these should exist as property groups)
+        erpnext_attributes = set()
+        attrs = frappe.get_all("Item Attribute", fields=["attribute_name"])
+        for attr in attrs:
+            erpnext_attributes.add(attr.attribute_name)
+
+        # Also get attributes from shopware_properties tables
+        prop_names = frappe.db.sql("""
+            SELECT DISTINCT property_name
+            FROM `tabShopware Item Property`
+            WHERE property_type = 'Property'
+        """, as_list=True)
+        for row in prop_names:
+            if row and row[0]:
+                erpnext_attributes.add(row[0])
+
+        frappe.logger("shopware6").info(
+            f"Checking {len(groups)} Shopware property groups against {len(erpnext_attributes)} ERPNext attributes"
+        )
+
+        for group in groups:
+            group_name = group.get("name", "")
+            group_id = group.get("id")
+            options = group.get("options", [])
+
+            # Skip system property groups (Shopware internal)
+            if group_name.startswith("_") or not group_name:
+                continue
+
+            # Check if this group is used by any ERPNext item
+            if group_name not in erpnext_attributes:
+                # Check if it has any products assigned in Shopware
+                try:
+                    prod_response = client.request_post(
+                        "search/product",
+                        {
+                            "limit": 1,
+                            "filter": [
+                                {
+                                    "type": "equals",
+                                    "field": "properties.groupId",
+                                    "value": group_id
+                                }
+                            ]
+                        }
+                    )
+                    product_count = prod_response.get("total", 0)
+
+                    if product_count == 0:
+                        # No products use this property group - safe to delete
+                        if not dry_run:
+                            try:
+                                client.request_delete(f"property-group/{group_id}")
+                                stats["groups_deleted"] += 1
+                                frappe.logger("shopware6").info(
+                                    f"Deleted orphaned property group: {group_name}"
+                                )
+                            except Exception as e:
+                                stats["errors"].append({
+                                    "type": "group_delete",
+                                    "name": group_name,
+                                    "error": str(e)
+                                })
+                        else:
+                            stats["groups_deleted"] += 1
+                            frappe.logger("shopware6").info(
+                                f"Would delete orphaned property group: {group_name}"
+                            )
+                except Exception as e:
+                    stats["errors"].append({
+                        "type": "group_check",
+                        "name": group_name,
+                        "error": str(e)
+                    })
+
+            # Check individual options within used groups
+            stats["options_checked"] += len(options)
+
+        frappe.logger("shopware6").info(
+            f"Property cleanup {'(dry run)' if dry_run else ''}: "
+            f"{stats['groups_deleted']} groups, {stats['options_deleted']} options"
+        )
+
+    except Exception as e:
+        stats["errors"].append({
+            "type": "general",
+            "error": str(e)
+        })
+        frappe.logger("shopware6").error(f"Property cleanup failed: {str(e)}")
+
+    return stats
+
+
+def get_logger():
+    """Get the Shopware logger."""
+    from ecommerce_integrations.shopware6.utils import get_logger as _get_logger
+    return _get_logger("PropertyHandler")

@@ -84,7 +84,7 @@ class WebhookEventQueue:
                 return False
 
         except Exception as e:
-            get_logger().error("Error processing webhook event {event_type} for {entity_id}", persist=True)
+            get_logger().error(f"Error processing webhook event {event_type} for {entity_id}: {e}", persist=True)
             raise
 
         finally:

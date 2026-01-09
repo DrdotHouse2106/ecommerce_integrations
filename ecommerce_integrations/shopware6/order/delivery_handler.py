@@ -51,7 +51,7 @@ def create_delivery_note(
         return dn.name
 
     except Exception as e:
-        get_logger().error("Failed to create Delivery Note for {sales_order}", persist=False)
+        get_logger().error(f"Failed to create Delivery Note for {sales_order}: {e}", persist=False)
         return None
 
 

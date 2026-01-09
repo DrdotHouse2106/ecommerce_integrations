@@ -57,6 +57,84 @@ frappe.ui.form.on('Shopware Setting', {
 					}
 				);
 			}, __('Bulk Sync'));
+
+			// Add Batch All Items button (Full Batch Sync)
+			frm.add_custom_button(__('Alle Artikel batchen'), function() {
+				let dialog = new frappe.ui.Dialog({
+					title: __('Full Batch Sync - Alle Artikel nach Shopware'),
+					size: 'small',
+					fields: [
+						{
+							fieldname: 'info_html',
+							fieldtype: 'HTML',
+							options: `<div class="alert alert-info">
+								<p><strong>Full Batch Sync</strong> synchronisiert alle ERPNext-Artikel nach Shopware in optimaler Reihenfolge:</p>
+								<ol>
+									<li><strong>Templates</strong> (Eltern-Artikel mit Varianten)</li>
+									<li><strong>Einfache Artikel</strong> (via Shopware Sync API - schnell!)</li>
+									<li><strong>Varianten</strong> (nach ihren Eltern)</li>
+								</ol>
+								<p class="text-muted small">Nutzt Shopware's Batch-API für optimale Performance.</p>
+							</div>`
+						},
+						{
+							fieldname: 'skip_templates',
+							fieldtype: 'Check',
+							label: __('Templates überspringen'),
+							default: 0,
+							description: __('Falls Templates bereits synchronisiert wurden')
+						},
+						{
+							fieldname: 'skip_simple',
+							fieldtype: 'Check',
+							label: __('Einfache Artikel überspringen'),
+							default: 0
+						},
+						{
+							fieldname: 'skip_variants',
+							fieldtype: 'Check',
+							label: __('Varianten überspringen'),
+							default: 0
+						}
+					],
+					primary_action_label: __('Batch starten'),
+					primary_action: function(values) {
+						dialog.hide();
+						frappe.call({
+							method: 'ecommerce_integrations.shopware6.export.full_batch_sync.enqueue_full_sync',
+							args: {
+								skip_templates: values.skip_templates ? 1 : 0,
+								skip_simple: values.skip_simple ? 1 : 0,
+								skip_variants: values.skip_variants ? 1 : 0
+							},
+							callback: function(r) {
+								if (r.message && r.message.success) {
+									let breakdown = r.message.breakdown || {};
+									frappe.msgprint({
+										title: __('Full Batch Sync gestartet'),
+										message: `<p>${r.message.message}</p>
+											<table class="table table-bordered">
+												<tr><td>Templates</td><td><strong>${breakdown.templates || 0}</strong></td></tr>
+												<tr><td>Einfache Artikel</td><td><strong>${breakdown.simple_items || 0}</strong></td></tr>
+												<tr><td>Varianten</td><td><strong>${breakdown.variants || 0}</strong></td></tr>
+												<tr><td><strong>Gesamt</strong></td><td><strong>${r.message.total_items || 0}</strong></td></tr>
+											</table>
+											<p class="text-muted">Fortschritt in Ecommerce Integration Log verfolgen.</p>`,
+										indicator: 'green'
+									});
+								} else {
+									frappe.msgprint({
+										title: __('Fehler'),
+										message: r.message?.message || __('Unbekannter Fehler'),
+										indicator: 'red'
+									});
+								}
+							}
+						});
+					}
+				});
+				dialog.show();
+			}, __('Bulk Sync'));
 		}
 
 		// Add Refresh Sales Channels button handler

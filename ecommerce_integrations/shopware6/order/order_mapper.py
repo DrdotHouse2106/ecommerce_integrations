@@ -5,6 +5,7 @@ Maps and extracts data from Shopware order payloads.
 """
 
 from typing import Any
+import re
 
 import frappe
 from frappe.utils import flt, getdate, add_days
@@ -18,12 +19,53 @@ from ecommerce_integrations.shopware6.constants import (
 from ecommerce_integrations.shopware6.product import get_item_code
 
 
+def parse_delivery_time(delivery_time_str: str) -> int:
+    """
+    Parse a delivery time string to extract the maximum number of days.
+
+    Examples:
+        "3-5 Werktage" -> 5
+        "ca. 2 Wochen" -> 14
+        "1-2 Wochen" -> 14
+        "5 Tage" -> 5
+        "lieferbar in 10 Tagen" -> 10
+
+    Args:
+        delivery_time_str: Delivery time string from Item.delivery_time
+
+    Returns:
+        Maximum delivery days as integer (default: 1)
+    """
+    if not delivery_time_str:
+        return 1
+
+    delivery_time_str = delivery_time_str.lower()
+
+    # Extract all numbers from the string
+    numbers = re.findall(r'\d+', delivery_time_str)
+    if not numbers:
+        return 1
+
+    # Get the maximum number found
+    max_value = max(int(n) for n in numbers)
+
+    # Check if the unit is weeks (German: Woche/Wochen)
+    if 'woche' in delivery_time_str:
+        max_value *= 7
+    # Check for months (German: Monat/Monate)
+    elif 'monat' in delivery_time_str:
+        max_value *= 30
+
+    return max_value
+
+
 def calculate_delivery_date(order_date: str, line_items: list) -> str:
     """
-    Calculate delivery date based on the longest lead time of items in the order.
+    Calculate delivery date based on the longest delivery time of items in the order.
 
-    Gets lead_time_days from each Item in ERPNext and uses the maximum value
-    to determine the delivery date.
+    Reads the `delivery_time` field from each Item (e.g., "3-5 Werktage")
+    and parses the maximum value. Falls back to `lead_time_days` if
+    `delivery_time` is not set.
 
     Args:
         order_date: Order date in YYYY-MM-DD format or datetime
@@ -41,10 +83,27 @@ def calculate_delivery_date(order_date: str, line_items: list) -> str:
         if not item_code:
             continue
 
-        # Check if item exists in ERPNext and get its lead_time_days
-        lead_time = frappe.db.get_value("Item", item_code, "lead_time_days")
-        if lead_time and int(lead_time) > max_lead_time:
-            max_lead_time = int(lead_time)
+        # Get delivery_time (text field like "3-5 Werktage") and lead_time_days (fallback)
+        item_data = frappe.db.get_value(
+            "Item",
+            item_code,
+            ["delivery_time", "lead_time_days"],
+            as_dict=True
+        )
+
+        if not item_data:
+            continue
+
+        # Prefer delivery_time field, fallback to lead_time_days
+        if item_data.get("delivery_time"):
+            lead_time = parse_delivery_time(item_data.delivery_time)
+        elif item_data.get("lead_time_days"):
+            lead_time = int(item_data.lead_time_days)
+        else:
+            continue
+
+        if lead_time > max_lead_time:
+            max_lead_time = lead_time
 
     # Calculate delivery date: order_date + max_lead_time
     delivery_date = add_days(getdate(order_date), max_lead_time)

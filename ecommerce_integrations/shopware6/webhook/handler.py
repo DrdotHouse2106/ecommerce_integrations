@@ -78,7 +78,7 @@ class WebhookHandler:
         # Validate payload
         is_valid, errors = ShopwareDataValidator.validate_webhook_payload(payload)
         if not is_valid:
-            get_logger().error("Invalid webhook payload for {event_type}", persist=True)
+            get_logger().error(f"Invalid webhook payload for {event_type}: {errors}", persist=True)
             return False
 
         # Find handler
@@ -99,7 +99,7 @@ class WebhookHandler:
         try:
             return handler(entity_id, payload, request_id)
         except Exception as e:
-            get_logger().error("Error in webhook handler {handler_name}", persist=True)
+            get_logger().error(f"Error in webhook handler {handler_name}: {e}", persist=True)
             if request_id:
                 from ecommerce_integrations.shopware6.utils import update_shopware_log
                 update_shopware_log(request_id, status="Error", exception=str(e))

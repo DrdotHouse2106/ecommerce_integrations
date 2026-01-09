@@ -100,7 +100,7 @@ def sync_orders_from_shopware(
                 synced += 1
         except Exception as e:
             errors += 1
-            get_logger().error("Failed to sync order {order_data.get('orderNumber')}: {e}", persist=True)
+            get_logger().error(f"Failed to sync order {order_data.get('orderNumber')}: {e}", persist=True)
 
     return {
         "synced": synced,
@@ -149,7 +149,7 @@ def scheduled_order_sync():
             )
 
     except Exception as e:
-        get_logger().error("Scheduled order sync failed: {e}", persist=True)
+        get_logger().error(f"Scheduled order sync failed: {e}", persist=True)
 
 
 def sync_old_orders():
@@ -249,4 +249,4 @@ def sync_old_orders():
         )
 
     except Exception as e:
-        get_logger().error("Scheduled old order sync failed: {e}", persist=True)
+        get_logger().error(f"Scheduled old order sync failed: {e}", persist=True)

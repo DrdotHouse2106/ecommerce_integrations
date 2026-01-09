@@ -275,23 +275,8 @@ def is_shopware_enabled() -> bool:
         return False
 
 
-def get_shopware_document_id(doctype: str, docname: str) -> Optional[str]:
-    """
-    Get the Shopware ID for an ERPNext document.
-
-    Args:
-        doctype: ERPNext DocType (e.g., 'Item', 'Customer')
-        docname: ERPNext document name
-
-    Returns:
-        Shopware ID if synced, None otherwise
-    """
-    ecommerce_item = frappe.db.get_value(
-        "Ecommerce Item",
-        {"integration": MODULE_NAME, "erpnext_item_code": docname},
-        "integration_item_code",
-    )
-    return ecommerce_item
+# Re-export from export/utils to avoid duplication
+from ecommerce_integrations.shopware6.export.utils import get_shopware_document_id
 
 
 def format_shopware_datetime(dt_string: str) -> Optional[str]:

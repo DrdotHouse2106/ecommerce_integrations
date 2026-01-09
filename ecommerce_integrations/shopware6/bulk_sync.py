@@ -20,6 +20,8 @@ from frappe.utils import now_datetime, cint
 from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE
 from ecommerce_integrations.shopware6.utils import get_logger
 
+# Module logger
+logger = get_logger("bulk_sync")
 
 # Redis key prefixes
 SYNC_QUEUE_KEY = "shopware6:sync_queue"
@@ -33,7 +35,7 @@ DEFAULT_BULK_THRESHOLD = 5  # Number of requests within BULK_WINDOW to trigger b
 BULK_WINDOW = 2  # Seconds to count requests
 BULK_COOLDOWN = 10  # Seconds to wait after last request before processing bulk queue
 DEFAULT_BATCH_SIZE = 50  # Number of items to process per batch
-BATCH_DELAY = 1  # Seconds to wait between batches
+BATCH_DELAY = 0.1  # Seconds to wait between batches (reduced from 1s for performance)
 
 
 def get_bulk_sync_settings():
@@ -68,14 +70,14 @@ def activate_bulk_mode():
     """Activate bulk mode to queue items instead of syncing immediately."""
     cache = get_cache()
     cache.set_value(BULK_MODE_KEY, "1", expires_in_sec=BULK_COOLDOWN * 3)
-    frappe.logger().info("Shopware6 Bulk Sync: Bulk mode activated")
+    logger.info("Shopware6 Bulk Sync: Bulk mode activated")
 
 
 def deactivate_bulk_mode():
     """Deactivate bulk mode."""
     cache = get_cache()
     cache.delete_value(BULK_MODE_KEY)
-    frappe.logger().info("Shopware6 Bulk Sync: Bulk mode deactivated")
+    logger.info("Shopware6 Bulk Sync: Bulk mode deactivated")
 
 
 def increment_request_count() -> int:
@@ -151,7 +153,7 @@ def add_to_sync_queue(item_code: str, sync_type: str = "product"):
     if item_code not in queue:
         queue.append(item_code)
         cache.set_value(queue_key, frappe.as_json(queue), expires_in_sec=3600)  # 1 hour expiry
-        frappe.logger().debug(f"Shopware6 Bulk Sync: Added {item_code} to {sync_type} queue. Queue size: {len(queue)}")
+        logger.debug(f"Shopware6 Bulk Sync: Added {item_code} to {sync_type} queue. Queue size: {len(queue)}")
 
 
 def get_sync_queue(sync_type: str = "product") -> List[str]:
@@ -469,39 +471,39 @@ def process_bulk_sync_queue():
             enqueue_after_commit=True,
             at_front=False
         )
-        frappe.logger().info("Shopware6 Bulk Sync: Bulk mode still active, rescheduling...")
+        logger.info("Shopware6 Bulk Sync: Bulk mode still active, rescheduling...")
         return
 
     # Acquire lock
     if not acquire_sync_lock():
-        frappe.logger().warning("Shopware6 Bulk Sync: Could not acquire lock, another job is running")
+        logger.warning("Shopware6 Bulk Sync: Could not acquire lock, another job is running")
         return
 
     try:
         setting = frappe.get_doc(SETTING_DOCTYPE)
         if not setting.is_enabled():
-            frappe.logger().info("Shopware6 Bulk Sync: Integration disabled")
+            logger.info("Shopware6 Bulk Sync: Integration disabled")
             return
 
         # Process product queue
         product_queue = get_sync_queue("product")
         if product_queue:
-            frappe.logger().info(f"Shopware6 Bulk Sync: Processing {len(product_queue)} products")
+            logger.info(f"Shopware6 Bulk Sync: Processing {len(product_queue)} products")
             process_product_batch(product_queue)
 
         # Process properties queue
         properties_queue = get_sync_queue("properties")
         if properties_queue:
-            frappe.logger().info(f"Shopware6 Bulk Sync: Processing {len(properties_queue)} property syncs")
+            logger.info(f"Shopware6 Bulk Sync: Processing {len(properties_queue)} property syncs")
             process_properties_batch(properties_queue)
 
         # Process price queue
         price_queue = get_sync_queue("price")
         if price_queue:
-            frappe.logger().info(f"Shopware6 Bulk Sync: Processing {len(price_queue)} price updates")
+            logger.info(f"Shopware6 Bulk Sync: Processing {len(price_queue)} price updates")
             process_price_batch(price_queue)
 
-        frappe.logger().info("Shopware6 Bulk Sync: Queue processing completed")
+        logger.info("Shopware6 Bulk Sync: Queue processing completed")
 
     except Exception as e:
         logger = get_logger("check_and_process_queue")
@@ -512,118 +514,147 @@ def process_bulk_sync_queue():
 
 
 def process_product_batch(item_codes: List[str]):
-    """Process a batch of products."""
+    """
+    Process a batch of products using optimized batch upload.
+
+    Uses Shopware Sync API for simple items (100+ products per request).
+    Templates and variants still use sequential processing due to dependencies.
+    """
     from ecommerce_integrations.shopware6.product_export import (
-        upload_erpnext_item_to_shopware,
         upload_template_item_to_shopware,
         upload_variant_item_to_shopware,
     )
+    from ecommerce_integrations.shopware6.export.batch_uploader import BatchProductUploader
     from ecommerce_integrations.shopware6.connection import get_shopware_client
     from ecommerce_integrations.shopware6.utils import get_shopware_document_id
 
     settings = get_bulk_sync_settings()
     batch_size = settings["batch_size"]
+    logger = get_logger("process_product_batch")
 
     processed = []
     errors = []
 
-    # Group items by type for efficient processing
+    # Categorize items by type using a single batch query
+    item_types = frappe.get_all(
+        "Item",
+        filters={"name": ["in", item_codes]},
+        fields=["name", "has_variants", "variant_of"]
+    )
+    item_type_map = {i.name: i for i in item_types}
+
     templates = []
     variants = []
-    simple_items = []
+    simple_item_codes = []
 
     for item_code in item_codes:
-        try:
-            item = frappe.get_doc("Item", item_code)
-            if item.has_variants:
-                templates.append(item)
-            elif item.variant_of:
-                variants.append(item)
-            else:
-                simple_items.append(item)
-        except Exception as e:
-            error_msg = str(e)[:200]  # Truncate long error messages
-            errors.append((item_code, error_msg))
-            frappe.logger().error(f"Failed to load item {item_code}: {error_msg}")
+        item_info = item_type_map.get(item_code)
+        if not item_info:
+            errors.append((item_code, "Item not found"))
+            continue
 
-    # Process templates first (parents must exist before variants)
+        if item_info.has_variants:
+            templates.append(item_code)
+        elif item_info.variant_of:
+            variants.append(item_code)
+        else:
+            simple_item_codes.append(item_code)
+
     client = get_shopware_client()
     if not client:
-        get_logger().error("Error occurred", persist=False)
+        logger.error("Could not get Shopware client", persist=False)
         return
 
-    for batch_start in range(0, len(templates), batch_size):
-        batch = templates[batch_start:batch_start + batch_size]
-        for item in batch:
-            try:
-                item.flags.from_integration = False  # Ensure we can process
-                upload_template_item_to_shopware(client, item)
-                processed.append(item.name)
-            except Exception as e:
-                error_msg = str(e)[:200]
-                errors.append((item.name, error_msg))
-                frappe.logger().error(f"Bulk sync failed for template {item.name}: {error_msg}")
+    # 1. Process templates using BATCH UPLOADER (Sync API)
+    if templates:
+        logger.info(f"Processing {len(templates)} template items via Sync API...")
+        try:
+            uploader = BatchProductUploader()
+            result = uploader.upload_templates(templates, skip_images=True)
 
-        # Commit after each batch
-        frappe.db.commit()
-        time.sleep(BATCH_DELAY)
+            # Track processed items
+            processed.extend(result.processed_item_codes)
 
-    # Process simple items
-    for batch_start in range(0, len(simple_items), batch_size):
-        batch = simple_items[batch_start:batch_start + batch_size]
-        for item in batch:
-            try:
-                item.flags.from_integration = False
-                upload_erpnext_item_to_shopware(item.name)
-                processed.append(item.name)
-            except Exception as e:
-                error_msg = str(e)[:200]
-                errors.append((item.name, error_msg))
-                frappe.logger().error(f"Bulk sync failed for item {item.name}: {error_msg}")
+            for error in result.errors:
+                errors.append((error.get("item_code", "unknown"), error.get("error", "Unknown error")))
 
-        frappe.db.commit()
-        time.sleep(BATCH_DELAY)
-
-    # Process variants (after templates)
-    for batch_start in range(0, len(variants), batch_size):
-        batch = variants[batch_start:batch_start + batch_size]
-        for item in batch:
-            try:
-                parent_shopware_id = get_shopware_document_id("Item", item.variant_of)
-                if parent_shopware_id:
+            logger.info(
+                f"Template batch upload: {result.success} success, {result.failed} failed, {result.skipped} skipped"
+            )
+        except Exception as e:
+            error_msg = str(e)[:500]
+            logger.error(f"Template batch uploader failed: {error_msg}", exception=e)
+            # Fallback: sequential processing
+            for item_code in templates:
+                try:
+                    item = frappe.get_doc("Item", item_code)
                     item.flags.from_integration = False
-                    upload_variant_item_to_shopware(client, item, parent_shopware_id)
-                    processed.append(item.name)
-                else:
-                    errors.append((item.name, "Parent template not synced"))
-            except Exception as e:
-                error_msg = str(e)[:200]
-                errors.append((item.name, error_msg))
-                frappe.logger().error(f"Bulk sync failed for variant {item.name}: {error_msg}")
+                    upload_template_item_to_shopware(client, item)
+                    processed.append(item_code)
+                except Exception as e2:
+                    errors.append((item_code, str(e2)[:200]))
 
-        frappe.db.commit()
-        time.sleep(BATCH_DELAY)
+    # 2. Process simple items using BATCH UPLOADER (Sync API)
+    if simple_item_codes:
+        logger.info(f"Processing {len(simple_item_codes)} simple items via Sync API...")
+        try:
+            uploader = BatchProductUploader()
+            result = uploader.upload_items(simple_item_codes, skip_images=True)
+
+            # Use processed_item_codes (ERPNext item codes, not Shopware IDs)
+            processed.extend(result.processed_item_codes)
+
+            for error in result.errors:
+                errors.append((error.get("item_code", "unknown"), error.get("error", "Unknown error")))
+
+            logger.info(
+                f"Batch upload: {result.success} success, {result.failed} failed, {result.skipped} skipped"
+            )
+        except Exception as e:
+            error_msg = str(e)[:500]
+            logger.error(f"Batch uploader failed: {error_msg}", exception=e)
+            # Fallback: mark all as errors
+            for item_code in simple_item_codes:
+                errors.append((item_code, f"Batch failed: {error_msg[:100]}"))
+
+    # 3. Process variants using BATCH UPLOADER (Sync API) - much faster!
+    if variants:
+        logger.info(f"Processing {len(variants)} variant items via Sync API...")
+        try:
+            uploader = BatchProductUploader()
+            result = uploader.upload_variants(variants, skip_images=True)
+
+            # Track processed items
+            processed.extend(result.processed_item_codes)
+
+            for error in result.errors:
+                errors.append((error.get("item_code", "unknown"), error.get("error", "Unknown error")))
+
+            logger.info(
+                f"Variant batch upload: {result.success} success, {result.failed} failed, {result.skipped} skipped"
+            )
+        except Exception as e:
+            error_msg = str(e)[:500]
+            logger.error(f"Variant batch uploader failed: {error_msg}", exception=e)
+            # Fallback: mark all as errors
+            for item_code in variants:
+                errors.append((item_code, f"Batch failed: {error_msg[:100]}"))
 
     # Remove processed items from queue
     remove_from_queue(processed, "product")
 
     # Log summary
-    frappe.logger().info(
-        f"Shopware6 Bulk Sync: Processed {len(processed)} products, {len(errors)} errors"
+    logger.info(
+        f"Bulk Sync complete: {len(processed)} processed, {len(errors)} errors "
+        f"(templates: {len(templates)}, simple: {len(simple_item_codes)}, variants: {len(variants)})"
     )
 
     if errors:
-        # Remove failed items from queue so they don't block processing
         failed_items = [code for code, _ in errors]
         remove_from_queue(failed_items, "product")
 
-        # Truncate error messages to avoid CharacterLengthExceededError
         error_summary = "\n".join([f"{code}: {str(err)[:80]}" for code, err in errors[:10]])
-        try:
-            get_logger().error("Error occurred", persist=False)
-        except Exception:
-            # If logging fails, just log to console
-            frappe.logger().error(f"Shopware6 Bulk Sync: {len(errors)} errors occurred")
+        logger.error(f"Sync errors:\n{error_summary}", persist=False)
 
 
 def process_properties_batch(item_codes: List[str]):
@@ -644,14 +675,14 @@ def process_properties_batch(item_codes: List[str]):
                 processed.append(item_code)
             except Exception as e:
                 errors.append((item_code, str(e)))
-                get_logger().error("Property sync failed for {item_code}", persist=False)
+                get_logger().error(f"Property sync failed for {item_code}: {e}", persist=False)
 
         frappe.db.commit()
         time.sleep(BATCH_DELAY)
 
     remove_from_queue(processed, "properties")
 
-    frappe.logger().info(
+    logger.info(
         f"Shopware6 Bulk Sync: Processed {len(processed)} property syncs, {len(errors)} errors"
     )
 
@@ -677,20 +708,20 @@ def process_price_batch(item_codes: List[str]):
                     errors.append((item_code, result.get("message", "Unknown error")))
             except Exception as e:
                 errors.append((item_code, str(e)))
-                get_logger().error("Price sync failed for {item_code}", persist=False)
+                get_logger().error(f"Price sync failed for {item_code}: {e}", persist=False)
 
         frappe.db.commit()
         time.sleep(BATCH_DELAY)
 
     remove_from_queue(processed, "price")
 
-    frappe.logger().info(
+    logger.info(
         f"Shopware6 Bulk Sync: Processed {len(processed)} price updates, {len(errors)} errors"
     )
 
     if errors:
         error_summary = "\n".join([f"{code}: {err}" for code, err in errors[:20]])
-        get_logger().error("Shopware6 Price Sync Errors:\n{error_summary}", persist=False)
+        get_logger().error(f"Shopware6 Price Sync Errors:\n{error_summary}", persist=False)
 
 
 def is_processing() -> bool:
@@ -778,7 +809,7 @@ def check_and_process_queue():
         return
 
     # Trigger queue processing
-    frappe.logger().info(
+    logger.info(
         f"Shopware6 Bulk Sync: Scheduler triggering queue processing. "
         f"Products: {len(product_queue)}, Properties: {len(properties_queue)}, Prices: {len(price_queue)}"
     )
@@ -834,7 +865,7 @@ def queue_price_for_sync(doc, method=None):
     if item_price.price_list != selling_price_list:
         return
 
-    frappe.logger().info(f"Shopware6: Queueing price sync for item {item_code} (price list: {item_price.price_list})")
+    logger.info(f"Shopware6: Queueing price sync for item {item_code} (price list: {item_price.price_list})")
 
     settings = get_bulk_sync_settings()
 

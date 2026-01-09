@@ -69,6 +69,9 @@ class ReconciliationResult:
     # Stock stats
     stock_adjusted: int = 0
 
+    # Property cleanup stats
+    properties_deleted: int = 0
+
     # Error tracking
     errors: List[Dict] = field(default_factory=list)
 
@@ -95,9 +98,10 @@ class ReconciliationResult:
         if self.images_synced:
             parts.append(f"Images: {self.images_synced}")
 
-        if self.variants_deleted or self.products_deactivated:
+        if self.variants_deleted or self.products_deactivated or self.properties_deleted:
             parts.append(
                 f"Cleaned: {self.variants_deleted} orphan variants, "
+                f"{self.properties_deleted} orphan properties, "
                 f"{self.products_deactivated} deactivated"
             )
 
@@ -176,6 +180,7 @@ class SyncManager:
         sync_stock: bool = False,  # Disabled by default for safety
         cleanup_orphan_variants: bool = True,
         cleanup_orphan_categories: bool = True,
+        cleanup_orphan_properties: bool = True,
         deactivate_missing_products: bool = True,
         limit: int = 0,  # 0 = no limit
         dry_run: bool = False,
@@ -266,11 +271,15 @@ class SyncManager:
                 cleanup = self._cleanup_orphan_categories(client)
                 result.categories_deleted = cleanup.get("deleted", 0)
 
+            if cleanup_orphan_properties and not dry_run:
+                cleanup = self._cleanup_orphan_properties(client)
+                result.properties_deleted = cleanup.get("groups_deleted", 0)
+
             if deactivate_missing_products and not dry_run:
                 deactivated = self._deactivate_orphan_products(client)
                 result.products_deactivated = deactivated
-            
-            self.logger.info(f"Full Reconciliation: Phase 5 complete - variants_deleted={result.variants_deleted}, categories_deleted={result.categories_deleted}, products_deactivated={result.products_deactivated}")
+
+            self.logger.info(f"Full Reconciliation: Phase 5 complete - variants_deleted={result.variants_deleted}, categories_deleted={result.categories_deleted}, properties_deleted={result.properties_deleted}, products_deactivated={result.products_deactivated}")
 
             # Phase 6: Stock sync (if enabled)
             if sync_stock:
@@ -330,8 +339,8 @@ class SyncManager:
             "synced": 0,
             "in_sync": 0,
             "created": 0,
-            "errors": 0,
-            "error_details": []
+            "errors": [],  # List of error dicts for detailed reporting
+            "error_count": 0
         }
         
         # Get all linked items
@@ -366,18 +375,22 @@ class SyncManager:
                             stats["synced"] += 1
                         else:
                             batch_errors += 1
-                            stats["errors"] += 1
-                            # Log individual error
-                            error_msg = f"Failed to sync {item_data.erpnext_item_code}"
-                            stats["error_details"].append(error_msg)
-                            self.logger.error(error_msg)
-                            
+                            stats["error_count"] += 1
+                            # Log individual error with details
+                            error_entry = {
+                                "item": item_data.erpnext_item_code,
+                                "error": "Upload returned None - check product data",
+                                "phase": "product_upload"
+                            }
+                            stats["errors"].append(error_entry)
+                            self.logger.error(f"Failed to sync {item_data.erpnext_item_code}: Upload returned None")
+
                             # Create individual error log in DB
                             create_shopware_log(
                                 status="Error",
                                 method="SyncManager._sync_all_products",
-                                message=error_msg,
-                                request_data={"item_code": item_data.erpnext_item_code}
+                                message=f"Failed to sync {item_data.erpnext_item_code}",
+                                request_data=error_entry
                             )
                     else:
                         batch_success += 1
@@ -385,18 +398,24 @@ class SyncManager:
                         
                 except Exception as e:
                     batch_errors += 1
-                    stats["errors"] += 1
-                    error_msg = f"Exception syncing {item_data.erpnext_item_code}: {str(e)}"
-                    stats["error_details"].append(error_msg)
-                    self.logger.error(error_msg, exception=e, persist=False)
-                    
+                    stats["error_count"] += 1
+                    tb = frappe.get_traceback()
+                    error_entry = {
+                        "item": item_data.erpnext_item_code,
+                        "error": str(e),
+                        "phase": "product_upload",
+                        "traceback": tb[:1500] if tb else None  # Include traceback for debugging
+                    }
+                    stats["errors"].append(error_entry)
+                    self.logger.error(f"Exception syncing {item_data.erpnext_item_code}: {str(e)}", exception=e)
+
                     # Create individual error log in DB
                     create_shopware_log(
                         status="Error",
                         method="SyncManager._sync_all_products",
-                        message=error_msg,
-                        request_data={"item_code": item_data.erpnext_item_code},
-                        traceback=frappe.get_traceback()
+                        message=f"Exception syncing {item_data.erpnext_item_code}: {str(e)}",
+                        request_data=error_entry,
+                        traceback=tb
                     )
             
             # Create batch summary log in DB
@@ -464,9 +483,15 @@ class SyncManager:
                 except Exception as e:
                     batch_errors += 1
                     stats["errors"] += 1
+                    # Get full traceback for better debugging
+                    tb = frappe.get_traceback()
                     error_msg = f"Failed to sync template {template.erpnext_item_code}: {str(e)}"
-                    stats["error_details"].append(error_msg)
-                    self.logger.error(error_msg, exc_info=True)
+                    stats["error_details"].append({
+                        "item": template.erpnext_item_code,
+                        "error": str(e),
+                        "traceback": tb[:1000] if tb else None  # Limit traceback length
+                    })
+                    self.logger.error(error_msg, exception=e)
                     
                     # Individual error log
                     if not dry_run:
@@ -578,6 +603,19 @@ class SyncManager:
         return {
             "deleted": result.get("statistics", {}).get("deleted", 0)
         }
+
+    def _cleanup_orphan_properties(self, client) -> Dict[str, Any]:
+        """Delete property groups in Shopware that don't exist in ERPNext."""
+        from ecommerce_integrations.shopware6.export.property_handler import (
+            cleanup_orphaned_shopware_properties
+        )
+
+        result = cleanup_orphaned_shopware_properties(client, dry_run=False)
+
+        if result.get("groups_deleted", 0) > 0:
+            self.logger.info(f"Deleted {result['groups_deleted']} orphaned property groups from Shopware")
+
+        return result
 
     def _deactivate_orphan_products(self, client) -> int:
         """Deactivate products in Shopware that are disabled in ERPNext."""
@@ -731,6 +769,7 @@ def full_reconciliation_no_brainer(
         sync_stock=sync_stock,
         cleanup_orphan_variants=True,
         cleanup_orphan_categories=cleanup_orphan_categories and not skip_category_sync,  # Don't cleanup categories if sync is skipped
+        cleanup_orphan_properties=True,  # Always cleanup orphaned property groups
         deactivate_missing_products=True,
         limit=0,  # No limit - process ALL
         dry_run=dry_run
@@ -759,6 +798,9 @@ def full_reconciliation_no_brainer(
             "variants": {
                 "synced": result.variants_synced,
                 "deleted": result.variants_deleted,
+            },
+            "properties": {
+                "deleted": result.properties_deleted,
             },
             "prices": {
                 "synced": result.prices_synced,

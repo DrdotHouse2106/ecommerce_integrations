@@ -38,6 +38,9 @@ from ecommerce_integrations.shopware6.constants import (
 )
 from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
 
+# Module-level logger for generic logging
+_logger = get_logger("reconciliation")
+
 
 # =============================================================================
 # CATEGORY RECONCILIATION
@@ -114,7 +117,7 @@ def sync_all_categories_to_shopware(
 
     stats = {"synced": 0, "skipped": 0, "errors": [], "total": len(categories)}
 
-    frappe.logger().info(
+    _logger.info(
         f"Category Sync: Processing {len(categories)} categories from '{root_category}'"
     )
 
@@ -139,7 +142,7 @@ def sync_all_categories_to_shopware(
             if "InterfaceError" in str(type(e).__name__) or "(0, '')" in str(e):
                 try:
                     frappe.connect()
-                    frappe.logger().info(f"Category sync: Reconnected after DB error for {cat.name}")
+                    _logger.info(f"Category sync: Reconnected after DB error for {cat.name}")
                 except Exception:
                     pass
 
@@ -148,7 +151,7 @@ def sync_all_categories_to_shopware(
             try:
                 frappe.db.commit()
             except Exception as commit_error:
-                frappe.logger().warning(f"Category sync: Commit failed, trying reconnect: {commit_error}")
+                _logger.warning(f"Category sync: Commit failed, trying reconnect: {commit_error}")
                 try:
                     frappe.connect()
                     frappe.db.commit()
@@ -365,7 +368,7 @@ def reconcile_erpnext_with_shopware(
         limit=cint(limit)
     )
 
-    frappe.logger().info(f"Reconciliation: Checking {len(ecom_items)} linked items")
+    _logger.info(f"Reconciliation: Checking {len(ecom_items)} linked items")
 
     # Process in batches - get batch size from settings
     batch_size = cint(getattr(setting, 'product_batch_size', 50)) or 50
@@ -374,9 +377,9 @@ def reconcile_erpnext_with_shopware(
         try:
             if not frappe.db or not frappe.db.is_connected():
                 frappe.connect()
-                frappe.logger().info(f"Reconciliation: Reconnected to database at batch {batch_start // batch_size + 1}")
+                _logger.info(f"Reconciliation: Reconnected to database at batch {batch_start // batch_size + 1}")
         except Exception as reconnect_error:
-            frappe.logger().error(f"Reconciliation: Failed to reconnect: {reconnect_error}")
+            _logger.error(f"Reconciliation: Failed to reconnect: {reconnect_error}")
             continue
 
         batch = ecom_items[batch_start:batch_start + batch_size]
@@ -437,7 +440,7 @@ def reconcile_erpnext_with_shopware(
                 if "InterfaceError" in str(type(e).__name__) or "(0, '')" in str(e):
                     try:
                         frappe.connect()
-                        frappe.logger().info(f"Reconciliation: Reconnected after DB error for {item_code}")
+                        _logger.info(f"Reconciliation: Reconnected after DB error for {item_code}")
                     except Exception:
                         pass
 
@@ -446,7 +449,7 @@ def reconcile_erpnext_with_shopware(
             if stats["total_checked"] % 20 == 0:
                 frappe.db.commit()
         except Exception as commit_error:
-            frappe.logger().warning(f"Reconciliation: Commit failed, trying reconnect: {commit_error}")
+            _logger.warning(f"Reconciliation: Commit failed, trying reconnect: {commit_error}")
             try:
                 frappe.connect()
                 frappe.db.commit()
@@ -590,7 +593,7 @@ def full_reconciliation(
         "mehrpreis_sync": None
     }
 
-    frappe.logger().info(
+    _logger.info(
         f"Full Reconciliation: Starting (categories: {category_root if not skip_category_sync else 'SKIPPED'}, products: {limit})"
     )
 
@@ -599,9 +602,9 @@ def full_reconciliation(
         try:
             if not frappe.db or not frappe.db.is_connected():
                 frappe.connect()
-                frappe.logger().info("Full Reconciliation: Reconnected to database")
+                _logger.info("Full Reconciliation: Reconnected to database")
         except Exception as e:
-            frappe.logger().warning(f"Full Reconciliation: Reconnect attempt failed: {e}")
+            _logger.warning(f"Full Reconciliation: Reconnect attempt failed: {e}")
 
     # Phase 0: Sync Mehrpreis properties (before product sync)
     if sync_mehrpreis and not dry_run:
@@ -611,7 +614,7 @@ def full_reconciliation(
         try:
             results["mehrpreis_sync"] = sync_mehrpreis_properties_batch()
         except Exception as e:
-            frappe.logger().error(f"Full Reconciliation: Mehrpreis sync failed: {e}")
+            _logger.error(f"Full Reconciliation: Mehrpreis sync failed: {e}")
             results["mehrpreis_sync"] = {"error": str(e)[:200]}
             _ensure_db_connection()
 
@@ -627,11 +630,11 @@ def full_reconciliation(
                 dry_run=dry_run
             )
         except Exception as e:
-            frappe.logger().error(f"Full Reconciliation: Category sync failed: {e}")
+            _logger.error(f"Full Reconciliation: Category sync failed: {e}")
             results["category_sync"] = {"success": False, "error": str(e)[:200], "statistics": {}}
             _ensure_db_connection()
     else:
-        frappe.logger().info("Full Reconciliation: Skipping category sync (skip_category_sync=True)")
+        _logger.info("Full Reconciliation: Skipping category sync (skip_category_sync=True)")
         _notify_user("Phase 1/5: Skipping categories (disabled in settings)...", "orange")
         results["category_sync"] = {"success": True, "skipped": True, "message": "Category sync skipped per settings"}
 
@@ -647,7 +650,7 @@ def full_reconciliation(
             compare_categories=True
         )
     except Exception as e:
-        frappe.logger().error(f"Full Reconciliation: Product sync failed: {e}")
+        _logger.error(f"Full Reconciliation: Product sync failed: {e}")
         results["product_sync"] = {"success": False, "error": str(e)[:200], "statistics": {}}
         _ensure_db_connection()
 
@@ -658,7 +661,7 @@ def full_reconciliation(
         try:
             results["variant_cleanup"] = _cleanup_all_orphaned_variants()
         except Exception as e:
-            frappe.logger().error(f"Full Reconciliation: Variant cleanup failed: {e}")
+            _logger.error(f"Full Reconciliation: Variant cleanup failed: {e}")
             results["variant_cleanup"] = {"error": str(e)[:200]}
             _ensure_db_connection()
 
@@ -672,7 +675,7 @@ def full_reconciliation(
                 dry_run=dry_run
             )
         except Exception as e:
-            frappe.logger().error(f"Full Reconciliation: Category cleanup failed: {e}")
+            _logger.error(f"Full Reconciliation: Category cleanup failed: {e}")
             results["category_cleanup"] = {"success": False, "error": str(e)[:200], "statistics": {}}
             _ensure_db_connection()
 
@@ -742,7 +745,7 @@ def _cleanup_all_orphaned_variants(client) -> Dict[str, Any]:
         fields=["erpnext_item_code", "integration_item_code"]
     )
 
-    frappe.logger().info(f"[Variant Cleanup] Checking {len(template_links)} templates")
+    _logger.info(f"[Variant Cleanup] Checking {len(template_links)} templates")
 
     for link in template_links:
         try:
@@ -760,7 +763,7 @@ def _cleanup_all_orphaned_variants(client) -> Dict[str, Any]:
                 try:
                     frappe.db.commit()
                 except Exception as commit_error:
-                    frappe.logger().warning(f"[Variant Cleanup] Commit failed, trying reconnect: {commit_error}")
+                    _logger.warning(f"[Variant Cleanup] Commit failed, trying reconnect: {commit_error}")
                     try:
                         frappe.connect()
                         frappe.db.commit()
@@ -776,7 +779,7 @@ def _cleanup_all_orphaned_variants(client) -> Dict[str, Any]:
             if "InterfaceError" in str(type(e).__name__) or "(0, '')" in str(e):
                 try:
                     frappe.connect()
-                    frappe.logger().info(f"[Variant Cleanup] Reconnected after DB error for {link.erpnext_item_code}")
+                    _logger.info(f"[Variant Cleanup] Reconnected after DB error for {link.erpnext_item_code}")
                 except Exception:
                     pass
 
@@ -789,7 +792,7 @@ def _cleanup_all_orphaned_variants(client) -> Dict[str, Any]:
         except Exception:
             pass
 
-    frappe.logger().info(
+    _logger.info(
         f"[Variant Cleanup] Done: {stats['templates_checked']} templates, "
         f"{stats['total_deleted']} variants deleted"
     )
@@ -991,7 +994,7 @@ def cleanup_orphaned_shopware_products(
         "errors": []
     }
 
-    frappe.logger().info(
+    _logger.info(
         f"[Orphaned Products Cleanup] Starting (dry_run={dry_run}, batch_size={batch_size})"
     )
 
@@ -1000,16 +1003,16 @@ def cleanup_orphaned_shopware_products(
         try:
             if not frappe.db or not frappe.db.is_connected():
                 frappe.connect()
-                frappe.logger().info("[Orphaned Products Cleanup] Reconnected to database")
+                _logger.info("[Orphaned Products Cleanup] Reconnected to database")
         except Exception as e:
-            frappe.logger().warning(f"[Orphaned Products Cleanup] Reconnect attempt failed: {e}")
+            _logger.warning(f"[Orphaned Products Cleanup] Reconnect attempt failed: {e}")
 
     def _safe_commit():
         """Commit with reconnect on failure."""
         try:
             frappe.db.commit()
         except Exception as commit_error:
-            frappe.logger().warning(f"[Orphaned Products Cleanup] Commit failed, trying reconnect: {commit_error}")
+            _logger.warning(f"[Orphaned Products Cleanup] Commit failed, trying reconnect: {commit_error}")
             try:
                 frappe.connect()
                 frappe.db.commit()
@@ -1037,9 +1040,9 @@ def cleanup_orphaned_shopware_products(
                 })
             except Exception as api_error:
                 # Log and try to continue with what we have
-                frappe.logger().error(f"[Orphaned Products Cleanup] API error on page {page}: {api_error}")
+                _logger.error(f"[Orphaned Products Cleanup] API error on page {page}: {api_error}")
                 if all_shopware_products:
-                    frappe.logger().info(f"[Orphaned Products Cleanup] Continuing with {len(all_shopware_products)} products fetched so far")
+                    _logger.info(f"[Orphaned Products Cleanup] Continuing with {len(all_shopware_products)} products fetched so far")
                     break
                 raise
 
@@ -1051,7 +1054,7 @@ def cleanup_orphaned_shopware_products(
             stats["shopware_total"] = len(all_shopware_products)
 
             if page % 10 == 0:
-                frappe.logger().info(
+                _logger.info(
                     f"[Orphaned Products Cleanup] Fetched page {page}, total so far: {len(all_shopware_products)}"
                 )
 
@@ -1061,13 +1064,13 @@ def cleanup_orphaned_shopware_products(
 
             # Safety limit to prevent infinite loops
             if page > 1000:
-                frappe.logger().warning("[Orphaned Products Cleanup] Reached page limit of 1000")
+                _logger.warning("[Orphaned Products Cleanup] Reached page limit of 1000")
                 break
 
     except Exception as e:
         return {"success": False, "message": f"Failed to fetch Shopware products: {e}"}
 
-    frappe.logger().info(
+    _logger.info(
         f"[Orphaned Products Cleanup] Found {len(all_shopware_products)} products in Shopware"
     )
 
@@ -1080,13 +1083,13 @@ def cleanup_orphaned_shopware_products(
             row[0] for row in frappe.db.sql("SELECT name FROM `tabItem`")
         )
     except Exception as db_error:
-        frappe.logger().error(f"[Orphaned Products Cleanup] DB error fetching items: {db_error}")
+        _logger.error(f"[Orphaned Products Cleanup] DB error fetching items: {db_error}")
         _ensure_db_connection()
         erpnext_item_codes = set(
             row[0] for row in frappe.db.sql("SELECT name FROM `tabItem`")
         )
 
-    frappe.logger().info(
+    _logger.info(
         f"[Orphaned Products Cleanup] Found {len(erpnext_item_codes)} items in ERPNext"
     )
 
@@ -1123,7 +1126,7 @@ def cleanup_orphaned_shopware_products(
 
     stats["orphaned_count"] = len(orphaned_products) + len(orphaned_variants)
 
-    frappe.logger().info(
+    _logger.info(
         f"[Orphaned Products Cleanup] Found {len(orphaned_products)} orphaned parents, "
         f"{len(orphaned_variants)} orphaned variants"
     )
@@ -1144,7 +1147,7 @@ def cleanup_orphaned_shopware_products(
                 client.request_delete(f"product/{variant['id']}")
                 stats["deleted"] += 1
                 if stats["deleted"] % 100 == 0:
-                    frappe.logger().info(
+                    _logger.info(
                         f"[Orphaned Products Cleanup] Progress: {stats['deleted']} deleted"
                     )
             except Exception as e:
@@ -1156,7 +1159,7 @@ def cleanup_orphaned_shopware_products(
                 })
                 # Log but continue - don't abort on single product failure
                 if stats["failed"] <= 10:
-                    frappe.logger().warning(
+                    _logger.warning(
                         f"[Orphaned Products Cleanup] Failed to delete variant {variant['productNumber']}: {error_str}"
                     )
 
@@ -1171,7 +1174,7 @@ def cleanup_orphaned_shopware_products(
                 client.request_delete(f"product/{product['id']}")
                 stats["deleted"] += 1
                 if stats["deleted"] % 100 == 0:
-                    frappe.logger().info(
+                    _logger.info(
                         f"[Orphaned Products Cleanup] Progress: {stats['deleted']} deleted"
                     )
             except Exception as e:
@@ -1182,7 +1185,7 @@ def cleanup_orphaned_shopware_products(
                     "error": error_str
                 })
                 if stats["failed"] <= 10:
-                    frappe.logger().warning(
+                    _logger.warning(
                         f"[Orphaned Products Cleanup] Failed to delete product {product['productNumber']}: {error_str}"
                     )
 
@@ -1207,7 +1210,7 @@ def cleanup_orphaned_shopware_products(
                     })
                 _safe_commit()
             except Exception as e:
-                frappe.logger().warning(f"[Orphaned Products Cleanup] Failed to delete Ecommerce Items: {e}")
+                _logger.warning(f"[Orphaned Products Cleanup] Failed to delete Ecommerce Items: {e}")
                 _ensure_db_connection()
 
     # Build result
@@ -1423,7 +1426,7 @@ def _run_batch_reconciliation(
 
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
     if not setting.is_enabled():
-        frappe.logger().error("Shopware integration not enabled")
+        _logger.error("Shopware integration not enabled")
         return
 
     # Get ALL linked items
@@ -1435,7 +1438,7 @@ def _run_batch_reconciliation(
     )
 
     total_items = len(ecom_items)
-    frappe.logger().info(f"[Reconciliation] Starting for {total_items} items")
+    _logger.info(f"[Reconciliation] Starting for {total_items} items")
 
     stats = {
         "total": total_items, "processed": 0, "in_sync": 0,
@@ -1484,20 +1487,20 @@ def _run_batch_reconciliation(
                 except Exception as e:
                     stats["errors"] += 1
                     stats["processed"] += 1
-                    frappe.logger().warning(f"[Reconciliation] Error: {item_code}: {e}")
+                    _logger.warning(f"[Reconciliation] Error: {item_code}: {e}")
 
             frappe.db.commit()
 
             # Log progress every 5 batches
             if batch_num % 5 == 0:
                 pct = round(stats["processed"] / total_items * 100, 1)
-                frappe.logger().info(
+                _logger.info(
                     f"[Reconciliation] {pct}% - Synced: {stats['synced']}, "
                     f"In Sync: {stats['in_sync']}, Errors: {stats['errors']}"
                 )
 
         except Exception as e:
-            frappe.logger().error(f"[Reconciliation] Batch {batch_num} failed: {e}")
+            _logger.error(f"[Reconciliation] Batch {batch_num} failed: {e}")
             try:
                 frappe.db.rollback()
             except Exception:
@@ -1507,12 +1510,12 @@ def _run_batch_reconciliation(
             try:
                 if not frappe.db or not frappe.db.is_connected():
                     frappe.connect()
-                    frappe.logger().info(f"[Reconciliation] Reconnected to database after batch {batch_num} failure")
+                    _logger.info(f"[Reconciliation] Reconnected to database after batch {batch_num} failure")
             except Exception as reconnect_error:
-                frappe.logger().error(f"[Reconciliation] Failed to reconnect: {reconnect_error}")
+                _logger.error(f"[Reconciliation] Failed to reconnect: {reconnect_error}")
 
     stats["end_time"] = now()
-    frappe.logger().info(
+    _logger.info(
         f"[Reconciliation] COMPLETED - Synced: {stats['synced']}, "
         f"In Sync: {stats['in_sync']}, Errors: {stats['errors']}"
     )
@@ -1609,7 +1612,7 @@ def force_sync_all_images(
             # Commit every 10 items
             if stats["processed"] % 10 == 0:
                 frappe.db.commit()
-                frappe.logger().info(
+                _logger.info(
                     f"[Force Image Sync] Progress: {stats['processed']}/{len(ecommerce_items)} "
                     f"(synced: {stats['synced']}, failed: {stats['failed']})"
                 )
@@ -1618,7 +1621,7 @@ def force_sync_all_images(
             stats["failed"] += 1
             stats["errors"].append({"item_code": item_code, "error": str(e)})
             stats["processed"] += 1
-            frappe.logger().warning(f"[Force Image Sync] Error for {item_code}: {e}")
+            _logger.warning(f"[Force Image Sync] Error for {item_code}: {e}")
 
     frappe.db.commit()
 
@@ -1758,8 +1761,56 @@ def _run_force_image_sync_batched(batch_size: int, total: int):
 
 
 # =============================================================================
-# FORCE VARIANT SYNC
+# FORCE VARIANT SYNC (BATCH API)
 # =============================================================================
+
+def _batch_delete_products(client, product_ids: List[str]) -> int:
+    """
+    Delete multiple products via Shopware Sync API (batch operation).
+
+    Args:
+        client: Shopware API client
+        product_ids: List of Shopware product IDs to delete
+
+    Returns:
+        Number of successfully deleted products
+    """
+    if not product_ids:
+        return 0
+
+    logger = get_logger("batch_delete")
+    deleted = 0
+
+    # Process in batches of 100
+    batch_size = 100
+    for i in range(0, len(product_ids), batch_size):
+        batch_ids = product_ids[i:i + batch_size]
+
+        try:
+            # Shopware Sync API delete format
+            sync_payload = {
+                "delete-products": {
+                    "entity": "product",
+                    "action": "delete",
+                    "payload": [{"id": pid} for pid in batch_ids]
+                }
+            }
+
+            client.request_post("_action/sync", sync_payload)
+            deleted += len(batch_ids)
+
+        except Exception as e:
+            logger.warning(f"Batch delete failed for {len(batch_ids)} products: {e}")
+            # Fallback: try individual deletes
+            for pid in batch_ids:
+                try:
+                    client.request_delete(f"product/{pid}")
+                    deleted += 1
+                except Exception:
+                    pass
+
+    return deleted
+
 
 @frappe.whitelist()
 @temp_shopware_session
@@ -1769,12 +1820,12 @@ def force_sync_all_variants(
     dry_run: bool = False
 ) -> Dict[str, Any]:
     """
-    Force re-sync all variant products to Shopware.
+    Force re-sync all variant products to Shopware using Batch API.
 
     This function:
     1. Finds all template products (has_variants=1) synced to Shopware
-    2. For each template: deletes ALL variants in Shopware
-    3. Re-uploads all variants from ERPNext
+    2. For each template: deletes ALL variants in Shopware (batch)
+    3. Re-uploads all variants from ERPNext using BatchProductUploader
 
     Args:
         client: Shopware API client (injected by decorator)
@@ -1784,11 +1835,13 @@ def force_sync_all_variants(
     Returns:
         Dict with sync statistics
     """
-    from ecommerce_integrations.shopware6.export.variant_handler import upload_variant_item_to_shopware
+    from ecommerce_integrations.shopware6.export.batch_uploader import BatchProductUploader
     from ecommerce_integrations.shopware6.export.template_handler import (
         upload_template_item_to_shopware,
         clear_product_configurator_settings,
     )
+
+    logger = get_logger("force_sync_all_variants")
 
     stats = {
         "templates_processed": 0,
@@ -1802,7 +1855,7 @@ def force_sync_all_variants(
     create_shopware_log(
         status="Info",
         method="force_sync_all_variants",
-        message=f"Starting force variant sync (limit={limit}, dry_run={dry_run})"
+        message=f"Starting force variant sync with Batch API (limit={limit}, dry_run={dry_run})"
     )
 
     # Get all template items synced to Shopware
@@ -1819,7 +1872,10 @@ def force_sync_all_variants(
     )
 
     total = len(template_ecom_items)
-    frappe.logger().info(f"[Force Variant Sync] Found {total} template products")
+    logger.info(f"Found {total} template products to process")
+
+    # Initialize BatchProductUploader once
+    uploader = BatchProductUploader()
 
     for idx, ecom_item in enumerate(template_ecom_items):
         template_code = ecom_item.erpnext_item_code
@@ -1834,7 +1890,7 @@ def force_sync_all_variants(
             )
 
             if not erpnext_variants:
-                frappe.logger().info(f"[Force Variant Sync] {template_code} has no variants, skipping")
+                logger.info(f"{template_code} has no variants, skipping")
                 continue
 
             # Step 1: Get all Shopware variants for this parent
@@ -1845,18 +1901,14 @@ def force_sync_all_variants(
                 })
                 shopware_variants = response.get("data", [])
             except Exception as e:
-                frappe.logger().warning(f"[Force Variant Sync] Could not fetch variants for {template_code}: {e}")
+                logger.warning(f"Could not fetch Shopware variants for {template_code}: {e}")
                 shopware_variants = []
 
-            # Step 2: Delete ALL variants in Shopware
+            # Step 2: Delete ALL variants in Shopware using batch API
             if not dry_run:
-                for sw_variant in shopware_variants:
-                    sw_variant_id = sw_variant.get("id")
-                    try:
-                        client.request_delete(f"product/{sw_variant_id}")
-                        stats["variants_deleted"] += 1
-                    except Exception as e:
-                        frappe.logger().warning(f"[Force Variant Sync] Could not delete variant {sw_variant_id}: {e}")
+                variant_ids = [v.get("id") for v in shopware_variants if v.get("id")]
+                deleted_count = _batch_delete_products(client, variant_ids)
+                stats["variants_deleted"] += deleted_count
 
                 # Clear configurator settings from parent
                 clear_product_configurator_settings(client, parent_shopware_id)
@@ -1874,28 +1926,23 @@ def force_sync_all_variants(
                 template_item = frappe.get_doc("Item", template_code)
                 upload_template_item_to_shopware(client, template_item)
 
-            # Step 4: Re-upload all variants from ERPNext
-            for variant_code in erpnext_variants:
-                try:
-                    if not dry_run:
-                        variant_item = frappe.get_doc("Item", variant_code)
-                        result = upload_variant_item_to_shopware(client, variant_item)
-                        if result:
-                            stats["variants_synced"] += 1
-                        else:
-                            stats["failed"] += 1
-                    else:
-                        stats["variants_synced"] += 1
-                except Exception as e:
-                    stats["failed"] += 1
-                    stats["errors"].append(f"{variant_code}: {str(e)[:100]}")
+            # Step 4: Re-upload all variants using BatchProductUploader
+            if not dry_run:
+                result = uploader.upload_variants(erpnext_variants, skip_images=True)
+                stats["variants_synced"] += result.success
+                stats["failed"] += result.failed
+                for err in result.errors:
+                    stats["errors"].append(f"{err.get('item_code', '?')}: {err.get('error', '')[:100]}")
+            else:
+                stats["variants_synced"] += len(erpnext_variants)
 
             stats["templates_processed"] += 1
 
             if (idx + 1) % 5 == 0:
-                frappe.logger().info(
-                    f"[Force Variant Sync] Progress: {idx + 1}/{total} templates, "
-                    f"deleted: {stats['variants_deleted']}, synced: {stats['variants_synced']}"
+                logger.info(
+                    f"Progress: {idx + 1}/{total} templates, "
+                    f"deleted: {stats['variants_deleted']}, synced: {stats['variants_synced']}",
+                    persist=True
                 )
                 if not dry_run:
                     frappe.db.commit()
@@ -1903,12 +1950,12 @@ def force_sync_all_variants(
         except Exception as e:
             stats["failed"] += 1
             stats["errors"].append(f"{template_code}: {str(e)[:100]}")
-            frappe.logger().warning(f"[Force Variant Sync] Error for {template_code}: {e}")
+            logger.warning(f"Error for {template_code}: {e}")
 
     create_shopware_log(
         status="Success",
         method="force_sync_all_variants",
-        message=f"Force variant sync completed: {stats['templates_processed']} templates, "
+        message=f"Force variant sync completed (Batch API): {stats['templates_processed']} templates, "
                 f"{stats['variants_deleted']} deleted, {stats['variants_synced']} synced, "
                 f"{stats['failed']} failed"
     )
@@ -1931,27 +1978,29 @@ def force_sync_single_template_variants(
     price_list: str = "Standard-Vertrieb"
 ) -> Dict[str, Any]:
     """
-    Force re-sync all variants for a SINGLE template product.
+    Force re-sync all variants for a SINGLE template product using Batch API.
 
-    Deletes all variants in Shopware and re-uploads from ERPNext.
-    Also syncs prices after variant creation.
+    Deletes all variants in Shopware (batch) and re-uploads from ERPNext.
+    Prices are synced during variant upload (Multi-Channel support).
 
     Args:
         client: Shopware API client (injected)
         template_item_code: ERPNext template item code (e.g. '4702A-Parent')
         dry_run: Preview mode
-        sync_prices: Also force sync prices after variant creation (default: True)
-        price_list: Price list to use for price sync
+        sync_prices: Ignored - prices are always synced during upload
+        price_list: Ignored - uses Multi-Channel price lists
 
     Returns:
         Dict with sync statistics
     """
-    from ecommerce_integrations.shopware6.export.variant_handler import upload_variant_item_to_shopware
+    from ecommerce_integrations.shopware6.export.batch_uploader import BatchProductUploader
     from ecommerce_integrations.shopware6.export.template_handler import (
         upload_template_item_to_shopware,
         clear_product_configurator_settings,
     )
     from ecommerce_integrations.shopware6.export.utils import get_shopware_document_id
+
+    logger = get_logger("force_sync_single_template_variants")
 
     stats = {
         "template": template_item_code,
@@ -1971,7 +2020,7 @@ def force_sync_single_template_variants(
             "message": f"Template {template_item_code} not synced to Shopware"
         }
 
-    frappe.logger().info(f"[Force Single Variant Sync] Starting for {template_item_code} (Shopware ID: {parent_shopware_id})")
+    logger.info(f"Starting for {template_item_code} (Shopware ID: {parent_shopware_id})")
 
     try:
         # Get ERPNext variants
@@ -1980,7 +2029,7 @@ def force_sync_single_template_variants(
             filters={"variant_of": template_item_code, "disabled": 0},
             pluck="name"
         )
-        frappe.logger().info(f"[Force Single Variant Sync] Found {len(erpnext_variants)} ERPNext variants")
+        logger.info(f"Found {len(erpnext_variants)} ERPNext variants")
 
         # Get Shopware variants
         try:
@@ -1989,25 +2038,18 @@ def force_sync_single_template_variants(
                 "limit": 500
             })
             shopware_variants = response.get("data", [])
-            frappe.logger().info(f"[Force Single Variant Sync] Found {len(shopware_variants)} Shopware variants")
+            logger.info(f"Found {len(shopware_variants)} Shopware variants")
         except Exception as e:
-            frappe.logger().warning(f"Could not fetch Shopware variants: {e}")
+            logger.warning(f"Could not fetch Shopware variants: {e}")
             shopware_variants = []
 
-        # Step 1: Delete ALL variants in Shopware
+        # Step 1: Delete ALL variants in Shopware using batch API
         if not dry_run:
-            for sw_variant in shopware_variants:
-                sw_variant_id = sw_variant.get("id")
-                product_number = sw_variant.get("productNumber", "")
-                try:
-                    client.request_delete(f"product/{sw_variant_id}")
-                    stats["variants_deleted"] += 1
-                    frappe.logger().info(f"Deleted variant {product_number} ({sw_variant_id})")
-                except Exception as e:
-                    frappe.logger().warning(f"Could not delete variant {sw_variant_id}: {e}")
+            variant_ids = [v.get("id") for v in shopware_variants if v.get("id")]
+            stats["variants_deleted"] = _batch_delete_products(client, variant_ids)
+            logger.info(f"Deleted {stats['variants_deleted']} variants via batch API")
 
             # Clear configurator settings from parent
-            frappe.logger().info("Clearing configuratorSettings from parent...")
             clear_product_configurator_settings(client, parent_shopware_id)
 
             # Delete Ecommerce Item records for variants
@@ -2021,52 +2063,43 @@ def force_sync_single_template_variants(
 
         # Step 2: Re-sync template (to rebuild configuratorSettings)
         if not dry_run:
-            frappe.logger().info("Re-syncing template product...")
+            logger.info("Re-syncing template product...")
             template_item = frappe.get_doc("Item", template_item_code)
             upload_template_item_to_shopware(client, template_item)
 
-        # Step 3: Re-upload all variants from ERPNext with full Multi-Channel support
-        frappe.logger().info(f"Re-uploading {len(erpnext_variants)} variants...")
-        for variant_code in erpnext_variants:
-            try:
-                if not dry_run:
-                    variant_item = frappe.get_doc("Item", variant_code)
-                    result = upload_variant_item_to_shopware(client, variant_item)
-                    if result:
-                        stats["variants_synced"] += 1
-                        frappe.logger().info(f"Synced variant {variant_code}")
-                    else:
-                        stats["failed"] += 1
-                        stats["errors"].append(f"{variant_code}: upload returned None (no valid price?)")
-                else:
-                    stats["variants_synced"] += 1
-            except Exception as e:
-                stats["failed"] += 1
-                stats["errors"].append(f"{variant_code}: {str(e)[:100]}")
-                frappe.logger().warning(f"Failed to sync {variant_code}: {e}")
+        # Step 3: Re-upload all variants using BatchProductUploader
+        if not dry_run and erpnext_variants:
+            logger.info(f"Re-uploading {len(erpnext_variants)} variants via Batch API...")
+            uploader = BatchProductUploader()
+            result = uploader.upload_variants(erpnext_variants, skip_images=True)
+
+            stats["variants_synced"] = result.success
+            stats["failed"] = result.failed
+            for err in result.errors:
+                stats["errors"].append(f"{err.get('item_code', '?')}: {err.get('error', '')[:100]}")
+        else:
+            stats["variants_synced"] = len(erpnext_variants)
 
         if not dry_run:
             frappe.db.commit()
 
         # Prices are set during variant upload (with Multi-Channel support)
-        # No separate price sync needed - upload_variant_item_to_shopware handles it
         stats["prices_synced"] = stats["variants_synced"]
 
     except Exception as e:
         stats["errors"].append(str(e)[:200])
-        logger = get_logger("force_sync_single_template_variants")
         logger.error(f"Force single variant sync failed for {template_item_code}", exception=e, persist=True)
 
     create_shopware_log(
         status="Success" if stats["failed"] == 0 else "Warning",
         method="force_sync_single_template_variants",
-        message=f"{template_item_code}: deleted {stats['variants_deleted']}, synced {stats['variants_synced']}, prices {stats['prices_synced']}, failed {stats['failed']}"
+        message=f"{template_item_code}: deleted {stats['variants_deleted']}, synced {stats['variants_synced']} (Batch API), failed {stats['failed']}"
     )
 
     return {
         "success": True,
         "stats": stats,
-        "message": f"Template {template_item_code}: {stats['variants_deleted']} deleted, {stats['variants_synced']} synced, {stats['prices_synced']} prices"
+        "message": f"Template {template_item_code}: {stats['variants_deleted']} deleted, {stats['variants_synced']} synced (Batch API)"
     }
 
 

@@ -344,12 +344,18 @@ def _map_address_fields(shopware_address: Dict[str, Any], customer_name: str, ad
     """Map Shopware address fields to ERPNext Address fields."""
     country_code = shopware_address.get("country", {}).get("iso", "") if isinstance(shopware_address.get("country"), dict) else ""
     country = map_country_code(country_code) or "Germany"
-    
+
     state_data = shopware_address.get("countryState", {}) or {}
     state = map_state_from_shopware(state_data, country)
-    
+
+    # Avoid duplicate address type suffixes (e.g., "X GmbH-Shipping-Shipping")
+    if customer_name.endswith(f"-{address_type}"):
+        address_title = customer_name
+    else:
+        address_title = f"{customer_name}-{address_type}"
+
     address_fields = {
-        "address_title": f"{customer_name}-{address_type}",
+        "address_title": address_title,
         "address_type": address_type,
         ADDRESS_ID_FIELD: shopware_address.get("id"),
         "address_line1": shopware_address.get("street") or "Straße",
