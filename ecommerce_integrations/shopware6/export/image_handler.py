@@ -203,9 +203,80 @@ def get_file_hash(file_url: str) -> Optional[str]:
         return None
 
 
+def _get_public_image_url(file_url: str) -> Optional[Tuple[str, str]]:
+    """
+    Convert ERPNext file URL to a publicly accessible URL for Shopware to fetch.
+
+    Args:
+        file_url: ERPNext file URL (/files/..., /file/..., etc.)
+
+    Returns:
+        Tuple of (public_url, extension) if accessible, None otherwise
+    """
+    if not file_url:
+        return None
+
+    # Already a full URL
+    if file_url.startswith(('http://', 'https://')):
+        ext = os.path.splitext(file_url)[1].lstrip('.') or 'jpg'
+        return file_url, ext
+
+    # Private files - not publicly accessible
+    if file_url.startswith('/private/'):
+        return None
+
+    # Get site URL
+    site_url = frappe.utils.get_url().rstrip('/')
+
+    # Public files: /files/... or /file/... (dfp_external_storage)
+    if file_url.startswith('/files/') or file_url.startswith('/file/'):
+        public_url = f"{site_url}{file_url}"
+        ext = os.path.splitext(file_url)[1].lstrip('.') or 'jpg'
+        return public_url, ext
+
+    return None
+
+
+def _upload_media_via_url(client, media_id: str, public_url: str, extension: str, filename: str) -> bool:
+    """
+    Upload media to Shopware using URL (Shopware fetches the image).
+
+    OPTIMIZATION: Much faster than binary upload - no need to download/upload binary data.
+
+    Args:
+        client: Shopware API client
+        media_id: Shopware media UUID
+        public_url: Publicly accessible image URL
+        extension: File extension (jpg, png, etc.)
+        filename: Desired filename in Shopware
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Shopware endpoint accepts JSON with URL
+        client.request_post(
+            f"_action/media/{media_id}/upload",
+            payload={"url": public_url},
+            content_type="application/json",
+            additional_query_params={"extension": extension, "fileName": filename}
+        )
+        return True
+    except BaseException as e:
+        error_str = str(e).lower()
+        # Ignore "already exists" errors
+        if "already exists" in error_str or "duplicate" in error_str:
+            return True
+        get_logger().debug(f"URL-based upload failed for {public_url}: {str(e)[:100]}", persist=False)
+        return False
+
+
 def upload_media_to_shopware(client, file_url: str, item_code: str, position: int = 0) -> Optional[str]:
     """
     Upload a media file to Shopware and return the media ID.
+
+    OPTIMIZATION: Uses URL-based upload when possible (Shopware fetches the image).
+    Falls back to binary upload for private files or if URL-based fails.
 
     Args:
         client: Shopware API client
@@ -217,47 +288,45 @@ def upload_media_to_shopware(client, file_url: str, item_code: str, position: in
         Media ID if successful, None otherwise
     """
     try:
+        folder_id = get_product_media_folder_id(client)
+        media_id = generate_uuid(f"media_{item_code}_{position}")
+        filename = sanitize_filename(f"{item_code}_{position}")
+
+        # Check if media already exists with content
+        try:
+            media_check = client.request_get(f"media/{media_id}")
+            if media_check.get("data", {}).get("fileName"):
+                return media_id  # Already uploaded
+        except BaseException:
+            pass  # Media doesn't exist yet
+
+        # Create media entity first
+        media_payload = {"id": media_id}
+        if folder_id:
+            media_payload["mediaFolderId"] = folder_id
+
+        try:
+            client.request_post("media", media_payload)
+        except BaseException as e:
+            error_str = str(e).lower()
+            if "already exists" not in error_str and "updatecommand" not in error_str:
+                get_logger().error(f"Failed to create media for {item_code}: {str(e)}", persist=False)
+                return None
+
+        # Try URL-based upload first (much faster - Shopware fetches directly)
+        public_url_info = _get_public_image_url(file_url)
+        if public_url_info:
+            public_url, extension = public_url_info
+            if _upload_media_via_url(client, media_id, public_url, extension, filename):
+                return media_id
+            # URL-based failed, fall back to binary
+
+        # Binary upload fallback (for private files or if URL-based failed)
         file_content, mime_type, extension = get_file_content_and_type(file_url)
         if not file_content:
             get_logger().warning(f"Could not read file {file_url} for item {item_code}", persist=False)
             return None
 
-        folder_id = get_product_media_folder_id(client)
-        media_id = generate_uuid(f"media_{item_code}_{position}")
-
-        # Check if media exists
-        media_exists = False
-        try:
-            response = client.request_get(f"media/{media_id}")
-            if response.get("data"):
-                media_exists = True
-        except BaseException:
-            pass
-
-        if not media_exists:
-            media_payload = {"id": media_id}
-            if folder_id:
-                media_payload["mediaFolderId"] = folder_id
-
-            try:
-                client.request_post("media", media_payload)
-            except BaseException as e:
-                error_str = str(e).lower()
-                if "already exists" not in error_str and "updatecommand" not in error_str:
-                    get_logger().error(f"Failed to create media for {item_code}: {str(e)}", persist=False)
-                    return None
-
-        # Check if already has content
-        try:
-            media_check = client.request_get(f"media/{media_id}")
-            if media_check.get("data", {}).get("fileName"):
-                return media_id
-        except BaseException as e:
-            get_logger().warning(f"Media check failed for {item_code}: {str(e)}", persist=False)
-            # Continue with upload attempt
-
-        # Upload file
-        filename = sanitize_filename(f"{item_code}_{position}")
         try:
             client.request_post(
                 f"_action/media/{media_id}/upload",
@@ -361,6 +430,59 @@ def get_item_images(item) -> List[str]:
     return images
 
 
+def _bulk_delete_product_media(client, product_media_ids: List[str], media_ids: List[str]) -> Tuple[int, int]:
+    """
+    Bulk delete product-media relationships and media objects using Sync API.
+
+    OPTIMIZATION: Instead of N individual DELETE requests, uses 1-2 Sync API calls.
+
+    Args:
+        client: Shopware API client
+        product_media_ids: List of product-media UUIDs to delete
+        media_ids: List of media UUIDs to delete
+
+    Returns:
+        Tuple of (product_media_deleted, media_deleted)
+    """
+    pm_deleted = 0
+    media_deleted = 0
+
+    if not product_media_ids and not media_ids:
+        return pm_deleted, media_deleted
+
+    try:
+        sync_payload = {}
+
+        # Bulk delete product-media relationships
+        if product_media_ids:
+            sync_payload["delete-product-media"] = {
+                "entity": "product_media",
+                "action": "delete",
+                "payload": [{"id": pm_id} for pm_id in product_media_ids]
+            }
+
+        # Bulk delete media objects
+        if media_ids:
+            sync_payload["delete-media"] = {
+                "entity": "media",
+                "action": "delete",
+                "payload": [{"id": m_id} for m_id in media_ids]
+            }
+
+        if sync_payload:
+            client.request_post("_action/sync", sync_payload)
+            pm_deleted = len(product_media_ids)
+            media_deleted = len(media_ids)
+
+    except Exception as e:
+        # Log but don't fail - media might be used elsewhere
+        frappe.logger().warning(f"Bulk media delete partially failed: {str(e)[:100]}")
+        # Try to return what we attempted
+        pm_deleted = len(product_media_ids) if product_media_ids else 0
+
+    return pm_deleted, media_deleted
+
+
 def clear_product_images_in_shopware(client, shopware_product_id: str, item_code: str = None) -> int:
     """
     Delete all images from a Shopware product.
@@ -389,27 +511,20 @@ def clear_product_images_in_shopware(client, shopware_product_id: str, item_code
         if not existing:
             return 0
 
+        # Collect IDs for bulk delete
+        product_media_ids = []
         media_ids_to_delete = []
 
-        # Delete product-media relationships first
         for pm in existing:
             pm_id = pm.get("id")
             media_id = pm.get("mediaId")
             if pm_id:
-                try:
-                    client.request_delete(f"product-media/{pm_id}")
-                    deleted_count += 1
-                    if media_id:
-                        media_ids_to_delete.append(media_id)
-                except BaseException as e:
-                    frappe.logger().warning(f"Could not delete product-media {pm_id}: {str(e)[:50]}")
+                product_media_ids.append(pm_id)
+            if media_id:
+                media_ids_to_delete.append(media_id)
 
-        # Then delete the media objects themselves
-        for media_id in media_ids_to_delete:
-            try:
-                client.request_delete(f"media/{media_id}")
-            except BaseException:
-                pass  # Media might be used elsewhere
+        # Bulk delete using Sync API (much faster than individual deletes)
+        deleted_count, _ = _bulk_delete_product_media(client, product_media_ids, media_ids_to_delete)
 
         # Clear cache
         if item_code:
@@ -450,7 +565,7 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> b
             clear_product_images_in_shopware(client, shopware_product_id, item.item_code)
             return True
 
-        # Remove existing product-media relationships before uploading new ones
+        # Remove existing product-media relationships before uploading new ones (bulk delete)
         try:
             search_result = client.request_post("search/product-media", {
                 "filter": [{"type": "equals", "field": "productId", "value": shopware_product_id}]
@@ -458,24 +573,20 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> b
             existing = search_result.get("data", []) or []
 
             if existing:
+                # Collect IDs for bulk delete
+                product_media_ids = []
                 media_ids_to_delete = []
+
                 for pm in existing:
                     pm_id = pm.get("id")
                     media_id = pm.get("mediaId") or (pm.get("media") or {}).get("id")
                     if pm_id:
-                        try:
-                            client.request_delete(f"product-media/{pm_id}")
-                            if media_id:
-                                media_ids_to_delete.append(media_id)
-                        except BaseException:
-                            pass
+                        product_media_ids.append(pm_id)
+                    if media_id:
+                        media_ids_to_delete.append(media_id)
 
-                for media_id in media_ids_to_delete:
-                    try:
-                        client.request_delete(f"media/{media_id}")
-                    except BaseException:
-                        pass
-
+                # Bulk delete using Sync API
+                _bulk_delete_product_media(client, product_media_ids, media_ids_to_delete)
                 cache.clear_image_hashes(item.item_code)
         except BaseException as e:
             frappe.logger().warning(f"Could not clean media for {item.item_code}: {e}")

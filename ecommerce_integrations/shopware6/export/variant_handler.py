@@ -27,6 +27,7 @@ from ecommerce_integrations.shopware6.export.property_handler import (
     get_item_properties,
     get_item_custom_fields,
     clear_product_properties,
+    clear_product_options,
 )
 from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
 
@@ -169,6 +170,12 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
                         pass
             except Exception:
                 pass
+            # Clear old OPTIONS before setting new ones (prevents duplicates from orphaned groups)
+            if product_payload.get("options"):
+                try:
+                    clear_product_options(client, product_id)
+                except BaseException:
+                    pass  # Option clearing is optional, don't break sync
             # Clear old properties before setting new ones (don't let errors break sync)
             if product_payload.get("properties"):
                 try:

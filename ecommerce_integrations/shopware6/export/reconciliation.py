@@ -53,12 +53,15 @@ def sync_all_categories_to_shopware(
     root_category: str = None,
     skip_root: bool = False,
     sync_empty_categories: bool = True,
-    dry_run: bool = False
+    dry_run: bool = False,
+    use_bulk_sync: bool = True,
+    sync_images: bool = True
 ) -> Dict[str, Any]:
     """
     Sync ALL Item Groups under a root category to Shopware.
 
     Processes in tree order (parent before children) using lft ordering.
+    Uses bulk Sync API for massive performance improvement (2 API calls vs hundreds).
 
     Args:
         client: Shopware API client (injected by decorator)
@@ -66,16 +69,24 @@ def sync_all_categories_to_shopware(
         skip_root: If True, don't sync the root category itself
         sync_empty_categories: If True, sync categories even without products
         dry_run: If True, only report what would be synced
+        use_bulk_sync: If True, use bulk Sync API (default, much faster)
+        sync_images: If True, sync category images after bulk sync
 
     Returns:
         dict: Sync results with statistics
     """
-    from ecommerce_integrations.shopware6.export.category_handler import sync_category_hierarchy
+    from ecommerce_integrations.shopware6.export.category_handler import (
+        sync_category_hierarchy,
+        bulk_sync_categories,
+        bulk_sync_category_images,
+    )
 
     # Parse string parameters from frontend
     skip_root = _parse_bool(skip_root)
     sync_empty_categories = _parse_bool(sync_empty_categories)
     dry_run = _parse_bool(dry_run)
+    use_bulk_sync = _parse_bool(use_bulk_sync)
+    sync_images = _parse_bool(sync_images)
 
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
     if not setting.is_enabled():
@@ -121,42 +132,82 @@ def sync_all_categories_to_shopware(
         f"Category Sync: Processing {len(categories)} categories from '{root_category}'"
     )
 
-    for cat in categories:
-        if dry_run:
-            stats["synced"] += 1
-            continue
+    if dry_run:
+        stats["synced"] = len(categories)
+        return {
+            "success": True,
+            "dry_run": True,
+            "statistics": stats,
+            "message": f"Would sync {stats['synced']}/{stats['total']} categories (DRY RUN)"
+        }
 
-        try:
-            category_id = sync_category_hierarchy(
-                client=client, item_group_name=cat.name
-            )
-            if category_id:
-                stats["synced"] += 1
-            else:
-                stats["skipped"] += 1
-        except Exception as e:
-            stats["errors"].append({"category": cat.name, "error": str(e)[:200]})
-            logger = get_logger("sync_all_categories_to_shopware")
-            logger.error(f"Category sync failed: {cat.name}", exception=e, persist=True)
-            # Check for DB connection error and reconnect
-            if "InterfaceError" in str(type(e).__name__) or "(0, '')" in str(e):
-                try:
-                    frappe.connect()
-                    _logger.info(f"Category sync: Reconnected after DB error for {cat.name}")
-                except Exception:
-                    pass
+    # =========================================================================
+    # BULK SYNC MODE (default, much faster)
+    # =========================================================================
+    if use_bulk_sync:
+        _logger.info("Using BULK sync mode for categories")
 
-        # Commit periodically with error handling
-        if stats["synced"] % 20 == 0:
+        # Convert to list of dicts for bulk_sync_categories
+        item_groups = [{"name": c.name, "parent_item_group": c.parent_item_group} for c in categories]
+
+        # Execute bulk sync (2 API calls instead of hundreds)
+        bulk_result = bulk_sync_categories(client, item_groups)
+
+        if bulk_result.get("success"):
+            bulk_stats = bulk_result.get("stats", {})
+            stats["synced"] = bulk_stats.get("created", 0) + bulk_stats.get("updated", 0)
+            stats["skipped"] = bulk_stats.get("skipped", 0)
+            stats["errors"] = bulk_stats.get("errors", [])
+
+            # Sync images separately (still sequential for now)
+            if sync_images:
+                _logger.info("Syncing category images...")
+                id_map = bulk_result.get("id_map", {})
+                image_stats = bulk_sync_category_images(client, item_groups, id_map)
+                _logger.info(f"Category images: {image_stats['synced']} synced, "
+                             f"{image_stats['skipped']} skipped, {image_stats['errors']} errors")
+        else:
+            stats["errors"].append({"category": "bulk_sync", "error": bulk_result.get("error", "Unknown")})
+            _logger.error(f"Bulk category sync failed: {bulk_result.get('error')}")
+
+    # =========================================================================
+    # SEQUENTIAL SYNC MODE (fallback, slower)
+    # =========================================================================
+    else:
+        _logger.info("Using SEQUENTIAL sync mode for categories (slower)")
+
+        for cat in categories:
             try:
-                frappe.db.commit()
-            except Exception as commit_error:
-                _logger.warning(f"Category sync: Commit failed, trying reconnect: {commit_error}")
+                category_id = sync_category_hierarchy(
+                    client=client, item_group_name=cat.name
+                )
+                if category_id:
+                    stats["synced"] += 1
+                else:
+                    stats["skipped"] += 1
+            except Exception as e:
+                stats["errors"].append({"category": cat.name, "error": str(e)[:200]})
+                logger = get_logger("sync_all_categories_to_shopware")
+                logger.error(f"Category sync failed: {cat.name}", exception=e, persist=True)
+                # Check for DB connection error and reconnect
+                if "InterfaceError" in str(type(e).__name__) or "(0, '')" in str(e):
+                    try:
+                        frappe.connect()
+                        _logger.info(f"Category sync: Reconnected after DB error for {cat.name}")
+                    except Exception:
+                        pass
+
+            # Commit periodically with error handling
+            if stats["synced"] % 20 == 0:
                 try:
-                    frappe.connect()
                     frappe.db.commit()
-                except Exception:
-                    pass
+                except Exception as commit_error:
+                    _logger.warning(f"Category sync: Commit failed, trying reconnect: {commit_error}")
+                    try:
+                        frappe.connect()
+                        frappe.db.commit()
+                    except Exception:
+                        pass
 
     try:
         frappe.db.commit()
@@ -177,7 +228,7 @@ def sync_all_categories_to_shopware(
         "success": True,
         "dry_run": dry_run,
         "statistics": stats,
-        "message": f"Synced {stats['synced']}/{stats['total']} categories" + (" (DRY RUN)" if dry_run else "")
+        "message": f"Synced {stats['synced']}/{stats['total']} categories" + (" (BULK)" if use_bulk_sync else "")
     }
 
 

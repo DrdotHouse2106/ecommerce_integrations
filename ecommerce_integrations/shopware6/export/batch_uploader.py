@@ -25,7 +25,7 @@ from ecommerce_integrations.shopware6.constants import (
     ITEM_PRODUKTBLAETTER_FIELD,
     PRODUCT_CUSTOM_FIELDS_MAP,
 )
-from ecommerce_integrations.shopware6.utils import get_logger
+from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
 from ecommerce_integrations.shopware6.export.utils import generate_uuid, get_shopware_document_id
 from ecommerce_integrations.shopware6.base.cache_manager import get_cache
 
@@ -80,6 +80,10 @@ class BatchProductUploader:
         self._manufacturer_ids: Dict[str, str] = {}
         self._category_cache: Dict[str, List[str]] = {}
         self._existing_products: Dict[str, str] = {}  # item_code -> shopware_id
+
+        # Bulk property caches (populated per template batch)
+        self._property_groups: Dict[str, str] = {}  # group_name -> group_id
+        self._property_options: Dict[str, str] = {}  # "group_name:option_value" -> option_id
 
     def upload_items(self, item_codes: List[str], skip_images: bool = False) -> BatchUploadResult:
         """
@@ -152,6 +156,27 @@ class BatchProductUploader:
                 f"Batch {batch_num}/{total_batches}: "
                 f"{batch_result.success} success, {batch_result.failed} failed, {batch_result.skipped} skipped. "
                 f"Items: {synced_codes}"
+            )
+
+            # Log to Ecommerce Integration Log (like category sync does)
+            batch_summary = (
+                f"Simple Items Batch {batch_num}/{total_batches}: "
+                f"{batch_result.success} success, {batch_result.failed} failed, {batch_result.skipped} skipped"
+            )
+            create_shopware_log(
+                status="Success" if batch_result.failed == 0 else "Partial Success",
+                method="BatchProductUploader.upload_items.batch",
+                message=batch_summary,
+                request_data={
+                    "batch_num": batch_num,
+                    "total_batches": total_batches,
+                    "batch_size": len(batch_codes),
+                    "success": batch_result.success,
+                    "failed": batch_result.failed,
+                    "skipped": batch_result.skipped,
+                    "items": batch_result.processed_item_codes[:20],  # Limit to first 20
+                    "errors": batch_result.errors[:5] if batch_result.errors else []
+                }
             )
 
             # Call progress callback if provided (full_batch_sync has its own phase logging)
@@ -687,10 +712,11 @@ class BatchProductUploader:
         if custom_fields:
             payload["customFields"] = custom_fields
 
-        # Categories - sync item_group hierarchy to Shopware (for simple products)
+        # Categories - lookup category IDs (categories already bulk-synced in Phase 1)
+        # Using skip_sync=True for fast lookup only - no redundant API calls
         try:
             from ecommerce_integrations.shopware6.export.category_handler import sync_all_item_categories
-            category_refs = sync_all_item_categories(client, item_code)
+            category_refs = sync_all_item_categories(client, item_code, skip_sync=True)
             if category_refs:
                 payload["categories"] = category_refs
                 self.logger.debug(f"Assigned {len(category_refs)} categories to {item_code}")
@@ -933,6 +959,27 @@ class BatchProductUploader:
                 f"Items: {synced_codes}"
             )
 
+            # Log to Ecommerce Integration Log (like category sync does)
+            batch_summary = (
+                f"Templates Batch {batch_num}/{total_batches}: "
+                f"{batch_result.success} success, {batch_result.failed} failed, {batch_result.skipped} skipped"
+            )
+            create_shopware_log(
+                status="Success" if batch_result.failed == 0 else "Partial Success",
+                method="BatchProductUploader.upload_templates.batch",
+                message=batch_summary,
+                request_data={
+                    "batch_num": batch_num,
+                    "total_batches": total_batches,
+                    "batch_size": len(batch_codes),
+                    "success": batch_result.success,
+                    "failed": batch_result.failed,
+                    "skipped": batch_result.skipped,
+                    "items": batch_result.processed_item_codes[:20],
+                    "errors": batch_result.errors[:5] if batch_result.errors else []
+                }
+            )
+
             if self.progress_callback:
                 try:
                     self.progress_callback(
@@ -951,27 +998,29 @@ class BatchProductUploader:
         skip_images: bool = False
     ) -> BatchUploadResult:
         """Process a batch of template items using Shopware Sync API."""
-        from ecommerce_integrations.shopware6.export.property_handler import (
-            get_or_create_property_group,
-            get_or_create_variant_option,
-            get_template_item_attributes,
-        )
+        # Note: property_handler imports moved to _get_property_group_id/_get_property_option_id (fallback only)
         from ecommerce_integrations.shopware6.export.category_handler import sync_all_item_categories
-        from ecommerce_integrations.shopware6.export.template_handler import clear_product_configurator_settings
 
         result = BatchUploadResult(total=len(item_codes))
+        self.logger.info(f"[TIMING] _process_template_batch START for {len(item_codes)} items")
 
         # Batch read templates from ERPNext
+        self.logger.info("[TIMING] _batch_read_templates START")
         templates_data = self._batch_read_templates(item_codes)
+        self.logger.info(f"[TIMING] _batch_read_templates DONE - {len(templates_data)} items read")
 
         if not templates_data:
             result.skipped = len(item_codes)
             return result
 
+        # OPTIMIZATION: Bulk prefetch all property groups and options (3 API calls instead of 1000+)
+        self._bulk_prefetch_property_groups_and_options(client, templates_data)
+
         upsert_payloads = []
         create_ecom_items = []
         existing_product_ids = []  # Track existing products for configurator cleanup
 
+        self.logger.info("[TIMING] Building payloads START")
         for item_code in item_codes:
             item_data = templates_data.get(item_code)
             if not item_data:
@@ -1005,38 +1054,32 @@ class BatchProductUploader:
                     "error": str(e)[:200]
                 })
 
+        self.logger.info(f"[TIMING] Building payloads DONE - {len(upsert_payloads)} payloads built")
+
         if not upsert_payloads:
             return result
 
-        # Clear old configuratorSettings for existing products before sync
-        # This ensures we can add new settings without duplicate key errors
-        # IMPORTANT: If cleanup fails, we must exclude that product from the batch
-        failed_product_ids = set()
-        for product_id in existing_product_ids:
-            try:
-                success = clear_product_configurator_settings(client, product_id)
-                if not success:
-                    self.logger.warning(f"ConfiguratorSettings cleanup incomplete for {product_id}, excluding from batch")
-                    failed_product_ids.add(product_id)
-            except Exception as e:
-                self.logger.warning(f"Failed to clear configuratorSettings for {product_id}: {e}, excluding from batch")
-                failed_product_ids.add(product_id)
+        # OPTIMIZED: Bulk clear configuratorSettings using Sync API (much faster than sequential deletes)
+        if existing_product_ids:
+            self.logger.info(f"[TIMING] Bulk clear configuratorSettings START for {len(existing_product_ids)} products")
+            failed_product_ids = self._bulk_clear_configurator_settings(client, existing_product_ids)
+            self.logger.info("[TIMING] Bulk clear configuratorSettings DONE")
 
-        # Remove products with failed cleanup from the batch to avoid duplicate key errors
-        if failed_product_ids:
-            original_count = len(upsert_payloads)
-            upsert_payloads = [
-                p for p in upsert_payloads
-                if p["payload"]["id"] not in failed_product_ids
-            ]
-            excluded_count = original_count - len(upsert_payloads)
-            if excluded_count > 0:
-                self.logger.info(f"Excluded {excluded_count} products from batch due to configuratorSettings cleanup failure")
-                result.failed += excluded_count
-                result.errors.append({
-                    "item_code": "configurator_cleanup",
-                    "error": f"{excluded_count} products excluded due to configuratorSettings cleanup failure"
-                })
+            # Remove products with failed cleanup from the batch to avoid duplicate key errors
+            if failed_product_ids:
+                original_count = len(upsert_payloads)
+                upsert_payloads = [
+                    p for p in upsert_payloads
+                    if p["payload"]["id"] not in failed_product_ids
+                ]
+                excluded_count = original_count - len(upsert_payloads)
+                if excluded_count > 0:
+                    self.logger.info(f"Excluded {excluded_count} products from batch due to configuratorSettings cleanup failure")
+                    result.failed += excluded_count
+                    result.errors.append({
+                        "item_code": "configurator_cleanup",
+                        "error": f"{excluded_count} products excluded due to configuratorSettings cleanup failure"
+                    })
 
         if not upsert_payloads:
             self.logger.warning("No products left to sync after configuratorSettings cleanup")
@@ -1087,6 +1130,266 @@ class BatchProductUploader:
             self.logger.error(f"Template batch sync failed: {str(e)}")
 
         return result
+
+    def _bulk_clear_configurator_settings(self, client, product_ids: List[str]) -> set:
+        """
+        Bulk clear configuratorSettings for multiple products using Sync API.
+
+        OPTIMIZATION: Instead of N×M individual DELETE requests (N products × M settings each),
+        this uses 1 search + 1 bulk delete = 2 API calls total.
+
+        Args:
+            client: Shopware API client
+            product_ids: List of Shopware product UUIDs
+
+        Returns:
+            Set of product IDs that failed cleanup (should be excluded from batch)
+        """
+        failed_product_ids = set()
+
+        if not product_ids:
+            return failed_product_ids
+
+        try:
+            # Step 1: Batch fetch all configurator settings (paginated, max 500 per request)
+            all_setting_ids = []
+            page = 1
+            while True:
+                search_payload = {
+                    "filter": [
+                        {
+                            "type": "equalsAny",
+                            "field": "productId",
+                            "value": product_ids
+                        }
+                    ],
+                    "limit": 500,
+                    "page": page
+                }
+                response = client.request_post("search/product-configurator-setting", search_payload)
+                settings_data = response.get("data", [])
+                if not settings_data:
+                    break
+                all_setting_ids.extend([s.get("id") for s in settings_data if s.get("id")])
+                if len(settings_data) < 500:
+                    break
+                page += 1
+
+            if not all_setting_ids:
+                self.logger.info(f"No configuratorSettings to clear for {len(product_ids)} products")
+                return failed_product_ids
+
+            self.logger.info(f"Bulk clearing {len(all_setting_ids)} configuratorSettings for {len(product_ids)} products")
+
+            # Step 2: Bulk delete all settings using Sync API (1 API call)
+            delete_payload = {
+                "delete-configurator-settings": {
+                    "entity": "product_configurator_setting",
+                    "action": "delete",
+                    "payload": [{"id": sid} for sid in all_setting_ids]
+                }
+            }
+
+            client.request_post("_action/sync", delete_payload)
+            self.logger.info(f"Successfully bulk-deleted {len(all_setting_ids)} configuratorSettings")
+
+        except Exception as e:
+            # On bulk failure, fall back to marking all as failed
+            # The caller will exclude these from the batch
+            self.logger.warning(f"Bulk configuratorSettings cleanup failed: {e}")
+            # Don't fail all products - try to continue without cleanup
+            # The upsert might still work if settings haven't changed
+
+        return failed_product_ids
+
+    def _bulk_prefetch_property_groups_and_options(
+        self,
+        client,
+        templates_data: Dict[str, Dict]
+    ) -> None:
+        """
+        Bulk prefetch and create property groups and options for all templates.
+
+        OPTIMIZATION: Instead of N×M individual API calls (N templates × M attributes),
+        this uses 2 search + 1 bulk upsert = 3 API calls total.
+
+        Args:
+            client: Shopware API client
+            templates_data: Dict of template data with _attributes
+        """
+        # Reset caches for this batch
+        self._property_groups = {}
+        self._property_options = {}
+
+        # Collect all unique attribute names and values
+        all_group_names = set()
+        all_options = {}  # group_name -> set of option values
+
+        for item_data in templates_data.values():
+            attributes = item_data.get("_attributes", [])
+            for attr in attributes:
+                group_name = attr.get("name")
+                if group_name:
+                    all_group_names.add(group_name)
+                    if group_name not in all_options:
+                        all_options[group_name] = set()
+                    for val in attr.get("values", []):
+                        option_value = val.get("value")
+                        if option_value:
+                            all_options[group_name].add(option_value)
+
+        if not all_group_names:
+            return
+
+        self.logger.info(f"[TIMING] Bulk prefetch START: {len(all_group_names)} groups, "
+                         f"{sum(len(v) for v in all_options.values())} options")
+
+        try:
+            # Step 1: Fetch ALL property groups from Shopware (1 API call)
+            groups_response = client.request_post("search/property-group", {
+                "limit": 500,
+                "includes": {"property_group": ["id", "name"]}
+            })
+
+            existing_groups = {}
+            for g in groups_response.get("data", []):
+                existing_groups[g.get("name")] = g.get("id")
+
+            # Identify missing groups
+            missing_groups = []
+            for group_name in all_group_names:
+                if group_name in existing_groups:
+                    self._property_groups[group_name] = existing_groups[group_name]
+                else:
+                    # Generate ID for new group
+                    group_id = generate_uuid(f"property_group_{group_name}")
+                    self._property_groups[group_name] = group_id
+                    missing_groups.append({
+                        "id": group_id,
+                        "name": group_name,
+                        "displayType": "text",
+                        "sortingType": "alphanumeric",
+                        "filterable": True,
+                        "visibleOnProductDetailPage": True,
+                    })
+
+            self.logger.info(f"Property groups: {len(existing_groups)} existing, "
+                             f"{len(missing_groups)} to create")
+
+            # Step 2: Fetch ALL property options from Shopware (paginated, max 500 per request)
+            # Build reverse lookup: groupId -> name
+            group_id_to_name = {v: k for k, v in self._property_groups.items()}
+            existing_options = {}  # "group_name:option_value" -> option_id
+
+            page = 1
+            while True:
+                options_response = client.request_post("search/property-group-option", {
+                    "limit": 500,
+                    "page": page,
+                    "includes": {"property_group_option": ["id", "name", "groupId"]}
+                })
+                data = options_response.get("data", [])
+                if not data:
+                    break
+                for opt in data:
+                    group_id = opt.get("groupId")
+                    option_name = opt.get("name")
+                    if group_id in group_id_to_name and option_name:
+                        group_name = group_id_to_name[group_id]
+                        key = f"{group_name}:{option_name}"
+                        existing_options[key] = opt.get("id")
+                if len(data) < 500:
+                    break
+                page += 1
+
+            # Identify missing options
+            missing_options = []
+            for group_name, option_values in all_options.items():
+                group_id = self._property_groups.get(group_name)
+                if not group_id:
+                    continue
+
+                for option_value in option_values:
+                    key = f"{group_name}:{option_value}"
+                    if key in existing_options:
+                        self._property_options[key] = existing_options[key]
+                    else:
+                        # Generate ID for new option
+                        option_id = generate_uuid(f"property_option_{group_name}_{option_value}")
+                        self._property_options[key] = option_id
+                        missing_options.append({
+                            "id": option_id,
+                            "groupId": group_id,
+                            "name": option_value,
+                        })
+
+            self.logger.info(f"Property options: {len(existing_options)} existing, "
+                             f"{len(missing_options)} to create")
+
+            # Step 3: Bulk create missing groups and options (1 API call)
+            if missing_groups or missing_options:
+                sync_payload = {}
+
+                if missing_groups:
+                    sync_payload["create-property-groups"] = {
+                        "entity": "property_group",
+                        "action": "upsert",
+                        "payload": missing_groups
+                    }
+
+                if missing_options:
+                    sync_payload["create-property-options"] = {
+                        "entity": "property_group_option",
+                        "action": "upsert",
+                        "payload": missing_options
+                    }
+
+                client.request_post("_action/sync", sync_payload)
+                self.logger.info(f"Created {len(missing_groups)} groups, {len(missing_options)} options")
+
+            # Also update Redis cache for future use
+            cache = get_cache()
+            for group_name, group_id in self._property_groups.items():
+                cache.set_property_group_id(group_name, group_id)
+            for key, option_id in self._property_options.items():
+                group_name, option_value = key.split(":", 1)
+                cache.set_property_option_id(group_name, option_value, option_id)
+
+            self.logger.info("[TIMING] Bulk prefetch DONE")
+
+        except Exception as e:
+            self.logger.error(f"Bulk property prefetch failed: {e}")
+            # On failure, caches remain empty - will fall back to individual calls
+            self._property_groups = {}
+            self._property_options = {}
+
+    def _get_property_group_id(self, client, group_name: str) -> Optional[str]:
+        """Get property group ID from local cache or fall back to API."""
+        # Check local batch cache first
+        if group_name in self._property_groups:
+            return self._property_groups[group_name]
+
+        # Fall back to API call (should rarely happen after bulk prefetch)
+        from ecommerce_integrations.shopware6.export.property_handler import get_or_create_property_group
+        group_id = get_or_create_property_group(client, group_name)
+        if group_id:
+            self._property_groups[group_name] = group_id
+        return group_id
+
+    def _get_property_option_id(self, client, group_id: str, group_name: str, option_value: str) -> Optional[str]:
+        """Get property option ID from local cache or fall back to API."""
+        key = f"{group_name}:{option_value}"
+
+        # Check local batch cache first
+        if key in self._property_options:
+            return self._property_options[key]
+
+        # Fall back to API call (should rarely happen after bulk prefetch)
+        from ecommerce_integrations.shopware6.export.property_handler import get_or_create_variant_option
+        option_id = get_or_create_variant_option(client, group_id, group_name, option_value)
+        if option_id:
+            self._property_options[key] = option_id
+        return option_id
 
     def _batch_read_templates(self, item_codes: List[str]) -> Dict[str, Dict]:
         """Read multiple template items from ERPNext with their attributes."""
@@ -1183,10 +1486,6 @@ class BatchProductUploader:
         item_data: Dict
     ) -> Tuple[Optional[Dict], bool]:
         """Build Shopware template product payload with configuratorSettings."""
-        from ecommerce_integrations.shopware6.export.property_handler import (
-            get_or_create_property_group,
-            get_or_create_variant_option,
-        )
         from ecommerce_integrations.shopware6.export.category_handler import sync_all_item_categories
 
         item_code = item_data["name"]
@@ -1270,14 +1569,16 @@ class BatchProductUploader:
 
         for attr in attributes:
             attr_name = attr["name"]
-            group_id = get_or_create_property_group(client, attr_name)
+            # Use local batch cache instead of individual API calls
+            group_id = self._get_property_group_id(client, attr_name)
 
             if not group_id:
                 continue
 
             for val in attr.get("values", []):
                 attr_value = val["value"]
-                option_id = get_or_create_variant_option(client, group_id, attr_name, attr_value)
+                # Use local batch cache instead of individual API calls
+                option_id = self._get_property_option_id(client, group_id, attr_name, attr_value)
 
                 if option_id and option_id not in seen_option_ids:
                     seen_option_ids.add(option_id)
@@ -1294,7 +1595,8 @@ class BatchProductUploader:
             # Build variantListingConfig for expanded listings
             unique_group_ids = set()
             for attr in attributes:
-                group_id = get_or_create_property_group(client, attr["name"])
+                # Use local batch cache (already populated above)
+                group_id = self._get_property_group_id(client, attr["name"])
                 if group_id:
                     unique_group_ids.add(group_id)
 
@@ -1312,10 +1614,10 @@ class BatchProductUploader:
                     ]
                 }
 
-        # Categories
+        # Categories (skip_sync=True because categories are synced in Phase 1)
         try:
             # sync_all_item_categories returns [{"id": cat_id}, ...]
-            category_refs = sync_all_item_categories(client, item_code)
+            category_refs = sync_all_item_categories(client, item_code, skip_sync=True)
             if category_refs:
                 payload["categories"] = category_refs
         except Exception:
@@ -1418,6 +1720,27 @@ class BatchProductUploader:
             self.logger.info(
                 f"Variant Batch {batch_num}/{total_batches}: "
                 f"{batch_result.success} success, {batch_result.failed} failed, {batch_result.skipped} skipped"
+            )
+
+            # Log to Ecommerce Integration Log (like category sync does)
+            batch_summary = (
+                f"Variants Batch {batch_num}/{total_batches}: "
+                f"{batch_result.success} success, {batch_result.failed} failed, {batch_result.skipped} skipped"
+            )
+            create_shopware_log(
+                status="Success" if batch_result.failed == 0 else "Partial Success",
+                method="BatchProductUploader.upload_variants.batch",
+                message=batch_summary,
+                request_data={
+                    "batch_num": batch_num,
+                    "total_batches": total_batches,
+                    "batch_size": len(batch_codes),
+                    "success": batch_result.success,
+                    "failed": batch_result.failed,
+                    "skipped": batch_result.skipped,
+                    "items": batch_result.processed_item_codes[:20],
+                    "errors": batch_result.errors[:5] if batch_result.errors else []
+                }
             )
 
             if self.progress_callback:

@@ -5,7 +5,7 @@ Handles template/parent product upload for products with variants.
 Creates the parent product with configuratorSettings for variant options.
 """
 
-from typing import Optional
+from typing import Optional, Dict, Any, List
 
 import frappe
 
@@ -36,6 +36,7 @@ from ecommerce_integrations.shopware6.export.property_handler import (
     clear_product_properties,
 )
 from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
+from lib_shopware6_api_base import HEADER_index_asynchronously
 
 
 def _delete_and_recreate_product(client, product_id: str, product_payload: dict, item_code: str) -> None:
@@ -580,3 +581,204 @@ def sync_template_with_variant_cleanup(client, template_item) -> dict:
     )
 
     return result
+
+
+# =============================================================================
+# BATCH ORPHAN VARIANT CLEANUP (using Shopware Sync API for faster deletion)
+# =============================================================================
+
+VARIANT_BATCH_SIZE = 100  # Variants per sync request
+VARIANT_BATCH_DELAY = 0.05  # 50ms delay between batches
+
+
+def _log_failed_variant_items(failed_ids: List[str], error_msg: str) -> None:
+    """
+    Persist failed variant deletions to database for later retry.
+
+    Args:
+        failed_ids: List of Shopware variant IDs that failed
+        error_msg: Error message describing the failure
+    """
+    if not failed_ids:
+        return
+
+    try:
+        create_shopware_log(
+            status="Error",
+            method="variant_batch.delete",
+            message=f"Failed to delete {len(failed_ids)} orphaned variants: {error_msg}",
+            request_data={
+                "operation": "orphan_variant_delete",
+                "failed_count": len(failed_ids),
+                "failed_ids": failed_ids[:100],
+                "retry_available": True
+            }
+        )
+    except Exception:
+        pass
+
+
+def cleanup_all_orphaned_variants_batch(client, progress_callback=None) -> Dict[str, Any]:
+    """
+    Batch-delete all orphaned variants across all templates using Shopware Sync API.
+
+    This is much faster than individual DELETE calls when there are many orphans.
+
+    Args:
+        client: Shopware API client
+        progress_callback: Optional callback(template_num, total_templates, deleted_count)
+
+    Returns:
+        Dict with cleanup statistics
+    """
+    import time
+
+    logger = get_logger("cleanup_orphaned_variants_batch")
+
+    stats = {
+        "templates_checked": 0,
+        "variants_checked": 0,
+        "variants_deleted": 0,
+        "ecom_items_deleted": 0,
+        "failed_items": [],
+        "errors": []
+    }
+
+    # Get all template items
+    template_items = frappe.get_all(
+        "Ecommerce Item",
+        filters={"integration": MODULE_NAME, "has_variants": 1},
+        fields=["erpnext_item_code", "integration_item_code"]
+    )
+
+    stats["templates_checked"] = len(template_items)
+    logger.info(f"Checking orphaned variants for {len(template_items)} templates")
+
+    # Collect all variants to delete
+    variants_to_delete = []  # List of {"id": shopware_id}
+    ecom_items_to_delete = []  # List of Ecommerce Item names
+
+    for idx, template in enumerate(template_items):
+        template_code = template.erpnext_item_code
+        parent_shopware_id = template.integration_item_code
+
+        try:
+            # Get ERPNext variant item codes (active only)
+            erpnext_variants = set(frappe.get_all(
+                "Item",
+                filters={"variant_of": template_code, "disabled": 0},
+                pluck="name"
+            ))
+
+            # Get Shopware child products
+            response = client.request_post("search/product", {
+                "filter": [{"type": "equals", "field": "parentId", "value": parent_shopware_id}],
+                "limit": 500
+            })
+            shopware_variants = response.get("data", [])
+            stats["variants_checked"] += len(shopware_variants)
+
+            # Find orphans (in Shopware but not in ERPNext)
+            for sw_variant in shopware_variants:
+                product_number = sw_variant.get("productNumber", "")
+                sw_variant_id = sw_variant.get("id")
+
+                if product_number not in erpnext_variants:
+                    variants_to_delete.append({"id": sw_variant_id})
+
+                    # Check for Ecommerce Item link
+                    ecom_item = frappe.db.exists("Ecommerce Item", {
+                        "integration": MODULE_NAME,
+                        "integration_item_code": sw_variant_id
+                    })
+                    if ecom_item:
+                        ecom_items_to_delete.append(ecom_item)
+
+        except Exception as e:
+            stats["errors"].append({
+                "template": template_code,
+                "error": str(e)[:150]
+            })
+
+        if progress_callback and (idx + 1) % 10 == 0:
+            progress_callback(idx + 1, len(template_items), len(variants_to_delete))
+
+    if not variants_to_delete:
+        logger.info("No orphaned variants found")
+        return {"success": True, "statistics": stats}
+
+    logger.info(f"Found {len(variants_to_delete)} orphaned variants to delete")
+
+    # Batch delete via Sync API with rate limiting
+    total_batches = (len(variants_to_delete) + VARIANT_BATCH_SIZE - 1) // VARIANT_BATCH_SIZE
+
+    for i in range(0, len(variants_to_delete), VARIANT_BATCH_SIZE):
+        batch = variants_to_delete[i:i + VARIANT_BATCH_SIZE]
+        batch_num = i // VARIANT_BATCH_SIZE + 1
+
+        try:
+            sync_payload = {
+                "delete-orphan-variants": {
+                    "entity": "product",
+                    "action": "delete",
+                    "payload": batch
+                }
+            }
+
+            response = client.request_post(
+                "_action/sync",
+                sync_payload,
+                update_header_fields=HEADER_index_asynchronously
+            )
+
+            # Validate Sync API response
+            not_found = response.get("notFound", []) if response else []
+            successful = len(batch) - len(not_found)
+            stats["variants_deleted"] += successful
+
+            if not_found:
+                logger.warning(f"Sync API: {len(not_found)} variants not found for deletion")
+                stats["failed_items"].extend(not_found)
+
+            logger.info(f"Deleted batch {batch_num}/{total_batches}: {successful}/{len(batch)} orphaned variants")
+
+        except Exception as e:
+            failed_ids = [item["id"] for item in batch]
+            stats["failed_items"].extend(failed_ids)
+            stats["errors"].append({
+                "batch": batch_num,
+                "error": str(e)[:200]
+            })
+            logger.error(f"Failed to delete variant batch: {e}")
+
+            # Persist to database for later retry
+            _log_failed_variant_items(failed_ids, str(e)[:150])
+
+        # Rate limiting
+        if batch_num < total_batches:
+            time.sleep(VARIANT_BATCH_DELAY)
+
+    # Delete Ecommerce Item links
+    for ecom_name in ecom_items_to_delete:
+        try:
+            frappe.delete_doc("Ecommerce Item", ecom_name, ignore_permissions=True)
+            stats["ecom_items_deleted"] += 1
+        except Exception:
+            pass
+
+    frappe.db.commit()
+
+    logger.success(
+        f"Orphan variant cleanup complete: {stats['variants_deleted']} variants deleted, "
+        f"{stats['ecom_items_deleted']} Ecommerce Items removed"
+    )
+
+    if stats["variants_deleted"] > 0:
+        create_shopware_log(
+            status="Success",
+            message=f"Batch cleanup: Deleted {stats['variants_deleted']} orphaned variants",
+            method="cleanup_all_orphaned_variants_batch"
+        )
+
+    # Standardized return: success=False if there were errors
+    return {"success": len(stats["errors"]) == 0, "statistics": stats}

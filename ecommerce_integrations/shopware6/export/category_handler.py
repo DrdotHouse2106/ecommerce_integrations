@@ -589,13 +589,14 @@ def get_all_item_categories(item_code: str, include_variant_categories: bool = T
     return categories
 
 
-def sync_all_item_categories(client, item_code: str) -> List[Dict[str, str]]:
+def sync_all_item_categories(client, item_code: str, skip_sync: bool = False) -> List[Dict[str, str]]:
     """
     Sync all categories for an item to Shopware.
 
     Args:
         client: Shopware API client
         item_code: ERPNext Item code
+        skip_sync: If True, only lookup existing categories (much faster)
 
     Returns:
         List of category ID dicts for Shopware payload
@@ -606,7 +607,13 @@ def sync_all_item_categories(client, item_code: str) -> List[Dict[str, str]]:
 
     for item_group_name in categories:
         try:
-            category_id = sync_category_hierarchy(client, item_group_name)
+            if skip_sync:
+                # Fast path: only lookup, don't sync
+                category_id = get_category_id_fast(client, item_group_name)
+            else:
+                # Slow path: sync entire hierarchy
+                category_id = sync_category_hierarchy(client, item_group_name)
+
             if category_id and category_id not in seen_ids:
                 seen_ids.add(category_id)
                 category_ids.append({"id": category_id})
@@ -614,6 +621,48 @@ def sync_all_item_categories(client, item_code: str) -> List[Dict[str, str]]:
             get_logger().error(f"Error syncing category {item_group_name} for {item_code}: {e}", persist=False)
 
     return category_ids
+
+
+def get_category_id_fast(client, category_name: str) -> Optional[str]:
+    """
+    Fast category ID lookup without syncing.
+
+    Checks cache first, then does a quick Shopware search.
+    Does NOT create the category if it doesn't exist.
+
+    Args:
+        client: Shopware API client
+        category_name: Category name to look up
+
+    Returns:
+        Category ID if found, None otherwise
+    """
+    cache = get_cache()
+
+    # Check cache first
+    cached_id = cache.get_category_id(category_name)
+    if cached_id:
+        return cached_id
+
+    # Quick search in Shopware
+    try:
+        response = client.request_post(
+            "search/category",
+            {
+                "filter": [{"type": "equals", "field": "name", "value": category_name}],
+                "limit": 1,
+                "includes": {"category": ["id"]}
+            }
+        )
+        categories = response.get("data", [])
+        if categories:
+            cat_id = categories[0]["id"]
+            cache.set_category_id(category_name, cat_id)
+            return cat_id
+    except Exception:
+        pass
+
+    return None
 
 
 def clear_product_categories(client, product_id: str) -> bool:
@@ -967,3 +1016,278 @@ def sync_item_group_to_shopware(client, item_group_name: str) -> bool:
     except Exception as e:
         get_logger().error(f"Error syncing Item Group '{item_group_name}': {e}", persist=False)
         return False
+
+
+def bulk_sync_categories(
+    client,
+    item_groups: List[Dict[str, Any]],
+    root_parent_id: str = None
+) -> Dict[str, Any]:
+    """
+    Bulk sync categories to Shopware using Sync API.
+
+    OPTIMIZATION: Instead of N individual API calls (2-3 per category),
+    this uses 1 search + 1 bulk upsert = 2 API calls total.
+
+    Args:
+        client: Shopware API client
+        item_groups: List of Item Group dicts with name, parent_item_group (in lft order!)
+        root_parent_id: Shopware root category ID
+
+    Returns:
+        Dict with statistics and id_map
+    """
+    logger = get_logger("bulk_sync_categories")
+    cache = get_cache()
+
+    stats = {
+        "total": len(item_groups),
+        "created": 0,
+        "updated": 0,
+        "skipped": 0,
+        "errors": []
+    }
+
+    if not item_groups:
+        return {"success": True, "stats": stats, "id_map": {}}
+
+    logger.info(f"[TIMING] Bulk category sync START for {len(item_groups)} categories")
+
+    # Root categories to skip
+    root_to_skip = {"All Item Groups", "Alle Artikelgruppen"}
+
+    try:
+        # Step 1: Pre-fetch ALL existing Shopware categories (paginated if needed)
+        logger.info("[TIMING] Fetching existing Shopware categories...")
+        existing_categories = {}  # name -> {id, parentId}
+
+        # Paginate through all categories (Shopware max limit is 500)
+        page = 1
+        while True:
+            existing_response = client.request_post("search/category", {
+                "limit": 500,
+                "page": page,
+                "includes": {"category": ["id", "name", "parentId"]}
+            })
+            data = existing_response.get("data", [])
+            if not data:
+                break
+            for cat in data:
+                existing_categories[cat.get("name")] = {
+                    "id": cat.get("id"),
+                    "parentId": cat.get("parentId")
+                }
+            if len(data) < 500:
+                break
+            page += 1
+
+        logger.info(f"Found {len(existing_categories)} existing Shopware categories")
+
+        # Step 2: Get Shopware root category if not provided
+        if not root_parent_id:
+            root_resp = client.request_post(
+                "search/category",
+                {"filter": [{"type": "equals", "field": "parentId", "value": None}], "limit": 1}
+            )
+            root_cats = root_resp.get("data", [])
+            if root_cats:
+                root_parent_id = root_cats[0]["id"]
+
+        # Step 3: Build category payloads
+        logger.info("[TIMING] Building category payloads...")
+        id_map = {}  # item_group_name -> shopware_id
+        create_payloads = []
+        update_payloads = []
+
+        for ig in item_groups:
+            ig_name = ig.get("name")
+
+            # Skip root categories
+            if ig_name in root_to_skip:
+                stats["skipped"] += 1
+                continue
+
+            # Get Item Group data for SEO, custom fields, etc.
+            item_group_data = get_item_group_data(ig_name)
+
+            # Determine parent ID
+            parent_name = ig.get("parent_item_group")
+            if parent_name in root_to_skip:
+                parent_id = root_parent_id
+            elif parent_name and parent_name in id_map:
+                parent_id = id_map[parent_name]
+            elif parent_name and parent_name in existing_categories:
+                parent_id = existing_categories[parent_name]["id"]
+                id_map[parent_name] = parent_id
+            else:
+                parent_id = root_parent_id
+
+            # Check if category exists
+            if ig_name in existing_categories:
+                cat_id = existing_categories[ig_name]["id"]
+                id_map[ig_name] = cat_id
+                cache.set_category_id(ig_name, cat_id)
+
+                # Build update payload
+                payload = _build_category_payload(
+                    cat_id, ig_name, parent_id, item_group_data, is_update=True
+                )
+                update_payloads.append(payload)
+                stats["updated"] += 1
+            else:
+                # Generate new ID
+                cat_id = generate_uuid(f"category_{ig_name}")
+                id_map[ig_name] = cat_id
+                cache.set_category_id(ig_name, cat_id)
+
+                # Build create payload
+                payload = _build_category_payload(
+                    cat_id, ig_name, parent_id, item_group_data, is_update=False
+                )
+                create_payloads.append(payload)
+                stats["created"] += 1
+
+        logger.info(f"Categories: {stats['created']} to create, {stats['updated']} to update, "
+                    f"{stats['skipped']} skipped")
+
+        # Step 4: Execute bulk upsert via Sync API (1 API call)
+        all_payloads = create_payloads + update_payloads
+        if all_payloads:
+            logger.info(f"[TIMING] Executing Sync API for {len(all_payloads)} categories...")
+
+            # Split into chunks if too many (Shopware limit ~500)
+            chunk_size = 200
+            for i in range(0, len(all_payloads), chunk_size):
+                chunk = all_payloads[i:i + chunk_size]
+                sync_payload = {
+                    "upsert-categories": {
+                        "entity": "category",
+                        "action": "upsert",
+                        "payload": chunk
+                    }
+                }
+                client.request_post("_action/sync", sync_payload)
+                logger.info(f"Synced category batch {i // chunk_size + 1}")
+
+        logger.info("[TIMING] Bulk category sync DONE")
+
+        return {
+            "success": True,
+            "stats": stats,
+            "id_map": id_map
+        }
+
+    except Exception as e:
+        logger.error(f"Bulk category sync failed: {e}")
+        stats["errors"].append(str(e)[:500])
+        return {
+            "success": False,
+            "stats": stats,
+            "id_map": {},
+            "error": str(e)
+        }
+
+
+def _build_category_payload(
+    cat_id: str,
+    category_name: str,
+    parent_id: str,
+    item_group_data: Dict[str, Any] = None,
+    is_update: bool = False
+) -> Dict[str, Any]:
+    """
+    Build a category payload for Shopware Sync API.
+
+    Args:
+        cat_id: Shopware category UUID
+        category_name: Category name
+        parent_id: Parent category UUID
+        item_group_data: ERPNext Item Group data
+        is_update: Whether this is an update (skip some fields)
+
+    Returns:
+        Category payload dict
+    """
+    is_active = True
+    if item_group_data and "shopware_active" in item_group_data:
+        is_active = item_group_data["shopware_active"]
+
+    payload = {
+        "id": cat_id,
+        "name": category_name,
+        "active": is_active,
+        "displayNestedProducts": True,
+    }
+
+    # Only set parentId for new categories (can't move existing easily)
+    if not is_update and parent_id:
+        payload["parentId"] = parent_id
+
+    if item_group_data:
+        if item_group_data.get("description"):
+            payload["description"] = item_group_data["description"]
+        if item_group_data.get("seo_title"):
+            payload["metaTitle"] = item_group_data["seo_title"]
+        if item_group_data.get("seo_meta_description"):
+            payload["metaDescription"] = item_group_data["seo_meta_description"]
+        if item_group_data.get("seo_keywords"):
+            payload["keywords"] = item_group_data["seo_keywords"]
+
+        # Custom fields (FAQ, etc.)
+        custom_fields = build_category_custom_fields(item_group_data)
+        if custom_fields:
+            payload["customFields"] = custom_fields
+
+    return payload
+
+
+def bulk_sync_category_images(
+    client,
+    item_groups: List[Dict[str, Any]],
+    id_map: Dict[str, str]
+) -> Dict[str, Any]:
+    """
+    Bulk sync category images after categories are created.
+
+    Args:
+        client: Shopware API client
+        item_groups: List of Item Group dicts
+        id_map: Mapping of item_group_name -> shopware_category_id
+
+    Returns:
+        Dict with statistics
+    """
+    logger = get_logger("bulk_sync_category_images")
+    stats = {"synced": 0, "skipped": 0, "errors": 0}
+
+    for ig in item_groups:
+        ig_name = ig.get("name")
+        cat_id = id_map.get(ig_name)
+        if not cat_id:
+            continue
+
+        try:
+            item_group_data = get_item_group_data(ig_name)
+            if not item_group_data:
+                continue
+
+            image_path = item_group_data.get("category_image") or item_group_data.get("image")
+            if not image_path:
+                stats["skipped"] += 1
+                continue
+
+            media_id = upload_category_media(client, cat_id, image_path)
+            if media_id:
+                try:
+                    client.request_patch(f"category/{cat_id}", {"mediaId": media_id})
+                    stats["synced"] += 1
+                except Exception:
+                    stats["errors"] += 1
+            else:
+                stats["skipped"] += 1
+
+        except Exception as e:
+            logger.warning(f"Category image sync failed for {ig_name}: {e}")
+            stats["errors"] += 1
+
+    return stats

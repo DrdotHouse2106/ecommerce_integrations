@@ -57,84 +57,6 @@ frappe.ui.form.on('Shopware Setting', {
 					}
 				);
 			}, __('Bulk Sync'));
-
-			// Add Batch All Items button (Full Batch Sync)
-			frm.add_custom_button(__('Alle Artikel batchen'), function() {
-				let dialog = new frappe.ui.Dialog({
-					title: __('Full Batch Sync - Alle Artikel nach Shopware'),
-					size: 'small',
-					fields: [
-						{
-							fieldname: 'info_html',
-							fieldtype: 'HTML',
-							options: `<div class="alert alert-info">
-								<p><strong>Full Batch Sync</strong> synchronisiert alle ERPNext-Artikel nach Shopware in optimaler Reihenfolge:</p>
-								<ol>
-									<li><strong>Templates</strong> (Eltern-Artikel mit Varianten)</li>
-									<li><strong>Einfache Artikel</strong> (via Shopware Sync API - schnell!)</li>
-									<li><strong>Varianten</strong> (nach ihren Eltern)</li>
-								</ol>
-								<p class="text-muted small">Nutzt Shopware's Batch-API für optimale Performance.</p>
-							</div>`
-						},
-						{
-							fieldname: 'skip_templates',
-							fieldtype: 'Check',
-							label: __('Templates überspringen'),
-							default: 0,
-							description: __('Falls Templates bereits synchronisiert wurden')
-						},
-						{
-							fieldname: 'skip_simple',
-							fieldtype: 'Check',
-							label: __('Einfache Artikel überspringen'),
-							default: 0
-						},
-						{
-							fieldname: 'skip_variants',
-							fieldtype: 'Check',
-							label: __('Varianten überspringen'),
-							default: 0
-						}
-					],
-					primary_action_label: __('Batch starten'),
-					primary_action: function(values) {
-						dialog.hide();
-						frappe.call({
-							method: 'ecommerce_integrations.shopware6.export.full_batch_sync.enqueue_full_sync',
-							args: {
-								skip_templates: values.skip_templates ? 1 : 0,
-								skip_simple: values.skip_simple ? 1 : 0,
-								skip_variants: values.skip_variants ? 1 : 0
-							},
-							callback: function(r) {
-								if (r.message && r.message.success) {
-									let breakdown = r.message.breakdown || {};
-									frappe.msgprint({
-										title: __('Full Batch Sync gestartet'),
-										message: `<p>${r.message.message}</p>
-											<table class="table table-bordered">
-												<tr><td>Templates</td><td><strong>${breakdown.templates || 0}</strong></td></tr>
-												<tr><td>Einfache Artikel</td><td><strong>${breakdown.simple_items || 0}</strong></td></tr>
-												<tr><td>Varianten</td><td><strong>${breakdown.variants || 0}</strong></td></tr>
-												<tr><td><strong>Gesamt</strong></td><td><strong>${r.message.total_items || 0}</strong></td></tr>
-											</table>
-											<p class="text-muted">Fortschritt in Ecommerce Integration Log verfolgen.</p>`,
-										indicator: 'green'
-									});
-								} else {
-									frappe.msgprint({
-										title: __('Fehler'),
-										message: r.message?.message || __('Unbekannter Fehler'),
-										indicator: 'red'
-									});
-								}
-							}
-						});
-					}
-				});
-				dialog.show();
-			}, __('Bulk Sync'));
 		}
 
 		// Add Refresh Sales Channels button handler
@@ -161,21 +83,37 @@ frappe.ui.form.on('Shopware Setting', {
 			frm.add_custom_button(__('🔄 Complete Sync'), function() {
 				let dialog = new frappe.ui.Dialog({
 					title: __('Complete Sync - ERPNext → Shopware'),
-					size: 'small',
+					size: 'large',
 					fields: [
 						{
 							fieldname: 'info_html',
 							fieldtype: 'HTML',
 							options: `<div class="alert alert-success">
-								<p><strong>✅ Complete Sync</strong> macht Shopware 100% identisch zu ERPNext:</p>
-								<ul>
-									<li>Alle Kategorien synchronisieren</li>
-									<li>Alle Produkte vergleichen & aktualisieren</li>
-									<li>Preise, Bilder, Status synchronisieren</li>
-									<li>Verwaiste Kategorien bereinigen (nur unter Root)</li>
-								</ul>
-								<p class="text-muted small">Dauert evtl. länger, aber danach ist alles 100% synchron.</p>
+								<p><strong>✅ Complete Sync</strong> macht Shopware 100% identisch zu ERPNext.</p>
+								<p class="text-muted small">Nutzt Batch-API für optimale Performance (5-10x schneller).</p>
 							</div>`
+						},
+						{
+							fieldtype: 'Section Break',
+							label: __('Sync-Optionen'),
+							collapsible: 0
+						},
+						{
+							fieldname: 'sync_images',
+							fieldtype: 'Check',
+							label: __('Bilder synchronisieren'),
+							default: 1,
+							description: __('Alle Produktbilder nach Shopware hochladen')
+						},
+						{
+							fieldname: 'sync_stock',
+							fieldtype: 'Check',
+							label: __('Lagerbestand synchronisieren'),
+							default: 0,
+							description: __('⚠️ Überschreibt Shopware-Bestand mit ERPNext-Werten')
+						},
+						{
+							fieldtype: 'Column Break'
 						},
 						{
 							fieldname: 'category_root',
@@ -183,14 +121,58 @@ frappe.ui.form.on('Shopware Setting', {
 							label: __('Root Kategorie'),
 							options: 'Item Group',
 							default: frm.doc.category_sync_root || 'Produkte',
-							description: __('Nur Kategorien unter diesem Root werden synchronisiert/bereinigt')
+							description: __('Nur Kategorien unter diesem Root')
 						},
 						{
 							fieldname: 'cleanup_orphans',
 							fieldtype: 'Check',
-							label: __('Verwaiste Kategorien löschen'),
+							label: __('Verwaiste Einträge bereinigen'),
 							default: 1,
-							description: __('Löscht Kategorien in Shopware die nicht mehr in ERPNext existieren (nur unter Root)')
+							description: __('Kategorien, Varianten, Properties die nicht mehr in ERPNext existieren')
+						},
+						{
+							fieldtype: 'Section Break',
+							label: __('Phasen überspringen'),
+							collapsible: 1,
+							collapsed: 1
+						},
+						{
+							fieldname: 'skip_categories',
+							fieldtype: 'Check',
+							label: __('Kategorien überspringen'),
+							default: 0
+						},
+						{
+							fieldname: 'skip_templates',
+							fieldtype: 'Check',
+							label: __('Templates überspringen'),
+							default: 0,
+							description: __('Parent-Produkte mit Varianten überspringen')
+						},
+						{
+							fieldname: 'skip_products',
+							fieldtype: 'Check',
+							label: __('Produkte überspringen'),
+							default: 0
+						},
+						{
+							fieldtype: 'Column Break'
+						},
+						{
+							fieldname: 'skip_variants',
+							fieldtype: 'Check',
+							label: __('Varianten überspringen'),
+							default: 0
+						},
+						{
+							fieldname: 'skip_prices',
+							fieldtype: 'Check',
+							label: __('Preiskorrektur überspringen'),
+							default: 0
+						},
+						{
+							fieldtype: 'Section Break',
+							label: __('Ausführung')
 						},
 						{
 							fieldname: 'dry_run',
@@ -206,9 +188,17 @@ frappe.ui.form.on('Shopware Setting', {
 						frappe.call({
 							method: 'ecommerce_integrations.shopware6.sync.sync_manager.enqueue_full_reconciliation_no_brainer',
 							args: {
+								sync_images: values.sync_images ? 1 : 0,
+								sync_stock: values.sync_stock ? 1 : 0,
 								dry_run: values.dry_run ? 1 : 0,
 								category_root: values.category_root,
-								cleanup_orphan_categories: values.cleanup_orphans ? 1 : 0
+								cleanup_orphan_categories: values.cleanup_orphans ? 1 : 0,
+								skip_categories: values.skip_categories ? 1 : 0,
+								skip_templates: values.skip_templates ? 1 : 0,
+								skip_products: values.skip_products ? 1 : 0,
+								skip_variants: values.skip_variants ? 1 : 0,
+								skip_prices: values.skip_prices ? 1 : 0,
+								skip_cleanup: !values.cleanup_orphans ? 1 : 0
 							},
 							callback: function(r) {
 								if (r.message && r.message.success) {
@@ -277,50 +267,6 @@ frappe.ui.form.on('Shopware Setting', {
 										title: __('Kategorie-Sync'),
 										message: `Gesamt: ${stats.total || 0}, Synchronisiert: ${stats.synced || 0}, Fehler: ${(stats.errors || []).length}`,
 										indicator: (stats.errors || []).length > 0 ? 'orange' : 'green'
-									});
-								}
-							}
-						});
-					}
-				});
-				dialog.show();
-			}, __('Sync'));
-
-			// Products Only
-			frm.add_custom_button(__('Produkte'), function() {
-				let dialog = new frappe.ui.Dialog({
-					title: __('Produkte synchronisieren'),
-					fields: [
-						{
-							fieldname: 'limit',
-							fieldtype: 'Int',
-							label: __('Limit'),
-							default: 500
-						},
-						{
-							fieldname: 'sync_images',
-							fieldtype: 'Check',
-							label: __('Bilder mitsynchronisieren'),
-							default: 0
-						},
-						{
-							fieldname: 'dry_run',
-							fieldtype: 'Check',
-							label: __('Dry Run'),
-							default: 1
-						}
-					],
-					primary_action_label: __('Sync'),
-					primary_action: function(values) {
-						dialog.hide();
-						frappe.call({
-							method: 'ecommerce_integrations.shopware6.product_export.enqueue_full_reconciliation',
-							args: values,
-							callback: function(r) {
-								if (r.message && r.message.success) {
-									frappe.show_alert({
-										message: __('Produkt-Sync gestartet'),
-										indicator: 'green'
 									});
 								}
 							}

@@ -184,6 +184,7 @@ class SyncManager:
         deactivate_missing_products: bool = True,
         limit: int = 0,  # 0 = no limit
         dry_run: bool = False,
+        use_batch_sync: bool = True,  # Use Batch API for 5-10x speedup
     ) -> ReconciliationResult:
         """
         Full reconciliation - THE NO-BRAINER function.
@@ -222,72 +223,148 @@ class SyncManager:
             if sync_categories:
                 self._notify("Phase 1/6: Syncing categories...")
                 self.logger.info("Full Reconciliation: Starting Phase 1 (Categories)")
-                cat_result = self._sync_all_categories(client, dry_run)
-                result.categories_synced = cat_result.get("synced", 0)
-                result.categories_created = cat_result.get("created", 0)
-                self.logger.info(f"Full Reconciliation: Phase 1 complete - synced={result.categories_synced}, created={result.categories_created}")
+
+                # Create savepoint for partial rollback capability
+                frappe.db.savepoint("sync_phase_1_categories")
+                try:
+                    cat_result = self._sync_all_categories(client, dry_run)
+                    result.categories_synced = cat_result.get("synced", 0)
+                    result.categories_created = cat_result.get("created", 0)
+                    frappe.db.commit()  # Commit phase on success
+                    self.logger.info(f"Full Reconciliation: Phase 1 complete - synced={result.categories_synced}, created={result.categories_created}")
+                except Exception as e:
+                    frappe.db.rollback(save_point="sync_phase_1_categories")
+                    result.errors.append({"phase": "1_categories", "error": str(e)[:200]})
+                    self.logger.error(f"Phase 1 failed, rolled back: {e}")
             else:
                 self._notify("Phase 1/6: Skipping categories (disabled in settings)...")
                 self.logger.info("Full Reconciliation: Phase 1 (Categories) skipped per settings")
 
-            # Phase 2: Products (creates/updates)
-            if sync_products:
-                self._notify("Phase 2/6: Syncing products...")
-                self.logger.info("Full Reconciliation: Starting Phase 2 (Products)")
-                prod_result = self._sync_all_products(client, limit, sync_images, dry_run)
-                result.products_checked = prod_result.get("total", 0)
-                result.products_synced = prod_result.get("synced", 0)
-                result.products_in_sync = prod_result.get("in_sync", 0)
-                result.products_created = prod_result.get("created", 0)
-                result.errors.extend(prod_result.get("errors", []))
-                self.logger.info(f"Full Reconciliation: Phase 2 complete - checked={result.products_checked}, synced={result.products_synced}")
+            # Phase 2 & 3: Products and Variants
+            if sync_products or sync_variants:
+                # Create savepoint for products/variants phase
+                frappe.db.savepoint("sync_phase_2_3_products")
+                try:
+                    if use_batch_sync and not dry_run:
+                        # BATCH MODE: Use Sync API for 5-10x speedup
+                        self._notify("Phase 2-3/6: Batch-syncing products & variants (Sync API)...")
+                        self.logger.info("Full Reconciliation: Starting Phase 2-3 (Batch Products & Variants)")
 
-            # Phase 3: Variants
-            if sync_variants:
-                self._notify("Phase 3/6: Syncing variants...")
-                self.logger.info("Full Reconciliation: Starting Phase 3 (Variants)")
-                var_result = self._sync_all_variants(client, dry_run)
-                result.variants_synced = var_result.get("synced", 0)
-                self.logger.info(f"Full Reconciliation: Phase 3 complete - synced={result.variants_synced}")
+                        batch_result = self._sync_all_products_batch(client, sync_images)
+
+                        # Aggregate results from batch sync
+                        result.products_checked = (
+                            batch_result['templates']['total'] +
+                            batch_result['simple']['total']
+                        )
+                        result.products_synced = (
+                            batch_result['templates']['success'] +
+                            batch_result['simple']['success']
+                        )
+                        result.products_created = result.products_synced  # Batch creates/updates
+                        result.variants_synced = batch_result['variants']['success']
+                        result.errors.extend(batch_result.get('errors', []))
+
+                        self.logger.info(
+                            f"Full Reconciliation: Phase 2-3 complete (batch) - "
+                            f"products={result.products_synced}, variants={result.variants_synced}"
+                        )
+                    else:
+                        # SEQUENTIAL MODE: Original behavior (for dry_run or explicit disable)
+                        if sync_products:
+                            self._notify("Phase 2/6: Syncing products...")
+                            self.logger.info("Full Reconciliation: Starting Phase 2 (Products)")
+                            prod_result = self._sync_all_products(client, limit, sync_images, dry_run)
+                            result.products_checked = prod_result.get("total", 0)
+                            result.products_synced = prod_result.get("synced", 0)
+                            result.products_in_sync = prod_result.get("in_sync", 0)
+                            result.products_created = prod_result.get("created", 0)
+                            result.errors.extend(prod_result.get("errors", []))
+                            self.logger.info(f"Full Reconciliation: Phase 2 complete - checked={result.products_checked}, synced={result.products_synced}")
+
+                        if sync_variants:
+                            self._notify("Phase 3/6: Syncing variants...")
+                            self.logger.info("Full Reconciliation: Starting Phase 3 (Variants)")
+                            var_result = self._sync_all_variants(client, dry_run)
+                            result.variants_synced = var_result.get("synced", 0)
+                            self.logger.info(f"Full Reconciliation: Phase 3 complete - synced={result.variants_synced}")
+
+                    frappe.db.commit()  # Commit phase on success
+                except Exception as e:
+                    frappe.db.rollback(save_point="sync_phase_2_3_products")
+                    result.errors.append({"phase": "2_3_products", "error": str(e)[:200]})
+                    self.logger.error(f"Phase 2-3 failed, rolled back: {e}")
 
             # Phase 4: Force Price Sync
             if sync_prices:
-                self._notify("Phase 4/6: Syncing prices...")
+                if use_batch_sync and not dry_run:
+                    self._notify("Phase 4/6: Batch-syncing prices (Sync API)...")
+                else:
+                    self._notify("Phase 4/6: Syncing prices...")
                 self.logger.info("Full Reconciliation: Starting Phase 4 (Prices)")
-                price_result = self._force_sync_all_prices(client, limit, dry_run)
-                result.prices_synced = price_result.get("synced", 0)
-                result.prices_fixed = price_result.get("broken_fixed", 0)
-                self.logger.info(f"Full Reconciliation: Phase 4 complete - synced={result.prices_synced}, fixed={result.prices_fixed}")
+
+                # Create savepoint for price sync phase
+                frappe.db.savepoint("sync_phase_4_prices")
+                try:
+                    price_result = self._force_sync_all_prices(client, limit, dry_run, use_batch=use_batch_sync)
+                    result.prices_synced = price_result.get("synced", 0)
+                    result.prices_fixed = price_result.get("broken_fixed", 0)
+                    frappe.db.commit()  # Commit phase on success
+                    self.logger.info(f"Full Reconciliation: Phase 4 complete - synced={result.prices_synced}, fixed={result.prices_fixed}")
+                except Exception as e:
+                    frappe.db.rollback(save_point="sync_phase_4_prices")
+                    result.errors.append({"phase": "4_prices", "error": str(e)[:200]})
+                    self.logger.error(f"Phase 4 failed, rolled back: {e}")
 
             # Phase 5: Cleanup orphans
-            self._notify("Phase 5/6: Cleaning up orphans...")
+            if use_batch_sync and not dry_run:
+                self._notify("Phase 5/6: Batch-cleaning orphans (Sync API)...")
+            else:
+                self._notify("Phase 5/6: Cleaning up orphans...")
             self.logger.info("Full Reconciliation: Starting Phase 5 (Cleanup)")
 
-            if cleanup_orphan_variants and not dry_run:
-                cleanup = self._cleanup_orphan_variants(client)
-                result.variants_deleted = cleanup.get("deleted", 0)
+            # Create savepoint for cleanup phase
+            frappe.db.savepoint("sync_phase_5_cleanup")
+            try:
+                if cleanup_orphan_variants and not dry_run:
+                    cleanup = self._cleanup_orphan_variants(client, use_batch=use_batch_sync)
+                    result.variants_deleted = cleanup.get("deleted", 0)
 
-            if cleanup_orphan_categories and not dry_run:
-                cleanup = self._cleanup_orphan_categories(client)
-                result.categories_deleted = cleanup.get("deleted", 0)
+                if cleanup_orphan_categories and not dry_run:
+                    cleanup = self._cleanup_orphan_categories(client)
+                    result.categories_deleted = cleanup.get("deleted", 0)
 
-            if cleanup_orphan_properties and not dry_run:
-                cleanup = self._cleanup_orphan_properties(client)
-                result.properties_deleted = cleanup.get("groups_deleted", 0)
+                if cleanup_orphan_properties and not dry_run:
+                    cleanup = self._cleanup_orphan_properties(client, use_batch=use_batch_sync)
+                    result.properties_deleted = cleanup.get("groups_deleted", 0)
 
-            if deactivate_missing_products and not dry_run:
-                deactivated = self._deactivate_orphan_products(client)
-                result.products_deactivated = deactivated
+                if deactivate_missing_products and not dry_run:
+                    deactivated = self._deactivate_orphan_products(client)
+                    result.products_deactivated = deactivated
 
-            self.logger.info(f"Full Reconciliation: Phase 5 complete - variants_deleted={result.variants_deleted}, categories_deleted={result.categories_deleted}, properties_deleted={result.properties_deleted}, products_deactivated={result.products_deactivated}")
+                frappe.db.commit()  # Commit phase on success
+                self.logger.info(f"Full Reconciliation: Phase 5 complete - variants_deleted={result.variants_deleted}, categories_deleted={result.categories_deleted}, properties_deleted={result.properties_deleted}, products_deactivated={result.products_deactivated}")
+            except Exception as e:
+                frappe.db.rollback(save_point="sync_phase_5_cleanup")
+                result.errors.append({"phase": "5_cleanup", "error": str(e)[:200]})
+                self.logger.error(f"Phase 5 failed, rolled back: {e}")
 
             # Phase 6: Stock sync (if enabled)
             if sync_stock:
                 self._notify("Phase 6/6: Syncing stock levels...")
                 self.logger.info("Full Reconciliation: Starting Phase 6 (Stock)")
-                stock_result = self._sync_all_stock(client, limit, dry_run)
-                result.stock_adjusted = stock_result.get("adjusted", 0)
-                self.logger.info(f"Full Reconciliation: Phase 6 complete - adjusted={result.stock_adjusted}")
+
+                # Create savepoint for stock sync phase
+                frappe.db.savepoint("sync_phase_6_stock")
+                try:
+                    stock_result = self._sync_all_stock(client, limit, dry_run)
+                    result.stock_adjusted = stock_result.get("adjusted", 0)
+                    frappe.db.commit()  # Commit phase on success
+                    self.logger.info(f"Full Reconciliation: Phase 6 complete - adjusted={result.stock_adjusted}")
+                except Exception as e:
+                    frappe.db.rollback(save_point="sync_phase_6_stock")
+                    result.errors.append({"phase": "6_stock", "error": str(e)[:200]})
+                    self.logger.error(f"Phase 6 failed, rolled back: {e}")
             else:
                 self._notify("Phase 6/6: Stock sync skipped (disabled)")
                 self.logger.info("Full Reconciliation: Phase 6 (Stock) skipped")
@@ -520,72 +597,245 @@ class SyncManager:
 
         return stats
 
+    def _sync_all_products_batch(self, client, sync_images: bool = True) -> Dict[str, Any]:
+        """
+        Batch-sync all products using Shopware Sync API (5-10x faster).
+
+        Uses BatchProductUploader for bulk operations instead of individual HTTP calls.
+        Templates are synced first (parents must exist before variants).
+
+        Args:
+            client: Shopware API client
+            sync_images: Also sync product images
+
+        Returns:
+            Dict with batch sync results for templates, simple items, and variants
+        """
+        from ecommerce_integrations.shopware6.export.batch_uploader import BatchProductUploader
+        from ecommerce_integrations.shopware6.export.full_batch_sync import get_all_item_codes_by_type
+        from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
+        from ecommerce_integrations.shopware6.utils import get_shopware_document_id
+
+        self.logger.info("Using Batch Sync for products (Sync API - 5-10x faster)")
+
+        items_by_type = get_all_item_codes_by_type()
+
+        self.logger.info(
+            f"Found: {len(items_by_type['templates'])} templates, "
+            f"{len(items_by_type['simple_items'])} simple, "
+            f"{len(items_by_type['variants'])} variants"
+        )
+
+        def progress_callback(batch_num, total_batches, processed, total, success, failed):
+            self._notify(f"Batch {batch_num}/{total_batches}: {processed}/{total} ({success} ok, {failed} err)")
+            self.logger.info(f"Batch progress: {batch_num}/{total_batches} - {processed}/{total}")
+
+        uploader = BatchProductUploader(progress_callback=progress_callback)
+
+        # Phase 2a: Templates first (Parent products must exist before variants)
+        # Check if templates should be skipped (set by full_reconciliation_no_brainer)
+        skip_templates = getattr(self, '_skip_templates', False)
+
+        if skip_templates:
+            self._notify("Phase 2a/6: Templates übersprungen (skip_templates=True)")
+            self.logger.info("Batch Sync: Templates SKIPPED per user request")
+            from ecommerce_integrations.shopware6.export.batch_uploader import BatchUploadResult
+            templates_result = BatchUploadResult(total=len(items_by_type['templates']))
+            templates_result.skipped = len(items_by_type['templates'])
+        else:
+            self._notify("Phase 2a/6: Batch-syncing templates...")
+            self.logger.info("Batch Sync: Starting templates")
+            templates_result = uploader.upload_templates(
+                items_by_type['templates'],
+                skip_images=not sync_images
+            )
+            self.logger.info(
+                f"Batch Sync: Templates complete - "
+                f"{templates_result.success}/{templates_result.total} success"
+            )
+
+        # Phase 2b: Simple Items
+        self._notify("Phase 2b/6: Batch-syncing simple items...")
+        self.logger.info("Batch Sync: Starting simple items")
+        simple_result = uploader.upload_items(
+            items_by_type['simple_items'],
+            skip_images=not sync_images
+        )
+        self.logger.info(
+            f"Batch Sync: Simple items complete - "
+            f"{simple_result.success}/{simple_result.total} success, {simple_result.skipped} skipped"
+        )
+
+        # Phase 3: Variants last (require parent products)
+        self._notify("Phase 3/6: Batch-syncing variants...")
+        self.logger.info("Batch Sync: Starting variants")
+        variants_result = uploader.upload_variants(
+            items_by_type['variants'],
+            skip_images=not sync_images
+        )
+        self.logger.info(
+            f"Batch Sync: Variants complete - "
+            f"{variants_result.success}/{variants_result.total} success, {variants_result.skipped} skipped"
+        )
+
+        # Aggregate all errors
+        all_errors = []
+        all_errors.extend(templates_result.errors)
+        all_errors.extend(simple_result.errors)
+        all_errors.extend(variants_result.errors)
+
+        # Image Sync Phase (after all products are uploaded)
+        images_synced = 0
+        if sync_images:
+            all_processed = (
+                templates_result.processed_item_codes +
+                simple_result.processed_item_codes +
+                variants_result.processed_item_codes
+            )
+            if all_processed:
+                self._notify(f"Phase 3b/6: Syncing images for {len(all_processed)} products...")
+                self.logger.info(f"Image Sync: Starting for {len(all_processed)} products")
+
+                for i, item_code in enumerate(all_processed):
+                    try:
+                        shopware_id = get_shopware_document_id("Item", item_code)
+                        if shopware_id:
+                            item = frappe.get_doc("Item", item_code)
+                            if sync_product_images_to_shopware(client, item, shopware_id):
+                                images_synced += 1
+                    except Exception as e:
+                        self.logger.warning(f"Image sync failed for {item_code}: {e}")
+
+                    # Progress notification every 50 items
+                    if (i + 1) % 50 == 0:
+                        self._notify(f"Images: {i + 1}/{len(all_processed)} ({images_synced} synced)")
+
+                self.logger.info(f"Image Sync: Complete - {images_synced} images synced")
+
+        return {
+            'templates': {
+                'total': templates_result.total,
+                'success': templates_result.success,
+                'failed': templates_result.failed,
+            },
+            'simple': {
+                'total': simple_result.total,
+                'success': simple_result.success,
+                'failed': simple_result.failed,
+                'skipped': simple_result.skipped,
+            },
+            'variants': {
+                'total': variants_result.total,
+                'success': variants_result.success,
+                'failed': variants_result.failed,
+                'skipped': variants_result.skipped,
+            },
+            'images_synced': images_synced,
+            'errors': all_errors
+        }
+
     def _force_sync_all_prices(
         self,
         client,
         limit: int,
-        dry_run: bool
+        dry_run: bool,
+        use_batch: bool = True
     ) -> Dict[str, Any]:
         """Force sync all prices, fixing any broken 0.01 prices."""
-        from ecommerce_integrations.shopware6.export.price_handler import (
-            force_sync_all_prices
-        )
+        price_list = getattr(self.setting, 'default_selling_price_list', 'Standard-Vertrieb')
 
-        return force_sync_all_prices(
-            limit=limit if limit > 0 else 10000,
-            price_list=getattr(self.setting, 'default_selling_price_list', 'Standard-Vertrieb'),
-            dry_run=dry_run,
-            force=True  # Force to clean up broken prices
-        )
+        if use_batch and not dry_run:
+            # BATCH MODE: Use Sync API for 5-10x speedup
+            from ecommerce_integrations.shopware6.export.price_handler import (
+                force_sync_prices_batch,
+                delete_broken_price_rules_batch
+            )
 
-    def _cleanup_orphan_variants(self, client) -> Dict[str, Any]:
+            self.logger.info("Using Batch Sync for prices (Sync API - 5-10x faster)")
+
+            # First delete broken price rules
+            delete_result = delete_broken_price_rules_batch(client)
+            broken_fixed = delete_result.get("statistics", {}).get("deleted", 0)
+
+            # Then batch-sync all prices
+            def progress_callback(batch_num, total_batches, processed, total):
+                self._notify(f"Price batch {batch_num}/{total_batches}: {processed}/{total}")
+
+            result = force_sync_prices_batch(
+                price_list=price_list,
+                progress_callback=progress_callback
+            )
+
+            stats = result.get("statistics", {})
+            return {
+                "synced": stats.get("updated", 0),
+                "broken_fixed": broken_fixed,
+                "deactivated": stats.get("deactivated", 0),
+                "errors": stats.get("errors", [])
+            }
+        else:
+            # SEQUENTIAL MODE: Original behavior (for dry_run or explicit disable)
+            from ecommerce_integrations.shopware6.export.price_handler import (
+                force_sync_all_prices
+            )
+
+            return force_sync_all_prices(
+                limit=limit if limit > 0 else 10000,
+                price_list=price_list,
+                dry_run=dry_run,
+                force=True
+            )
+
+    def _cleanup_orphan_variants(self, client, use_batch: bool = True) -> Dict[str, Any]:
         """Delete variants in Shopware that don't exist in ERPNext."""
-        from ecommerce_integrations.shopware6.export.template_handler import (
-            cleanup_orphaned_variants
-        )
+        if use_batch:
+            # BATCH MODE: Use Sync API for faster deletion
+            from ecommerce_integrations.shopware6.export.template_handler import (
+                cleanup_all_orphaned_variants_batch
+            )
 
-        stats = {"deleted": 0, "errors": 0, "error_details": []}
+            self.logger.info("Using Batch Sync for orphan variant cleanup")
 
-        # Get all template items
-        template_items = frappe.get_all(
-            "Ecommerce Item",
-            filters={"integration": MODULE_NAME, "has_variants": 1},
-            fields=["erpnext_item_code", "integration_item_code"]
-        )
-        
-        self.logger.info(f"Cleaning up orphaned variants for {len(template_items)} templates")
-        
-        batch_size = 20
-        for i in range(0, len(template_items), batch_size):
-            batch = template_items[i:i + batch_size]
-            batch_deleted = 0
-            batch_errors = 0
-            
-            for template in batch:
+            def progress_callback(template_num, total, deleted_count):
+                self._notify(f"Variant cleanup: {template_num}/{total} templates, {deleted_count} orphans found")
+
+            result = cleanup_all_orphaned_variants_batch(client, progress_callback)
+            stats = result.get("statistics", {})
+
+            return {
+                "deleted": stats.get("variants_deleted", 0),
+                "errors": len(stats.get("errors", [])),
+                "error_details": stats.get("errors", [])
+            }
+        else:
+            # SEQUENTIAL MODE: Original behavior
+            from ecommerce_integrations.shopware6.export.template_handler import (
+                cleanup_orphaned_variants
+            )
+
+            stats = {"deleted": 0, "errors": 0, "error_details": []}
+
+            template_items = frappe.get_all(
+                "Ecommerce Item",
+                filters={"integration": MODULE_NAME, "has_variants": 1},
+                fields=["erpnext_item_code", "integration_item_code"]
+            )
+
+            self.logger.info(f"Cleaning up orphaned variants for {len(template_items)} templates")
+
+            for template in template_items:
                 try:
                     result = cleanup_orphaned_variants(
                         client,
                         template.erpnext_item_code,
                         template.integration_item_code
                     )
-                    deleted_count = result.get("deleted", 0)
-                    batch_deleted += deleted_count
-                    stats["deleted"] += deleted_count
-                    
-                    if deleted_count > 0:
-                        self.logger.info(f"Deleted {deleted_count} orphaned variants from template {template.erpnext_item_code}")
-                        
+                    stats["deleted"] += result.get("deleted", 0)
                 except Exception as e:
-                    batch_errors += 1
                     stats["errors"] += 1
-                    error_msg = f"Failed to cleanup variants for {template.erpnext_item_code}: {str(e)}"
-                    stats["error_details"].append(error_msg)
-                    self.logger.error(error_msg)
-            
-            if batch_deleted > 0 or batch_errors > 0:
-                self.logger.info(f"Variant cleanup batch: {batch_deleted} deleted, {batch_errors} errors")
+                    stats["error_details"].append(str(e)[:100])
 
-        return stats
+            return stats
 
     def _cleanup_orphan_categories(self, client) -> Dict[str, Any]:
         """Delete categories in Shopware that don't exist in ERPNext."""
@@ -604,18 +854,41 @@ class SyncManager:
             "deleted": result.get("statistics", {}).get("deleted", 0)
         }
 
-    def _cleanup_orphan_properties(self, client) -> Dict[str, Any]:
+    def _cleanup_orphan_properties(self, client, use_batch: bool = True) -> Dict[str, Any]:
         """Delete property groups in Shopware that don't exist in ERPNext."""
-        from ecommerce_integrations.shopware6.export.property_handler import (
-            cleanup_orphaned_shopware_properties
-        )
+        if use_batch:
+            # BATCH MODE: Use Sync API for faster deletion
+            from ecommerce_integrations.shopware6.export.property_handler import (
+                cleanup_orphaned_properties_batch
+            )
 
-        result = cleanup_orphaned_shopware_properties(client, dry_run=False)
+            self.logger.info("Using Batch Sync for orphan property cleanup")
+            result = cleanup_orphaned_properties_batch(client)
+            stats = result.get("statistics", {})
 
-        if result.get("groups_deleted", 0) > 0:
-            self.logger.info(f"Deleted {result['groups_deleted']} orphaned property groups from Shopware")
+            if stats.get("groups_deleted", 0) > 0:
+                self.logger.info(
+                    f"Batch deleted {stats['groups_deleted']} orphaned property groups, "
+                    f"{stats.get('options_deleted', 0)} options"
+                )
 
-        return result
+            return {
+                "groups_deleted": stats.get("groups_deleted", 0),
+                "options_deleted": stats.get("options_deleted", 0),
+                "errors": stats.get("errors", [])
+            }
+        else:
+            # SEQUENTIAL MODE: Original behavior
+            from ecommerce_integrations.shopware6.export.property_handler import (
+                cleanup_orphaned_shopware_properties
+            )
+
+            result = cleanup_orphaned_shopware_properties(client, dry_run=False)
+
+            if result.get("groups_deleted", 0) > 0:
+                self.logger.info(f"Deleted {result['groups_deleted']} orphaned property groups from Shopware")
+
+            return result
 
     def _deactivate_orphan_products(self, client) -> int:
         """Deactivate products in Shopware that are disabled in ERPNext."""
@@ -662,12 +935,8 @@ class SyncManager:
         )
 
     def _notify(self, message: str, indicator: str = "blue"):
-        """Send progress notification to user."""
-        frappe.publish_realtime(
-            "msgprint",
-            {"message": message, "indicator": indicator},
-            user=frappe.session.user
-        )
+        """Log progress message (popup notifications disabled for cleaner UX)."""
+        # Popup disabled - progress is logged to file and Ecommerce Integration Log
         self.logger.info(message)
 
 
@@ -724,7 +993,14 @@ def full_reconciliation_no_brainer(
     sync_stock: bool = False,
     dry_run: bool = False,
     category_root: str = None,
-    cleanup_orphan_categories: bool = True
+    cleanup_orphan_categories: bool = True,
+    # Skip options for granular control
+    skip_categories: bool = False,
+    skip_templates: bool = False,
+    skip_products: bool = False,
+    skip_variants: bool = False,
+    skip_prices: bool = False,
+    skip_cleanup: bool = False,
 ) -> Dict[str, Any]:
     """
     THE NO-BRAINER FUNCTION.
@@ -745,6 +1021,11 @@ def full_reconciliation_no_brainer(
         sync_images: Also sync all images (default: True)
         sync_stock: Also sync stock levels (default: False for safety)
         dry_run: Only report what would change
+        skip_categories: Skip category sync phase
+        skip_products: Skip product sync phase
+        skip_variants: Skip variant sync phase
+        skip_prices: Skip price correction phase
+        skip_cleanup: Skip orphan cleanup phases
         category_root: Root category - only categories under this are synced/cleaned
         cleanup_orphan_categories: Delete orphaned categories (only under root)
 
@@ -756,23 +1037,29 @@ def full_reconciliation_no_brainer(
     # Override category root if provided
     if category_root:
         manager.setting.category_sync_root = category_root
-    
-    # Check if category sync should be skipped (from settings)
-    skip_category_sync = getattr(manager.setting, 'skip_category_sync_on_full_reconciliation', False)
+
+    # Check if category sync should be skipped (from settings or parameter)
+    skip_category_sync = skip_categories or getattr(
+        manager.setting, 'skip_category_sync_on_full_reconciliation', False
+    )
+
+    # Store skip_templates flag on manager for use in _sync_all_products_batch
+    manager._skip_templates = skip_templates
 
     result = manager.full_reconciliation(
-        sync_categories=not skip_category_sync,  # Respect setting
-        sync_products=True,
-        sync_variants=True,
-        sync_prices=True,
+        sync_categories=not skip_category_sync,
+        sync_products=not skip_products,
+        sync_variants=not skip_variants,
+        sync_prices=not skip_prices,
         sync_images=sync_images,
         sync_stock=sync_stock,
-        cleanup_orphan_variants=True,
-        cleanup_orphan_categories=cleanup_orphan_categories and not skip_category_sync,  # Don't cleanup categories if sync is skipped
-        cleanup_orphan_properties=True,  # Always cleanup orphaned property groups
-        deactivate_missing_products=True,
+        cleanup_orphan_variants=not skip_cleanup,
+        cleanup_orphan_categories=cleanup_orphan_categories and not skip_category_sync and not skip_cleanup,
+        cleanup_orphan_properties=not skip_cleanup,
+        deactivate_missing_products=not skip_cleanup,
         limit=0,  # No limit - process ALL
-        dry_run=dry_run
+        dry_run=dry_run,
+        use_batch_sync=True,  # Use Batch Sync API for 5-10x speedup
     )
 
     return {
@@ -820,7 +1107,14 @@ def enqueue_full_reconciliation_no_brainer(
     sync_stock: bool = False,
     dry_run: bool = False,
     category_root: str = None,
-    cleanup_orphan_categories: bool = True
+    cleanup_orphan_categories: bool = True,
+    # Skip options for granular control
+    skip_categories: bool = False,
+    skip_templates: bool = False,
+    skip_products: bool = False,
+    skip_variants: bool = False,
+    skip_prices: bool = False,
+    skip_cleanup: bool = False,
 ) -> Dict[str, Any]:
     """
     Enqueue the no-brainer reconciliation as a background job.
@@ -833,6 +1127,11 @@ def enqueue_full_reconciliation_no_brainer(
         dry_run: Only report what would change
         category_root: Root category for sync (only categories under this root are affected)
         cleanup_orphan_categories: Delete orphaned categories (only under root)
+        skip_categories: Skip category sync phase
+        skip_products: Skip product sync phase
+        skip_variants: Skip variant sync phase
+        skip_prices: Skip price correction phase
+        skip_cleanup: Skip orphan cleanup phases
 
     Returns:
         Job enqueue status
@@ -852,10 +1151,29 @@ def enqueue_full_reconciliation_no_brainer(
         setting = frappe.get_cached_doc(SETTING_DOCTYPE)
         category_root = getattr(setting, 'category_sync_root', 'Produkte') or 'Produkte'
 
+    # Build skip info for log message
+    skip_info = []
+    if skip_categories:
+        skip_info.append("categories")
+    if skip_templates:
+        skip_info.append("templates")
+    if skip_products:
+        skip_info.append("products")
+    if skip_variants:
+        skip_info.append("variants")
+    if skip_prices:
+        skip_info.append("prices")
+    if skip_cleanup:
+        skip_info.append("cleanup")
+    if not sync_images:
+        skip_info.append("images")
+
+    skip_msg = f", skipping: {', '.join(skip_info)}" if skip_info else ""
+
     create_shopware_log(
         status="Queued",
         method="full_reconciliation_no_brainer",
-        message=f"Full reconciliation queued (root: {category_root}, dry_run: {dry_run})"
+        message=f"Full reconciliation queued (root: {category_root}, dry_run: {dry_run}{skip_msg})"
     )
 
     frappe.enqueue(
@@ -867,12 +1185,19 @@ def enqueue_full_reconciliation_no_brainer(
         sync_stock=sync_stock,
         dry_run=dry_run,
         category_root=category_root,
-        cleanup_orphan_categories=cleanup_orphan_categories
+        cleanup_orphan_categories=cleanup_orphan_categories,
+        skip_categories=skip_categories,
+        skip_templates=skip_templates,
+        skip_products=skip_products,
+        skip_variants=skip_variants,
+        skip_prices=skip_prices,
+        skip_cleanup=skip_cleanup,
     )
 
     return {
         "success": True,
         "message": f"Full reconciliation enqueued (root: {category_root}). " +
-                  ("DRY RUN mode." if dry_run else "Shopware will be made identical to ERPNext."),
+                  ("DRY RUN mode." if dry_run else "Shopware will be made identical to ERPNext.") +
+                  (f" Skipping: {', '.join(skip_info)}." if skip_info else ""),
         "job_name": job_name
     }

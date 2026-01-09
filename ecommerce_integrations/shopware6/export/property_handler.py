@@ -27,6 +27,7 @@ from ecommerce_integrations.shopware6.export.utils import (
     get_field_mappings_cached,
     get_component_for_field_type,
 )
+from lib_shopware6_api_base import HEADER_index_asynchronously
 
 
 def build_custom_fields_from_mappings() -> List[Dict[str, Any]]:
@@ -605,6 +606,54 @@ def clear_product_properties(client, product_id: str) -> bool:
         return False
 
 
+def clear_product_options(client, product_id: str) -> bool:
+    """
+    Clear all variant option assignments from a product in Shopware.
+
+    This ensures that when a variant is updated, old/orphaned option
+    assignments are removed before new ones are set. This prevents
+    duplicate options from different property groups (e.g., "Farbe" and "Brand_C Farbe").
+
+    Args:
+        client: Shopware API client
+        product_id: Shopware product UUID
+
+    Returns:
+        True if successful
+    """
+    try:
+        response = client.request_get(f"product/{product_id}?associations[options][]")
+        product_data = response.get("data", {})
+        options = product_data.get("options", [])
+
+        if not options:
+            return True
+
+        # Delete each option assignment
+        for opt in options:
+            opt_id = opt.get("id")
+            if opt_id:
+                try:
+                    client.request_delete(f"product/{product_id}/options/{opt_id}")
+                except BaseException as e:
+                    # Catch ALL exceptions including ShopwareAPIError
+                    # Don't let option deletion errors break the sync
+                    get_logger().warning(
+                        f"Failed to delete option {opt_id} from product {product_id}: {str(e)[:100]}",
+                        persist=False
+                    )
+                    continue  # Continue with next option
+
+        return True
+
+    except BaseException as e:
+        get_logger().warning(
+            f"Failed to clear options for product {product_id}: {str(e)[:100]}",
+            persist=False
+        )
+        return False
+
+
 def ensure_mehrpreis_property(item_code: str) -> bool:
     """
     Ensure an item has the is_mehrpreis property set if it's a Mehrpreis item.
@@ -865,3 +914,250 @@ def get_logger():
     """Get the Shopware logger."""
     from ecommerce_integrations.shopware6.utils import get_logger as _get_logger
     return _get_logger("PropertyHandler")
+
+
+# =============================================================================
+# BATCH ORPHAN PROPERTY CLEANUP (using Shopware Sync API for faster deletion)
+# =============================================================================
+
+# Rate limiting to avoid overwhelming Shopware API
+PROPERTY_BATCH_SIZE = 100  # Options per sync request
+PROPERTY_GROUP_BATCH_SIZE = 50  # Groups per sync request
+PROPERTY_BATCH_DELAY = 0.05  # 50ms delay between batches
+
+
+def _log_failed_property_items(failed_ids: List[str], operation: str, error_msg: str) -> None:
+    """
+    Persist failed property sync items to database for later retry.
+
+    Args:
+        failed_ids: List of Shopware property IDs that failed
+        operation: Type of operation (option_delete, group_delete)
+        error_msg: Error message describing the failure
+    """
+    if not failed_ids:
+        return
+
+    try:
+        from ecommerce_integrations.shopware6.utils import create_shopware_log
+        create_shopware_log(
+            status="Error",
+            method=f"property_batch.{operation}",
+            message=f"Failed to delete {len(failed_ids)} properties: {error_msg}",
+            request_data={
+                "operation": operation,
+                "failed_count": len(failed_ids),
+                "failed_ids": failed_ids[:100],
+                "retry_available": True
+            }
+        )
+    except Exception:
+        pass
+
+
+def cleanup_orphaned_properties_batch(client) -> Dict[str, Any]:
+    """
+    Batch-delete orphaned property groups using Shopware Sync API.
+
+    Collects all orphaned property groups first, then deletes them in batches.
+
+    Args:
+        client: Shopware API client
+
+    Returns:
+        Dict with {"success": bool, "statistics": dict}
+    """
+    import time
+    from ecommerce_integrations.shopware6.utils import get_logger as _get_logger
+    logger = _get_logger("cleanup_orphaned_properties_batch")
+
+    stats = {
+        "groups_checked": 0,
+        "groups_deleted": 0,
+        "options_deleted": 0,
+        "errors": [],
+        "failed_items": []  # Track failed deletions for potential retry
+    }
+
+    try:
+        # Get all property groups from Shopware
+        response = client.request_post(
+            "search/property-group",
+            {
+                "limit": 500,
+                "associations": {"options": {}}
+            }
+        )
+        groups = response.get("data", [])
+        stats["groups_checked"] = len(groups)
+
+        # Get all Item Attributes from ERPNext
+        erpnext_attributes = set()
+        attrs = frappe.get_all("Item Attribute", fields=["attribute_name"])
+        for attr in attrs:
+            erpnext_attributes.add(attr.attribute_name)
+
+        # Also get attributes from shopware_properties tables
+        prop_names = frappe.db.sql("""
+            SELECT DISTINCT property_name
+            FROM `tabShopware Item Property`
+            WHERE property_type = 'Property'
+        """, as_list=True)
+        for row in prop_names:
+            if row and row[0]:
+                erpnext_attributes.add(row[0])
+
+        logger.info(f"Checking {len(groups)} property groups against {len(erpnext_attributes)} ERPNext attributes")
+
+        # Collect groups to delete
+        groups_to_delete = []
+        options_to_delete = []
+
+        for group in groups:
+            group_name = group.get("name", "")
+            group_id = group.get("id")
+            options = group.get("options", [])
+
+            # Skip system property groups
+            if group_name.startswith("_") or not group_name:
+                continue
+
+            # Check if used in ERPNext
+            if group_name not in erpnext_attributes:
+                # Check if products use this property
+                try:
+                    prod_response = client.request_post(
+                        "search/product",
+                        {
+                            "limit": 1,
+                            "filter": [
+                                {"type": "equals", "field": "properties.groupId", "value": group_id}
+                            ]
+                        }
+                    )
+                    product_count = prod_response.get("total", 0)
+
+                    if product_count == 0:
+                        # Delete all options first (required before deleting group)
+                        for opt in options:
+                            options_to_delete.append({"id": opt.get("id")})
+                        groups_to_delete.append({"id": group_id})
+
+                except Exception as e:
+                    stats["errors"].append({
+                        "type": "check",
+                        "group": group_name,
+                        "error": str(e)[:100]
+                    })
+
+        if not groups_to_delete:
+            logger.info("No orphaned property groups found")
+            return {"success": True, "statistics": stats}
+
+        logger.info(f"Found {len(groups_to_delete)} orphaned property groups with {len(options_to_delete)} options to delete")
+
+        # Batch delete options first
+        if options_to_delete:
+            total_option_batches = (len(options_to_delete) + PROPERTY_BATCH_SIZE - 1) // PROPERTY_BATCH_SIZE
+            for i in range(0, len(options_to_delete), PROPERTY_BATCH_SIZE):
+                batch = options_to_delete[i:i + PROPERTY_BATCH_SIZE]
+                batch_num = i // PROPERTY_BATCH_SIZE + 1
+                try:
+                    sync_payload = {
+                        "delete-orphan-options": {
+                            "entity": "property_group_option",
+                            "action": "delete",
+                            "payload": batch
+                        }
+                    }
+                    response = client.request_post(
+                        "_action/sync",
+                        sync_payload,
+                        update_header_fields=HEADER_index_asynchronously
+                    )
+
+                    # Validate Sync API response
+                    not_found = response.get("notFound", []) if response else []
+                    successful = len(batch) - len(not_found)
+                    stats["options_deleted"] += successful
+
+                    if not_found:
+                        logger.warning(f"Sync API: {len(not_found)} options not found")
+                        for nf in not_found:
+                            stats["failed_items"].append({"type": "option", "id": nf})
+
+                except Exception as e:
+                    stats["errors"].append({
+                        "type": "options_delete",
+                        "batch": batch_num,
+                        "error": str(e)[:150]
+                    })
+                    # Track failed items for potential retry
+                    failed_ids = [opt.get("id") for opt in batch]
+                    for opt in batch:
+                        stats["failed_items"].append({"type": "option", "id": opt.get("id")})
+                    # Persist to database for later retry
+                    _log_failed_property_items(failed_ids, "option_delete", str(e)[:150])
+
+                # Rate limiting between batches
+                if batch_num < total_option_batches:
+                    time.sleep(PROPERTY_BATCH_DELAY)
+
+        # Batch delete groups
+        if groups_to_delete:
+            total_group_batches = (len(groups_to_delete) + PROPERTY_GROUP_BATCH_SIZE - 1) // PROPERTY_GROUP_BATCH_SIZE
+            for i in range(0, len(groups_to_delete), PROPERTY_GROUP_BATCH_SIZE):
+                batch = groups_to_delete[i:i + PROPERTY_GROUP_BATCH_SIZE]
+                batch_num = i // PROPERTY_GROUP_BATCH_SIZE + 1
+                try:
+                    sync_payload = {
+                        "delete-orphan-groups": {
+                            "entity": "property_group",
+                            "action": "delete",
+                            "payload": batch
+                        }
+                    }
+                    response = client.request_post(
+                        "_action/sync",
+                        sync_payload,
+                        update_header_fields=HEADER_index_asynchronously
+                    )
+
+                    # Validate Sync API response
+                    not_found = response.get("notFound", []) if response else []
+                    successful = len(batch) - len(not_found)
+                    stats["groups_deleted"] += successful
+
+                    if not_found:
+                        logger.warning(f"Sync API: {len(not_found)} groups not found")
+                        for nf in not_found:
+                            stats["failed_items"].append({"type": "group", "id": nf})
+
+                except Exception as e:
+                    stats["errors"].append({
+                        "type": "groups_delete",
+                        "batch": batch_num,
+                        "error": str(e)[:150]
+                    })
+                    # Track failed items for potential retry
+                    failed_ids = [grp.get("id") for grp in batch]
+                    for grp in batch:
+                        stats["failed_items"].append({"type": "group", "id": grp.get("id")})
+                    # Persist to database for later retry
+                    _log_failed_property_items(failed_ids, "group_delete", str(e)[:150])
+
+                # Rate limiting between batches
+                if batch_num < total_group_batches:
+                    time.sleep(PROPERTY_BATCH_DELAY)
+
+        logger.success(
+            f"Property cleanup complete: {stats['groups_deleted']} groups, "
+            f"{stats['options_deleted']} options deleted"
+        )
+
+    except Exception as e:
+        stats["errors"].append({"type": "general", "error": str(e)[:200]})
+        logger.error(f"Property cleanup failed: {e}")
+
+    # Standardized return: success=False if there were errors
+    return {"success": len(stats["errors"]) == 0, "statistics": stats}
