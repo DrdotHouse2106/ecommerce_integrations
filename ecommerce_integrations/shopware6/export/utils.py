@@ -6,7 +6,7 @@ Common utility functions used across export modules.
 
 import hashlib
 import re
-from typing import Dict, List, Optional, Any
+from typing import Dict, List
 
 import frappe
 from frappe.utils import cstr
@@ -47,29 +47,9 @@ def sanitize_filename(filename: str) -> str:
     return re.sub(illegal_chars, '_', filename)
 
 
-def get_shopware_document_id(doctype: str, name: str) -> Optional[str]:
-    """
-    Get the Shopware ID for an ERPNext document.
 
-    Looks up the Ecommerce Item table for the integration_item_code.
-
-    Args:
-        doctype: ERPNext DocType (e.g., "Item")
-        name: ERPNext document name
-
-    Returns:
-        Shopware ID if found, None otherwise
-    """
-    from ecommerce_integrations.shopware6.constants import MODULE_NAME
-
-    return frappe.db.get_value(
-        "Ecommerce Item",
-        {
-            "integration": MODULE_NAME,
-            "erpnext_item_code": name,
-        },
-        "integration_item_code"
-    )
+# Re-export from main utils for backwards compatibility
+from ecommerce_integrations.shopware6.utils import get_shopware_document_id  # noqa: F401
 
 
 def get_setting():
