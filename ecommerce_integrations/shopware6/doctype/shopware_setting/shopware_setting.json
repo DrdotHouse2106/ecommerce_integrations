@@ -36,6 +36,7 @@
   "api_password",
   "section_break_webhook",
   "webhook_secret",
+  "allow_unsigned_webhooks",
   "column_break_webhook",
   "webhook_url_info",
   "customer_settings_section",
@@ -78,6 +79,7 @@
   "update_shopware_item_on_update",
   "column_break_sync",
   "sync_new_item_as_active",
+  "export_parent_products_inactive",
   "discount_item",
   "category_sync_section",
   "category_sync_root",
@@ -311,10 +313,17 @@
    "label": "Webhook Settings"
   },
   {
-   "description": "Secret key to validate incoming webhooks (optional but recommended)",
+   "description": "Secret key to validate incoming webhooks. REQUIRED for production use.",
    "fieldname": "webhook_secret",
    "fieldtype": "Password",
    "label": "Webhook Secret"
+  },
+  {
+   "default": "0",
+   "description": "SECURITY WARNING: Enable only for development/testing. In production, always configure a webhook_secret.",
+   "fieldname": "allow_unsigned_webhooks",
+   "fieldtype": "Check",
+   "label": "Allow Unsigned Webhooks (Not Recommended)"
   },
   {
    "fieldname": "column_break_webhook",
@@ -573,6 +582,13 @@
    "fieldname": "sync_new_item_as_active",
    "fieldtype": "Check",
    "label": "Sync new items as Active in Shopware"
+  },
+  {
+   "default": "1",
+   "fieldname": "export_parent_products_inactive",
+   "fieldtype": "Check",
+   "label": "Export Parent Products as Inactive",
+   "description": "When enabled, template items (has_variants=1) will be exported as inactive to Shopware. Only variant products will be visible in the shop listing."
   },
   {
    "fieldname": "discount_item",

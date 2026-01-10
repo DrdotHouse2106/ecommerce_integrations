@@ -5,10 +5,43 @@
 Whitelisted API methods for AI Description Generation
 
 These methods can be called from the frontend (JavaScript) or via REST API.
+
+RATE LIMITING:
+- Single item generation: 10 requests per minute per user
+- Batch generation: 2 requests per minute per user
+- Regeneration: 5 requests per minute per user
 """
 
 import frappe
 from frappe import _
+
+
+def _check_rate_limit(key: str, limit: int, seconds: int = 60) -> None:
+    """
+    Check rate limit and raise exception if exceeded.
+
+    Args:
+        key: Unique key for this rate limit (e.g., 'ai_generate_single')
+        limit: Maximum number of requests allowed
+        seconds: Time window in seconds (default: 60)
+
+    Raises:
+        frappe.TooManyRequestsError: If rate limit exceeded
+    """
+    user = frappe.session.user
+    cache_key = f"rate_limit:{key}:{user}"
+
+    # Get current count from cache
+    current_count = frappe.cache().get_value(cache_key) or 0
+
+    if current_count >= limit:
+        frappe.throw(
+            _("Rate limit exceeded. Please wait before making more requests."),
+            frappe.TooManyRequestsError
+        )
+
+    # Increment counter with TTL
+    frappe.cache().set_value(cache_key, current_count + 1, expires_in_sec=seconds)
 
 
 @frappe.whitelist()
@@ -16,12 +49,17 @@ def generate_description_for_item(item_code: str) -> dict:
     """
     Generate AI description for a single item
 
+    Rate limit: 10 requests per minute per user
+
     Args:
         item_code: ERPNext Item code
 
     Returns:
         dict with success status and result/error
     """
+    # Rate limit: 10 requests per minute
+    _check_rate_limit("ai_generate_single", limit=10, seconds=60)
+
     from .gemini import generate_description
 
     try:
@@ -43,12 +81,17 @@ def generate_descriptions_batch(item_codes: str = None) -> dict:
     """
     Generate AI descriptions for multiple items
 
+    Rate limit: 2 requests per minute per user (batch operations are expensive)
+
     Args:
         item_codes: JSON string of item codes, or None to use filter settings
 
     Returns:
         dict with batch processing results
     """
+    # Rate limit: 2 requests per minute (batch is expensive)
+    _check_rate_limit("ai_generate_batch", limit=2, seconds=60)
+
     import json
     from .gemini import generate_descriptions_batch as batch_generate
     from .doctype.ai_description_setting.ai_description_setting import get_settings
@@ -146,12 +189,17 @@ def regenerate_description(item_code: str) -> dict:
     """
     Regenerate AI description for an item (even if already generated)
 
+    Rate limit: 5 requests per minute per user
+
     Args:
         item_code: ERPNext Item code
 
     Returns:
         dict with generation result
     """
+    # Rate limit: 5 requests per minute
+    _check_rate_limit("ai_regenerate", limit=5, seconds=60)
+
     # Reset the generated flag first
     frappe.db.set_value("Item", item_code, "ai_description_generated", 0)
     frappe.db.commit()
@@ -248,12 +296,17 @@ def sync_ai_description_to_shopware(item_code: str) -> dict:
     This copies the AI description to the standard fields that
     Shopware sync uses, then triggers a sync.
 
+    Rate limit: 10 requests per minute per user
+
     Args:
         item_code: ERPNext Item code
 
     Returns:
         dict with sync result
     """
+    # Rate limit: 10 requests per minute
+    _check_rate_limit("ai_sync_shopware", limit=10, seconds=60)
+
     try:
         item = frappe.get_doc("Item", item_code)
 

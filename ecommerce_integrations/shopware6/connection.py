@@ -249,6 +249,10 @@ def webhook_handler():
 
     Shopware sends webhooks for various events like order creation,
     product updates, etc. This endpoint validates and processes them.
+
+    SECURITY: Webhook signature validation is MANDATORY when webhook_secret is configured.
+    If no secret is configured, webhooks are rejected by default unless
+    explicitly allowed via allow_unsigned_webhooks setting.
     """
     if not frappe.request:
         return
@@ -261,15 +265,29 @@ def webhook_handler():
         # Get signature from headers
         signature = frappe.get_request_header("X-Shopware-Signature") or ""
 
-        # Validate signature if secret is configured
+        # SECURITY: Enforce webhook signature validation
         webhook_secret = setting.get_password("webhook_secret") if setting.webhook_secret else None
+
         if webhook_secret:
+            # Secret configured - validate signature (MANDATORY)
             if not validate_webhook_signature(
                 frappe.request.data,
                 signature,
                 webhook_secret
             ):
-                frappe.throw(_("Invalid webhook signature"))
+                frappe.throw(_("Invalid webhook signature"), frappe.AuthenticationError)
+        else:
+            # No secret configured - check if unsigned webhooks are explicitly allowed
+            allow_unsigned = getattr(setting, "allow_unsigned_webhooks", False)
+            if not allow_unsigned:
+                frappe.logger("shopware6").warning(
+                    "SECURITY WARNING: Webhook received without signature validation. "
+                    "Configure webhook_secret in Shopware Settings or enable allow_unsigned_webhooks."
+                )
+                frappe.throw(
+                    _("Webhook signature validation required. Configure webhook_secret in Shopware Settings."),
+                    frappe.AuthenticationError
+                )
 
         # Parse payload with error handling
         try:
