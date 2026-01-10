@@ -45,6 +45,7 @@ class BatchUploadResult:
     created_ids: List[str] = field(default_factory=list)  # Shopware IDs
     updated_ids: List[str] = field(default_factory=list)  # Shopware IDs
     processed_item_codes: List[str] = field(default_factory=list)  # ERPNext item codes
+    skipped_items: List[Dict[str, str]] = field(default_factory=list)  # {item_code, reason}
 
 
 class BatchProductUploader:
@@ -85,13 +86,14 @@ class BatchProductUploader:
         self._property_groups: Dict[str, str] = {}  # group_name -> group_id
         self._property_options: Dict[str, str] = {}  # "group_name:option_value" -> option_id
 
-    def upload_items(self, item_codes: List[str], skip_images: bool = False) -> BatchUploadResult:
+    def upload_items(self, item_codes: List[str], skip_images: bool = False, start_batch: int = 1) -> BatchUploadResult:
         """
         Upload multiple items to Shopware in batches.
 
         Args:
             item_codes: List of ERPNext item codes to upload
             skip_images: Skip image sync for faster upload
+            start_batch: Start from this batch number (1-based, for resuming interrupted syncs)
 
         Returns:
             BatchUploadResult with statistics
@@ -130,68 +132,112 @@ class BatchProductUploader:
         # Process in batches
         total_batches = (len(item_codes) + BATCH_SIZE - 1) // BATCH_SIZE
 
-        for batch_start in range(0, len(item_codes), BATCH_SIZE):
+        # Calculate starting position (start_batch is 1-based)
+        start_index = (start_batch - 1) * BATCH_SIZE if start_batch > 1 else 0
+        if start_batch > 1:
+            self.logger.info(f"Resuming from batch {start_batch}/{total_batches} (skipping first {start_index} items)")
+
+        for batch_start in range(start_index, len(item_codes), BATCH_SIZE):
             batch_codes = item_codes[batch_start:batch_start + BATCH_SIZE]
             batch_num = batch_start // BATCH_SIZE + 1
-            batch_result = self._process_batch(client, batch_codes, skip_images)
 
-            result.success += batch_result.success
-            result.failed += batch_result.failed
-            result.skipped += batch_result.skipped
-            result.errors.extend(batch_result.errors)
-            result.created_ids.extend(batch_result.created_ids)
-            result.updated_ids.extend(batch_result.updated_ids)
-            result.processed_item_codes.extend(batch_result.processed_item_codes)
+            try:
+                batch_result = self._process_batch(client, batch_codes, skip_images)
 
-            # Commit after each batch
-            frappe.db.commit()
+                result.success += batch_result.success
+                result.failed += batch_result.failed
+                result.skipped += batch_result.skipped
+                result.errors.extend(batch_result.errors)
+                result.created_ids.extend(batch_result.created_ids)
+                result.updated_ids.extend(batch_result.updated_ids)
+                result.processed_item_codes.extend(batch_result.processed_item_codes)
+                result.skipped_items.extend(batch_result.skipped_items)
 
-            processed = min(batch_start + BATCH_SIZE, len(item_codes))
-            synced_codes = ", ".join(batch_result.processed_item_codes[:5])
-            if len(batch_result.processed_item_codes) > 5:
-                synced_codes += f"... (+{len(batch_result.processed_item_codes) - 5} more)"
+                # Commit after each batch
+                frappe.db.commit()
 
-            # Log to file
-            self.logger.info(
-                f"Batch {batch_num}/{total_batches}: "
-                f"{batch_result.success} success, {batch_result.failed} failed, {batch_result.skipped} skipped. "
-                f"Items: {synced_codes}"
-            )
+                processed = min(batch_start + BATCH_SIZE, len(item_codes))
+                synced_codes = ", ".join(batch_result.processed_item_codes[:5])
+                if len(batch_result.processed_item_codes) > 5:
+                    synced_codes += f"... (+{len(batch_result.processed_item_codes) - 5} more)"
 
-            # Log to Ecommerce Integration Log (like category sync does)
-            batch_summary = (
-                f"Simple Items Batch {batch_num}/{total_batches}: "
-                f"{batch_result.success} success, {batch_result.failed} failed, {batch_result.skipped} skipped"
-            )
-            create_shopware_log(
-                status="Success" if batch_result.failed == 0 else "Partial Success",
-                method="BatchProductUploader.upload_items.batch",
-                message=batch_summary,
-                request_data={
-                    "batch_num": batch_num,
-                    "total_batches": total_batches,
-                    "batch_size": len(batch_codes),
-                    "success": batch_result.success,
-                    "failed": batch_result.failed,
-                    "skipped": batch_result.skipped,
-                    "items": batch_result.processed_item_codes[:20],  # Limit to first 20
-                    "errors": batch_result.errors[:5] if batch_result.errors else []
-                }
-            )
+                # Log to file
+                self.logger.info(
+                    f"Batch {batch_num}/{total_batches}: "
+                    f"{batch_result.success} success, {batch_result.failed} failed, {batch_result.skipped} skipped. "
+                    f"Items: {synced_codes}"
+                )
 
-            # Call progress callback if provided (full_batch_sync has its own phase logging)
-            if self.progress_callback:
+                # Log to Ecommerce Integration Log (like category sync does)
+                batch_summary = (
+                    f"Simple Items Batch {batch_num}/{total_batches}: "
+                    f"{batch_result.success} success, {batch_result.failed} failed, {batch_result.skipped} skipped"
+                )
+                create_shopware_log(
+                    status="Success" if batch_result.failed == 0 else "Partial Success",
+                    method="BatchProductUploader.upload_items.batch",
+                    message=batch_summary,
+                    request_data={
+                        "batch_num": batch_num,
+                        "total_batches": total_batches,
+                        "batch_size": len(batch_codes),
+                        "success": batch_result.success,
+                        "failed": batch_result.failed,
+                        "skipped": batch_result.skipped,
+                        "items": batch_result.processed_item_codes[:20],  # Limit to first 20
+                        "errors": batch_result.errors[:5] if batch_result.errors else [],
+                        "skipped_items": batch_result.skipped_items[:10] if batch_result.skipped_items else []
+                    }
+                )
+
+                # Call progress callback if provided (full_batch_sync has its own phase logging)
+                if self.progress_callback:
+                    try:
+                        self.progress_callback(
+                            batch_num,
+                            total_batches,
+                            processed,
+                            len(item_codes),
+                            result.success,
+                            result.failed
+                        )
+                    except Exception as e:
+                        self.logger.warning(f"Progress callback failed: {e}")
+
+            except Exception as batch_error:
+                # Log error but CONTINUE with next batch instead of aborting
+                error_msg = str(batch_error)[:500]
+                self.logger.error(
+                    f"Batch {batch_num}/{total_batches} FAILED with error: {error_msg}. "
+                    f"Continuing with next batch..."
+                )
+                result.failed += len(batch_codes)
+                for item_code in batch_codes:
+                    result.errors.append({"item_code": item_code, "error": f"Batch failed: {error_msg[:100]}"})
+
+                # Log batch failure
+                create_shopware_log(
+                    status="Error",
+                    method="BatchProductUploader.upload_items.batch",
+                    message=f"Simple Items Batch {batch_num}/{total_batches} FAILED: {error_msg[:200]}",
+                    request_data={
+                        "batch_num": batch_num,
+                        "total_batches": total_batches,
+                        "batch_size": len(batch_codes),
+                        "items": batch_codes[:20],
+                        "error": error_msg
+                    }
+                )
+
+                # Try to commit any partial work and reconnect if needed
                 try:
-                    self.progress_callback(
-                        batch_num,
-                        total_batches,
-                        processed,
-                        len(item_codes),
-                        result.success,
-                        result.failed
-                    )
-                except Exception as e:
-                    self.logger.warning(f"Progress callback failed: {e}")
+                    frappe.db.commit()
+                except Exception:
+                    try:
+                        frappe.db.rollback()
+                        frappe.connect()
+                    except Exception:
+                        pass
 
         return result
 
@@ -326,6 +372,8 @@ class BatchProductUploader:
         items_data = self._batch_read_items(item_codes)
 
         if not items_data:
+            for ic in item_codes:
+                result.skipped_items.append({"item_code": ic, "reason": "not_found_in_db"})
             result.skipped = len(item_codes)
             return result
 
@@ -337,10 +385,11 @@ class BatchProductUploader:
             item_data = items_data.get(item_code)
             if not item_data:
                 result.skipped += 1
+                result.skipped_items.append({"item_code": item_code, "reason": "not_found_in_batch_read"})
                 continue
 
             try:
-                payload, is_new = self._build_product_payload(client, item_data)
+                payload, is_new, skip_reason = self._build_product_payload(client, item_data)
                 if payload:
                     upsert_payloads.append({
                         "payload": payload,
@@ -355,6 +404,7 @@ class BatchProductUploader:
                         })
                 else:
                     result.skipped += 1
+                    result.skipped_items.append({"item_code": item_code, "reason": skip_reason or "unknown"})
 
             except Exception as e:
                 result.failed += 1
@@ -440,10 +490,10 @@ class BatchProductUploader:
         if not item_codes:
             return {}
 
-        # Get main item fields
+        # Get main item fields (including disabled - they sync as active=false)
         items = frappe.get_all(
             "Item",
-            filters={"name": ["in", item_codes], "disabled": 0},
+            filters={"name": ["in", item_codes]},
             fields=[
                 "name", "item_code", "item_name", "item_group",
                 "description", "disabled", "has_variants", "variant_of",
@@ -465,6 +515,8 @@ class BatchProductUploader:
                 "item_height", "item_width", "item_length",
                 # Custom selling rate field
                 ITEM_SELLING_RATE_FIELD,
+                # Delivery time (Lieferzeit)
+                "delivery_time",
             ]
         )
 
@@ -605,7 +657,7 @@ class BatchProductUploader:
         self,
         client,
         item_data: Dict
-    ) -> Tuple[Optional[Dict], bool]:
+    ) -> Tuple[Optional[Dict], bool, Optional[str]]:
         """
         Build Shopware product payload from ERPNext item data.
 
@@ -614,7 +666,8 @@ class BatchProductUploader:
             item_data: Item data dict from batch read
 
         Returns:
-            Tuple of (payload dict, is_new_product)
+            Tuple of (payload dict, is_new_product, skip_reason)
+            skip_reason is set when payload is None
         """
         item_code = item_data["name"]
 
@@ -627,7 +680,7 @@ class BatchProductUploader:
         price = flt(item_data.get("_price") or item_data.get(ITEM_SELLING_RATE_FIELD) or 0)
         if price <= 0:
             # Skip items without price
-            return None, False
+            return None, False, "no_price"
 
         # Tax rate
         tax_rate = flt(item_data.get("_tax_rate") or 19.0)
@@ -723,7 +776,14 @@ class BatchProductUploader:
         except Exception as cat_err:
             self.logger.warning(f"Category sync failed for {item_code}: {cat_err}")
 
-        return payload, is_new
+        # Delivery Time (Lieferzeit)
+        lieferzeit = item_data.get("delivery_time")
+        if lieferzeit:
+            delivery_time_id = self._get_delivery_time_id(client, lieferzeit)
+            if delivery_time_id:
+                payload["deliveryTimeId"] = delivery_time_id
+
+        return payload, is_new, None  # No skip reason - success
 
     def _get_currency_id(self, client, code: str = "EUR") -> Optional[str]:
         """Get currency ID with caching."""
@@ -831,6 +891,31 @@ class BatchProductUploader:
 
         return None
 
+    def _get_delivery_time_id(self, client, delivery_time_name: str) -> Optional[str]:
+        """
+        Get or create delivery time ID with caching.
+
+        Args:
+            client: Shopware API client
+            delivery_time_name: Name of the delivery time (e.g., "3-5 Werktage")
+
+        Returns:
+            Shopware delivery time ID
+        """
+        if not delivery_time_name:
+            return None
+
+        # Check cache first
+        cached = self.cache.get("delivery_time", delivery_time_name)
+        if cached:
+            return cached
+
+        # Use the existing function from product_mapper
+        from ecommerce_integrations.shopware6.export.product_mapper import get_or_create_delivery_time
+        delivery_time_id = get_or_create_delivery_time(client, delivery_time_name)
+
+        return delivery_time_id
+
     def _build_custom_fields(self, item_data: Dict) -> Dict[str, Any]:
         """
         Build Shopware custom fields dict from ERPNext item data.
@@ -880,7 +965,7 @@ class BatchProductUploader:
     # BATCH TEMPLATE UPLOAD
     # =========================================================================
 
-    def upload_templates(self, item_codes: List[str], skip_images: bool = False) -> BatchUploadResult:
+    def upload_templates(self, item_codes: List[str], skip_images: bool = False, start_batch: int = 1) -> BatchUploadResult:
         """
         Upload multiple template items (has_variants=1) to Shopware in batches.
         Uses Sync API for bulk upsert with configuratorSettings.
@@ -888,6 +973,7 @@ class BatchProductUploader:
         Args:
             item_codes: List of ERPNext template item codes
             skip_images: Skip image sync for faster upload
+            start_batch: Start from this batch number (1-based, for resuming interrupted syncs)
 
         Returns:
             BatchUploadResult with statistics
@@ -934,60 +1020,104 @@ class BatchProductUploader:
         # Process in batches
         total_batches = (len(item_codes) + BATCH_SIZE - 1) // BATCH_SIZE
 
-        for batch_start in range(0, len(item_codes), BATCH_SIZE):
+        # Calculate starting position (start_batch is 1-based)
+        start_index = (start_batch - 1) * BATCH_SIZE if start_batch > 1 else 0
+        if start_batch > 1:
+            self.logger.info(f"Resuming templates from batch {start_batch}/{total_batches} (skipping first {start_index} items)")
+
+        for batch_start in range(start_index, len(item_codes), BATCH_SIZE):
             batch_codes = item_codes[batch_start:batch_start + BATCH_SIZE]
             batch_num = batch_start // BATCH_SIZE + 1
-            batch_result = self._process_template_batch(client, batch_codes, skip_images)
 
-            result.success += batch_result.success
-            result.failed += batch_result.failed
-            result.skipped += batch_result.skipped
-            result.errors.extend(batch_result.errors)
-            result.created_ids.extend(batch_result.created_ids)
-            result.updated_ids.extend(batch_result.updated_ids)
-            result.processed_item_codes.extend(batch_result.processed_item_codes)
+            try:
+                batch_result = self._process_template_batch(client, batch_codes, skip_images)
 
-            frappe.db.commit()
+                result.success += batch_result.success
+                result.failed += batch_result.failed
+                result.skipped += batch_result.skipped
+                result.errors.extend(batch_result.errors)
+                result.created_ids.extend(batch_result.created_ids)
+                result.updated_ids.extend(batch_result.updated_ids)
+                result.processed_item_codes.extend(batch_result.processed_item_codes)
+                result.skipped_items.extend(batch_result.skipped_items)
 
-            processed = min(batch_start + BATCH_SIZE, len(item_codes))
-            synced_codes = ", ".join(batch_result.processed_item_codes[:5])
-            if len(batch_result.processed_item_codes) > 5:
-                synced_codes += f"... (+{len(batch_result.processed_item_codes) - 5} more)"
-            self.logger.info(
-                f"Template Batch {batch_num}/{total_batches}: "
-                f"{batch_result.success} success, {batch_result.failed} failed, {batch_result.skipped} skipped. "
-                f"Items: {synced_codes}"
-            )
+                frappe.db.commit()
 
-            # Log to Ecommerce Integration Log (like category sync does)
-            batch_summary = (
-                f"Templates Batch {batch_num}/{total_batches}: "
-                f"{batch_result.success} success, {batch_result.failed} failed, {batch_result.skipped} skipped"
-            )
-            create_shopware_log(
-                status="Success" if batch_result.failed == 0 else "Partial Success",
-                method="BatchProductUploader.upload_templates.batch",
-                message=batch_summary,
-                request_data={
-                    "batch_num": batch_num,
-                    "total_batches": total_batches,
-                    "batch_size": len(batch_codes),
-                    "success": batch_result.success,
-                    "failed": batch_result.failed,
-                    "skipped": batch_result.skipped,
-                    "items": batch_result.processed_item_codes[:20],
-                    "errors": batch_result.errors[:5] if batch_result.errors else []
-                }
-            )
+                processed = min(batch_start + BATCH_SIZE, len(item_codes))
+                synced_codes = ", ".join(batch_result.processed_item_codes[:5])
+                if len(batch_result.processed_item_codes) > 5:
+                    synced_codes += f"... (+{len(batch_result.processed_item_codes) - 5} more)"
+                self.logger.info(
+                    f"Template Batch {batch_num}/{total_batches}: "
+                    f"{batch_result.success} success, {batch_result.failed} failed, {batch_result.skipped} skipped. "
+                    f"Items: {synced_codes}"
+                )
 
-            if self.progress_callback:
+                # Log to Ecommerce Integration Log (like category sync does)
+                batch_summary = (
+                    f"Templates Batch {batch_num}/{total_batches}: "
+                    f"{batch_result.success} success, {batch_result.failed} failed, {batch_result.skipped} skipped"
+                )
+                create_shopware_log(
+                    status="Success" if batch_result.failed == 0 else "Partial Success",
+                    method="BatchProductUploader.upload_templates.batch",
+                    message=batch_summary,
+                    request_data={
+                        "batch_num": batch_num,
+                        "total_batches": total_batches,
+                        "batch_size": len(batch_codes),
+                        "success": batch_result.success,
+                        "failed": batch_result.failed,
+                        "skipped": batch_result.skipped,
+                        "items": batch_result.processed_item_codes[:20],
+                        "errors": batch_result.errors[:5] if batch_result.errors else [],
+                        "skipped_items": batch_result.skipped_items[:10] if batch_result.skipped_items else []
+                    }
+                )
+
+                if self.progress_callback:
+                    try:
+                        self.progress_callback(
+                            batch_num, total_batches, processed, len(item_codes),
+                            result.success, result.failed
+                        )
+                    except Exception as e:
+                        self.logger.warning(f"Progress callback failed: {e}")
+
+            except Exception as batch_error:
+                # Log error but CONTINUE with next batch instead of aborting
+                error_msg = str(batch_error)[:500]
+                self.logger.error(
+                    f"Template Batch {batch_num}/{total_batches} FAILED with error: {error_msg}. "
+                    f"Continuing with next batch..."
+                )
+                result.failed += len(batch_codes)
+                for item_code in batch_codes:
+                    result.errors.append({"item_code": item_code, "error": f"Batch failed: {error_msg[:100]}"})
+
+                # Log batch failure
+                create_shopware_log(
+                    status="Error",
+                    method="BatchProductUploader.upload_templates.batch",
+                    message=f"Templates Batch {batch_num}/{total_batches} FAILED: {error_msg[:200]}",
+                    request_data={
+                        "batch_num": batch_num,
+                        "total_batches": total_batches,
+                        "batch_size": len(batch_codes),
+                        "items": batch_codes[:20],
+                        "error": error_msg
+                    }
+                )
+
+                # Try to commit any partial work and reconnect if needed
                 try:
-                    self.progress_callback(
-                        batch_num, total_batches, processed, len(item_codes),
-                        result.success, result.failed
-                    )
-                except Exception as e:
-                    self.logger.warning(f"Progress callback failed: {e}")
+                    frappe.db.commit()
+                except Exception:
+                    try:
+                        frappe.db.rollback()
+                        frappe.connect()
+                    except Exception:
+                        pass
 
         return result
 
@@ -1010,6 +1140,8 @@ class BatchProductUploader:
         self.logger.info(f"[TIMING] _batch_read_templates DONE - {len(templates_data)} items read")
 
         if not templates_data:
+            for ic in item_codes:
+                result.skipped_items.append({"item_code": ic, "reason": "not_found_in_db"})
             result.skipped = len(item_codes)
             return result
 
@@ -1025,11 +1157,12 @@ class BatchProductUploader:
             item_data = templates_data.get(item_code)
             if not item_data:
                 result.skipped += 1
+                result.skipped_items.append({"item_code": item_code, "reason": "not_found_in_batch_read"})
                 continue
 
             try:
                 # Build template payload
-                payload, is_new = self._build_template_payload(client, item_data)
+                payload, is_new, skip_reason = self._build_template_payload(client, item_data)
                 if payload:
                     upsert_payloads.append({
                         "payload": payload,
@@ -1046,6 +1179,7 @@ class BatchProductUploader:
                         existing_product_ids.append(payload["id"])
                 else:
                     result.skipped += 1
+                    result.skipped_items.append({"item_code": item_code, "reason": skip_reason or "unknown"})
 
             except Exception as e:
                 result.failed += 1
@@ -1396,10 +1530,10 @@ class BatchProductUploader:
         if not item_codes:
             return {}
 
-        # Get main item fields
+        # Get main item fields (including disabled - they sync as active=false)
         items = frappe.get_all(
             "Item",
-            filters={"name": ["in", item_codes], "disabled": 0, "has_variants": 1},
+            filters={"name": ["in", item_codes], "has_variants": 1},
             fields=[
                 "name", "item_code", "item_name", "item_group",
                 "description", "disabled", "has_variants",
@@ -1417,6 +1551,8 @@ class BatchProductUploader:
                 "item_height", "item_width", "item_length",
                 ITEM_SELLING_RATE_FIELD,
                 "standard_rate",  # Fallback price for templates
+                # Delivery time (Lieferzeit)
+                "delivery_time",
             ]
         )
 
@@ -1484,8 +1620,12 @@ class BatchProductUploader:
         self,
         client,
         item_data: Dict
-    ) -> Tuple[Optional[Dict], bool]:
-        """Build Shopware template product payload with configuratorSettings."""
+    ) -> Tuple[Optional[Dict], bool, Optional[str]]:
+        """Build Shopware template product payload with configuratorSettings.
+
+        Returns:
+            Tuple of (payload dict, is_new_product, skip_reason)
+        """
         from ecommerce_integrations.shopware6.export.category_handler import sync_all_item_categories
 
         item_code = item_data["name"]
@@ -1637,13 +1777,20 @@ class BatchProductUploader:
         if custom_fields:
             payload["customFields"] = custom_fields
 
-        return payload, is_new
+        # Delivery Time (Lieferzeit)
+        lieferzeit = item_data.get("delivery_time")
+        if lieferzeit:
+            delivery_time_id = self._get_delivery_time_id(client, lieferzeit)
+            if delivery_time_id:
+                payload["deliveryTimeId"] = delivery_time_id
+
+        return payload, is_new, None  # No skip reason - success
 
     # =========================================================================
     # BATCH VARIANT UPLOAD
     # =========================================================================
 
-    def upload_variants(self, item_codes: List[str], skip_images: bool = False) -> BatchUploadResult:
+    def upload_variants(self, item_codes: List[str], skip_images: bool = False, start_batch: int = 1) -> BatchUploadResult:
         """
         Upload multiple variant items to Shopware in batches.
         Uses Sync API for bulk upsert with parentId and options.
@@ -1651,6 +1798,7 @@ class BatchProductUploader:
         Args:
             item_codes: List of ERPNext variant item codes
             skip_images: Skip image sync for faster upload
+            start_batch: Start from this batch number (1-based, for resuming interrupted syncs)
 
         Returns:
             BatchUploadResult with statistics
@@ -1701,56 +1849,100 @@ class BatchProductUploader:
         # Process in batches
         total_batches = (len(item_codes) + BATCH_SIZE - 1) // BATCH_SIZE
 
-        for batch_start in range(0, len(item_codes), BATCH_SIZE):
+        # Calculate starting position (start_batch is 1-based)
+        start_index = (start_batch - 1) * BATCH_SIZE if start_batch > 1 else 0
+        if start_batch > 1:
+            self.logger.info(f"Resuming variants from batch {start_batch}/{total_batches} (skipping first {start_index} items)")
+
+        for batch_start in range(start_index, len(item_codes), BATCH_SIZE):
             batch_codes = item_codes[batch_start:batch_start + BATCH_SIZE]
             batch_num = batch_start // BATCH_SIZE + 1
-            batch_result = self._process_variant_batch(client, batch_codes, skip_images)
 
-            result.success += batch_result.success
-            result.failed += batch_result.failed
-            result.skipped += batch_result.skipped
-            result.errors.extend(batch_result.errors)
-            result.created_ids.extend(batch_result.created_ids)
-            result.updated_ids.extend(batch_result.updated_ids)
-            result.processed_item_codes.extend(batch_result.processed_item_codes)
+            try:
+                batch_result = self._process_variant_batch(client, batch_codes, skip_images)
 
-            frappe.db.commit()
+                result.success += batch_result.success
+                result.failed += batch_result.failed
+                result.skipped += batch_result.skipped
+                result.errors.extend(batch_result.errors)
+                result.created_ids.extend(batch_result.created_ids)
+                result.updated_ids.extend(batch_result.updated_ids)
+                result.processed_item_codes.extend(batch_result.processed_item_codes)
+                result.skipped_items.extend(batch_result.skipped_items)
 
-            processed = min(batch_start + BATCH_SIZE, len(item_codes))
-            self.logger.info(
-                f"Variant Batch {batch_num}/{total_batches}: "
-                f"{batch_result.success} success, {batch_result.failed} failed, {batch_result.skipped} skipped"
-            )
+                frappe.db.commit()
 
-            # Log to Ecommerce Integration Log (like category sync does)
-            batch_summary = (
-                f"Variants Batch {batch_num}/{total_batches}: "
-                f"{batch_result.success} success, {batch_result.failed} failed, {batch_result.skipped} skipped"
-            )
-            create_shopware_log(
-                status="Success" if batch_result.failed == 0 else "Partial Success",
-                method="BatchProductUploader.upload_variants.batch",
-                message=batch_summary,
-                request_data={
-                    "batch_num": batch_num,
-                    "total_batches": total_batches,
-                    "batch_size": len(batch_codes),
-                    "success": batch_result.success,
-                    "failed": batch_result.failed,
-                    "skipped": batch_result.skipped,
-                    "items": batch_result.processed_item_codes[:20],
-                    "errors": batch_result.errors[:5] if batch_result.errors else []
-                }
-            )
+                processed = min(batch_start + BATCH_SIZE, len(item_codes))
+                self.logger.info(
+                    f"Variant Batch {batch_num}/{total_batches}: "
+                    f"{batch_result.success} success, {batch_result.failed} failed, {batch_result.skipped} skipped"
+                )
 
-            if self.progress_callback:
+                # Log to Ecommerce Integration Log (like category sync does)
+                batch_summary = (
+                    f"Variants Batch {batch_num}/{total_batches}: "
+                    f"{batch_result.success} success, {batch_result.failed} failed, {batch_result.skipped} skipped"
+                )
+                create_shopware_log(
+                    status="Success" if batch_result.failed == 0 else "Partial Success",
+                    method="BatchProductUploader.upload_variants.batch",
+                    message=batch_summary,
+                    request_data={
+                        "batch_num": batch_num,
+                        "total_batches": total_batches,
+                        "batch_size": len(batch_codes),
+                        "success": batch_result.success,
+                        "failed": batch_result.failed,
+                        "skipped": batch_result.skipped,
+                        "items": batch_result.processed_item_codes[:20],
+                        "errors": batch_result.errors[:5] if batch_result.errors else [],
+                        "skipped_items": batch_result.skipped_items[:10] if batch_result.skipped_items else []
+                    }
+                )
+
+                if self.progress_callback:
+                    try:
+                        self.progress_callback(
+                            batch_num, total_batches, processed, len(item_codes),
+                            result.success, result.failed
+                        )
+                    except Exception as e:
+                        self.logger.warning(f"Progress callback failed: {e}")
+
+            except Exception as batch_error:
+                # Log error but CONTINUE with next batch instead of aborting
+                error_msg = str(batch_error)[:500]
+                self.logger.error(
+                    f"Variant Batch {batch_num}/{total_batches} FAILED with error: {error_msg}. "
+                    f"Continuing with next batch..."
+                )
+                result.failed += len(batch_codes)
+                for item_code in batch_codes:
+                    result.errors.append({"item_code": item_code, "error": f"Batch failed: {error_msg[:100]}"})
+
+                # Log batch failure
+                create_shopware_log(
+                    status="Error",
+                    method="BatchProductUploader.upload_variants.batch",
+                    message=f"Variants Batch {batch_num}/{total_batches} FAILED: {error_msg[:200]}",
+                    request_data={
+                        "batch_num": batch_num,
+                        "total_batches": total_batches,
+                        "batch_size": len(batch_codes),
+                        "items": batch_codes[:20],
+                        "error": error_msg
+                    }
+                )
+
+                # Try to commit any partial work and reconnect if needed
                 try:
-                    self.progress_callback(
-                        batch_num, total_batches, processed, len(item_codes),
-                        result.success, result.failed
-                    )
-                except Exception as e:
-                    self.logger.warning(f"Progress callback failed: {e}")
+                    frappe.db.commit()
+                except Exception:
+                    try:
+                        frappe.db.rollback()
+                        frappe.connect()
+                    except Exception:
+                        pass
 
         return result
 
@@ -1767,6 +1959,8 @@ class BatchProductUploader:
         variants_data = self._batch_read_variants(item_codes)
 
         if not variants_data:
+            for ic in item_codes:
+                result.skipped_items.append({"item_code": ic, "reason": "not_found_in_db"})
             result.skipped = len(item_codes)
             return result
 
@@ -1777,10 +1971,11 @@ class BatchProductUploader:
             item_data = variants_data.get(item_code)
             if not item_data:
                 result.skipped += 1
+                result.skipped_items.append({"item_code": item_code, "reason": "not_found_in_batch_read"})
                 continue
 
             try:
-                payload, is_new = self._build_variant_payload(client, item_data)
+                payload, is_new, skip_reason = self._build_variant_payload(client, item_data)
                 if payload:
                     upsert_payloads.append({
                         "payload": payload,
@@ -1794,6 +1989,7 @@ class BatchProductUploader:
                         })
                 else:
                     result.skipped += 1
+                    result.skipped_items.append({"item_code": item_code, "reason": skip_reason or "unknown"})
 
             except Exception as e:
                 result.failed += 1
@@ -1855,12 +2051,11 @@ class BatchProductUploader:
         if not item_codes:
             return {}
 
-        # Get main item fields (including AI/SEO fields and custom fields)
+        # Get main item fields (including disabled - they sync as active=false)
         items = frappe.get_all(
             "Item",
             filters={
                 "name": ["in", item_codes],
-                "disabled": 0,
                 "variant_of": ["is", "set"]
             },
             fields=[
@@ -1884,6 +2079,8 @@ class BatchProductUploader:
                 "item_height", "item_width", "item_length",
                 # Custom selling rate field
                 ITEM_SELLING_RATE_FIELD,
+                # Delivery time (Lieferzeit)
+                "delivery_time",
             ]
         )
 
@@ -1934,8 +2131,12 @@ class BatchProductUploader:
         self,
         client,
         item_data: Dict
-    ) -> Tuple[Optional[Dict], bool]:
-        """Build Shopware variant product payload with parentId and options."""
+    ) -> Tuple[Optional[Dict], bool, Optional[str]]:
+        """Build Shopware variant product payload with parentId and options.
+
+        Returns:
+            Tuple of (payload dict, is_new_product, skip_reason)
+        """
         from ecommerce_integrations.shopware6.export.property_handler import (
             get_or_create_property_group,
             get_or_create_variant_option,
@@ -1945,14 +2146,14 @@ class BatchProductUploader:
         parent_code = item_data.get("variant_of")
 
         if not parent_code:
-            return None, False
+            return None, False, "no_parent"
 
         # Get parent Shopware ID
         parent_id = self._existing_products.get(parent_code)
         if not parent_id:
             # Parent not synced - log warning
             self.logger.warning(f"Variant {item_code} skipped: Parent {parent_code} not found in Shopware")
-            return None, False
+            return None, False, f"parent_not_in_shopware:{parent_code}"
 
         # Check if variant exists
         existing_id = self._existing_products.get(item_code)
@@ -1962,7 +2163,7 @@ class BatchProductUploader:
         # Get price
         price = flt(item_data.get("_price") or item_data.get(ITEM_SELLING_RATE_FIELD) or 0)
         if price <= 0:
-            return None, False
+            return None, False, "no_price"
 
         # Tax rate
         tax_rate = flt(item_data.get("_tax_rate") or 19.0)
@@ -2049,8 +2250,10 @@ class BatchProductUploader:
         shopware_properties = item_data.get("_shopware_properties") or []
         property_ids = []
         for prop in shopware_properties:
-            # "Property" type goes to Shopware filter properties
-            if prop.get("property_type") == "Property" and prop.get("property_value"):
+            # "Property" and "Text" types go to Shopware properties (Technische Daten)
+            # "Text" is treated the same as "Property" for backwards compatibility
+            prop_type = prop.get("property_type")
+            if prop_type in ("Property", "Text") and prop.get("property_value"):
                 group_id = get_or_create_property_group(client, prop["property_name"])
                 if group_id:
                     option_id = get_or_create_property_option(
@@ -2067,7 +2270,14 @@ class BatchProductUploader:
         if custom_fields:
             payload["customFields"] = custom_fields
 
-        return payload, is_new
+        # Delivery Time (Lieferzeit)
+        lieferzeit = item_data.get("delivery_time")
+        if lieferzeit:
+            delivery_time_id = self._get_delivery_time_id(client, lieferzeit)
+            if delivery_time_id:
+                payload["deliveryTimeId"] = delivery_time_id
+
+        return payload, is_new, None  # No skip reason - success
 
 
 def batch_upload_products(item_codes: List[str], skip_images: bool = True) -> Dict[str, Any]:

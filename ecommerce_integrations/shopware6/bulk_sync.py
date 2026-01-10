@@ -506,8 +506,9 @@ def process_bulk_sync_queue():
         logger.info("Shopware6 Bulk Sync: Queue processing completed")
 
     except Exception as e:
-        logger = get_logger("check_and_process_queue")
-        logger.error("Shopware6 Bulk Sync Error", exception=e, persist=True)
+        # Use module-level logger - don't create local variable here!
+        error_logger = get_logger("process_bulk_sync_queue")
+        error_logger.error("Shopware6 Bulk Sync Error", exception=e, persist=True)
     finally:
         release_sync_lock()
         deactivate_bulk_mode()
