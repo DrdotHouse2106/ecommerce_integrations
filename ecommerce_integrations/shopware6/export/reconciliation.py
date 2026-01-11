@@ -379,6 +379,9 @@ def reconcile_erpnext_with_shopware(
     compare_categories: bool = True
 ) -> Dict[str, Any]:
     """
+    DEPRECATED: Use sync_manager.enqueue_full_reconciliation_no_brainer() instead.
+    This function uses single-item uploads which are much slower than the batch approach.
+
     Compare all ERPNext items with Shopware and sync differences.
 
     Args:
@@ -599,6 +602,9 @@ def full_reconciliation(
     skip_category_sync: bool = None
 ) -> Dict[str, Any]:
     """
+    DEPRECATED: Use sync_manager.enqueue_full_reconciliation_no_brainer() instead.
+    This function uses single-item uploads which are much slower than the batch approach.
+
     Full reconciliation: Categories first, then Products, then Variant Cleanup.
 
     Args:
@@ -1313,6 +1319,9 @@ def enqueue_full_reconciliation(
     compare_categories: bool = True
 ) -> Dict[str, Any]:
     """
+    DEPRECATED: Use sync_manager.enqueue_full_reconciliation_no_brainer() instead.
+    This function uses single-item uploads which are much slower than the batch approach.
+
     Enqueue full reconciliation to run in background.
 
     Uses batch processing with commits to avoid transaction errors.
@@ -1557,286 +1566,8 @@ def _run_batch_reconciliation(
 
 
 # =============================================================================
-# FORCE IMAGE SYNC
+# FORCE IMAGE SYNC (Parallel version - optimized)
 # =============================================================================
-
-@frappe.whitelist()
-@temp_shopware_session
-def force_sync_all_images(
-    client,
-    limit: int = 100,
-    offset: int = 0,
-) -> Dict[str, Any]:
-    """
-    Force re-sync all product images to Shopware.
-
-    This will:
-    1. Clear the image hash cache
-    2. Delete existing images in Shopware
-    3. Re-upload all images from ERPNext
-
-    Args:
-        limit: Maximum number of products to process
-        offset: Starting offset for pagination
-
-    Returns:
-        Dict with sync statistics
-    """
-    from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
-    from ecommerce_integrations.shopware6.base.cache_manager import get_cache
-
-    limit = cint(limit) or 100
-    offset = cint(offset) or 0
-
-    stats = {
-        "processed": 0,
-        "synced": 0,
-        "failed": 0,
-        "errors": [],
-    }
-
-    # Get all products with Shopware ID that have images
-    # Join with Item to filter only items with images
-    ecommerce_items = frappe.db.sql("""
-        SELECT ei.erpnext_item_code, ei.integration_item_code
-        FROM `tabEcommerce Item` ei
-        INNER JOIN `tabItem` i ON i.name = ei.erpnext_item_code
-        WHERE ei.integration = 'Shopware6'
-        AND i.image IS NOT NULL
-        AND i.image != ''
-        ORDER BY ei.erpnext_item_code
-        LIMIT %s OFFSET %s
-    """, (limit, offset), as_dict=True)
-
-    cache = get_cache()
-
-    for ei in ecommerce_items:
-        item_code = ei.erpnext_item_code
-        shopware_id = ei.integration_item_code
-
-        try:
-            # Get the Item document
-            item = frappe.get_doc("Item", item_code)
-
-            # Clear cached hashes for this item to force re-upload
-            cache.clear_image_hashes(item_code)
-
-            # Sync images (this deletes old and uploads new)
-            success = sync_product_images_to_shopware(client, item, shopware_id)
-
-            if success:
-                stats["synced"] += 1
-            else:
-                stats["failed"] += 1
-                stats["errors"].append({"item_code": item_code, "error": "sync failed"})
-
-            stats["processed"] += 1
-
-            # Commit every 10 items
-            if stats["processed"] % 10 == 0:
-                frappe.db.commit()
-                _logger.info(
-                    f"[Force Image Sync] Progress: {stats['processed']}/{len(ecommerce_items)} "
-                    f"(synced: {stats['synced']}, failed: {stats['failed']})"
-                )
-
-        except Exception as e:
-            stats["failed"] += 1
-            stats["errors"].append({"item_code": item_code, "error": str(e)})
-            stats["processed"] += 1
-            _logger.warning(f"[Force Image Sync] Error for {item_code}: {e}")
-
-    frappe.db.commit()
-
-    return {
-        "success": True,
-        "statistics": stats,
-        "message": f"Processed {stats['processed']} items: {stats['synced']} synced, {stats['failed']} failed",
-    }
-
-
-@frappe.whitelist()
-def enqueue_force_sync_all_images(
-    batch_size: int = 50,
-) -> Dict[str, Any]:
-    """
-    Enqueue force image sync as a background job.
-
-    Processes all products with images in batches.
-
-    Args:
-        batch_size: Number of items per batch
-
-    Returns:
-        Dict with job info
-    """
-    # Get batch size from settings if not provided
-    if not batch_size:
-        setting = frappe.get_cached_doc(SETTING_DOCTYPE)
-        batch_size = cint(getattr(setting, 'image_batch_size', 50)) or 50
-    batch_size = cint(batch_size) or 50
-
-    # Count total items with images
-    total = frappe.db.sql("""
-        SELECT COUNT(*) FROM `tabEcommerce Item` ei
-        INNER JOIN `tabItem` i ON i.name = ei.erpnext_item_code
-        WHERE ei.integration = 'Shopware6'
-        AND i.image IS NOT NULL AND i.image != ''
-    """)[0][0]
-
-    job_name = f"shopware6_force_image_sync_{now()}"
-
-    frappe.enqueue(
-        "ecommerce_integrations.shopware6.export.reconciliation._run_force_image_sync_batched",
-        queue="long",
-        job_name=job_name,
-        timeout=3600 * 4,  # 4 hours
-        batch_size=batch_size,
-        total=total,
-    )
-
-    return {
-        "success": True,
-        "message": f"Force image sync enqueued for {total} products (batch size: {batch_size})",
-        "job_name": job_name,
-    }
-
-
-def _run_force_image_sync_batched(batch_size: int, total: int):
-    """
-    Run force image sync in batches.
-
-    Args:
-        batch_size: Number of items per batch
-        total: Total items to process
-    """
-    import gc
-    from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
-    from ecommerce_integrations.shopware6.base.cache_manager import get_cache
-
-    def _ensure_db_connection():
-        """Ensure database connection is active."""
-        try:
-            frappe.db.sql("SELECT 1")
-        except Exception:
-            try:
-                frappe.connect()
-                _logger.info("[Force Image Sync] Reconnected to database")
-            except Exception as e:
-                _logger.warning(f"[Force Image Sync] Reconnect failed: {e}")
-
-    def _get_fresh_client():
-        """Get a fresh Shopware client."""
-        try:
-            return get_shopware_client()
-        except Exception as e:
-            _logger.warning(f"[Force Image Sync] Failed to get client: {e}")
-            return None
-
-    client = _get_fresh_client()
-    if not client:
-        create_shopware_log(
-            status="Error",
-            method="force_sync_all_images",
-            message="No Shopware client available",
-        )
-        return
-
-    cache = get_cache()
-    stats = {"processed": 0, "synced": 0, "failed": 0, "errors": []}
-    num_batches = (total + batch_size - 1) // batch_size
-
-    create_shopware_log(
-        status="Queued",
-        method="force_sync_all_images",
-        message=f"Starting image sync for {total} products in {num_batches} batches (batch size: {batch_size})",
-    )
-
-    for batch_num in range(num_batches):
-        offset = batch_num * batch_size
-
-        # Ensure DB connection before each batch
-        _ensure_db_connection()
-
-        # Refresh client every 2 batches to prevent token expiry
-        if batch_num > 0 and batch_num % 2 == 0:
-            client = _get_fresh_client()
-            if not client:
-                _logger.error("[Force Image Sync] Failed to refresh client, trying to continue...")
-                client = get_shopware_client()  # One more attempt
-
-        try:
-            items = frappe.db.sql("""
-                SELECT ei.erpnext_item_code, ei.integration_item_code
-                FROM `tabEcommerce Item` ei
-                INNER JOIN `tabItem` i ON i.name = ei.erpnext_item_code
-                WHERE ei.integration = 'Shopware6'
-                AND i.image IS NOT NULL AND i.image != ''
-                ORDER BY ei.erpnext_item_code
-                LIMIT %s OFFSET %s
-            """, (batch_size, offset), as_dict=True)
-        except Exception as sql_error:
-            _logger.error(f"[Force Image Sync] SQL error in batch {batch_num + 1}: {sql_error}")
-            _ensure_db_connection()
-            continue  # Skip to next batch
-
-        if not items:
-            _logger.info(f"[Force Image Sync] No items in batch {batch_num + 1}, finished.")
-            break
-
-        for ei in items:
-            item_code = ei.erpnext_item_code
-            shopware_id = ei.integration_item_code
-
-            try:
-                item = frappe.get_doc("Item", item_code)
-                cache.clear_image_hashes(item_code)
-                success = sync_product_images_to_shopware(client, item, shopware_id, cache=cache)
-
-                if success:
-                    stats["synced"] += 1
-                else:
-                    stats["failed"] += 1
-
-                stats["processed"] += 1
-                del item  # Memory cleanup
-
-            except Exception as e:
-                stats["failed"] += 1
-                stats["processed"] += 1
-                error_msg = f"{item_code}: {str(e)[:100]}"
-                if len(stats["errors"]) < 20:
-                    stats["errors"].append(error_msg)
-                _logger.warning(f"[Force Image Sync] Error for {item_code}: {e}")
-
-        # Memory cleanup after each batch
-        gc.collect()
-
-        # Safe commit with reconnect
-        try:
-            frappe.db.commit()
-        except Exception as commit_error:
-            _logger.warning(f"[Force Image Sync] Commit failed, reconnecting: {commit_error}")
-            try:
-                frappe.connect()
-                frappe.db.commit()
-            except Exception:
-                pass
-
-        pct = round(stats["processed"] / total * 100, 1)
-        create_shopware_log(
-            status="Success",
-            method="force_sync_all_images",
-            message=f"Batch {batch_num + 1}/{num_batches} ({pct}%) - Synced: {stats['synced']}, Failed: {stats['failed']}",
-        )
-
-    error_summary = f" - Errors: {'; '.join(stats['errors'][:5])}" if stats["errors"] else ""
-    create_shopware_log(
-        status="Success",
-        method="force_sync_all_images",
-        message=f"COMPLETED - Total synced: {stats['synced']}, Failed: {stats['failed']}{error_summary}",
-    )
-
 
 @frappe.whitelist()
 def enqueue_force_sync_all_images_parallel(
@@ -1844,6 +1575,7 @@ def enqueue_force_sync_all_images_parallel(
     workers: int = 4,
     item_group: str = None,
     parent_item: str = None,
+    start_batch: int = 1,
 ) -> Dict[str, Any]:
     """
     Enqueue PARALLEL force image sync as a background job.
@@ -1855,12 +1587,14 @@ def enqueue_force_sync_all_images_parallel(
         workers: Number of parallel workers (default 4, max 8)
         item_group: Optional - only sync items in this item group
         parent_item: Optional - only sync variants of this parent
+        start_batch: Start from this batch number (1-based, for resuming interrupted syncs)
 
     Returns:
         Dict with job info
     """
     batch_size = cint(batch_size) or 100
     workers = min(cint(workers) or 4, 8)  # Cap at 8 workers
+    start_batch = cint(start_batch) or 1
 
     # Build parameterized query to prevent SQL injection
     base_conditions = """
@@ -1901,11 +1635,13 @@ def enqueue_force_sync_all_images_parallel(
         total=total,
         base_conditions=base_conditions,
         query_params=params,
+        start_batch=start_batch,
     )
 
+    start_info = f" starting from batch {start_batch}" if start_batch > 1 else ""
     return {
         "success": True,
-        "message": f"Parallel image sync enqueued for {total} products ({workers} workers, batch size: {batch_size})",
+        "message": f"Parallel image sync enqueued for {total} products ({workers} workers, batch size: {batch_size}){start_info}",
         "job_name": job_name,
     }
 
@@ -1916,11 +1652,14 @@ def _run_parallel_image_sync(
     total: int,
     base_conditions: str,
     query_params: List = None,
+    start_batch: int = 1,
 ):
     """
     Run force image sync with parallel processing.
 
-    Uses ThreadPoolExecutor for concurrent image uploads.
+    OPTIMIZED: Each worker thread initializes Frappe context and Shopware client
+    ONCE and reuses them for all items in their work queue. This avoids the
+    massive overhead of per-item initialization.
 
     Args:
         batch_size: Number of items per batch
@@ -1928,17 +1667,18 @@ def _run_parallel_image_sync(
         total: Total items to process
         base_conditions: SQL WHERE conditions (parameterized)
         query_params: Parameters for the SQL query
+        start_batch: Start from this batch number (1-based, for resuming interrupted syncs)
     """
     import gc
+    import queue
     import threading
     import traceback
-    from concurrent.futures import ThreadPoolExecutor, as_completed
     from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
     from ecommerce_integrations.shopware6.base.cache_manager import get_cache, reset_thread_cache
 
     query_params = query_params or []
 
-    # Test connection upfront - each thread will create its own client for thread-safety
+    # Test connection upfront
     client = get_shopware_client()
     if not client:
         create_shopware_log(
@@ -1956,57 +1696,126 @@ def _run_parallel_image_sync(
     stats_lock = threading.Lock()
     num_batches = (total + batch_size - 1) // batch_size
 
+    # Validate start_batch
+    start_batch = max(1, start_batch)
+    start_info = f" (starting from batch {start_batch})" if start_batch > 1 else ""
+
+    # Work queue for items - threads pull from this
+    work_queue = queue.Queue()
+    # Sentinel to signal workers to stop
+    STOP_SENTINEL = None
+
     create_shopware_log(
         status="Queued",
         method="parallel_image_sync",
-        message=f"Starting PARALLEL image sync for {total} products ({workers} workers, {num_batches} batches)",
+        message=f"Starting OPTIMIZED parallel image sync for {total} products ({workers} workers, {num_batches} batches){start_info}",
     )
 
-    def sync_single_item(item_data):
-        """Sync a single item's images - runs in thread."""
-        item_code = item_data["erpnext_item_code"]
-        shopware_id = item_data["integration_item_code"]
-        thread_id = threading.current_thread().name
+    def worker_thread(worker_id: int) -> None:
+        """
+        Worker thread that processes items from the queue.
+
+        OPTIMIZATION: Initializes Frappe context and Shopware client ONCE,
+        then processes all items from the queue using the same context.
+        """
+        thread_client = None
+        thread_cache = None
+        items_processed = 0
+        # FIX: Timeout escape to prevent infinite loop if SENTINEL is missed
+        empty_cycles = 0
+        MAX_EMPTY_CYCLES = 10  # Exit after 10 seconds of no work
 
         try:
-            # Initialize Frappe context for this thread
+            # Initialize Frappe context ONCE for this thread
             frappe.init(site=site_name)
             frappe.connect()
 
-            _logger.debug(f"[Thread {thread_id}] Starting sync for {item_code}")
-
-            # Each thread needs its own client AND item doc (not thread-safe otherwise)
+            # Create Shopware client ONCE for this thread
             thread_client = get_shopware_client()
             if not thread_client:
-                return {"item_code": item_code, "success": False, "error": "No client"}
+                _logger.error(f"[Worker {worker_id}] Could not get Shopware client")
+                return
 
-            item = frappe.get_doc("Item", item_code)
-
-            # get_cache() is thread-local, so each thread gets its own cache instance
+            # Get thread-local cache ONCE
             thread_cache = get_cache()
-            thread_cache.clear_image_hashes(item_code)
 
-            # Pass thread-local cache to ensure consistency within this thread
-            success = sync_product_images_to_shopware(thread_client, item, shopware_id, cache=thread_cache)
+            _logger.info(f"[Worker {worker_id}] Initialized - ready to process items")
 
-            # Memory cleanup
-            del item
+            # Process items from queue until we get the stop sentinel
+            while True:
+                try:
+                    item_data = work_queue.get(timeout=1)
+                    empty_cycles = 0  # Reset on successful get
+                except queue.Empty:
+                    empty_cycles += 1
+                    # FIX: Escape hatch to prevent infinite loop
+                    if empty_cycles >= MAX_EMPTY_CYCLES:
+                        _logger.warning(f"[Worker {worker_id}] Timeout after {MAX_EMPTY_CYCLES}s - exiting")
+                        break
+                    continue
 
-            _logger.debug(f"[Thread {thread_id}] Finished sync for {item_code}: {success}")
-            return {"item_code": item_code, "success": success}
+                if item_data is STOP_SENTINEL:
+                    work_queue.task_done()
+                    break
+
+                item_code = item_data["erpnext_item_code"]
+                shopware_id = item_data["integration_item_code"]
+                success = False
+                error_msg = None
+
+                try:
+                    item = frappe.get_doc("Item", item_code)
+                    # FIX: Removed premature cache.clear_image_hashes() -
+                    # sync_product_images_to_shopware handles cache internally
+                    # This was breaking delta-sync by clearing hashes before check
+
+                    success = sync_product_images_to_shopware(
+                        thread_client, item, shopware_id, cache=thread_cache
+                    )
+
+                    del item
+                    items_processed += 1
+
+                    # Periodic commit to avoid long transactions
+                    if items_processed % 50 == 0:
+                        try:
+                            frappe.db.commit()
+                        except Exception:
+                            pass
+
+                except (KeyboardInterrupt, SystemExit):
+                    work_queue.task_done()
+                    raise
+                except Exception as e:
+                    error_msg = str(e)[:200]
+                    _logger.error(f"[Worker {worker_id}] Error syncing {item_code}: {error_msg}")
+
+                # Update stats
+                with stats_lock:
+                    stats["processed"] += 1
+                    if success:
+                        stats["synced"] += 1
+                    else:
+                        stats["failed"] += 1
+                        if error_msg and len(stats["errors"]) < 20:
+                            stats["errors"].append(f"{item_code}: {error_msg}")
+
+                work_queue.task_done()
+
+            _logger.info(f"[Worker {worker_id}] Finished - processed {items_processed} items")
 
         except (KeyboardInterrupt, SystemExit):
-            # Re-raise system interrupts - don't swallow them
             raise
         except Exception as e:
-            # Catch all other exceptions including ShopwareAPIError
-            error_msg = str(e)[:200]
-            _logger.error(f"[Thread {thread_id}] Error syncing {item_code}: {error_msg}\n{traceback.format_exc()}")
-            return {"item_code": item_code, "success": False, "error": error_msg}
+            _logger.error(f"[Worker {worker_id}] Fatal error: {e}\n{traceback.format_exc()}")
         finally:
-            # Clean up thread context - reset cache BEFORE frappe.destroy()
+            # Clean up thread context ONCE at the end
             try:
                 reset_thread_cache()
+            except Exception:
+                pass
+            try:
+                frappe.db.commit()
             except Exception:
                 pass
             try:
@@ -2014,13 +1823,26 @@ def _run_parallel_image_sync(
             except Exception:
                 pass
 
+    # Start worker threads
+    # FIX: Non-daemon threads to ensure proper cleanup (finally blocks run)
+    worker_threads = []
+    for i in range(workers):
+        t = threading.Thread(target=worker_thread, args=(i,), name=f"ImageSyncWorker-{i}")
+        t.daemon = False  # Ensure finally blocks run for proper DB/cache cleanup
+        t.start()
+        worker_threads.append(t)
+
+    # Feed items to the queue in batches
     for batch_num in range(num_batches):
+        # Skip batches before start_batch (batch_num is 0-based, start_batch is 1-based)
+        if batch_num + 1 < start_batch:
+            continue
+
         offset = batch_num * batch_size
 
-        _logger.info(f"[parallel_image_sync] Starting batch {batch_num + 1}/{num_batches} (offset={offset})")
+        _logger.info(f"[parallel_image_sync] Loading batch {batch_num + 1}/{num_batches} (offset={offset})")
 
         try:
-            # Use parameterized query to prevent SQL injection
             sql_params = tuple(query_params) + (batch_size, offset)
             items = frappe.db.sql(f"""
                 SELECT ei.erpnext_item_code, ei.integration_item_code
@@ -2031,7 +1853,7 @@ def _run_parallel_image_sync(
                 LIMIT %s OFFSET %s
             """, sql_params, as_dict=True)
 
-            _logger.info(f"[parallel_image_sync] Batch {batch_num + 1}: Found {len(items)} items to process")
+            _logger.info(f"[parallel_image_sync] Batch {batch_num + 1}: Queuing {len(items)} items")
         except Exception as e:
             _logger.error(f"[parallel_image_sync] SQL error in batch {batch_num + 1}: {e}")
             create_shopware_log(
@@ -2045,54 +1867,17 @@ def _run_parallel_image_sync(
             _logger.info(f"[parallel_image_sync] No items in batch {batch_num + 1}, stopping")
             break
 
-        # Process batch in parallel
-        try:
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = {executor.submit(sync_single_item, item): item for item in items}
+        # Add items to work queue
+        for item in items:
+            work_queue.put(item)
 
-                for future in as_completed(futures):
-                    try:
-                        result = future.result(timeout=600)  # 10 min timeout per item
-                        # Thread-safe stats update
-                        with stats_lock:
-                            stats["processed"] += 1
-                            if result.get("success"):
-                                stats["synced"] += 1
-                            else:
-                                stats["failed"] += 1
-                                if result.get("error") and len(stats["errors"]) < 20:
-                                    stats["errors"].append(f"{result['item_code']}: {result['error']}")
-                    except (KeyboardInterrupt, SystemExit):
-                        raise
-                    except Exception as future_error:
-                        with stats_lock:
-                            stats["failed"] += 1
-                            stats["processed"] += 1
-                        _logger.error(f"[parallel_image_sync] Future error: {future_error}")
+        # Wait for batch to complete before loading next
+        work_queue.join()
 
-            _logger.info(f"[parallel_image_sync] Batch {batch_num + 1} ThreadPool completed")
+        # Memory cleanup after each batch
+        gc.collect()
 
-            # Memory cleanup after each batch
-            gc.collect()
-
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except Exception as batch_error:
-            _logger.error(f"[parallel_image_sync] Batch {batch_num + 1} error: {batch_error}")
-            create_shopware_log(
-                status="Error",
-                method="parallel_image_sync",
-                message=f"Batch {batch_num + 1} error: {str(batch_error)[:200]}",
-            )
-            # Continue with next batch instead of breaking
-            continue
-
-        try:
-            frappe.db.commit()
-            _logger.info(f"[parallel_image_sync] Batch {batch_num + 1} committed")
-        except Exception as commit_error:
-            _logger.error(f"[parallel_image_sync] Commit error in batch {batch_num + 1}: {commit_error}")
-
+        # Progress log
         with stats_lock:
             pct = round(stats["processed"] / total * 100, 1) if total > 0 else 0
             synced = stats["synced"]
@@ -2102,6 +1887,17 @@ def _run_parallel_image_sync(
             method="parallel_image_sync",
             message=f"Batch {batch_num + 1}/{num_batches} ({pct}%) - Synced: {synced}, Failed: {failed}",
         )
+
+    # Signal workers to stop
+    for _ in range(workers):
+        work_queue.put(STOP_SENTINEL)
+
+    # Wait for all workers to finish with extended timeout
+    # FIX: Longer timeout and logging for non-terminated threads
+    for t in worker_threads:
+        t.join(timeout=120)  # 2 minutes per worker
+        if t.is_alive():
+            _logger.error(f"[parallel_image_sync] Worker {t.name} did not terminate within timeout")
 
     with stats_lock:
         error_summary = f" - Errors: {'; '.join(stats['errors'][:5])}" if stats["errors"] else ""

@@ -161,7 +161,8 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
 
         # Categories - Variants need their own category assignment in Shopware
         # (they don't inherit from parent automatically)
-        category_ids = sync_all_item_categories(client, variant_item.item_code)
+        # Use skip_sync=True for fast lookup (categories synced in bulk Phase 1)
+        category_ids = sync_all_item_categories(client, variant_item.item_code, skip_sync=True)
         if category_ids:
             product_payload["categories"] = category_ids
 

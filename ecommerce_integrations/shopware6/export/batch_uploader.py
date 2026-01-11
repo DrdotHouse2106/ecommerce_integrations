@@ -28,6 +28,7 @@ from ecommerce_integrations.shopware6.constants import (
 )
 from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
 from ecommerce_integrations.shopware6.export.utils import generate_uuid, get_shopware_document_id
+from ecommerce_integrations.shopware6.export.product_mapper import get_product_visibilities
 from ecommerce_integrations.shopware6.base.cache_manager import get_cache
 
 
@@ -464,8 +465,22 @@ class BatchProductUploader:
         if not upsert_payloads:
             return result
 
-        # Extract actual payloads for API call
-        api_payloads = [p["payload"] for p in upsert_payloads]
+        # Track items needing visibility updates (existing products)
+        visibility_updates = []
+        
+        # Extract actual payloads for API call, removing internal markers
+        api_payloads = []
+        for p in upsert_payloads:
+            payload = p["payload"].copy()
+            # Check if this product needs visibility update
+            if payload.pop("_needs_visibility_update", False):
+                item_code = payload.pop("_item_code", None)
+                if item_code:
+                    visibility_updates.append({
+                        "product_id": payload["id"],
+                        "item_code": item_code
+                    })
+            api_payloads.append(payload)
 
         # Execute sync API call
         try:
@@ -513,6 +528,10 @@ class BatchProductUploader:
                     }).insert(ignore_permissions=True)
                 except frappe.DuplicateEntryError:
                     pass  # Already exists
+
+            # Update visibilities for existing products (after successful batch sync)
+            if visibility_updates:
+                self._batch_update_visibilities(client, visibility_updates)
 
         except Exception as e:
             result.failed = len(upsert_payloads)
@@ -799,14 +818,11 @@ class BatchProductUploader:
         if item_data.get("item_length"):
             payload["length"] = flt(item_data["item_length"]) * 10
 
-        # Visibility (use default sales channel)
-        if is_new:
-            sales_channel_id = self._get_default_sales_channel_id(client)
-            if sales_channel_id:
-                payload["visibilities"] = [{
-                    "salesChannelId": sales_channel_id,
-                    "visibility": 30
-                }]
+        # Visibility - Multi-Channel support
+        # ALWAYS handle visibilities separately after batch sync to avoid duplicate key errors
+        # (Product might exist in Shopware even if not in ERPNext mappings)
+        payload["_needs_visibility_update"] = True
+        payload["_item_code"] = item_code
 
         # Custom Fields (AI Benefits, Short Description, Zubehoer, etc.)
         custom_fields = self._build_custom_fields(item_data)
@@ -909,6 +925,139 @@ class BatchProductUploader:
 
         except Exception:
             return None
+
+
+    def _batch_update_visibilities(self, client, visibility_updates: List[Dict]) -> None:
+        """
+        BATCH update product visibilities using Shopware Sync API.
+
+        OPTIMIZED: Uses bulk operations instead of individual API calls.
+        - 1 bulk search to get current visibilities for all products
+        - 1 Sync API call to upsert all new/updated visibilities
+        - 1 Sync API call to delete removed visibilities
+
+        Args:
+            client: Shopware API client
+            visibility_updates: List of dicts with product_id and item_code
+        """
+        if not visibility_updates:
+            return
+
+        self.logger.info(f"[BATCH] Updating visibilities for {len(visibility_updates)} products")
+
+        # Step 1: Get all product IDs
+        product_ids = [u["product_id"] for u in visibility_updates]
+
+        # Step 2: Bulk fetch current visibilities from Shopware (paginated)
+        current_visibilities = {}  # product_id -> {channel_id: {id, visibility}}
+        page = 1
+        while True:
+            try:
+                search_payload = {
+                    "filter": [{"type": "equalsAny", "field": "productId", "value": product_ids}],
+                    "limit": 500,
+                    "page": page
+                }
+                response = client.request_post("search/product-visibility", search_payload)
+                vis_data = response.get("data", [])
+
+                if not vis_data:
+                    break
+
+                for v in vis_data:
+                    pid = v.get("productId")
+                    if pid not in current_visibilities:
+                        current_visibilities[pid] = {}
+                    current_visibilities[pid][v.get("salesChannelId")] = {
+                        "id": v.get("id"),
+                        "visibility": v.get("visibility")
+                    }
+
+                if len(vis_data) < 500:
+                    break
+                page += 1
+            except Exception as e:
+                self.logger.warning(f"Failed to fetch current visibilities: {e}")
+                break
+
+        # Step 3: Calculate desired visibilities for each product
+        upsert_payloads = []  # Visibilities to create/update
+        delete_payloads = []  # Visibilities to delete
+
+        default_channel_id = self._get_default_sales_channel_id(client)
+
+        for update in visibility_updates:
+            product_id = update["product_id"]
+            item_code = update["item_code"]
+
+            try:
+                # Get desired visibilities from ERPNext
+                item_doc = frappe.get_doc("Item", item_code)
+                new_visibilities = get_product_visibilities(item_doc, self.setting)
+
+                if not new_visibilities and default_channel_id:
+                    new_visibilities = [{"salesChannelId": default_channel_id, "visibility": 30}]
+
+                if not new_visibilities:
+                    continue
+
+                current = current_visibilities.get(product_id, {})
+                new_by_channel = {v["salesChannelId"]: v["visibility"] for v in new_visibilities}
+
+                # Find visibilities to delete (in current but not in new)
+                for channel_id, vis_data in current.items():
+                    if channel_id not in new_by_channel:
+                        delete_payloads.append({"id": vis_data["id"]})
+
+                # Find visibilities to upsert (new or changed)
+                for channel_id, visibility in new_by_channel.items():
+                    if channel_id in current:
+                        # Update only if visibility level changed
+                        if current[channel_id]["visibility"] != visibility:
+                            upsert_payloads.append({
+                                "id": current[channel_id]["id"],
+                                "productId": product_id,
+                                "salesChannelId": channel_id,
+                                "visibility": visibility
+                            })
+                    else:
+                        # Create new - generate deterministic ID
+                        vis_id = generate_uuid(f"vis_{product_id}_{channel_id}")
+                        upsert_payloads.append({
+                            "id": vis_id,
+                            "productId": product_id,
+                            "salesChannelId": channel_id,
+                            "visibility": visibility
+                        })
+
+            except Exception as e:
+                self.logger.warning(f"Failed to calculate visibilities for {item_code}: {e}")
+
+        # Step 4: Execute batch operations via Sync API
+        sync_payload = {}
+
+        if upsert_payloads:
+            self.logger.info(f"[BATCH] Upserting {len(upsert_payloads)} visibilities")
+            sync_payload["upsert-visibilities"] = {
+                "entity": "product_visibility",
+                "action": "upsert",
+                "payload": upsert_payloads
+            }
+
+        if delete_payloads:
+            self.logger.info(f"[BATCH] Deleting {len(delete_payloads)} visibilities")
+            sync_payload["delete-visibilities"] = {
+                "entity": "product_visibility",
+                "action": "delete",
+                "payload": delete_payloads
+            }
+
+        if sync_payload:
+            try:
+                _sync_with_retry(client, sync_payload, self.logger, f"visibility batch ({len(upsert_payloads)} upsert, {len(delete_payloads)} delete)")
+                self.logger.info("[BATCH] Visibility update completed successfully")
+            except Exception as e:
+                self.logger.error(f"[BATCH] Visibility sync failed: {e}")
 
     def _get_default_sales_channel_id(self, client) -> Optional[str]:
         """Get default sales channel ID."""
@@ -1267,8 +1416,22 @@ class BatchProductUploader:
             self.logger.warning("No products left to sync after configuratorSettings cleanup")
             return result
 
-        # Execute sync API call
-        api_payloads = [p["payload"] for p in upsert_payloads]
+        # Track templates needing visibility updates (existing templates)
+        visibility_updates = []
+        
+        # Extract actual payloads for API call, removing internal markers
+        api_payloads = []
+        for p in upsert_payloads:
+            payload = p["payload"].copy()
+            # Check if this template needs visibility update
+            if payload.pop("_needs_visibility_update", False):
+                item_code = payload.pop("_item_code", None)
+                if item_code:
+                    visibility_updates.append({
+                        "product_id": payload["id"],
+                        "item_code": item_code
+                    })
+            api_payloads.append(payload)
 
         try:
             sync_payload = {
@@ -1300,6 +1463,10 @@ class BatchProductUploader:
                     }).insert(ignore_permissions=True)
                 except frappe.DuplicateEntryError:
                     pass
+
+            # Update visibilities for existing templates (after successful batch sync)
+            if visibility_updates:
+                self._batch_update_visibilities(client, visibility_updates)
 
         except BaseException as e:
             # Note: ShopwareAPIError inherits from BaseException
@@ -1811,14 +1978,11 @@ class BatchProductUploader:
         except Exception:
             pass
 
-        # Visibility for new products
-        if is_new:
-            sales_channel_id = self._get_default_sales_channel_id(client)
-            if sales_channel_id:
-                payload["visibilities"] = [{
-                    "salesChannelId": sales_channel_id,
-                    "visibility": 30
-                }]
+        # Visibility - Multi-Channel support
+        # ALWAYS handle visibilities separately after batch sync to avoid duplicate key errors
+        # (Product might exist in Shopware even if not in ERPNext mappings)
+        payload["_needs_visibility_update"] = True
+        payload["_item_code"] = item_code
 
         # Custom Fields (AI Benefits, Short Description, Zubehoer, etc.)
         custom_fields = self._build_custom_fields(item_data)
@@ -2351,4 +2515,40 @@ def batch_upload_products(item_codes: List[str], skip_images: bool = True) -> Di
         "created": len(result.created_ids),
         "updated": len(result.updated_ids),
         "processed_item_codes": result.processed_item_codes,
+    }
+
+
+def get_all_item_codes_by_type() -> Dict[str, List[str]]:
+    """Get all item codes grouped by type (including disabled - they sync as active=false)."""
+
+    # Templates (has_variants=1) - including disabled (will be synced as active=false)
+    templates = frappe.get_all(
+        "Item",
+        filters={"has_variants": 1},
+        pluck="name"
+    )
+
+    # Simple items (no variants, not a variant) - including disabled
+    simple_items = frappe.get_all(
+        "Item",
+        filters={
+            "has_variants": 0,
+            "variant_of": ["is", "not set"]
+        },
+        pluck="name"
+    )
+
+    # Variants (variant_of is set) - including disabled
+    variants = frappe.get_all(
+        "Item",
+        filters={
+            "variant_of": ["is", "set"]
+        },
+        pluck="name"
+    )
+
+    return {
+        "templates": templates,
+        "simple_items": simple_items,
+        "variants": variants
     }

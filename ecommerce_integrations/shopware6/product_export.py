@@ -125,15 +125,22 @@ def sync_template_with_variants_to_shopware(template_item_code: str) -> dict:
     Returns:
         dict with success status and synced variants count
     """
-    from ecommerce_integrations.shopware6.utils import get_logger
+    from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
+    from ecommerce_integrations.shopware6.connection import get_shopware_client
 
     logger = get_logger("sync_template_with_variants")
     try:
+        # Get the template item document
+        template_item = frappe.get_doc("Item", template_item_code)
+        
+        # Get Shopware client
+        client = get_shopware_client()
+        
         # First sync the template
-        template_result = upload_template_item_to_shopware(template_item_code)
+        template_result = upload_template_item_to_shopware(client, template_item)
 
         # Then sync all variants
-        variants_synced = sync_all_variants(template_item_code)
+        variants_synced = sync_all_variants(client, template_item_code)
 
         return {
             "success": True,
@@ -143,6 +150,13 @@ def sync_template_with_variants_to_shopware(template_item_code: str) -> dict:
         }
     except Exception as e:
         logger.error(f"Failed to sync template {template_item_code}", exception=e)
+        create_shopware_log(
+            status="Error",
+            method="sync_template_with_variants",
+            message=f"Failed to sync template {template_item_code}",
+            exception=str(e),
+            make_new=True
+        )
         return {
             "success": False,
             "message": str(e)

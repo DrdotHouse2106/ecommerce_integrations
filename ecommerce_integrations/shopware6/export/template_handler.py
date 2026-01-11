@@ -225,8 +225,8 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
         # Currency
         currency_id = get_cached_currency_id(client, "EUR")
 
-        # Categories
-        category_ids = sync_all_item_categories(client, template_item.item_code)
+        # Categories - use skip_sync=True for fast lookup (categories synced in bulk Phase 1)
+        category_ids = sync_all_item_categories(client, template_item.item_code, skip_sync=True)
         if category_ids:
             product_payload["categories"] = category_ids
         elif template_item.item_group:
@@ -310,15 +310,20 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
         # Build variantListingConfig to show all variants individually in product listings
         # This configures "Expand property values in product listings" with all properties
         # Each variant will get its own displayGroup and appear separately
+        # PERFORMANCE FIX: Limit expressionForListings to max 3 attributes to avoid
+        # Shopware's O(n^k) display_group query explosion with many property groups
+        MAX_EXPRESSION_FOR_LISTINGS = 3
         if attributes:
             configurator_group_config = []
-            for attr in attributes:
+            for idx, attr in enumerate(attributes):
                 attr_name = attr["name"]
                 group_id = get_or_create_property_group(client, attr_name)
                 if group_id:
+                    # Only first MAX_EXPRESSION_FOR_LISTINGS attributes get expressionForListings=True
+                    # This prevents the display_group indexer query from exploding with 10+ JOINs
                     configurator_group_config.append({
                         "id": group_id,
-                        "expressionForListings": True,
+                        "expressionForListings": idx < MAX_EXPRESSION_FOR_LISTINGS,
                         "representation": "box"
                     })
 
@@ -527,68 +532,6 @@ def cleanup_orphaned_variants(client, template_item_code: str, parent_shopware_i
         get_logger().error(f"Variant cleanup failed for {template_item_code}: {e}", persist=False)
 
     return stats
-
-
-def sync_template_with_variant_cleanup(client, template_item) -> dict:
-    """
-    Sync a template item and cleanup orphaned variants.
-
-    This is the recommended function to use for full variant sync:
-    1. Upload/update template product
-    2. Sync all ERPNext variants
-    3. Delete Shopware variants not in ERPNext
-
-    Args:
-        client: Shopware API client
-        template_item: ERPNext Item document with has_variants=1
-
-    Returns:
-        Dict with sync and cleanup statistics
-    """
-    from ecommerce_integrations.shopware6.export.variant_handler import upload_variant_item_to_shopware
-
-    result = {
-        "template_id": None,
-        "variants_synced": 0,
-        "variants_deleted": 0,
-        "errors": []
-    }
-
-    # Step 1: Upload/update template
-    parent_id = upload_template_item_to_shopware(client, template_item)
-    if not parent_id:
-        result["errors"].append("Failed to sync template")
-        return result
-
-    result["template_id"] = parent_id
-
-    # Step 2: Sync all ERPNext variants (including disabled - they sync as active=false)
-    variants = frappe.get_all(
-        "Item",
-        filters={"variant_of": template_item.name},
-        pluck="name"
-    )
-
-    for variant_code in variants:
-        try:
-            variant_item = frappe.get_doc("Item", variant_code)
-            variant_id = upload_variant_item_to_shopware(client, variant_item)
-            if variant_id:
-                result["variants_synced"] += 1
-        except Exception as e:
-            result["errors"].append(f"{variant_code}: {str(e)[:100]}")
-
-    # Step 3: Cleanup orphaned variants in Shopware
-    cleanup_stats = cleanup_orphaned_variants(client, template_item.name, parent_id)
-    result["variants_deleted"] = cleanup_stats.get("deleted", 0)
-    result["errors"].extend(cleanup_stats.get("errors", []))
-
-    frappe.logger().info(
-        f"Template sync complete: {template_item.name} - "
-        f"synced: {result['variants_synced']}, deleted: {result['variants_deleted']}"
-    )
-
-    return result
 
 
 # =============================================================================

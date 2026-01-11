@@ -209,8 +209,8 @@ class ShopwareProductUploader:
             # Currency
             currency_id = get_cached_currency_id(client, "EUR")
 
-            # Categories
-            category_ids = sync_all_item_categories(client, item.item_code)
+            # Categories - use skip_sync=True for fast lookup (categories synced in bulk Phase 1)
+            category_ids = sync_all_item_categories(client, item.item_code, skip_sync=True)
             if category_ids:
                 payload["categories"] = category_ids
 

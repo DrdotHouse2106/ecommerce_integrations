@@ -9,7 +9,7 @@ import hashlib
 import mimetypes
 import os
 import re
-from typing import List, Optional, Tuple
+from typing import List, NamedTuple, Optional, Tuple
 
 import frappe
 import requests
@@ -548,12 +548,110 @@ def clear_product_images_in_shopware(client, shopware_product_id: str, item_code
         return deleted_count
 
 
+class MediaHealthResult(NamedTuple):
+    """Result of media health check with data for reuse."""
+    is_healthy: bool
+    existing_media: list  # Reusable for delete operation
+
+
+# Cache position key constant for maintainability
+IMAGE_COUNT_CACHE_KEY = -1
+
+
+def _verify_shopware_media_health(client, item_code: str, shopware_product_id: str, expected_count: int) -> MediaHealthResult:
+    """
+    Verify that all product images actually exist and have content in Shopware.
+
+    This health check ensures 100% reliability by checking:
+    1. Product has the correct number of product-media associations
+    2. Each association is a proper dict (not JSON string or malformed)
+    3. Each associated media entity exists as proper dict
+    4. Each media has fileName (= content was uploaded successfully)
+    5. All expected positions (0 to n-1) are present
+    6. Media IDs match expected pattern for this item
+
+    OPTIMIZATION: Returns existing media data for reuse in delete operation,
+    avoiding a second API call.
+
+    Args:
+        client: Shopware API client
+        item_code: ERPNext item code (for generating expected media IDs)
+        shopware_product_id: Shopware product UUID
+        expected_count: Expected number of images
+
+    Returns:
+        MediaHealthResult with is_healthy flag and existing_media for reuse
+    """
+    try:
+        # Get all product-media associations with their media entities
+        search_result = client.request_post("search/product-media", {
+            "filter": [{"type": "equals", "field": "productId", "value": shopware_product_id}],
+            "associations": {"media": {}},  # Include media entity details
+            "limit": expected_count + 5  # Small buffer
+        })
+        existing = search_result.get("data", []) or []
+
+        # Check 1: Correct count of associations
+        if len(existing) != expected_count:
+            return MediaHealthResult(is_healthy=False, existing_media=existing)
+
+        # Track which positions we found
+        found_positions = set()
+        expected_media_ids = {
+            generate_uuid(f"media_{item_code}_{pos}") for pos in range(expected_count)
+        }
+        found_media_ids = set()
+
+        for pm in existing:
+            # Check 2: product-media is a proper dict (not JSON string)
+            if not isinstance(pm, dict):
+                return MediaHealthResult(is_healthy=False, existing_media=existing)
+
+            # Check 3: Has valid position
+            position = pm.get("position")
+            if position is None or not isinstance(position, int):
+                return MediaHealthResult(is_healthy=False, existing_media=existing)
+            found_positions.add(position)
+
+            # Check 4: media is a proper dict (not JSON string or None)
+            media = pm.get("media")
+            if not isinstance(media, dict):
+                return MediaHealthResult(is_healthy=False, existing_media=existing)
+
+            # Check 5: media has fileName (= content was uploaded)
+            if not media.get("fileName"):
+                return MediaHealthResult(is_healthy=False, existing_media=existing)
+
+            # Check 6: media has valid ID
+            media_id = pm.get("mediaId") or media.get("id")
+            if not media_id or not isinstance(media_id, str):
+                return MediaHealthResult(is_healthy=False, existing_media=existing)
+            found_media_ids.add(media_id)
+
+        # Check 7: All expected positions present (0, 1, 2, ... n-1)
+        expected_positions = set(range(expected_count))
+        if found_positions != expected_positions:
+            return MediaHealthResult(is_healthy=False, existing_media=existing)
+
+        # Check 8: Media IDs match expected pattern (deterministic UUIDs)
+        if found_media_ids != expected_media_ids:
+            return MediaHealthResult(is_healthy=False, existing_media=existing)
+
+        return MediaHealthResult(is_healthy=True, existing_media=existing)
+
+    except BaseException:
+        # If we can't verify, assume unhealthy to be safe
+        return MediaHealthResult(is_healthy=False, existing_media=[])
+
+
 def sync_product_images_to_shopware(client, item, shopware_product_id: str, cache=None) -> bool:
     """
     Sync all images from ERPNext Item to Shopware product.
 
-    Uses delta-sync: only uploads images if content has changed.
-    If ERPNext has no images, all Shopware images are deleted.
+    OPTIMIZED delta-sync with 100% reliable health check:
+    1. First checks if ALL images have matching hashes (nothing changed locally)
+    2. If hashes match, verifies images actually exist in Shopware (health check)
+    3. Only if BOTH pass, skips the sync - otherwise does full re-sync
 
     Args:
         client: Shopware API client
@@ -576,15 +674,50 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str, cach
             clear_product_images_in_shopware(client, shopware_product_id, item.item_code)
             return True
 
-        # Remove existing product-media relationships before uploading new ones (bulk delete)
+        # OPTIMIZATION: Check if ALL images are unchanged BEFORE doing expensive API calls
+        all_hashes_match = True
+        image_hashes = []  # Store hashes to avoid recalculating
+
+        for position, image_url in enumerate(images):
+            current_hash = get_file_hash(image_url)
+            cached_hash = cache.get_image_hash(item.item_code, position)
+            image_hashes.append(current_hash)
+
+            if not (current_hash and cached_hash and current_hash == cached_hash):
+                all_hashes_match = False
+                # Don't break - we need all hashes for later
+
+        # Also check if image count changed (cached count stored as special key)
+        cached_count = cache.get_image_hash(item.item_code, IMAGE_COUNT_CACHE_KEY)
+        if cached_count != str(len(images)):
+            all_hashes_match = False
+
+        # Variable to store existing media from health check (for reuse)
+        existing_media_from_health_check = None
+
+        if all_hashes_match:
+            # Hashes match - but verify images actually exist in Shopware (100% reliable)
+            health_result = _verify_shopware_media_health(client, item.item_code, shopware_product_id, len(images))
+            if health_result.is_healthy:
+                # All good - skip sync entirely
+                return True
+            # Health check failed - store existing data for reuse, clear cache
+            existing_media_from_health_check = health_result.existing_media
+            cache.clear_image_hashes(item.item_code)
+
+        # Something changed - need to do full sync
+        # Remove existing product-media relationships before uploading new ones
         try:
-            search_result = client.request_post("search/product-media", {
-                "filter": [{"type": "equals", "field": "productId", "value": shopware_product_id}]
-            })
-            existing = search_result.get("data", []) or []
+            # OPTIMIZATION: Reuse data from health check if available (avoids 2nd API call)
+            if existing_media_from_health_check is not None:
+                existing = existing_media_from_health_check
+            else:
+                search_result = client.request_post("search/product-media", {
+                    "filter": [{"type": "equals", "field": "productId", "value": shopware_product_id}]
+                })
+                existing = search_result.get("data", []) or []
 
             if existing:
-                # Collect IDs for bulk delete
                 product_media_ids = []
                 media_ids_to_delete = []
 
@@ -596,7 +729,6 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str, cach
                     if media_id:
                         media_ids_to_delete.append(media_id)
 
-                # Bulk delete using Sync API
                 _bulk_delete_product_media(client, product_media_ids, media_ids_to_delete)
                 cache.clear_image_hashes(item.item_code)
         except BaseException as e:
@@ -605,22 +737,17 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str, cach
         product_media_list = []
         cover_id = None
         images_uploaded = 0
-        images_skipped = 0
 
         for position, image_url in enumerate(images):
-            current_hash = get_file_hash(image_url)
-            cached_hash = cache.get_image_hash(item.item_code, position)
+            current_hash = image_hashes[position]  # Use pre-calculated hash
 
-            if current_hash and cached_hash and current_hash == cached_hash:
-                media_id = generate_uuid(f"media_{item.item_code}_{position}")
-                images_skipped += 1
-            else:
-                media_id = upload_media_to_shopware(client, image_url, item.item_code, position)
-                if media_id and current_hash:
-                    cache.set_image_hash(item.item_code, position, current_hash)
-                    images_uploaded += 1
-
+            # Upload the image
+            media_id = upload_media_to_shopware(client, image_url, item.item_code, position)
             if media_id:
+                if current_hash:
+                    cache.set_image_hash(item.item_code, position, current_hash)
+                images_uploaded += 1
+
                 product_media_id = generate_uuid(f"product_media_{item.item_code}_{position}")
                 product_media_list.append({
                     "id": product_media_id,
@@ -636,10 +763,12 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str, cach
                 update_payload["coverId"] = cover_id
             client.request_patch(f"product/{shopware_product_id}", update_payload)
 
-            if images_uploaded > 0 or images_skipped > 0:
-                frappe.logger().info(
-                    f"Image sync for {item.item_code}: {images_uploaded} uploaded, {images_skipped} skipped"
-                )
+            # Store image count for next delta check
+            cache.set_image_hash(item.item_code, IMAGE_COUNT_CACHE_KEY, str(len(images)))
+
+            frappe.logger().info(
+                f"Image sync for {item.item_code}: {images_uploaded} uploaded"
+            )
 
         return True
 

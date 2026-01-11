@@ -614,7 +614,7 @@ class SyncManager:
             Dict with batch sync results for templates, simple items, and variants
         """
         from ecommerce_integrations.shopware6.export.batch_uploader import BatchProductUploader
-        from ecommerce_integrations.shopware6.export.full_batch_sync import get_all_item_codes_by_type
+        from ecommerce_integrations.shopware6.export.batch_uploader import get_all_item_codes_by_type
         from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
         from ecommerce_integrations.shopware6.utils import get_shopware_document_id
 

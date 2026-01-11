@@ -301,7 +301,10 @@ class ShopwareCacheManager:
         self.set("image_hash", key, file_hash)
 
     def clear_image_hashes(self, item_code: str, max_positions: int = 10) -> None:
-        """Clear all image hashes for an item."""
+        """Clear all image hashes for an item, including the count cache."""
+        # Clear count cache (stored at position -1)
+        self.invalidate("image_hash", f"{item_code}:-1")
+        # Clear position hashes
         for position in range(max_positions):
             self.invalidate("image_hash", f"{item_code}:{position}")
 

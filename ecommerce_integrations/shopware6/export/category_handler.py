@@ -459,8 +459,22 @@ def get_or_create_category(
         # Create or update
         if existing_cat_id:
             client.request_patch(f"category/{cat_id}", payload)
+            # Log category update
+            create_shopware_log(
+                status="Success",
+                method="category_sync",
+                message=f"Updated category: {category_name} -> {cat_id}",
+                make_new=True
+            )
         else:
             client.request_post("category", payload)
+            # Log category creation
+            create_shopware_log(
+                status="Success",
+                method="category_sync",
+                message=f"Created category: {category_name} -> {cat_id}",
+                make_new=True
+            )
 
         cache.set_category_id(category_name, cat_id)
 
@@ -479,6 +493,14 @@ def get_or_create_category(
 
     except BaseException as e:
         get_logger().error(f"Failed to get/create Category {category_name}: {e}", persist=False)
+        # Log category error
+        create_shopware_log(
+            status="Error",
+            method="category_sync",
+            message=f"Failed to sync category: {category_name}",
+            exception=str(e),
+            make_new=True
+        )
         return None
 
 
@@ -999,6 +1021,12 @@ def sync_item_group_to_shopware(client, item_group_name: str) -> bool:
         item_group_data = get_item_group_data(item_group_name)
         if not item_group_data:
             get_logger().error("Item Group not found", persist=False)
+            create_shopware_log(
+                status="Error",
+                method="sync_item_group_to_shopware",
+                message=f"Item Group not found: {item_group_name}",
+                make_new=True
+            )
             return False
 
         # Sync the category hierarchy
@@ -1008,13 +1036,32 @@ def sync_item_group_to_shopware(client, item_group_name: str) -> bool:
             frappe.logger("shopware6").info(
                 f"Synced Item Group '{item_group_name}' to Shopware category {category_id}"
             )
+            create_shopware_log(
+                status="Success",
+                method="sync_item_group_to_shopware",
+                message=f"Synced Item Group '{item_group_name}' to Shopware category {category_id}",
+                make_new=True
+            )
             return True
         else:
             get_logger().error(f"Failed to sync Item Group '{item_group_name}' to Shopware", persist=False)
+            create_shopware_log(
+                status="Error",
+                method="sync_item_group_to_shopware",
+                message=f"Failed to sync Item Group '{item_group_name}' to Shopware",
+                make_new=True
+            )
             return False
 
     except Exception as e:
         get_logger().error(f"Error syncing Item Group '{item_group_name}': {e}", persist=False)
+        create_shopware_log(
+            status="Error",
+            method="sync_item_group_to_shopware",
+            message=f"Error syncing Item Group '{item_group_name}'",
+            exception=str(e),
+            make_new=True
+        )
         return False
 
 
