@@ -61,7 +61,7 @@ def get_product_media_folder_id(client) -> Optional[str]:
 
         return None
 
-    except Exception as e:
+    except BaseException as e:
         get_logger().error("Failed to get Product Media folder", persist=False)
         return None
 
@@ -255,10 +255,12 @@ def _upload_media_via_url(client, media_id: str, public_url: str, extension: str
     """
     try:
         # Shopware endpoint accepts JSON with URL
+        # Note: lib_shopware6_api_base expects "json" not "application/json"
+        # (it adds the "application/" prefix automatically)
         client.request_post(
             f"_action/media/{media_id}/upload",
             payload={"url": public_url},
-            content_type="application/json",
+            content_type="json",
             additional_query_params={"extension": extension, "fileName": filename}
         )
         return True
@@ -287,6 +289,8 @@ def upload_media_to_shopware(client, file_url: str, item_code: str, position: in
     Returns:
         Media ID if successful, None otherwise
     """
+    file_content = None  # Initialize for cleanup in finally block
+    
     try:
         folder_id = get_product_media_folder_id(client)
         media_id = generate_uuid(f"media_{item_code}_{position}")
@@ -345,6 +349,10 @@ def upload_media_to_shopware(client, file_url: str, item_code: str, position: in
     except BaseException as e:
         get_logger().error(f"Failed to upload media for {item_code}: {str(e)}", persist=False)
         return None
+    finally:
+        # Explicit memory cleanup for binary content
+        if file_content is not None:
+            del file_content
 
 
 def get_item_images(item) -> List[str]:
@@ -474,8 +482,8 @@ def _bulk_delete_product_media(client, product_media_ids: List[str], media_ids: 
             pm_deleted = len(product_media_ids)
             media_deleted = len(media_ids)
 
-    except Exception as e:
-        # Log but don't fail - media might be used elsewhere
+    except BaseException as e:
+        # Log but don't fail - media might be used elsewhere (BaseException for ShopwareAPIError)
         frappe.logger().warning(f"Bulk media delete partially failed: {str(e)[:100]}")
         # Try to return what we attempted
         pm_deleted = len(product_media_ids) if product_media_ids else 0
@@ -540,7 +548,7 @@ def clear_product_images_in_shopware(client, shopware_product_id: str, item_code
         return deleted_count
 
 
-def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> bool:
+def sync_product_images_to_shopware(client, item, shopware_product_id: str, cache=None) -> bool:
     """
     Sync all images from ERPNext Item to Shopware product.
 
@@ -551,11 +559,14 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> b
         client: Shopware API client
         item: ERPNext Item document
         shopware_product_id: Shopware product UUID
+        cache: Optional cache instance (for thread-safety in parallel sync).
+               If not provided, uses global get_cache().
 
     Returns:
         True if successful
     """
-    cache = get_cache()
+    if cache is None:
+        cache = get_cache()
 
     try:
         images = get_item_images(item)
@@ -632,7 +643,8 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str) -> b
 
         return True
 
-    except Exception as e:
+    except BaseException as e:
+        # NOTE: Must catch BaseException because ShopwareAPIError inherits from BaseException, not Exception!
         get_logger().error(f"Failed to sync images for {item.name}: {str(e)}", persist=False)
         return False
 

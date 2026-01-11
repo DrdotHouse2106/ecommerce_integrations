@@ -10,6 +10,7 @@ Key improvements over sequential upload:
 3. Cached lookups for categories, manufacturers, taxes
 """
 
+import time
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 
@@ -32,6 +33,53 @@ from ecommerce_integrations.shopware6.base.cache_manager import get_cache
 
 # Maximum products per sync request (Shopware limit is ~500, but 100 is safer)
 BATCH_SIZE = 100
+
+# Lock timeout retry settings
+LOCK_TIMEOUT_MAX_RETRIES = 3
+LOCK_TIMEOUT_RETRY_DELAY = 5  # seconds
+
+
+def _sync_with_retry(client, sync_payload: dict, logger, context: str = "sync") -> dict:
+    """
+    Execute Shopware sync API call with retry logic for lock timeouts.
+    
+    Args:
+        client: Shopware API client
+        sync_payload: The sync payload to send
+        logger: Logger instance
+        context: Description for error messages
+        
+    Returns:
+        API response dict
+        
+    Raises:
+        Exception: If max retries exceeded for lock timeout
+    """
+    for attempt in range(1, LOCK_TIMEOUT_MAX_RETRIES + 1):
+        try:
+            return client.request_post("_action/sync", sync_payload)
+        except Exception as e:
+            error_str = str(e)
+            is_lock_timeout = "1205" in error_str or "Lock wait timeout" in error_str
+            
+            if is_lock_timeout and attempt < LOCK_TIMEOUT_MAX_RETRIES:
+                logger.warning(f"Lock timeout on {context} (attempt {attempt}/{LOCK_TIMEOUT_MAX_RETRIES}), retrying in {LOCK_TIMEOUT_RETRY_DELAY}s...")
+                time.sleep(LOCK_TIMEOUT_RETRY_DELAY)
+                continue
+            
+            if is_lock_timeout:
+                error_msg = f"Lock timeout after {LOCK_TIMEOUT_MAX_RETRIES} retries for {context}"
+                logger.error(error_msg)
+                create_shopware_log(
+                    status="Error",
+                    method="batch_uploader_sync",
+                    message=error_msg,
+                    request_data={"context": context, "error": error_str[:500]}
+                )
+                raise Exception(error_msg)
+            
+            # Non-lock-timeout error: re-raise immediately
+            raise
 
 
 @dataclass
@@ -429,7 +477,7 @@ class BatchProductUploader:
                 }
             }
 
-            response = client.request_post("_action/sync", sync_payload)
+            response = _sync_with_retry(client, sync_payload, self.logger, f"product upsert batch ({len(api_payloads)} items)")
 
             # Check for errors in response
             if response and response.get("success") is False:
@@ -1231,7 +1279,7 @@ class BatchProductUploader:
                 }
             }
 
-            client.request_post("_action/sync", sync_payload)
+            _sync_with_retry(client, sync_payload, self.logger, f"template upsert batch ({len(api_payloads)} items)")
 
             # Success - update counts
             result.success = len(upsert_payloads)
@@ -1324,7 +1372,7 @@ class BatchProductUploader:
                 }
             }
 
-            client.request_post("_action/sync", delete_payload)
+            _sync_with_retry(client, delete_payload, self.logger, f"configurator settings delete ({len(all_setting_ids)} items)")
             self.logger.info(f"Successfully bulk-deleted {len(all_setting_ids)} configuratorSettings")
 
         except Exception as e:
@@ -1478,7 +1526,7 @@ class BatchProductUploader:
                         "payload": missing_options
                     }
 
-                client.request_post("_action/sync", sync_payload)
+                _sync_with_retry(client, sync_payload, self.logger, f"property groups/options create ({len(missing_groups)} groups, {len(missing_options)} options)")
                 self.logger.info(f"Created {len(missing_groups)} groups, {len(missing_options)} options")
 
             # Also update Redis cache for future use
@@ -2013,7 +2061,7 @@ class BatchProductUploader:
                 }
             }
 
-            client.request_post("_action/sync", sync_payload)
+            _sync_with_retry(client, sync_payload, self.logger, f"variant upsert batch ({len(api_payloads)} items)")
 
             # Success
             result.success = len(upsert_payloads)

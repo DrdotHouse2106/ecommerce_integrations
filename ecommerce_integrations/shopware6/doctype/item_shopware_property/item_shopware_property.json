@@ -40,10 +40,10 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Type",
-   "options": "Property\nCustom Field",
+   "options": "Property\nText\nCustom Field",
    "default": "Property",
    "reqd": 1,
-   "description": "Property = filterable in shop, Custom Field = product detail page only"
+   "description": "Property = filterable in shop, Text = non-filterable product property (Technische Daten), Custom Field = product detail page only"
   },
   {
    "fieldname": "shopware_field_type",

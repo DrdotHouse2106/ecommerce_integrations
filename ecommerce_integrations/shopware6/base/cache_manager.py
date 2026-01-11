@@ -79,11 +79,14 @@ class ShopwareCacheManager:
     }
 
     # In-memory cache for the current request (faster than Redis for repeated access)
-    _request_cache: Dict[str, Dict[str, Any]] = {}
+    # NOTE: This is now an instance attribute (set in __init__) for thread-safety.
+    # Previously it was a class attribute which caused race conditions in multi-threaded contexts.
 
     def __init__(self):
         """Initialize the cache manager."""
         self._redis = frappe.cache()
+        # Instance-level request cache for thread-safety
+        self._request_cache: Dict[str, Any] = {}
 
     def _make_key(self, cache_type: str, key: str = "") -> str:
         """
@@ -315,21 +318,40 @@ class ShopwareCacheManager:
         self.invalidate("field_mappings", "config")
 
 
-# Global cache instance for convenience
-_cache_instance: Optional[ShopwareCacheManager] = None
+# Thread-local storage for cache instances
+# This ensures each thread gets its own cache instance with its own frappe.cache() context
+import threading
+_thread_local = threading.local()
 
 
 def get_cache() -> ShopwareCacheManager:
     """
-    Get the global cache manager instance.
+    Get a thread-local cache manager instance.
+
+    THREAD-SAFETY: Each thread gets its own ShopwareCacheManager instance.
+    This is critical for parallel sync operations where each thread has its own
+    frappe.local context (after frappe.init()).
+
+    The underlying Redis cache is shared (Redis is thread-safe), but the
+    _request_cache (in-memory dict) is per-instance to avoid race conditions.
 
     Returns:
-        ShopwareCacheManager: The global cache instance
+        ShopwareCacheManager: Thread-local cache instance
     """
-    global _cache_instance
-    if _cache_instance is None:
-        _cache_instance = ShopwareCacheManager()
-    return _cache_instance
+    if not hasattr(_thread_local, 'cache_instance') or _thread_local.cache_instance is None:
+        _thread_local.cache_instance = ShopwareCacheManager()
+    return _thread_local.cache_instance
+
+
+def reset_thread_cache():
+    """
+    Reset the cache instance for the current thread.
+    
+    Call this after frappe.destroy() in thread cleanup to ensure
+    a fresh cache instance is created on the next get_cache() call.
+    """
+    if hasattr(_thread_local, 'cache_instance'):
+        _thread_local.cache_instance = None
 
 
 @frappe.whitelist()

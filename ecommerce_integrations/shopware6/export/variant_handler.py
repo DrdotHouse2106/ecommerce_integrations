@@ -15,6 +15,7 @@ from ecommerce_integrations.shopware6.export.utils import generate_uuid, get_sho
 from ecommerce_integrations.shopware6.export.product_mapper import (
     map_erpnext_item_to_shopware,
     get_tax_id_by_rate,
+    get_or_create_delivery_time,
     get_cached_currency_id,
     get_product_visibilities,
     build_channel_prices,
@@ -30,6 +31,10 @@ from ecommerce_integrations.shopware6.export.property_handler import (
     clear_product_options,
 )
 from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
+from ecommerce_integrations.shopware6.export.category_handler import (
+    sync_all_item_categories,
+    clear_product_categories,
+)
 
 
 def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
@@ -147,6 +152,19 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
         if custom_fields:
             product_payload["customFields"] = custom_fields
 
+        # Delivery Time (Lieferzeit)
+        lieferzeit = getattr(variant_item, 'delivery_time', None)
+        if lieferzeit:
+            delivery_time_id = get_or_create_delivery_time(client, lieferzeit)
+            if delivery_time_id:
+                product_payload["deliveryTimeId"] = delivery_time_id
+
+        # Categories - Variants need their own category assignment in Shopware
+        # (they don't inherit from parent automatically)
+        category_ids = sync_all_item_categories(client, variant_item.item_code)
+        if category_ids:
+            product_payload["categories"] = category_ids
+
         # Always check if product exists in Shopware (API call to verify)
         product_exists = False
         try:
@@ -182,6 +200,12 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
                     clear_product_properties(client, product_id)
                 except BaseException:
                     pass  # Property clearing is optional, don't break sync
+            # Clear old categories before setting new ones
+            if product_payload.get("categories"):
+                try:
+                    clear_product_categories(client, product_id)
+                except BaseException:
+                    pass  # Category clearing is optional, don't break sync
             client.request_patch(f"product/{product_id}", product_payload)
             frappe.logger().info(f"Variant {variant_item.item_code} updated in Shopware")
         else:
@@ -237,26 +261,28 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
         return None
 
 
-def sync_all_variants(template_item_code: str) -> int:
+def sync_all_variants(client, template_item_code: str) -> int:
     """
     Sync all variants of a template item to Shopware.
 
     Args:
+        client: Shopware API client
         template_item_code: Template item code
 
     Returns:
         Number of variants synced
     """
+    # Include disabled variants - they will be synced with active=false
     variants = frappe.get_all(
         "Item",
-        filters={"variant_of": template_item_code, "disabled": 0},
+        filters={"variant_of": template_item_code},
         pluck="name"
     )
 
     synced = 0
     for variant_code in variants:
         variant_item = frappe.get_doc("Item", variant_code)
-        product_id = upload_variant_item_to_shopware(variant_item)
+        product_id = upload_variant_item_to_shopware(client, variant_item)
         if product_id:
             synced += 1
 

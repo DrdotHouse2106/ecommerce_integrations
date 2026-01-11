@@ -536,11 +536,13 @@ def get_item_properties(erpnext_item) -> List[Dict[str, str]]:
     properties_table = getattr(erpnext_item, 'shopware_properties', None) or []
     # Sort by idx to maintain property order from ERPNext
     for row in sorted(properties_table, key=lambda x: getattr(x, 'idx', 0)):
-        if row.property_type == 'Property' and row.property_value:
+        # "Property" and "Text" types both become Shopware properties (Technische Daten)
+        if row.property_type in ('Property', 'Text') and row.property_value:
+            # Use the filterable checkbox value directly (defaults to False if not set)
             properties.append({
                 "group_name": row.property_name,
                 "option_value": cstr(row.property_value).strip(),
-                "filterable": bool(getattr(row, 'filterable', True))
+                "filterable": bool(getattr(row, 'filterable', 0))
             })
 
     # Priority 2: Fallback to configurable mappings
@@ -721,12 +723,11 @@ def sync_mehrpreis_properties_batch(limit: int = 500) -> Dict[str, Any]:
         "errors": 0
     }
 
-    # Find all items where is_sales_item = 0 and not disabled
+    # Find all items where is_sales_item = 0 (including disabled - they sync as active=false)
     items = frappe.get_all(
         "Item",
         filters={
             "is_sales_item": 0,
-            "disabled": 0,
             "has_variants": 0  # Skip template items
         },
         fields=["name"],
@@ -826,7 +827,7 @@ def cleanup_orphaned_shopware_properties(client, dry_run: bool = True) -> Dict[s
         # Also get attributes from shopware_properties tables
         prop_names = frappe.db.sql("""
             SELECT DISTINCT property_name
-            FROM `tabShopware Item Property`
+            FROM `tabItem Shopware Property`
             WHERE property_type = 'Property'
         """, as_list=True)
         for row in prop_names:
@@ -1000,7 +1001,7 @@ def cleanup_orphaned_properties_batch(client) -> Dict[str, Any]:
         # Also get attributes from shopware_properties tables
         prop_names = frappe.db.sql("""
             SELECT DISTINCT property_name
-            FROM `tabShopware Item Property`
+            FROM `tabItem Shopware Property`
             WHERE property_type = 'Property'
         """, as_list=True)
         for row in prop_names:

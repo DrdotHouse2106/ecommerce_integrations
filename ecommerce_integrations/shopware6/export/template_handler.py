@@ -16,6 +16,7 @@ from ecommerce_integrations.shopware6.export.product_mapper import (
     map_erpnext_item_to_shopware,
     get_tax_id_by_rate,
     get_or_create_manufacturer,
+    get_or_create_delivery_time,
     get_cached_currency_id,
     get_cached_sales_channel_id,
     get_actual_variant_values,
@@ -344,6 +345,13 @@ def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
             if property_ids:
                 product_payload["properties"] = property_ids
 
+        # Delivery Time (Lieferzeit)
+        lieferzeit = getattr(template_item, 'delivery_time', None)
+        if lieferzeit:
+            delivery_time_id = get_or_create_delivery_time(client, lieferzeit)
+            if delivery_time_id:
+                product_payload["deliveryTimeId"] = delivery_time_id
+
         # Check if product exists (use existing_shopware_id if available to avoid API call)
         product_exists = bool(existing_shopware_id)
         if not product_exists:
@@ -464,10 +472,10 @@ def cleanup_orphaned_variants(client, template_item_code: str, parent_shopware_i
     stats = {"checked": 0, "deleted": 0, "errors": []}
 
     try:
-        # Get ERPNext variant item codes
+        # Get ERPNext variant item codes (including disabled - they sync as active=false)
         erpnext_variants = set(frappe.get_all(
             "Item",
-            filters={"variant_of": template_item_code, "disabled": 0},
+            filters={"variant_of": template_item_code},
             pluck="name"
         ))
 
@@ -554,10 +562,10 @@ def sync_template_with_variant_cleanup(client, template_item) -> dict:
 
     result["template_id"] = parent_id
 
-    # Step 2: Sync all ERPNext variants
+    # Step 2: Sync all ERPNext variants (including disabled - they sync as active=false)
     variants = frappe.get_all(
         "Item",
-        filters={"variant_of": template_item.name, "disabled": 0},
+        filters={"variant_of": template_item.name},
         pluck="name"
     )
 
@@ -663,10 +671,10 @@ def cleanup_all_orphaned_variants_batch(client, progress_callback=None) -> Dict[
         parent_shopware_id = template.integration_item_code
 
         try:
-            # Get ERPNext variant item codes (active only)
+            # Get ERPNext variant item codes (including disabled - they sync as active=false)
             erpnext_variants = set(frappe.get_all(
                 "Item",
-                filters={"variant_of": template_code, "disabled": 0},
+                filters={"variant_of": template_code},
                 pluck="name"
             ))
 

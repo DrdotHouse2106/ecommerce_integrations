@@ -2153,11 +2153,13 @@ def _batch_delete_products(client, product_ids: List[str]) -> int:
     if not product_ids:
         return 0
 
+    import time as _time
     logger = get_logger("batch_delete")
     deleted = 0
 
-    # Process in batches of 100
-    batch_size = 100
+    # Process in small batches to avoid Shopware DB lock timeouts
+    # Reduced from 100 to 10 after issues with large templates like vendor-trolley (120 variants)
+    batch_size = 10
     for i in range(0, len(product_ids), batch_size):
         batch_ids = product_ids[i:i + batch_size]
 
@@ -2170,45 +2172,63 @@ def _batch_delete_products(client, product_ids: List[str]) -> int:
             }
         }
 
-        # Retry logic for lock timeouts (up to 3 attempts with 5s delay)
-        max_retries = 3
+        # Disable indexing during bulk deletes to prevent lock conflicts with background indexer
+        # See: https://github.com/shopware/admin-api-reference/blob/main/docs/concepts/endpoint-structure/writing-entities/bulk-payloads.md
+        # indexing-skip: Skip the product indexer entirely (includes VariantListingUpdater which causes display_group updates)
+        headers = {
+            "indexing-behavior": "disable-indexing",
+            "indexing-skip": "product.indexer",
+            "sw-skip-trigger-flow": "1"
+        }
+
+        # Retry logic for lock timeouts (up to 5 attempts with exponential backoff)
+        max_retries = 5
         for attempt in range(1, max_retries + 1):
             try:
-                client.request_post("_action/sync", sync_payload)
+                client.request_post("_action/sync", sync_payload, update_header_fields=headers)
                 deleted += len(batch_ids)
                 break  # Success, exit retry loop
 
-            except Exception as e:
+            except BaseException as e:
+                # Note: ShopwareAPIError inherits from BaseException, not Exception!
                 error_str = str(e)
                 is_lock_timeout = "1205" in error_str or "Lock wait timeout" in error_str
 
                 if is_lock_timeout and attempt < max_retries:
-                    logger.warning(f"Lock timeout on batch delete (attempt {attempt}/{max_retries}), retrying in 5s...")
-                    import time
-                    time.sleep(5)
+                    # Exponential backoff: 5s, 10s, 20s, 40s
+                    wait_time = 5 * (2 ** (attempt - 1))
+                    logger.warning(f"Lock timeout (attempt {attempt}/{max_retries}), retrying in {wait_time}s...")
+                    _time.sleep(wait_time)
                     continue
 
                 if is_lock_timeout:
-                    # Max retries exceeded for lock timeout - log error and raise to stop sync
-                    error_msg = f"Lock timeout after {max_retries} retries for batch delete of {len(batch_ids)} products"
-                    logger.error(error_msg)
-                    create_shopware_log(
-                        status="Error",
-                        method="batch_delete_products",
-                        message=error_msg,
-                        request_data={"product_ids": batch_ids[:10], "error": error_str[:500]}
-                    )
-                    raise Exception(error_msg)
+                    # Max retries exceeded - try individual deletes as last resort
+                    logger.warning(f"Lock timeout after {max_retries} retries, falling back to individual deletes")
+                    for pid in batch_ids:
+                        try:
+                            _time.sleep(2)  # 2 seconds between each delete for DB recovery
+                            client.request_delete(f"product/{pid}")
+                            deleted += 1
+                        except BaseException:
+                            # ShopwareAPIError inherits from BaseException, not Exception
+                            pass
+                    break
 
                 # Non-lock-timeout error: fallback to individual deletes
                 logger.warning(f"Batch delete failed for {len(batch_ids)} products: {e}")
                 for pid in batch_ids:
                     try:
+                        _time.sleep(1)  # 1 second between each delete
                         client.request_delete(f"product/{pid}")
                         deleted += 1
-                    except Exception:
+                    except BaseException:
+                        # ShopwareAPIError inherits from BaseException, not Exception
                         pass
                 break  # Exit retry loop after fallback
+
+        # Small delay between batches to let Shopware DB recover
+        if i + batch_size < len(product_ids):
+            _time.sleep(1)
 
     return deleted
 
@@ -2826,6 +2846,9 @@ def _run_force_variant_sync_batched(
             if batch_num + 1 < start_batch:
                 continue
 
+            # Log batch progress (visible in worker logs)
+            print(f"[Force Variant Sync] === BATCH {batch_num + 1}/{num_batches} ===", flush=True)
+
             # Ensure connections are active at start of each batch
             _ensure_db_connection()
             
@@ -2870,6 +2893,8 @@ def _run_force_variant_sync_batched(
                     if not dry_run:
                         if shopware_variants:
                             variant_ids = [v.get("id") for v in shopware_variants if v.get("id")]
+                            # Log which template we're about to process (visible in worker logs)
+                            print(f"[Force Variant Sync] Processing {template_code}: deleting {len(variant_ids)} variants from Shopware", flush=True)
                             # Delete in chunks for large templates
                             if is_large_template:
                                 for chunk_idx in range(0, len(variant_ids), variant_chunk_size):

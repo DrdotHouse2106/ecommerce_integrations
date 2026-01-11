@@ -515,10 +515,12 @@ class SyncManager:
             
             # Ensure DB connection after each batch
             try:
-                if not frappe.db or not frappe.db.is_connected():
-                    frappe.connect()
+                frappe.db.sql("SELECT 1")
             except Exception:
-                pass
+                try:
+                    frappe.connect()
+                except Exception:
+                    pass
         
         return stats
 

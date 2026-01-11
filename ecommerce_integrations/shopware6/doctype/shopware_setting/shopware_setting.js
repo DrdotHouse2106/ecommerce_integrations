@@ -297,25 +297,75 @@ frappe.ui.form.on('Shopware Setting', {
 				);
 			}, __('Sync'));
 
-			// Force Image Sync
+			// Force Image Sync (Parallel)
 			frm.add_custom_button(__('Bilder (Force)'), function() {
-				frappe.confirm(
-					__('Alle Bilder löschen und neu hochladen?'),
-					function() {
+				let d = new frappe.ui.Dialog({
+					title: __('Force Image Sync'),
+					fields: [
+						{
+							label: __('Batch Größe'),
+							fieldname: 'batch_size',
+							fieldtype: 'Int',
+							default: 100,
+							description: __('Produkte pro Batch')
+						},
+						{
+							label: __('Parallele Worker'),
+							fieldname: 'workers',
+							fieldtype: 'Int',
+							default: 4,
+							description: __('1-8 Worker für parallele Verarbeitung')
+						},
+						{
+							fieldtype: 'Section Break',
+							label: __('Filter (optional)')
+						},
+						{
+							label: __('Artikelgruppe'),
+							fieldname: 'item_group',
+							fieldtype: 'Link',
+							options: 'Item Group',
+							description: __('Nur Artikel dieser Gruppe')
+						},
+						{
+							label: __('Parent Artikel'),
+							fieldname: 'parent_item',
+							fieldtype: 'Link',
+							options: 'Item',
+							get_query: function() {
+								return { filters: { has_variants: 1 } };
+							},
+							description: __('Nur Varianten dieses Parents')
+						}
+					],
+					primary_action_label: __('Starten'),
+					primary_action: function(values) {
 						frappe.call({
-							method: 'ecommerce_integrations.shopware6.export.reconciliation.enqueue_force_sync_all_images',
-							args: { batch_size: 20 },
+							method: 'ecommerce_integrations.shopware6.export.reconciliation.enqueue_force_sync_all_images_parallel',
+							args: {
+								batch_size: values.batch_size || 100,
+								workers: Math.min(Math.max(values.workers || 4, 1), 8),
+								item_group: values.item_group || null,
+								parent_item: values.parent_item || null
+							},
 							callback: function(r) {
 								if (r.message && r.message.success) {
 									frappe.show_alert({
-										message: __('Force Image Sync gestartet'),
+										message: r.message.message,
 										indicator: 'green'
+									});
+								} else if (r.message) {
+									frappe.show_alert({
+										message: r.message.message,
+										indicator: 'orange'
 									});
 								}
 							}
 						});
+						d.hide();
 					}
-				);
+				});
+				d.show();
 			}, __('Sync'));
 
 			// Force Variant Sync

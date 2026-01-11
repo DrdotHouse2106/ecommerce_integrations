@@ -19,6 +19,50 @@ from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_l
 from ecommerce_integrations.shopware6.validators import validate_before_destructive_operation
 
 
+def _batch_delete_prices(client, price_ids: List[str], batch_size: int = 100, logger=None) -> int:
+    """
+    Delete multiple price rules via Shopware Sync API for better performance.
+
+    Args:
+        client: Shopware API client
+        price_ids: List of price IDs to delete
+        batch_size: Number of prices to delete per batch (default 100, max recommended 500)
+        logger: Optional logger instance
+
+    Returns:
+        Number of successfully deleted prices
+    """
+    if not price_ids:
+        return 0
+
+    deleted = 0
+    for i in range(0, len(price_ids), batch_size):
+        batch = price_ids[i:i + batch_size]
+
+        try:
+            sync_payload = {
+                "delete-prices": {
+                    "entity": "product_price",
+                    "action": "delete",
+                    "payload": [{"id": pid} for pid in batch]
+                }
+            }
+            client.request_post("_action/sync", sync_payload)
+            deleted += len(batch)
+        except Exception as e:
+            if logger:
+                logger.warning(f"Batch delete failed for {len(batch)} prices: {e}")
+            # Fallback to individual deletes for this batch
+            for pid in batch:
+                try:
+                    client.request_delete(f"product-price/{pid}")
+                    deleted += 1
+                except Exception:
+                    pass
+
+    return deleted
+
+
 def get_item_price(item_code: str, price_list: str = None) -> float:
     """
     Get the selling price for an item.
@@ -358,15 +402,9 @@ def force_sync_single_product_price(
             }
 
         # Delete all existing advanced prices (for ALL products - parent and variants)
-        deleted_count = 0
-        for price_entry in existing_prices:
-            price_id = price_entry.get("id")
-            if price_id:
-                try:
-                    client.request_delete(f"product-price/{price_id}")
-                    deleted_count += 1
-                except Exception as e:
-                    logger.warning(f"Failed to delete price {price_id}: {e}")
+        # Use batch delete via Sync API for better performance
+        price_ids = [p.get("id") for p in existing_prices if p.get("id")]
+        deleted_count = _batch_delete_prices(client, price_ids, logger=logger)
 
         currency_id = get_cached_currency_id(client, "EUR")
 
@@ -607,14 +645,9 @@ def force_sync_all_prices(
                         persist=True
                     )
 
-                # Delete ALL additional price rules to ensure clean state
-                for price_entry in additional_prices:
-                    price_id = price_entry.get("id")
-                    if price_id:
-                        try:
-                            client.request_delete(f"product-price/{price_id}")
-                        except Exception:
-                            pass
+                # Delete ALL additional price rules to ensure clean state (batch delete for performance)
+                price_ids = [p.get("id") for p in additional_prices if p.get("id")]
+                _batch_delete_prices(client, price_ids, logger=logger)
             else:
                 # Dry run - just check for broken prices
                 prices_response = client.request_post("search/product-price", {

@@ -269,11 +269,22 @@ def map_erpnext_item_to_shopware(erpnext_item) -> Dict[str, Any]:
         erpnext_item.item_name
     )
 
+    is_template = getattr(erpnext_item, 'has_variants', 0) == 1
+
+    # Determine active status
+    # If item is disabled in ERPNext, it's inactive in Shopware
+    # If item is a template (parent) and export_parent_products_inactive is enabled, it's inactive
+    active = not erpnext_item.disabled
+    if is_template and active:
+        settings = frappe.get_cached_doc("Shopware Setting")
+        if getattr(settings, 'export_parent_products_inactive', True):
+            active = False
+
     payload = {
         "productNumber": erpnext_item.item_code,
         "name": erpnext_item.item_name,
         "description": description,
-        "active": not erpnext_item.disabled,
+        "active": active,
         "stock": 0,
         "isCloseout": False,
         "translations": {
@@ -396,9 +407,10 @@ def get_actual_variant_values(template_item_code: str, attribute_name: str) -> L
     Returns:
         List of attribute values
     """
+    # Include disabled variants - their attribute values are still needed
     variants = frappe.get_all(
         "Item",
-        filters={"variant_of": template_item_code, "disabled": 0},
+        filters={"variant_of": template_item_code},
         pluck="name"
     )
 

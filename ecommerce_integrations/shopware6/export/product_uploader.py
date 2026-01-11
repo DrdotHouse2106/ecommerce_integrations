@@ -21,6 +21,7 @@ from ecommerce_integrations.shopware6.export.product_mapper import (
     map_erpnext_item_to_shopware,
     get_tax_id_by_rate,
     get_or_create_manufacturer,
+    get_or_create_delivery_time,
     get_cached_currency_id,
     get_cached_sales_channel_id,
     get_product_visibilities,
@@ -284,6 +285,13 @@ class ShopwareProductUploader:
 
                 if property_ids:
                     payload["properties"] = property_ids
+
+            # Delivery Time (Lieferzeit)
+            lieferzeit = getattr(item, 'delivery_time', None)
+            if lieferzeit:
+                delivery_time_id = get_or_create_delivery_time(client, lieferzeit)
+                if delivery_time_id:
+                    payload["deliveryTimeId"] = delivery_time_id
 
             # Check if exists
             product_exists = False
