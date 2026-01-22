@@ -63,6 +63,7 @@
   "sales_invoice_series",
   "column_break_order",
   "sync_delivery_note",
+  "auto_create_invoice_on_shipment",
   "sync_sales_invoice",
   "auto_send_invoice_email",
   "invoice_print_format",
@@ -486,10 +487,18 @@
    "label": "Create Delivery Notes from Shopware shipments"
   },
   {
+   "default": "1",
+   "fieldname": "auto_create_invoice_on_shipment",
+   "fieldtype": "Check",
+   "label": "Auto-create Invoice after Shipment (Recommended)",
+   "description": "German law compliant: Create Sales Invoice automatically when Delivery Note is submitted. Invoice date = shipping date (Lieferdatum)."
+  },
+  {
    "default": "0",
    "fieldname": "sync_sales_invoice",
    "fieldtype": "Check",
-   "label": "Create Sales Invoices for paid orders"
+   "label": "Create Sales Invoices for paid orders (Legacy)",
+   "description": "Legacy: Creates invoices only after payment. Use 'Auto-create Invoice after Shipment' instead for compliance."
   },
   {
    "default": "0",

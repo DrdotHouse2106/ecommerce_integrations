@@ -356,13 +356,20 @@ def _create_invoice_if_paid(
     order_data: Dict[str, Any],
     setting
 ) -> None:
-    """Create Sales Invoice if order is paid."""
+    """Create Sales Invoice if order is paid or requires prepayment invoice."""
     transactions = order_data.get("transactions") or []
     for transaction in transactions:
         state = transaction.get("stateMachineState") or {}
         if state.get("technicalName") in ["paid", "completed"]:
             create_sales_invoice(sales_order, transaction, setting)
             break
+    else:
+        # Create invoice for unpaid methods that require an invoice up-front
+        _, erpnext_mode, _ = get_payment_method_info(order_data)
+        unpaid_invoice_modes = {"Vorkasse", "Rechnung", "Nachnahme", "Bargeld"}
+        if erpnext_mode in unpaid_invoice_modes:
+            transaction = transactions[0] if transactions else {}
+            create_sales_invoice(sales_order, transaction, setting)
 
 
 def sync_order_from_webhook(payload: Dict[str, Any], request_id: str = None):
@@ -379,10 +386,20 @@ def sync_order_from_webhook(payload: Dict[str, Any], request_id: str = None):
     frappe.set_user("Administrator")
     frappe.flags.request_id = request_id
 
-    try:
-        # Support multiple payload formats
-        order_id = _extract_order_id_from_payload(payload)
+    # Add a lock to prevent concurrent processing of the same order
+    order_id = _extract_order_id_from_payload(payload)
+    if not order_id:
+        if request_id:
+            update_shopware_log(request_id, status="Error", message="No order ID in webhook payload")
+        return
 
+    lock = frappe.cache().lock(f"shopware_sync_order_{order_id}", timeout=120)
+    if not lock.acquire(blocking=False):
+        if request_id:
+            update_shopware_log(request_id, status="Skipped", message=f"Sync already in progress for order {order_id}")
+        return
+
+    try:
         # Check if this is an update (custom fields update after order creation)
         is_update = payload.get("data", {}).get("isUpdate", False)
 
@@ -413,6 +430,8 @@ def sync_order_from_webhook(payload: Dict[str, Any], request_id: str = None):
         if request_id:
             update_shopware_log(request_id, status="Error", exception=str(e))
         raise
+    finally:
+        lock.release()
 
 
 def _extract_order_id_from_payload(payload: Dict[str, Any]) -> Optional[str]:
@@ -561,14 +580,10 @@ def update_order_status(payload: Dict[str, Any], request_id: str = None):
                             erpnext_status
                         )
 
-                        # If payment is now "Paid" and auto-invoice is enabled, create invoice
+                        # If payment is now "Paid" and auto-invoice is enabled, trigger verification
                         if erpnext_status == "Paid":
-                            setting = frappe.get_doc(SETTING_DOCTYPE)
-                            if setting.sync_sales_invoice:
-                                try:
-                                    create_sales_invoice(sales_order, {"id": order_id}, setting)
-                                except Exception as e:
-                                    get_logger().error(f"Failed to create invoice for {sales_order} after payment: {e}", persist=True)
+                            from ecommerce_integrations.shopware6.order.payment_handler import verify_payment_status_from_shopware
+                            verify_payment_status_from_shopware(order_id, sales_order)
 
                 if request_id:
                     update_shopware_log(

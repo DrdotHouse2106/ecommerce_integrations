@@ -17,6 +17,7 @@ from ecommerce_integrations.shopware6.export.product_mapper import (
     get_tax_id_by_rate,
     get_or_create_delivery_time,
     get_cached_currency_id,
+    get_cached_sales_channel_id,
     get_product_visibilities,
     build_channel_prices,
 )
@@ -117,6 +118,19 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
             if currency_id and product_payload.get("price"):
                 product_payload["price"][0]["currencyId"] = currency_id
 
+        # Sales channel visibility - Multi-Storefront support
+        # Variants need their own visibilities (they don't inherit from parent in Shopware)
+        if visibilities:
+            product_payload["visibilities"] = visibilities
+        else:
+            # Fallback to legacy single-channel mode
+            sales_channel_id = get_cached_sales_channel_id(client)
+            if sales_channel_id:
+                product_payload["visibilities"] = [{
+                    "salesChannelId": sales_channel_id,
+                    "visibility": 30
+                }]
+
         # Build options array from variant attributes
         attr_values = get_variant_attribute_values(variant_item)
         options = []
@@ -207,6 +221,20 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
                     clear_product_categories(client, product_id)
                 except BaseException:
                     pass  # Category clearing is optional, don't break sync
+            # Clear old visibilities before setting new ones (prevents duplicate key errors)
+            if product_payload.get("visibilities"):
+                try:
+                    vis_response = client.request_post("search/product-visibility", {
+                        "filter": [{"type": "equals", "field": "productId", "value": product_id}],
+                        "limit": 100
+                    })
+                    for vis_entry in vis_response.get("data", []):
+                        try:
+                            client.request_delete(f"product-visibility/{vis_entry.get('id')}")
+                        except Exception:
+                            pass
+                except BaseException:
+                    pass  # Visibility clearing is optional, don't break sync
             client.request_patch(f"product/{product_id}", product_payload)
             frappe.logger().info(f"Variant {variant_item.item_code} updated in Shopware")
         else:

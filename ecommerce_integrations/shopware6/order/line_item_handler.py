@@ -80,6 +80,20 @@ def add_order_item(so: "frappe.Document", line_item: Dict[str, Any], setting) ->
 
     quantity = flt(line_item.get("quantity", 1))
 
+    item_drop_ship = frappe.db.get_value("Item", item_code, "delivered_by_supplier")
+    supplier = None
+    if item_drop_ship:
+        supplier = frappe.db.get_value(
+            "Item Supplier",
+            {
+                "parent": item_code,
+                "parenttype": "Item",
+                "parentfield": "supplier_items",
+            },
+            "supplier",
+            order_by="idx asc",
+        )
+
     so.append(
         "items",
         {
@@ -89,6 +103,8 @@ def add_order_item(so: "frappe.Document", line_item: Dict[str, Any], setting) ->
             "warehouse": setting.warehouse,
             "delivery_date": so.delivery_date,
             "description": line_item.get("label", ""),
+            "delivered_by_supplier": item_drop_ship,
+            "supplier": supplier,
         },
     )
 

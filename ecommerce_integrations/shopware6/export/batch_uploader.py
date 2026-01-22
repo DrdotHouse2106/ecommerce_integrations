@@ -28,7 +28,7 @@ from ecommerce_integrations.shopware6.constants import (
 )
 from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
 from ecommerce_integrations.shopware6.export.utils import generate_uuid, get_shopware_document_id
-from ecommerce_integrations.shopware6.export.product_mapper import get_product_visibilities
+from ecommerce_integrations.shopware6.export.product_mapper import get_product_visibilities, get_actual_variant_values
 from ecommerce_integrations.shopware6.base.cache_manager import get_cache
 
 
@@ -467,11 +467,16 @@ class BatchProductUploader:
 
         # Track items needing visibility updates (existing products)
         visibility_updates = []
+
+        # Track products with categories for batch sync (to remove old categories)
+        products_with_categories = []
         
         # Extract actual payloads for API call, removing internal markers
         api_payloads = []
         for p in upsert_payloads:
             payload = p["payload"].copy()
+            is_new = p.get("is_new", False)
+
             # Check if this product needs visibility update
             if payload.pop("_needs_visibility_update", False):
                 item_code = payload.pop("_item_code", None)
@@ -480,7 +485,24 @@ class BatchProductUploader:
                         "product_id": payload["id"],
                         "item_code": item_code
                     })
+
+            # Extract category IDs for batch category sync
+            categories = payload.get("categories", [])
+            if categories or not is_new:
+                # Collect new category IDs (for comparison with existing)
+                new_category_ids = {cat["id"] for cat in categories if "id" in cat}
+                products_with_categories.append({
+                    "product_id": payload["id"],
+                    "new_category_ids": new_category_ids,
+                    "is_new": is_new
+                })
+
             api_payloads.append(payload)
+
+        # IMPORTANT: Remove old categories BEFORE upserting new ones
+        # (Shopware only ADDS categories, doesn't replace them)
+        if products_with_categories:
+            self._batch_sync_categories(client, products_with_categories)
 
         # Execute sync API call
         try:
@@ -1059,6 +1081,111 @@ class BatchProductUploader:
             except Exception as e:
                 self.logger.error(f"[BATCH] Visibility sync failed: {e}")
 
+    def _batch_sync_categories(
+        self,
+        client,
+        products_with_categories: List[Dict]
+    ) -> None:
+        """
+        BATCH sync product categories - only delete removed categories.
+
+        OPTIMIZED: Uses bulk operations instead of clearing all categories.
+        - 1 bulk search to get current categories for all products
+        - Compares with new categories to find removals
+        - 1 Sync API call to delete only removed categories
+
+        This ensures that when a product's categories change in ERPNext,
+        old categories are properly removed in Shopware.
+
+        Args:
+            client: Shopware API client
+            products_with_categories: List of dicts with:
+                - product_id: Shopware product UUID
+                - new_category_ids: Set of new category IDs from ERPNext
+                - is_new: Whether this is a new product (skip category removal)
+        """
+        if not products_with_categories:
+            return
+
+        # Filter to only existing products (new products don't need category removal)
+        existing_products = [p for p in products_with_categories if not p.get("is_new")]
+
+        if not existing_products:
+            return
+
+        product_ids = [p["product_id"] for p in existing_products]
+        self.logger.info(f"[BATCH] Syncing categories for {len(product_ids)} existing products")
+
+        # Step 1: Bulk fetch current categories from Shopware
+        # NOTE: product_category is not directly searchable in Shopware 6
+        # We must use search/product with categories association instead
+        current_categories = {}  # product_id -> set of category_ids
+
+        # Batch products in chunks of 100 for API efficiency
+        for i in range(0, len(product_ids), 100):
+            batch_ids = product_ids[i:i + 100]
+            try:
+                search_payload = {
+                    "filter": [{"type": "equalsAny", "field": "id", "value": batch_ids}],
+                    "associations": {"categories": {}},
+                    "limit": 100
+                }
+                response = client.request_post("search/product", search_payload)
+                products = response.get("data", [])
+
+                for product in products:
+                    pid = product.get("id")
+                    categories = product.get("categories", [])
+                    if pid:
+                        current_categories[pid] = {c.get("id") for c in categories if c.get("id")}
+            except Exception as e:
+                self.logger.warning(f"Failed to fetch current categories for batch: {e}")
+
+        # Step 2: Calculate categories to delete (in current but not in new)
+        delete_payloads = []
+
+        for product_info in existing_products:
+            product_id = product_info["product_id"]
+            new_category_ids = product_info.get("new_category_ids", set())
+
+            current = current_categories.get(product_id, set())
+
+            # Find categories to delete (in current but not in new)
+            to_delete = current - new_category_ids
+
+            if to_delete:
+                self.logger.debug(
+                    f"Product {product_id}: removing {len(to_delete)} categories, "
+                    f"keeping {len(current & new_category_ids)}, adding {len(new_category_ids - current)}"
+                )
+                for cat_id in to_delete:
+                    delete_payloads.append({
+                        "productId": product_id,
+                        "categoryId": cat_id
+                    })
+
+        # Step 3: Execute batch delete via Sync API
+        if delete_payloads:
+            self.logger.info(f"[BATCH] Deleting {len(delete_payloads)} removed category assignments")
+            try:
+                sync_payload = {
+                    "delete-product-categories": {
+                        "entity": "product_category",
+                        "action": "delete",
+                        "payload": delete_payloads
+                    }
+                }
+                _sync_with_retry(
+                    client, sync_payload, self.logger,
+                    f"category delete batch ({len(delete_payloads)} removals)"
+                )
+                self.logger.info("[BATCH] Category removal completed successfully")
+            except Exception as e:
+                # Log but don't fail the whole batch - categories will just accumulate
+                self.logger.warning(f"[BATCH] Category removal failed (non-fatal): {e}")
+        else:
+            self.logger.debug("[BATCH] No category removals needed")
+
     def _get_default_sales_channel_id(self, client) -> Optional[str]:
         """Get default sales channel ID."""
         # Check setting first
@@ -1418,11 +1545,16 @@ class BatchProductUploader:
 
         # Track templates needing visibility updates (existing templates)
         visibility_updates = []
+
+        # Track templates with categories for batch sync (to remove old categories)
+        products_with_categories = []
         
         # Extract actual payloads for API call, removing internal markers
         api_payloads = []
         for p in upsert_payloads:
             payload = p["payload"].copy()
+            is_new = p.get("is_new", False)
+
             # Check if this template needs visibility update
             if payload.pop("_needs_visibility_update", False):
                 item_code = payload.pop("_item_code", None)
@@ -1431,7 +1563,23 @@ class BatchProductUploader:
                         "product_id": payload["id"],
                         "item_code": item_code
                     })
+
+            # Extract category IDs for batch category sync
+            categories = payload.get("categories", [])
+            if categories or not is_new:
+                new_category_ids = {cat["id"] for cat in categories if "id" in cat}
+                products_with_categories.append({
+                    "product_id": payload["id"],
+                    "new_category_ids": new_category_ids,
+                    "is_new": is_new
+                })
+
             api_payloads.append(payload)
+
+        # IMPORTANT: Remove old categories BEFORE upserting new ones
+        # (Shopware only ADDS categories, doesn't replace them)
+        if products_with_categories:
+            self._batch_sync_categories(client, products_with_categories)
 
         try:
             sync_payload = {
@@ -1792,44 +1940,45 @@ class BatchProductUploader:
         return items_dict
 
     def _batch_load_template_attributes(self, item_codes: List[str], items_dict: Dict) -> None:
-        """Load Item Variant Attributes for templates."""
+        """Load Item Variant Attributes for templates using ACTUAL variant values.
+
+        IMPORTANT: This uses get_actual_variant_values() to get values that are
+        actually used by variants, NOT the predefined values in Item Attribute Value.
+        This ensures configuratorSettings match what variants actually have.
+        """
         if not item_codes:
             return
 
-        # Get all variant attributes for templates
+        # Get all variant attributes for templates (from template's attribute definition)
         attributes = frappe.get_all(
             "Item Variant Attribute",
             filters={"parent": ["in", item_codes]},
             fields=["parent", "attribute"]
         )
 
-        # Get all attribute values
-        attr_names = list(set(a.attribute for a in attributes))
-        attr_values = {}
-
-        if attr_names:
-            values = frappe.get_all(
-                "Item Attribute Value",
-                filters={"parent": ["in", attr_names]},
-                fields=["parent", "attribute_value", "abbr"]
-            )
-            for v in values:
-                if v.parent not in attr_values:
-                    attr_values[v.parent] = []
-                attr_values[v.parent].append({
-                    "value": v.attribute_value,
-                    "abbr": v.abbr
-                })
-
-        # Assign to items
+        # Group attributes by template
+        template_attrs = {}
         for attr in attributes:
-            if attr.parent in items_dict:
-                if "_attributes" not in items_dict[attr.parent]:
-                    items_dict[attr.parent]["_attributes"] = []
-                items_dict[attr.parent]["_attributes"].append({
-                    "name": attr.attribute,
-                    "values": attr_values.get(attr.attribute, [])
-                })
+            if attr.parent not in template_attrs:
+                template_attrs[attr.parent] = set()
+            template_attrs[attr.parent].add(attr.attribute)
+
+        # For each template, get ACTUAL variant values (not predefined values!)
+        for template_code, attr_names in template_attrs.items():
+            if template_code not in items_dict:
+                continue
+
+            items_dict[template_code]["_attributes"] = []
+
+            for attr_name in attr_names:
+                # Use get_actual_variant_values to get values actually used by variants
+                actual_values = get_actual_variant_values(template_code, attr_name)
+
+                if actual_values:
+                    items_dict[template_code]["_attributes"].append({
+                        "name": attr_name,
+                        "values": [{"value": v, "abbr": None} for v in actual_values]
+                    })
 
     def _build_template_payload(
         self,

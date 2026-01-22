@@ -32,12 +32,24 @@ def create_sales_invoice(
         Sales Invoice name if created
     """
     try:
-        # Check if SI already exists
-        existing = frappe.db.get_value(
-            "Sales Invoice", {"shopware_transaction_id": transaction_data.get("id")}, "name"
+        # Check if SI already exists by transaction ID
+        transaction_id = transaction_data.get("id")
+        if transaction_id:
+            existing = frappe.db.get_value(
+                "Sales Invoice", {"shopware_transaction_id": transaction_id}, "name"
+            )
+            if existing:
+                return existing
+
+        # Robust check: Check if any submitted Sales Invoice is already linked to this Sales Order
+        # This prevents duplicates if transaction IDs are inconsistent or webhooks fire concurrently
+        existing_si = frappe.db.get_value(
+            "Sales Invoice Item",
+            {"sales_order": sales_order, "docstatus": ["!=", 2]},
+            "parent"
         )
-        if existing:
-            return existing
+        if existing_si:
+            return existing_si
 
         # Create Sales Invoice from Sales Order
         from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice

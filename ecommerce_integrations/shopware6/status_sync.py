@@ -2,9 +2,14 @@
 Status Sync: ERPNext -> Shopware
 
 Syncs document status changes from ERPNext to Shopware:
-- Delivery Note submit -> Shopware delivery status "shipped"
-- Sales Invoice submit -> Shopware transaction status "paid"
+- Delivery Note submit -> Shopware delivery status "shipped" + auto-create Sales Invoice
+- Sales Invoice submit -> Shopware transaction status (optionally "paid" if fully paid)
 - Sales Order cancel -> Shopware order status "cancelled"
+
+Invoice Creation Policy (German Law Compliant):
+- Invoices are created after shipment (Delivery Note), not after payment
+- The delivery date (Lieferdatum) is the date goods are handed to carrier
+- This ensures correct VAT timing per § 31 Abs. 4 UStDV
 """
 
 import frappe
@@ -18,7 +23,7 @@ from ecommerce_integrations.shopware6.constants import (
     DELIVERY_ID_FIELD,
     TRANSACTION_ID_FIELD,
 )
-from ecommerce_integrations.shopware6.utils import get_logger
+from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
 
 
 def is_shopware_enabled() -> bool:
@@ -118,6 +123,7 @@ def update_shopware_transaction_status(client, order_id: str, action: str) -> bo
     Returns:
         bool: True if successful
     """
+    logger = get_logger("update_shopware_transaction_status")
     try:
         # First get the transaction ID for this order
         response = client.request_post("search/order-transaction", {
@@ -151,7 +157,9 @@ def update_shopware_transaction_status(client, order_id: str, action: str) -> bo
 
 def on_delivery_note_submit(doc, method=None):
     """
-    Hook: When Delivery Note is submitted, update Shopware delivery status to 'shipped'.
+    Hook: When Delivery Note is submitted:
+    1. Update Shopware delivery status to 'shipped'
+    2. Auto-create Sales Invoice (German law: invoice after shipment, not payment)
     """
     if not is_shopware_enabled():
         return
@@ -169,7 +177,7 @@ def on_delivery_note_submit(doc, method=None):
     if not shopware_order_id:
         return  # Not a Shopware order
 
-    # Update Shopware delivery status
+    # 1. Update Shopware delivery status
     frappe.enqueue(
         update_shopware_delivery_status,
         order_id=shopware_order_id,
@@ -183,6 +191,109 @@ def on_delivery_note_submit(doc, method=None):
         method="on_delivery_note_submit",
         message=f"Delivery status update queued for Shopware order {shopware_order_id}"
     )
+
+    # 2. Auto-create Sales Invoice from Delivery Note
+    # This is the legally correct approach: invoice after shipment (Versand)
+    setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+    if getattr(setting, "auto_create_invoice_on_shipment", True):
+        frappe.enqueue(
+            create_invoice_from_delivery_note,
+            delivery_note_name=doc.name,
+            sales_order_name=sales_order_name,
+            shopware_order_id=shopware_order_id,
+            queue="short",
+            timeout=120
+        )
+
+
+def create_invoice_from_delivery_note(
+    delivery_note_name: str,
+    sales_order_name: str,
+    shopware_order_id: str
+) -> Optional[str]:
+    """
+    Create Sales Invoice from Delivery Note after shipment.
+
+    This is the legally correct approach for German E-Commerce:
+    - Invoice is created after goods are shipped (Lieferdatum = Versanddatum)
+    - VAT liability arises at time of delivery to carrier
+    - Invoice must show correct delivery date per § 31 Abs. 4 UStDV
+
+    Args:
+        delivery_note_name: ERPNext Delivery Note name
+        sales_order_name: ERPNext Sales Order name
+        shopware_order_id: Shopware order ID
+
+    Returns:
+        Sales Invoice name if created, None if already exists or error
+    """
+    logger = get_logger("create_invoice_from_delivery_note")
+
+    try:
+        # Check if Sales Invoice already exists for this Delivery Note
+        existing_si = frappe.db.get_value(
+            "Sales Invoice Item",
+            {"delivery_note": delivery_note_name, "docstatus": ["!=", 2]},
+            "parent"
+        )
+        if existing_si:
+            logger.info(f"Sales Invoice {existing_si} already exists for DN {delivery_note_name}")
+            return existing_si
+
+        # Also check by Sales Order (fallback)
+        existing_si_by_so = frappe.db.get_value(
+            "Sales Invoice Item",
+            {"sales_order": sales_order_name, "docstatus": ["!=", 2]},
+            "parent"
+        )
+        if existing_si_by_so:
+            logger.info(f"Sales Invoice {existing_si_by_so} already exists for SO {sales_order_name}")
+            return existing_si_by_so
+
+        # Create Sales Invoice from Delivery Note
+        from erpnext.stock.doctype.delivery_note.delivery_note import make_sales_invoice
+
+        si = make_sales_invoice(delivery_note_name)
+
+        # Apply settings
+        setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+        if hasattr(setting, "sales_invoice_series") and setting.sales_invoice_series:
+            si.naming_series = setting.sales_invoice_series
+
+        # Copy mode_of_payment from Sales Order
+        so_mode_of_payment = frappe.db.get_value("Sales Order", sales_order_name, "mode_of_payment")
+        if so_mode_of_payment:
+            si.mode_of_payment = so_mode_of_payment
+
+        # Link to Shopware order for tracking
+        if hasattr(si, "shopware_order_id"):
+            si.shopware_order_id = shopware_order_id
+
+        si.insert(ignore_permissions=True)
+        si.submit()
+
+        logger.info(f"Created Sales Invoice {si.name} from Delivery Note {delivery_note_name}")
+
+        create_shopware_log(
+            status="Success",
+            method="create_invoice_from_delivery_note",
+            message=f"Created Sales Invoice {si.name} from DN {delivery_note_name} (Shopware order: {shopware_order_id})"
+        )
+
+        return si.name
+
+    except Exception as e:
+        logger.error(
+            f"Failed to create Sales Invoice from Delivery Note {delivery_note_name}",
+            exception=e,
+            persist=True
+        )
+        create_shopware_log(
+            status="Error",
+            method="create_invoice_from_delivery_note",
+            message=f"Failed to create invoice from DN {delivery_note_name}: {str(e)}"
+        )
+        return None
 
 
 def on_delivery_note_cancel(doc, method=None):
@@ -212,22 +323,35 @@ def on_delivery_note_cancel(doc, method=None):
 
 def on_sales_invoice_submit(doc, method=None):
     """
-    Hook: When Sales Invoice is submitted (and paid), update Shopware transaction status.
+    Hook: When Sales Invoice is submitted, update Shopware order status.
+
+    New behavior (German law compliant):
+    - Invoice created = Order is "in_progress" (being processed)
+    - Invoice is only marked "paid" when Payment Entry is created
+
+    The old behavior (waiting for outstanding_amount == 0) is removed because:
+    - Invoices should be created after shipment, not after payment
+    - Payment status is tracked separately via on_payment_entry_submit
     """
     if not is_shopware_enabled():
         return
 
-    # Check if this is a paid invoice linked to a Shopware order
-    # Only update if invoice is paid
-    if doc.outstanding_amount > 0:
-        return  # Not fully paid yet
-
-    # Get Shopware order ID from linked Sales Order
+    # Get Shopware order ID from linked Sales Order or Delivery Note
     sales_order_name = None
     for item in doc.items:
         if item.sales_order:
             sales_order_name = item.sales_order
             break
+        # Also check delivery_note link (if invoice was created from DN)
+        if item.delivery_note:
+            dn_so = frappe.db.get_value(
+                "Delivery Note Item",
+                {"parent": item.delivery_note},
+                "against_sales_order"
+            )
+            if dn_so:
+                sales_order_name = dn_so
+                break
 
     if not sales_order_name:
         return
@@ -236,11 +360,11 @@ def on_sales_invoice_submit(doc, method=None):
     if not shopware_order_id:
         return
 
-    # Update Shopware transaction status to paid
+    # Update Shopware order status to "in_progress" (invoice created, processing order)
     frappe.enqueue(
-        update_shopware_transaction_status,
+        update_shopware_order_status,
         order_id=shopware_order_id,
-        action="pay",
+        action="process",
         queue="short",
         timeout=60
     )
@@ -248,8 +372,24 @@ def on_sales_invoice_submit(doc, method=None):
     create_shopware_log(
         status="Queued",
         method="on_sales_invoice_submit",
-        message=f"Payment status update queued for Shopware order {shopware_order_id}"
+        message=f"Order status update (invoiced) queued for Shopware order {shopware_order_id}"
     )
+
+    # If invoice is already fully paid (e.g., prepaid orders), also update payment status
+    if doc.outstanding_amount <= 0 and doc.grand_total > 0:
+        frappe.enqueue(
+            update_shopware_transaction_status,
+            order_id=shopware_order_id,
+            action="pay",
+            queue="short",
+            timeout=60
+        )
+
+        create_shopware_log(
+            status="Queued",
+            method="on_sales_invoice_submit",
+            message=f"Payment status update queued for prepaid Shopware order {shopware_order_id}"
+        )
 
 
 def on_sales_order_cancel(doc, method=None):
