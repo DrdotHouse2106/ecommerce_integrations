@@ -79,10 +79,6 @@ doctype_js = {
 
 before_uninstall = "ecommerce_integrations.uninstall.before_uninstall"
 
-# Apply E-Invoice PDF patch on every request
-# This patches frappe.get_print to attach E-Invoice XML to Sales Invoice PDFs
-before_request = ["ecommerce_integrations.einvoice_patch.apply_patch"]
-
 # Desk Notifications
 # ------------------
 # See frappe.core.notifications.get_notification_config
