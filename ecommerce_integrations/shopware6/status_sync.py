@@ -461,3 +461,74 @@ def on_payment_entry_submit(doc, method=None):
                     method="on_payment_entry_submit",
                     message=f"Payment status update queued for Shopware order {shopware_order_id}"
                 )
+
+
+def on_sales_order_submit(doc, method=None):
+    """
+    Hook: When Sales Order is submitted (e.g., via workflow approval),
+    create Delivery Note and/or Sales Invoice if configured.
+
+    This handles the case where orders from Shopware are created in
+    "Pending Approval" state and later approved via workflow.
+    """
+    if not is_shopware_enabled():
+        return
+
+    shopware_order_id = doc.get(ORDER_ID_FIELD)
+    if not shopware_order_id:
+        return  # Not a Shopware order
+
+    try:
+        setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+
+        # Fetch current order data from Shopware
+        from ecommerce_integrations.shopware6.order.order_sync import (
+            sync_order_by_id,
+            _create_delivery_note_if_shipped,
+            _create_invoice_if_paid,
+        )
+        from ecommerce_integrations.shopware6.connection import temp_shopware_session
+        from shopware6_api_client import Criteria
+
+        @temp_shopware_session
+        def fetch_order_data(client, order_id):
+            """Fetch order data from Shopware to check delivery/payment status."""
+            criteria = Criteria()
+            criteria.ids = [order_id]
+            criteria.associations["deliveries"] = Criteria()
+            criteria.associations["deliveries"].associations["stateMachineState"] = Criteria()
+            criteria.associations["transactions"] = Criteria()
+            criteria.associations["transactions"].associations["stateMachineState"] = Criteria()
+            criteria.associations["transactions"].associations["paymentMethod"] = Criteria()
+
+            result = client.order.search(criteria=criteria)
+            orders = result.get("data", [])
+            return orders[0] if orders else None
+
+        order_data = fetch_order_data(order_id=shopware_order_id)
+
+        if not order_data:
+            get_logger("on_sales_order_submit").warning(
+                f"Could not fetch Shopware order data for {shopware_order_id}"
+            )
+            return
+
+        # Create Delivery Note if configured and order is shipped
+        if setting.sync_delivery_note:
+            _create_delivery_note_if_shipped(doc.name, order_data, setting)
+
+        # Create Sales Invoice if configured and order is paid
+        if setting.sync_sales_invoice:
+            _create_invoice_if_paid(doc.name, order_data, setting)
+
+        create_shopware_log(
+            status="Success",
+            method="on_sales_order_submit",
+            message=f"Processed post-approval sync for Sales Order {doc.name}"
+        )
+
+    except Exception as e:
+        get_logger("on_sales_order_submit").error(
+            f"Error processing post-approval sync for {doc.name}: {e}",
+            persist=True
+        )

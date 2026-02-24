@@ -18,6 +18,7 @@ from frappe.utils import get_files_path
 from ecommerce_integrations.shopware6.connection import temp_shopware_session, get_shopware_client
 from ecommerce_integrations.shopware6.constants import (
     SHOPWARE_CATEGORY_CUSTOM_FIELD_SET_NAME,
+    SHOPWARE_CATEGORY_PRIORITY,
     CATEGORY_FAQ_FIELDS_MAP,
 )
 from ecommerce_integrations.shopware6.base.cache_manager import get_cache
@@ -27,6 +28,9 @@ from ecommerce_integrations.shopware6.export.utils import (
     get_item_group_hierarchy,
 )
 from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
+
+# CRITICAL: ShopwareAPIError inherits from BaseException, NOT Exception!
+from lib_shopware6_api_base.conf_shopware6_api_base_classes import ShopwareAPIError
 
 
 def ensure_category_custom_field_set(client) -> Optional[str]:
@@ -92,6 +96,18 @@ def ensure_category_custom_field_set(client) -> Optional[str]:
             })
             position += 1
 
+        # Priority field for frontend sorting
+        custom_fields.append({
+            "id": generate_uuid(f"custom_field_{SHOPWARE_CATEGORY_PRIORITY}"),
+            "name": SHOPWARE_CATEGORY_PRIORITY,
+            "type": "int",
+            "config": {
+                "label": {"de-DE": "Sortier-Priorität", "en-GB": "Sort Priority"},
+                "customFieldPosition": position,
+                "helpText": {"de-DE": "Niedrigere Zahlen erscheinen zuerst", "en-GB": "Lower numbers appear first"},
+            },
+        })
+
         payload = {
             "id": set_id,
             "name": SHOPWARE_CATEGORY_CUSTOM_FIELD_SET_NAME,
@@ -135,6 +151,11 @@ def get_item_group_data(item_group_name: str) -> Optional[Dict[str, Any]]:
         else:
             shopware_active = bool(shopware_active)
 
+        # Get priority (default to 0 if not set)
+        shopware_priority = getattr(item_group, "shopware_priority", None)
+        if shopware_priority is None:
+            shopware_priority = 0
+
         return {
             "name": item_group.name,
             "item_group_name": item_group.item_group_name,
@@ -145,6 +166,7 @@ def get_item_group_data(item_group_name: str) -> Optional[Dict[str, Any]]:
             "seo_meta_description": getattr(item_group, "seo_meta_description", None),
             "seo_keywords": getattr(item_group, "seo_keywords", None),
             "shopware_active": shopware_active,
+            "shopware_priority": shopware_priority,
             "faq1_question": getattr(item_group, "faq1_question", None),
             "faq1_answer": getattr(item_group, "faq1_answer", None),
             "faq2_question": getattr(item_group, "faq2_question", None),
@@ -160,21 +182,29 @@ def get_item_group_data(item_group_name: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def build_category_custom_fields(item_group_data: Dict[str, Any]) -> Dict[str, str]:
+def build_category_custom_fields(item_group_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Build custom fields dict for category from Item Group data.
 
     Args:
-        item_group_data: Dict with Item Group FAQ fields
+        item_group_data: Dict with Item Group FAQ and priority fields
 
     Returns:
         Dict mapping Shopware custom field names to values
     """
     custom_fields = {}
+
+    # FAQ fields
     for erpnext_field, shopware_field in CATEGORY_FAQ_FIELDS_MAP.items():
         value = item_group_data.get(erpnext_field)
         if value:
             custom_fields[shopware_field] = value
+
+    # Priority field (always include, even if 0)
+    priority = item_group_data.get("shopware_priority")
+    if priority is not None:
+        custom_fields[SHOPWARE_CATEGORY_PRIORITY] = int(priority)
+
     return custom_fields
 
 
@@ -334,7 +364,9 @@ def upload_category_media(client, category_id: str, image_path: str) -> Optional
             return None
 
         # Use unique filename to avoid CONTENT__MEDIA_DUPLICATED_FILE_NAME error
-        unique_filename = f"{filename_without_ext}-{int(time.time())}"
+        # Sanitize for Shopware (no &, etc.)
+        safe_name = filename_without_ext.replace("&", "und").replace("/", "-").replace("\\", "-")
+        unique_filename = f"{safe_name}-{int(time.time())}"
 
         # Check if media exists and has valid content
         media_exists = False
@@ -997,6 +1029,155 @@ def force_resync_category_image(client, item_group_name: str) -> bool:
 
 
 @temp_shopware_session
+def delete_category_from_shopware(client, category_name: str) -> bool:
+    """
+    Delete a category from Shopware when the corresponding Item Group is deleted in ERPNext.
+
+    Finds the category by name and deletes it via the Shopware API.
+    Also invalidates the local cache entry.
+
+    Args:
+        client: Shopware API client (injected by decorator)
+        category_name: ERPNext Item Group name to delete from Shopware
+
+    Returns:
+        True if successful or category didn't exist, False on error
+    """
+    cache = get_cache()
+
+    try:
+        # Skip root categories
+        root_to_skip = ["All Item Groups", "Alle Artikelgruppen"]
+        if category_name in root_to_skip:
+            return True
+
+        # Search for category by name
+        response = client.request_post(
+            "search/category",
+            {"filter": [{"type": "equals", "field": "name", "value": category_name}]}
+        )
+        categories = response.get("data", [])
+
+        if not categories:
+            get_logger().info(
+                f"Category '{category_name}' not found in Shopware, nothing to delete"
+            )
+            cache.invalidate("category", category_name)
+            return True
+
+        cat_id = categories[0]["id"]
+
+        # Delete the category
+        client.request_delete(f"category/{cat_id}")
+
+        # Invalidate cache
+        cache.invalidate("category", category_name)
+
+        get_logger().info(
+            f"Deleted Shopware category '{category_name}' (ID: {cat_id})"
+        )
+
+        create_shopware_log(
+            status="Success",
+            method="delete_category_from_shopware",
+            message=f"Deleted category '{category_name}' (ID: {cat_id})",
+            make_new=True
+        )
+
+        return True
+
+    except Exception as e:
+        get_logger().error(
+            f"Failed to delete category '{category_name}' from Shopware: {e}",
+            persist=False
+        )
+        create_shopware_log(
+            status="Error",
+            method="delete_category_from_shopware",
+            message=f"Failed to delete category '{category_name}'",
+            exception=str(e),
+            make_new=True
+        )
+        return False
+
+
+@temp_shopware_session
+def rename_category_in_shopware(client, old_name: str, new_name: str) -> bool:
+    """
+    Rename an existing category in Shopware.
+
+    Called when an Item Group is renamed in ERPNext. Finds the category
+    by the old name and updates it to the new name.
+
+    Args:
+        client: Shopware API client
+        old_name: Old Item Group / category name
+        new_name: New Item Group / category name
+
+    Returns:
+        True if successful, False otherwise
+    """
+    cache = get_cache()
+
+    try:
+        # Skip root categories
+        root_to_skip = ["All Item Groups", "Alle Artikelgruppen"]
+        if old_name in root_to_skip or new_name in root_to_skip:
+            return True
+
+        # Search for category by old name
+        response = client.request_post(
+            "search/category",
+            {"filter": [{"type": "equals", "field": "name", "value": old_name}]}
+        )
+        categories = response.get("data", [])
+
+        if not categories:
+            # Category doesn't exist in Shopware - nothing to rename
+            # The on_update hook will create it with the new name
+            frappe.logger("shopware6").info(
+                f"Category '{old_name}' not found in Shopware, skipping rename"
+            )
+            return True
+
+        cat_id = categories[0]["id"]
+
+        # Update the category name
+        client.request_patch(f"category/{cat_id}", {"name": new_name})
+
+        # Update cache: remove old name, add new name
+        cache.invalidate("category", old_name)
+        cache.set_category_id(new_name, cat_id)
+
+        frappe.logger("shopware6").info(
+            f"Renamed Shopware category '{old_name}' -> '{new_name}' (ID: {cat_id})"
+        )
+
+        create_shopware_log(
+            status="Success",
+            method="rename_category_in_shopware",
+            message=f"Renamed category '{old_name}' -> '{new_name}' (ID: {cat_id})",
+            make_new=True
+        )
+
+        return True
+
+    except Exception as e:
+        get_logger().error(
+            f"Failed to rename category '{old_name}' -> '{new_name}': {e}",
+            persist=False
+        )
+        create_shopware_log(
+            status="Error",
+            method="rename_category_in_shopware",
+            message=f"Failed to rename category '{old_name}' -> '{new_name}'",
+            exception=str(e),
+            make_new=True
+        )
+        return False
+
+
+@temp_shopware_session
 def sync_item_group_to_shopware(client, item_group_name: str) -> bool:
     """
     Sync an ERPNext Item Group to Shopware as a category.
@@ -1042,6 +1223,26 @@ def sync_item_group_to_shopware(client, item_group_name: str) -> bool:
                 message=f"Synced Item Group '{item_group_name}' to Shopware category {category_id}",
                 make_new=True
             )
+
+            # Reorder siblings by priority if this category has a priority set
+            if item_group_data and item_group_data.get("shopware_priority"):
+                try:
+                    # Get parent category ID to reorder its children
+                    parent_item_group = frappe.db.get_value(
+                        "Item Group", item_group_name, "parent_item_group"
+                    )
+                    if parent_item_group and parent_item_group not in ["All Item Groups", "Alle Artikelgruppen"]:
+                        parent_cat_id = get_category_id_fast(client, parent_item_group)
+                        if parent_cat_id:
+                            _reorder_children_by_priority(client, parent_cat_id)
+                            frappe.logger("shopware6").debug(
+                                f"Reordered siblings of '{item_group_name}' by priority"
+                            )
+                except Exception as e:
+                    frappe.logger("shopware6").warning(
+                        f"Failed to reorder siblings for '{item_group_name}': {e}"
+                    )
+
             return True
         else:
             get_logger().error(f"Failed to sync Item Group '{item_group_name}' to Shopware", persist=False)
@@ -1202,8 +1403,9 @@ def bulk_sync_categories(
         if all_payloads:
             logger.info(f"[TIMING] Executing Sync API for {len(all_payloads)} categories...")
 
-            # Split into chunks if too many (Shopware limit ~500)
-            chunk_size = 200
+            # Split into chunks to avoid large payloads
+            chunk_size = 20
+            total_chunks = (len(all_payloads) + chunk_size - 1) // chunk_size
             for i in range(0, len(all_payloads), chunk_size):
                 chunk = all_payloads[i:i + chunk_size]
                 sync_payload = {
@@ -1213,10 +1415,42 @@ def bulk_sync_categories(
                         "payload": chunk
                     }
                 }
-                client.request_post("_action/sync", sync_payload)
-                logger.info(f"Synced category batch {i // chunk_size + 1}")
+                chunk_num = i // chunk_size + 1
+                # No retry here — the @temp_shopware_session decorator handles retries.
+                # The client has a 60s timeout per request (see connection.py).
+                # Use queue-based indexing to avoid SEO URL duplicate key errors.
+                client.request_post("_action/sync", sync_payload,
+                                    update_header_fields={"indexing-behavior": "use-queue-indexing"})
+                logger.info(f"Synced category batch {chunk_num}/{total_chunks}")
 
         logger.info("[TIMING] Bulk category sync DONE")
+
+        # Step 5: Reorder categories by priority
+        logger.info("[TIMING] Reordering categories by priority...")
+        try:
+            # Get unique parent IDs from the synced categories
+            parent_ids_to_reorder = set()
+            for ig in item_groups:
+                parent_name = ig.get("parent_item_group")
+                if parent_name and parent_name not in root_to_skip:
+                    if parent_name in id_map:
+                        parent_ids_to_reorder.add(id_map[parent_name])
+                    elif parent_name in existing_categories:
+                        parent_ids_to_reorder.add(existing_categories[parent_name]["id"])
+
+            # Also add root_parent_id to reorder top-level categories
+            if root_parent_id:
+                parent_ids_to_reorder.add(root_parent_id)
+
+            for pid in parent_ids_to_reorder:
+                try:
+                    _reorder_children_by_priority(client, pid)
+                except (Exception, ShopwareAPIError) as e:
+                    logger.warning(f"Failed to reorder children of {pid}: {e}")
+
+            logger.info(f"Reordered children of {len(parent_ids_to_reorder)} parent categories")
+        except (Exception, ShopwareAPIError) as e:
+            logger.warning(f"Category reordering failed: {e}")
 
         return {
             "success": True,
@@ -1224,7 +1458,7 @@ def bulk_sync_categories(
             "id_map": id_map
         }
 
-    except Exception as e:
+    except (Exception, ShopwareAPIError) as e:
         logger.error(f"Bulk category sync failed: {e}")
         stats["errors"].append(str(e)[:500])
         return {
@@ -1338,3 +1572,382 @@ def bulk_sync_category_images(
             stats["errors"] += 1
 
     return stats
+
+
+def sync_category_order_by_priority(client, parent_category_id: str = None, recursive: bool = True) -> Dict[str, Any]:
+    """
+    Synchronize category order in Shopware based on ERPNext shopware_priority.
+
+    OPTIMIZED VERSION: Loads all categories in one API call, computes order locally,
+    then sends a single bulk update.
+
+    Priority logic:
+    - Lower priority values appear first (priority 100 before 200)
+    - Categories without priority (None/0) are sorted alphabetically at the end
+    - Categories with same priority are sorted alphabetically
+
+    Args:
+        client: Shopware API client
+        parent_category_id: Optional parent category ID. If None, syncs all categories
+        recursive: If True, also reorder all subcategories recursively (default: True)
+
+    Returns:
+        Dict with sync results
+    """
+    logger = get_logger("sync_category_order")
+
+    stats = {
+        "parents_processed": 0,
+        "categories_reordered": 0,
+        "errors": []
+    }
+
+    try:
+        # Step 1: Load ALL categories in one paginated request
+        logger.info("[TIMING] Loading all categories from Shopware...")
+        all_categories = []
+        page = 1
+        while True:
+            response = client.request_post(
+                "search/category",
+                {
+                    "limit": 500,
+                    "page": page,
+                    "includes": {"category": ["id", "name", "parentId", "afterCategoryId", "customFields", "childCount"]}
+                }
+            )
+            data = response.get("data", [])
+            if not data:
+                break
+            all_categories.extend(data)
+            if len(data) < 500:
+                break
+            page += 1
+
+        logger.info(f"Loaded {len(all_categories)} categories")
+
+        # Step 2: Build parent -> children mapping
+        children_by_parent = {}
+        for cat in all_categories:
+            parent_id = cat.get("parentId") or cat.get("attributes", {}).get("parentId")
+            if parent_id:
+                if parent_id not in children_by_parent:
+                    children_by_parent[parent_id] = []
+                children_by_parent[parent_id].append(cat)
+
+        # Step 3: Determine which parents to process
+        if parent_category_id:
+            parents_to_process = [parent_category_id]
+            if recursive:
+                # Add all descendants that have children
+                _collect_descendant_parents(parent_category_id, children_by_parent, parents_to_process)
+        else:
+            # Process all parents that have children
+            parents_to_process = list(children_by_parent.keys())
+
+        logger.info(f"Processing {len(parents_to_process)} parent categories")
+
+        # Step 4: Compute new order for each parent
+        all_updates = []
+
+        for pid in parents_to_process:
+            children = children_by_parent.get(pid, [])
+            if len(children) < 2:
+                continue
+
+            updates = _compute_order_updates(children)
+            if updates:
+                all_updates.extend(updates)
+                stats["parents_processed"] += 1
+                stats["categories_reordered"] += len(updates)
+
+        # Step 5: Send bulk update via Sync API
+        if all_updates:
+            logger.info(f"[TIMING] Sending {len(all_updates)} order updates...")
+
+            # Split into chunks if too many
+            chunk_size = 200
+            for i in range(0, len(all_updates), chunk_size):
+                chunk = all_updates[i:i + chunk_size]
+                sync_payload = {
+                    "reorder-categories": {
+                        "entity": "category",
+                        "action": "upsert",
+                        "payload": chunk
+                    }
+                }
+                client.request_post("_action/sync", sync_payload)
+
+        logger.info(f"Category order sync complete: {stats}")
+
+        return {
+            "success": len(stats["errors"]) == 0,
+            "stats": stats
+        }
+
+    except Exception as e:
+        logger.error(f"Category order sync failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "stats": stats
+        }
+
+
+def _collect_descendant_parents(parent_id: str, children_by_parent: Dict, result: List[str], visited: set = None):
+    """Recursively collect all descendant parent IDs."""
+    if visited is None:
+        visited = set()
+
+    if parent_id in visited:
+        return
+    visited.add(parent_id)
+
+    children = children_by_parent.get(parent_id, [])
+    for child in children:
+        child_id = child.get("id") or child.get("attributes", {}).get("id")
+        child_count = child.get("childCount") or child.get("attributes", {}).get("childCount") or 0
+        if child_count > 0 and child_id not in result:
+            result.append(child_id)
+            _collect_descendant_parents(child_id, children_by_parent, result, visited)
+
+
+def _compute_order_updates(children: List[Dict]) -> List[Dict]:
+    """
+    Compute afterCategoryId updates for a list of sibling categories.
+
+    Returns list of update payloads for categories that need reordering.
+    """
+    # Sort by priority, then name
+    def get_sort_key(cat):
+        priority = None
+        custom_fields = cat.get("customFields") or cat.get("attributes", {}).get("customFields") or {}
+        if isinstance(custom_fields, dict):
+            priority = custom_fields.get(SHOPWARE_CATEGORY_PRIORITY)
+
+        name = cat.get("name") or cat.get("attributes", {}).get("name") or ""
+
+        if priority and int(priority) > 0:
+            return (0, int(priority), name.lower())
+        else:
+            return (1, 0, name.lower())
+
+    sorted_children = sorted(children, key=get_sort_key)
+
+    # Build update payloads
+    updates = []
+    prev_id = None
+
+    for cat in sorted_children:
+        cat_id = cat.get("id") or cat.get("attributes", {}).get("id")
+        current_after = cat.get("afterCategoryId") or cat.get("attributes", {}).get("afterCategoryId")
+
+        # Only update if the order needs to change
+        if current_after != prev_id:
+            updates.append({
+                "id": cat_id,
+                "afterCategoryId": prev_id
+            })
+
+        prev_id = cat_id
+
+    return updates
+
+
+def _reorder_children_by_priority(client, parent_id: str) -> Dict[str, Any]:
+    """
+    Reorder children of a specific parent category by priority.
+
+    Args:
+        client: Shopware API client
+        parent_id: Parent category ID
+
+    Returns:
+        Dict with reorder results including list of children that have their own children
+    """
+    result = {"reordered": 0, "error": None, "children_with_children": []}
+
+    try:
+        # Fetch all children of this parent with their priority and childCount
+        response = client.request_post(
+            "search/category",
+            {
+                "filter": [{"type": "equals", "field": "parentId", "value": parent_id}],
+                "limit": 500,
+                "includes": {"category": ["id", "name", "afterCategoryId", "customFields", "childCount"]}
+            }
+        )
+        children = response.get("data", [])
+
+        if len(children) == 0:
+            return result
+
+        # Track children that have their own children (for recursive processing)
+        for cat in children:
+            cat_id = cat.get("id") or cat.get("attributes", {}).get("id")
+            child_count = cat.get("childCount") or cat.get("attributes", {}).get("childCount") or 0
+            if child_count > 0:
+                result["children_with_children"].append(cat_id)
+
+        if len(children) < 2:
+            # Nothing to reorder with 0 or 1 child
+            return result
+
+        # Extract priority values and sort
+        # Priority: lower number = first, None/0 = last (sorted alphabetically)
+        def get_sort_key(cat):
+            priority = None
+            custom_fields = cat.get("customFields") or cat.get("attributes", {}).get("customFields") or {}
+            if isinstance(custom_fields, dict):
+                priority = custom_fields.get(SHOPWARE_CATEGORY_PRIORITY)
+
+            name = cat.get("name") or cat.get("attributes", {}).get("name") or ""
+
+            # Categories with priority sort by priority first, then name
+            # Categories without priority (None or 0) sort last, alphabetically
+            if priority and int(priority) > 0:
+                return (0, int(priority), name.lower())
+            else:
+                return (1, 0, name.lower())
+
+        sorted_children = sorted(children, key=get_sort_key)
+
+        # Build update payloads for afterCategoryId
+        updates = []
+        prev_id = None
+
+        for cat in sorted_children:
+            cat_id = cat.get("id") or cat.get("attributes", {}).get("id")
+            current_after = cat.get("afterCategoryId") or cat.get("attributes", {}).get("afterCategoryId")
+
+            # Only update if the order needs to change
+            if current_after != prev_id:
+                updates.append({
+                    "id": cat_id,
+                    "afterCategoryId": prev_id  # None for first, prev_id for others
+                })
+
+            prev_id = cat_id
+
+        if not updates:
+            return result
+
+        # Use Sync API for bulk update
+        sync_payload = {
+            "reorder-categories": {
+                "entity": "category",
+                "action": "upsert",
+                "payload": updates
+            }
+        }
+
+        client.request_post("_action/sync", sync_payload)
+        result["reordered"] = len(updates)
+
+        return result
+
+    except Exception as e:
+        result["error"] = str(e)[:200]
+        return result
+
+
+@frappe.whitelist()
+@temp_shopware_session
+def sync_all_category_orders(client) -> Dict[str, Any]:
+    """
+    Sync category order for ALL parent categories based on priority.
+
+    This is the main entry point for reordering all categories in Shopware
+    based on their ERPNext shopware_priority values.
+
+    Usage:
+        bench execute ecommerce_integrations.shopware6.export.category_handler.sync_all_category_orders
+
+    Returns:
+        Dict with sync results
+    """
+    return sync_category_order_by_priority(client, parent_category_id=None)
+
+
+@frappe.whitelist()
+@temp_shopware_session
+def migrate_add_priority_custom_field(client) -> Dict[str, Any]:
+    """
+    Migration: Add the priority custom field to existing category custom field set.
+
+    Run this once after deploying the priority feature if the custom field set
+    already exists in Shopware.
+
+    Usage:
+        bench execute ecommerce_integrations.shopware6.export.category_handler.migrate_add_priority_custom_field
+
+    Returns:
+        Dict with migration result
+    """
+    logger = get_logger("migrate_priority_field")
+
+    try:
+        # Find existing custom field set
+        response = client.request_post(
+            "search/custom-field-set",
+            {
+                "filter": [{"type": "equals", "field": "name", "value": SHOPWARE_CATEGORY_CUSTOM_FIELD_SET_NAME}],
+                "associations": {"customFields": {}}
+            }
+        )
+        sets = response.get("data", [])
+
+        if not sets:
+            return {
+                "success": False,
+                "message": f"Custom field set '{SHOPWARE_CATEGORY_CUSTOM_FIELD_SET_NAME}' not found. It will be created on next category sync."
+            }
+
+        set_data = sets[0]
+        set_id = set_data["id"]
+        existing_fields = set_data.get("customFields", [])
+
+        # Check if priority field already exists
+        priority_exists = any(f.get("name") == SHOPWARE_CATEGORY_PRIORITY for f in existing_fields)
+
+        if priority_exists:
+            return {
+                "success": True,
+                "message": f"Priority field '{SHOPWARE_CATEGORY_PRIORITY}' already exists. No migration needed."
+            }
+
+        # Determine position (after existing fields)
+        max_position = max((f.get("config", {}).get("customFieldPosition", 0) for f in existing_fields), default=0)
+        new_position = max_position + 1
+
+        # Create the priority custom field
+        field_id = generate_uuid(f"custom_field_{SHOPWARE_CATEGORY_PRIORITY}")
+        field_payload = {
+            "id": field_id,
+            "name": SHOPWARE_CATEGORY_PRIORITY,
+            "type": "int",
+            "customFieldSetId": set_id,
+            "config": {
+                "label": {"de-DE": "Sortier-Priorität", "en-GB": "Sort Priority"},
+                "customFieldPosition": new_position,
+                "helpText": {"de-DE": "Niedrigere Zahlen erscheinen zuerst", "en-GB": "Lower numbers appear first"},
+            },
+        }
+
+        client.request_post("custom-field", field_payload)
+
+        logger.info(f"Successfully added priority custom field to category custom field set")
+
+        return {
+            "success": True,
+            "message": f"Successfully added '{SHOPWARE_CATEGORY_PRIORITY}' field to '{SHOPWARE_CATEGORY_CUSTOM_FIELD_SET_NAME}'",
+            "field_id": field_id,
+            "position": new_position
+        }
+
+    except Exception as e:
+        logger.error(f"Migration failed: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }

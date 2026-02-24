@@ -192,10 +192,59 @@ def get_item_tax_rate(item_code: str) -> float:
     return tax_rate
 
 
+def _get_list_price_payload(
+    item_code: str,
+    net_price: float,
+    tax_rate: float,
+    currency_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Return listPrice dict if UVP > selling price, else None.
+
+    Reads the configured UVP/Streichpreis price list from Shopware Setting.
+    If the UVP price is higher than the current selling net_price,
+    returns a Shopware-compatible listPrice payload.
+
+    Args:
+        item_code: ERPNext Item code
+        net_price: Current selling net price
+        tax_rate: Tax rate percentage (e.g. 19.0)
+        currency_id: Shopware currency ID
+
+    Returns:
+        Dict with currencyId, net, gross, linked for Shopware listPrice, or None
+    """
+    setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+    uvp_price_list = getattr(setting, 'list_price_price_list', None)
+    if not uvp_price_list:
+        return None
+
+    uvp_price = get_item_price(item_code, uvp_price_list)
+    if not uvp_price or uvp_price <= 0:
+        return None
+
+    # Convert gross to net if the UVP price list contains gross prices
+    if getattr(setting, 'list_price_includes_tax', False):
+        uvp_price = round(uvp_price / (1 + tax_rate / 100), 2)
+
+    # Only set listPrice if UVP > current selling price
+    if uvp_price <= net_price:
+        return None
+
+    uvp_gross = round(uvp_price * (1 + tax_rate / 100), 2)
+    return {
+        "currencyId": currency_id,
+        "net": uvp_price,
+        "gross": uvp_gross,
+        "linked": True,
+    }
+
+
 def build_price_payload(
     net_price: float,
     tax_rate: float = 19.0,
-    currency_id: str = None
+    currency_id: str = None,
+    list_price_payload: Optional[Dict[str, Any]] = None
 ) -> List[Dict[str, Any]]:
     """
     Build the Shopware price payload.
@@ -204,6 +253,7 @@ def build_price_payload(
         net_price: Net price (without tax)
         tax_rate: Tax rate percentage
         currency_id: Shopware currency ID
+        list_price_payload: Optional listPrice dict from _get_list_price_payload()
 
     Returns:
         Price array for Shopware product
@@ -220,18 +270,27 @@ def build_price_payload(
 
     gross_price = round(net_price * (1 + tax_rate / 100), 2)
 
-    return [{
+    price_entry = {
         "currencyId": currency_id,
         "gross": gross_price,
         "net": net_price,
         "linked": False,
-    }]
+    }
+
+    if list_price_payload:
+        price_entry["listPrice"] = list_price_payload
+
+    return [price_entry]
 
 
 @temp_shopware_session
 def sync_product_price(client, item_code: str) -> bool:
     """
     Sync the price of an ERPNext Item to Shopware.
+
+    This function:
+    1. Deletes all advanced price rules (product_price entries) to ensure clean state
+    2. Updates the base product price
 
     Args:
         client: Shopware API client
@@ -251,10 +310,32 @@ def sync_product_price(client, item_code: str) -> bool:
         tax_rate = get_item_tax_rate(item_code)
         currency_id = get_cached_currency_id(client, "EUR")
 
-        # Build payload
-        price_payload = build_price_payload(price, tax_rate, currency_id)
+        # Check for listPrice (Streichpreis/UVP)
+        list_price = _get_list_price_payload(item_code, price, tax_rate, currency_id)
 
-        # Update product
+        # Build payload
+        price_payload = build_price_payload(price, tax_rate, currency_id, list_price_payload=list_price)
+
+        # IMPORTANT: Delete all advanced price rules first to ensure clean state
+        # These are stored in the product_price table and can have stale values
+        try:
+            response = client.request_post("search/product-price", {
+                "filter": [
+                    {"type": "equals", "field": "productId", "value": shopware_id}
+                ],
+                "limit": 100
+            })
+            existing_prices = response.get("data", [])
+            if existing_prices:
+                price_ids = [p.get("id") for p in existing_prices if p.get("id")]
+                deleted_count = _batch_delete_prices(client, price_ids)
+                if deleted_count > 0:
+                    frappe.logger().info(f"Deleted {deleted_count} advanced price rules for {item_code}")
+        except Exception as e:
+            # Log but don't fail - base price update is more important
+            frappe.logger().warning(f"Could not delete advanced prices for {item_code}: {e}")
+
+        # Update product base price
         client.request_patch(f"product/{shopware_id}", {"price": price_payload})
 
         frappe.logger().info(f"Synced price for {item_code}: {price} EUR (net)")
@@ -289,7 +370,8 @@ def sync_bulk_prices(client, item_codes: List[str]) -> Dict[str, bool]:
         try:
             price = get_item_price(item_code)
             tax_rate = get_item_tax_rate(item_code)
-            price_payload = build_price_payload(price, tax_rate, currency_id)
+            list_price = _get_list_price_payload(item_code, price, tax_rate, currency_id)
+            price_payload = build_price_payload(price, tax_rate, currency_id, list_price_payload=list_price)
 
             client.request_patch(f"product/{shopware_id}", {"price": price_payload})
             results[item_code] = True
@@ -458,13 +540,19 @@ def force_sync_single_product_price(
         # Calculate gross price
         gross_price = round(net_price * (1 + tax_rate / 100), 2)
 
+        # Check for listPrice (Streichpreis/UVP)
+        list_price = _get_list_price_payload(item_code, net_price, tax_rate, currency_id)
+
         # Update product with new base price
-        price_payload = [{
+        price_entry = {
             "currencyId": currency_id,
             "gross": gross_price,
             "net": net_price,
             "linked": False,
-        }]
+        }
+        if list_price:
+            price_entry["listPrice"] = list_price
+        price_payload = [price_entry]
 
         client.request_patch(f"product/{shopware_id}", {"price": price_payload})
 
@@ -669,13 +757,19 @@ def force_sync_all_prices(
                 })
 
                 if not dry_run:
+                    # Check for listPrice (Streichpreis/UVP)
+                    list_price = _get_list_price_payload(item_code, new_net, tax_rate, currency_id)
+
                     # Update base price
-                    price_payload = [{
+                    price_entry = {
                         "currencyId": currency_id,
                         "gross": new_gross,
                         "net": new_net,
                         "linked": False,
-                    }]
+                    }
+                    if list_price:
+                        price_entry["listPrice"] = list_price
+                    price_payload = [price_entry]
                     client.request_patch(f"product/{shopware_id}", {"price": price_payload})
 
                 stats["updated"] += 1
@@ -874,14 +968,20 @@ def _run_force_price_sync_batched(
                 new_gross = round(new_net * (1 + tax_rate / 100), 2)
 
                 if not dry_run:
+                    # Check for listPrice (Streichpreis/UVP)
+                    list_price = _get_list_price_payload(item_code, new_net, tax_rate, currency_id)
+
                     # ALWAYS set fresh price
+                    price_entry = {
+                        "currencyId": currency_id,
+                        "gross": new_gross,
+                        "net": new_net,
+                        "linked": False,
+                    }
+                    if list_price:
+                        price_entry["listPrice"] = list_price
                     client.request_patch(f"product/{shopware_id}", {
-                        "price": [{
-                            "currencyId": currency_id,
-                            "gross": new_gross,
-                            "net": new_net,
-                            "linked": False,
-                        }]
+                        "price": [price_entry]
                     })
 
                 stats["updated"] += 1
@@ -1056,14 +1156,21 @@ def force_sync_prices_batch(
 
         gross_price = round(net_price * (1 + tax_rate / 100), 2)
 
+        # Check for listPrice (Streichpreis/UVP)
+        list_price = _get_list_price_payload(item_code, net_price, tax_rate, currency_id)
+
+        price_entry = {
+            "currencyId": currency_id,
+            "gross": gross_price,
+            "net": net_price,
+            "linked": False,
+        }
+        if list_price:
+            price_entry["listPrice"] = list_price
+
         price_updates.append({
             "id": shopware_id,
-            "price": [{
-                "currencyId": currency_id,
-                "gross": gross_price,
-                "net": net_price,
-                "linked": False,
-            }]
+            "price": [price_entry]
         })
 
     # Send price updates in batches (with division by zero protection)
@@ -1147,7 +1254,7 @@ def force_sync_prices_batch(
                 sync_payload = {
                     "deactivate-products": {
                         "entity": "product",
-                        "action": "upsert",
+                        "action": "update",
                         "payload": batch
                     }
                 }

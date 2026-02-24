@@ -139,6 +139,10 @@ def verify_payment_status_from_shopware(order_id: str, sales_order_name: str):
     is fully processed. It fetches the current transaction status from Shopware
     and updates the Sales Order if needed.
 
+    After verification, marks the order as ready (shopware_order_ready=1) if
+    payment is not Failed/Cancelled. This triggers the confirmation email
+    notification (which listens on Value Change of shopware_order_ready).
+
     Args:
         order_id: Shopware order ID
         sales_order_name: ERPNext Sales Order name
@@ -151,8 +155,9 @@ def verify_payment_status_from_shopware(order_id: str, sales_order_name: str):
             "Sales Order", sales_order_name, "shopware_payment_status"
         )
 
-        # If already marked as Paid, nothing to do
+        # If already marked as Paid, mark ready and return
         if current_status == "Paid":
+            _mark_order_ready(sales_order_name)
             return
 
         # Fetch the latest transaction status from Shopware
@@ -173,6 +178,9 @@ def verify_payment_status_from_shopware(order_id: str, sales_order_name: str):
             frappe.logger("shopware6").debug(
                 f"No transactions found for order {order_id} during payment verification"
             )
+            # No transactions found - mark ready based on current status
+            if current_status not in ("Failed", "Cancelled"):
+                _mark_order_ready(sales_order_name)
             return
 
         transaction = transactions[0]
@@ -233,7 +241,7 @@ def verify_payment_status_from_shopware(order_id: str, sales_order_name: str):
             )
 
         elif new_status != current_status:
-            # Update to other status (e.g., Partly Paid)
+            # Update to other status (e.g., Partly Paid, Failed)
             frappe.db.set_value(
                 "Sales Order",
                 sales_order_name,
@@ -242,5 +250,35 @@ def verify_payment_status_from_shopware(order_id: str, sales_order_name: str):
             )
             frappe.db.commit()
 
+        # Mark order as ready for confirmation email if payment is OK
+        # This is the verified status from Shopware (most up-to-date)
+        if new_status not in ("Failed", "Cancelled"):
+            _mark_order_ready(sales_order_name)
+
     except Exception as e:
         get_logger().error("Error occurred", persist=False)
+
+
+def _mark_order_ready(sales_order_name: str):
+    """
+    Mark a Sales Order as ready for confirmation email.
+
+    Uses doc.save() to trigger the Value Change notification on
+    shopware_order_ready, which sends the "Bestellbestätigung" email.
+
+    Args:
+        sales_order_name: ERPNext Sales Order name
+    """
+    try:
+        so = frappe.get_doc("Sales Order", sales_order_name)
+        if so.get("shopware_order_ready"):
+            return  # Already marked as ready
+
+        so.shopware_order_ready = 1
+        so.flags.ignore_validate_update_after_submit = True
+        so.save(ignore_permissions=True)
+        frappe.db.commit()
+    except Exception as e:
+        frappe.logger("shopware6").error(
+            f"Failed to mark order {sales_order_name} as ready: {e}"
+        )

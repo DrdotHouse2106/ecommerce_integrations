@@ -35,7 +35,7 @@ def add_service_items_if_needed(
         tel_avis_requested: Whether tel avis was requested via custom field
         forklift_requested: Whether forklift was requested via custom field
     """
-    line_items = order_data.get("lineItems", [])
+    line_items = order_data.get("lineItems") or []
 
     # Get all product numbers already in the order
     existing_product_numbers = set()

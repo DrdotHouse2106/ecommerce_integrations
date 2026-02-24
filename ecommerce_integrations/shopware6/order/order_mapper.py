@@ -15,6 +15,9 @@ from ecommerce_integrations.shopware6.constants import (
     PAYMENT_METHOD_MAP,
     PAYMENT_STATE_MAP,
     DEFAULT_MODE_OF_PAYMENT,
+    EU_COUNTRY_CODES,
+    DOMESTIC_COUNTRY_CODE,
+    TAX_TEMPLATE_MAP,
 )
 from ecommerce_integrations.shopware6.product import get_item_code
 
@@ -164,8 +167,22 @@ def get_payment_method_info(order_data: dict) -> tuple:
     if not transactions:
         return None, DEFAULT_MODE_OF_PAYMENT, "Unpaid"
 
-    # Get the latest/first transaction
-    transaction = transactions[0]
+    # Prefer newest transaction because older transactions can remain in history
+    # with obsolete states (e.g. failed/cancelled before retry).
+    transactions_sorted = sorted(
+        transactions,
+        key=lambda t: (t.get("createdAt") or t.get("updatedAt") or ""),
+        reverse=True,
+    )
+    transaction = transactions_sorted[0]
+    if not (transaction.get("stateMachineState") or {}).get("technicalName"):
+        transaction = next(
+            (
+                t for t in transactions_sorted
+                if (t.get("stateMachineState") or {}).get("technicalName")
+            ),
+            transaction,
+        )
 
     # Get payment method
     payment_method = transaction.get("paymentMethod", {}) or {}
@@ -225,3 +242,117 @@ def get_tax_rate_from_line_item(line_item: dict, default_rate: float = 19.0) -> 
         return flt(calculated_taxes[0].get("taxRate", default_rate))
 
     return default_rate
+
+
+def get_delivery_country_code(order_data: dict) -> str:
+    """
+    Extract delivery country ISO code from Shopware order.
+
+    Checks deliveries -> shippingOrderAddress -> country first,
+    then falls back to billingAddress -> country.
+
+    Args:
+        order_data: Shopware order object
+
+    Returns:
+        Country ISO code (e.g., "DE", "AT", "CH") or "DE" as default
+    """
+    # Try delivery address first
+    deliveries = order_data.get("deliveries", []) or []
+    for delivery in deliveries:
+        shipping_address = delivery.get("shippingOrderAddress", {}) or {}
+        country = shipping_address.get("country", {}) or {}
+        iso_code = country.get("iso", "") or country.get("isoCode", "")
+        if iso_code:
+            return iso_code.upper()
+
+    # Fallback to billing address
+    billing_address = order_data.get("billingAddress", {}) or {}
+    country = billing_address.get("country", {}) or {}
+    iso_code = country.get("iso", "") or country.get("isoCode", "")
+    if iso_code:
+        return iso_code.upper()
+
+    # Default to domestic
+    return DOMESTIC_COUNTRY_CODE
+
+
+def has_valid_vat_id(order_data: dict) -> bool:
+    """
+    Check if the order has a valid VAT ID (B2B customer).
+
+    Checks orderCustomer -> vatIds first, then customer -> vatIds.
+
+    Args:
+        order_data: Shopware order object
+
+    Returns:
+        True if VAT ID is present and non-empty
+    """
+    # Check orderCustomer vatIds
+    order_customer = order_data.get("orderCustomer", {}) or {}
+    vat_ids = order_customer.get("vatIds", []) or []
+    if vat_ids and any(v for v in vat_ids if v):
+        return True
+
+    # Check nested customer object
+    customer = order_customer.get("customer", {}) or {}
+    vat_ids = customer.get("vatIds", []) or []
+    if vat_ids and any(v for v in vat_ids if v):
+        return True
+
+    return False
+
+
+def get_tax_template(order_data: dict, company: str) -> str:
+    """
+    Determine the correct ERPNext tax template based on delivery country and B2B status.
+
+    Logic:
+    - Domestic (DE): Use standard inland template
+    - EU + VAT ID (B2B): Use EU B2B template (reverse charge, 0%)
+    - EU without VAT ID (B2C): Use EU B2C template (German VAT)
+    - Non-EU (Drittland): Use export template (0%)
+
+    Args:
+        order_data: Shopware order object with deliveries and orderCustomer
+        company: ERPNext company name
+
+    Returns:
+        Tax template name or empty string if not found
+    """
+    # Get company abbreviation for template name
+    company_abbr = frappe.db.get_value("Company", company, "abbr") or "KG"
+
+    # Determine delivery country
+    country_code = get_delivery_country_code(order_data)
+
+    # Determine B2B status
+    is_b2b = has_valid_vat_id(order_data)
+
+    # Select appropriate template key
+    if country_code == DOMESTIC_COUNTRY_CODE:
+        template_key = "domestic"
+    elif country_code in EU_COUNTRY_CODES:
+        template_key = "eu_b2b" if is_b2b else "eu_b2c"
+    else:
+        template_key = "drittland"
+
+    # Get template name pattern
+    template_pattern = TAX_TEMPLATE_MAP.get(template_key, "")
+    if not template_pattern:
+        return ""
+
+    # Format with company abbreviation
+    template_name = template_pattern.format(company_abbr=company_abbr)
+
+    # Verify template exists
+    if frappe.db.exists("Sales Taxes and Charges Template", template_name):
+        return template_name
+
+    # Log warning if template not found
+    frappe.logger("shopware6").warning(
+        f"Tax template '{template_name}' not found for {country_code}/{template_key}"
+    )
+
+    return ""

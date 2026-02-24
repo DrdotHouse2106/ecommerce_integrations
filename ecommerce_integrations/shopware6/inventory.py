@@ -296,3 +296,30 @@ def update_stock_on_stock_entry(doc, method):
             queue="short",
             item_code=item_code,
         )
+
+
+def update_stock_on_stock_reconciliation(doc, method):
+    """
+    Hook to sync stock after Stock Reconciliation submission.
+
+    When a Stock Reconciliation is submitted, the affected items
+    should have their stock levels synced to Shopware.
+    """
+    setting = frappe.get_doc(SETTING_DOCTYPE)
+
+    if not setting.is_enabled() or not setting.update_erpnext_stock_levels_to_shopware:
+        return
+
+    # Get unique items from the stock reconciliation
+    items = set()
+    for item in doc.items:
+        if item.item_code:
+            items.add(item.item_code)
+
+    # Queue stock sync for affected items
+    for item_code in items:
+        frappe.enqueue(
+            "ecommerce_integrations.shopware6.inventory.sync_single_item_stock",
+            queue="short",
+            item_code=item_code,
+        )

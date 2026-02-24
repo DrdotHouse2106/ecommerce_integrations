@@ -29,7 +29,7 @@ RETRIABLE_ERROR_MESSAGES = (
 )
 
 
-def is_retriable_error(error: Exception) -> bool:
+def is_retriable_error(error: BaseException) -> bool:
     """
     Check if an error is a retriable gateway error.
 
@@ -593,8 +593,21 @@ def map_state_from_shopware(country_state_data: Dict[str, Any], country_name: st
     else:
         state_code = short_code
     
+    # State doctype/table is optional in some deployments. If unavailable,
+    # fall back to the Shopware state name to avoid repeated query exceptions.
+    if not frappe.db.table_exists("State"):
+        return state_name or None
+
+    try:
+        state_meta = frappe.get_meta("State")
+    except Exception:
+        return state_name or None
+
+    has_state_code = state_meta.has_field("state_code")
+    has_state_name = state_meta.has_field("state_name")
+
     # Try to find state in ERPNext by code first
-    if state_code and country_name:
+    if state_code and country_name and has_state_code:
         state = frappe.db.get_value(
             "State",
             {"country": country_name, "state_code": state_code.upper()},
@@ -604,7 +617,7 @@ def map_state_from_shopware(country_state_data: Dict[str, Any], country_name: st
             return state
     
     # Try to find by name
-    if state_name and country_name:
+    if state_name and country_name and has_state_name:
         state = frappe.db.get_value(
             "State",
             {"country": country_name, "state_name": state_name},
@@ -613,7 +626,8 @@ def map_state_from_shopware(country_state_data: Dict[str, Any], country_name: st
         if state:
             return state
         
-        # Also try just matching by name field
+    if state_name and country_name:
+        # Also try just matching by name field (works even without state_name field).
         state = frappe.db.get_value(
             "State",
             {"country": country_name, "name": ["like", f"%{state_name}%"]},

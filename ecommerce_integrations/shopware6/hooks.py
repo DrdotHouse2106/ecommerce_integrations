@@ -25,6 +25,11 @@ DOC_EVENTS = {
     "Item": {
         "after_save": "ecommerce_integrations.shopware6.properties.upload_item_properties",
     },
+    "Item Group": {
+        "on_update": "ecommerce_integrations.shopware6.bulk_sync.queue_item_group_for_sync",
+        "after_rename": "ecommerce_integrations.shopware6.bulk_sync.queue_item_group_rename_for_sync",
+        "on_trash": "ecommerce_integrations.shopware6.bulk_sync.queue_item_group_delete_for_sync",
+    },
     # Status sync: ERPNext -> Shopware
     "Delivery Note": {
         "on_submit": "ecommerce_integrations.shopware6.status_sync.on_delivery_note_submit",

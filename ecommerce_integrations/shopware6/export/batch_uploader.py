@@ -17,6 +17,9 @@ from dataclasses import dataclass, field
 import frappe
 from frappe.utils import flt
 
+# CRITICAL: ShopwareAPIError inherits from BaseException, NOT Exception!
+from lib_shopware6_api_base.conf_shopware6_api_base_classes import ShopwareAPIError
+
 from ecommerce_integrations.shopware6.constants import (
     MODULE_NAME,
     SETTING_DOCTYPE,
@@ -42,34 +45,49 @@ LOCK_TIMEOUT_RETRY_DELAY = 5  # seconds
 
 def _sync_with_retry(client, sync_payload: dict, logger, context: str = "sync") -> dict:
     """
-    Execute Shopware sync API call with retry logic for lock timeouts.
-    
+    Execute Shopware sync API call with retry logic for lock timeouts
+    and SEO URL duplicate key errors.
+
+    Uses 'use-queue-indexing' header to defer SEO URL generation to the
+    message queue, avoiding duplicate key errors during batch operations.
+
     Args:
         client: Shopware API client
         sync_payload: The sync payload to send
         logger: Logger instance
         context: Description for error messages
-        
+
     Returns:
         API response dict
-        
+
     Raises:
         Exception: If max retries exceeded for lock timeout
     """
+    # Use queue-based indexing to avoid SEO URL duplicate key errors
+    # during batch sync. Shopware will generate SEO URLs asynchronously.
+    sync_headers = {"indexing-behavior": "use-queue-indexing"}
+
     for attempt in range(1, LOCK_TIMEOUT_MAX_RETRIES + 1):
         try:
-            return client.request_post("_action/sync", sync_payload)
-        except Exception as e:
+            return client.request_post("_action/sync", sync_payload, update_header_fields=sync_headers)
+        except (Exception, ShopwareAPIError) as e:
             error_str = str(e)
             is_lock_timeout = "1205" in error_str or "Lock wait timeout" in error_str
-            
+            is_seo_duplicate = "1062" in error_str and "seo_url" in error_str
+
             if is_lock_timeout and attempt < LOCK_TIMEOUT_MAX_RETRIES:
                 logger.warning(f"Lock timeout on {context} (attempt {attempt}/{LOCK_TIMEOUT_MAX_RETRIES}), retrying in {LOCK_TIMEOUT_RETRY_DELAY}s...")
                 time.sleep(LOCK_TIMEOUT_RETRY_DELAY)
                 continue
-            
-            if is_lock_timeout:
-                error_msg = f"Lock timeout after {LOCK_TIMEOUT_MAX_RETRIES} retries for {context}"
+
+            if is_seo_duplicate and attempt < LOCK_TIMEOUT_MAX_RETRIES:
+                logger.warning(f"SEO URL duplicate on {context} (attempt {attempt}), retrying in {LOCK_TIMEOUT_RETRY_DELAY}s...")
+                time.sleep(LOCK_TIMEOUT_RETRY_DELAY)
+                continue
+
+            if is_lock_timeout or is_seo_duplicate:
+                error_type = "Lock timeout" if is_lock_timeout else "SEO URL duplicate"
+                error_msg = f"{error_type} after {LOCK_TIMEOUT_MAX_RETRIES} retries for {context}"
                 logger.error(error_msg)
                 create_shopware_log(
                     status="Error",
@@ -78,8 +96,8 @@ def _sync_with_retry(client, sync_payload: dict, logger, context: str = "sync") 
                     request_data={"context": context, "error": error_str[:500]}
                 )
                 raise Exception(error_msg)
-            
-            # Non-lock-timeout error: re-raise immediately
+
+            # Non-retriable error: re-raise immediately
             raise
 
 
@@ -787,6 +805,19 @@ class BatchProductUploader:
             item_data.get("item_name")
         )
 
+        # Check for listPrice (Streichpreis/UVP)
+        from ecommerce_integrations.shopware6.export.price_handler import _get_list_price_payload
+        list_price = _get_list_price_payload(item_code, price, tax_rate, self._currency_id)
+
+        price_entry = {
+            "currencyId": self._currency_id,
+            "gross": gross_price,
+            "net": price,
+            "linked": False,
+        }
+        if list_price:
+            price_entry["listPrice"] = list_price
+
         payload = {
             "id": product_id,
             "productNumber": item_code,
@@ -795,12 +826,7 @@ class BatchProductUploader:
             "active": not item_data.get("disabled"),
             "stock": 0,
             "isCloseout": False,
-            "price": [{
-                "currencyId": self._currency_id,
-                "gross": gross_price,
-                "net": price,
-                "linked": False,
-            }],
+            "price": [price_entry],
         }
 
         if tax_id:
@@ -845,6 +871,28 @@ class BatchProductUploader:
         # (Product might exist in Shopware even if not in ERPNext mappings)
         payload["_needs_visibility_update"] = True
         payload["_item_code"] = item_code
+
+        # Properties from shopware_properties table (type "Property" becomes filter properties)
+        from ecommerce_integrations.shopware6.export.property_handler import (
+            get_or_create_property_group,
+            get_or_create_property_option,
+        )
+
+        shopware_properties = item_data.get("_shopware_properties") or []
+        property_ids = []
+        for prop in shopware_properties:
+            prop_type = prop.get("property_type")
+            if prop_type in ("Property", "Text") and prop.get("property_value"):
+                group_id = get_or_create_property_group(client, prop["property_name"])
+                if group_id:
+                    option_id = get_or_create_property_option(
+                        client, group_id, prop["property_name"], prop["property_value"]
+                    )
+                    if option_id:
+                        property_ids.append({"id": option_id})
+
+        if property_ids:
+            payload["properties"] = property_ids
 
         # Custom Fields (AI Benefits, Short Description, Zubehoer, etc.)
         custom_fields = self._build_custom_fields(item_data)
@@ -1011,11 +1059,16 @@ class BatchProductUploader:
         for update in visibility_updates:
             product_id = update["product_id"]
             item_code = update["item_code"]
+            variant_of = update.get("variant_of")
 
             try:
                 # Get desired visibilities from ERPNext
-                item_doc = frappe.get_doc("Item", item_code)
-                new_visibilities = get_product_visibilities(item_doc, self.setting)
+                # For variants: use parent item for visibility (consistent with variant_handler.py)
+                if variant_of:
+                    visibility_item = frappe.get_doc("Item", variant_of)
+                else:
+                    visibility_item = frappe.get_doc("Item", item_code)
+                new_visibilities = get_product_visibilities(visibility_item, self.setting)
 
                 if not new_visibilities and default_channel_id:
                     new_visibilities = [{"salesChannelId": default_channel_id, "visibility": 30}]
@@ -2097,24 +2150,29 @@ class BatchProductUploader:
             payload["configuratorSettings"] = configurator_settings
 
             # Build variantListingConfig for expanded listings
-            unique_group_ids = set()
+            # displayParent=False: Don't show parent in listing, only variants
+            # Limit expressionForListings to max 3 attributes to avoid
+            # Shopware's O(n^k) display_group query explosion (consistent with template_handler.py)
+            MAX_EXPRESSION_FOR_LISTINGS = 3
+            unique_groups = []
+            seen_group_ids = set()
             for attr in attributes:
-                # Use local batch cache (already populated above)
                 group_id = self._get_property_group_id(client, attr["name"])
-                if group_id:
-                    unique_group_ids.add(group_id)
+                if group_id and group_id not in seen_group_ids:
+                    seen_group_ids.add(group_id)
+                    unique_groups.append(group_id)
 
-            if unique_group_ids:
+            if unique_groups:
                 payload["variantListingConfig"] = {
-                    "displayParent": True,
+                    "displayParent": False,
                     "mainVariantId": None,
                     "configuratorGroupConfig": [
                         {
                             "id": gid,
                             "representation": "box",
-                            "expressionForListings": True
+                            "expressionForListings": idx < MAX_EXPRESSION_FOR_LISTINGS
                         }
-                        for gid in unique_group_ids
+                        for idx, gid in enumerate(unique_groups)
                     ]
                 }
 
@@ -2327,6 +2385,8 @@ class BatchProductUploader:
 
         upsert_payloads = []
         create_ecom_items = []
+        # Track variants needing visibility updates
+        visibility_updates = []
 
         for item_code in item_codes:
             item_data = variants_data.get(item_code)
@@ -2338,6 +2398,19 @@ class BatchProductUploader:
             try:
                 payload, is_new, skip_reason = self._build_variant_payload(client, item_data)
                 if payload:
+                    # Check if this variant needs visibility update
+                    if payload.pop("_needs_visibility_update", False):
+                        variant_item_code = payload.pop("_item_code", item_code)
+                        variant_of = payload.pop("_variant_of", None)
+                        visibility_updates.append({
+                            "product_id": payload["id"],
+                            "item_code": variant_item_code,
+                            "variant_of": variant_of,
+                        })
+                    else:
+                        payload.pop("_item_code", None)
+                        payload.pop("_variant_of", None)
+
                     upsert_payloads.append({
                         "payload": payload,
                         "item_code": item_code,
@@ -2395,6 +2468,10 @@ class BatchProductUploader:
                     }).insert(ignore_permissions=True)
                 except frappe.DuplicateEntryError:
                     pass
+
+            # Update visibilities for variants (after successful batch sync)
+            if visibility_updates:
+                self._batch_update_visibilities(client, visibility_updates)
 
         except BaseException as e:
             result.failed = len(upsert_payloads)
@@ -2637,6 +2714,13 @@ class BatchProductUploader:
             delivery_time_id = self._get_delivery_time_id(client, lieferzeit)
             if delivery_time_id:
                 payload["deliveryTimeId"] = delivery_time_id
+
+        # Visibility - Multi-Channel support for variants
+        # Variants need their own visibilities (they don't inherit from parent in Shopware)
+        # Use parent item for visibility calculation (consistent with variant_handler.py)
+        payload["_needs_visibility_update"] = True
+        payload["_item_code"] = item_code
+        payload["_variant_of"] = parent_code  # Signal to use parent for visibility
 
         return payload, is_new, None  # No skip reason - success
 

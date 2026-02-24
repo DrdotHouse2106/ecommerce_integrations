@@ -386,6 +386,79 @@ class ShopwareProductUploader:
             return None
 
 
+@frappe.whitelist()
+def deactivate_product_in_shopware(item_code: str) -> bool:
+    """
+    Deactivate a product in Shopware and clean up the Ecommerce Item link.
+
+    Called when an ERPNext Item is deleted (on_trash). Deactivates rather than
+    deletes the Shopware product for safety (can be re-activated manually).
+
+    Args:
+        item_code: ERPNext Item code
+
+    Returns:
+        True if successful or product not in Shopware
+    """
+    from ecommerce_integrations.shopware6.connection import temp_shopware_session
+    from ecommerce_integrations.shopware6.utils import create_shopware_log
+
+    logger = get_logger("deactivate_product_in_shopware")
+
+    # Find the Ecommerce Item linking record
+    ecom_item = frappe.db.get_value(
+        "Ecommerce Item",
+        {"integration": MODULE_NAME, "erpnext_item_code": item_code},
+        ["name", "integration_item_code"],
+        as_dict=True,
+    )
+
+    if not ecom_item:
+        logger.info(f"Item '{item_code}' not synced to Shopware, nothing to deactivate")
+        return True
+
+    shopware_id = ecom_item.integration_item_code
+
+    # Deactivate in Shopware
+    try:
+        @temp_shopware_session
+        def _deactivate(client):
+            client.request_patch(
+                f"product/{shopware_id}",
+                {"active": False}
+            )
+
+        _deactivate()
+
+        logger.info(f"Deactivated Shopware product '{item_code}' (ID: {shopware_id})")
+        create_shopware_log(
+            status="Success",
+            method="deactivate_product_in_shopware",
+            message=f"Deactivated product '{item_code}' (ID: {shopware_id})",
+            make_new=True,
+        )
+    except Exception as e:
+        logger.error(f"Failed to deactivate Shopware product '{item_code}': {e}")
+        create_shopware_log(
+            status="Error",
+            method="deactivate_product_in_shopware",
+            message=f"Failed to deactivate product '{item_code}'",
+            exception=str(e),
+            make_new=True,
+        )
+        # Continue to delete the Ecommerce Item even if Shopware call fails
+        # (the item is being deleted in ERPNext anyway)
+
+    # Delete the Ecommerce Item linking record
+    try:
+        frappe.delete_doc("Ecommerce Item", ecom_item.name, ignore_permissions=True)
+        logger.info(f"Deleted Ecommerce Item link for '{item_code}'")
+    except Exception as e:
+        logger.warning(f"Failed to delete Ecommerce Item for '{item_code}': {e}")
+
+    return True
+
+
 def upload_erpnext_item_to_shopware(item_code: str) -> Optional[str]:
     """
     Convenience function to upload an ERPNext Item to Shopware.

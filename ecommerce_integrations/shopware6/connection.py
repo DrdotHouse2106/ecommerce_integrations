@@ -28,6 +28,45 @@ from lib_shopware6_api_base import (
 )
 from lib_shopware6_api_base.conf_shopware6_api_base_classes import ShopwareAPIError
 
+
+def criteria_to_dict(criteria: Criteria) -> dict:
+    """
+    Convert a Criteria Pydantic model to a clean dict for the Shopware API.
+
+    The newer lib_shopware6_api_base versions use Pydantic BaseModel for Criteria,
+    which serializes empty lists (ids: [], aggregations: [], etc.) by default.
+    Shopware 6 API rejects requests with empty 'ids' arrays.
+
+    This function strips empty/null fields recursively, but preserves
+    empty dicts inside 'associations' (Shopware uses {} to mean "load this association").
+    """
+    data = criteria.model_dump(mode="json")
+    return _strip_empty(data)
+
+
+def _strip_empty(obj, _parent_key: str = ""):
+    """Recursively remove None values and empty lists/dicts from a dict.
+
+    Empty dicts inside 'associations' are preserved because Shopware API
+    uses {"lineItems": {}} to request loading of that association.
+    """
+    if isinstance(obj, dict):
+        cleaned = {}
+        for k, v in obj.items():
+            v = _strip_empty(v, _parent_key=k)
+            if v is None:
+                continue
+            if isinstance(v, list) and not v:
+                continue
+            # Keep empty dicts inside 'associations' - Shopware needs them
+            if isinstance(v, dict) and not v and _parent_key != "associations":
+                continue
+            cleaned[k] = v
+        return cleaned
+    elif isinstance(obj, list):
+        return [_strip_empty(item) for item in obj if item is not None]
+    return obj
+
 from ecommerce_integrations.shopware6.constants import (
     SETTING_DOCTYPE,
     MODULE_NAME,
@@ -82,7 +121,111 @@ def get_shopware_client() -> Shopware6AdminAPIClientBase:
         config.client_id = setting.client_id
         config.client_secret = setting.get_password("client_secret")
 
-    return Shopware6AdminAPIClientBase(config=config)
+    client = Shopware6AdminAPIClientBase(config=config)
+    _patch_client_timeout(client, timeout=60)
+    _patch_client_binary_upload(client)
+    _patch_client_criteria(client)
+    return client
+
+
+def _patch_client_binary_upload(client: Shopware6AdminAPIClientBase):
+    """
+    Fix binary file uploads in lib_shopware6_api_base.
+
+    The library's _request() method does `request_data = str(payload)` for bytes,
+    which produces the Python repr string b'\\x89PNG...' instead of raw bytes.
+    This patch intercepts POST requests with bytes payload and sends them correctly
+    using httpx's `content` parameter with raw bytes.
+    """
+    from lib_shopware6_api_base.lib_shopware6_admin_client import HttpMethod
+    import httpx
+
+    _orig_request = client._request
+
+    def _request_with_binary_fix(
+        http_method, request_url, payload=None, content_type="json",
+        additional_query_params=None, update_header_fields=None,
+    ):
+        # Only intercept POST with bytes payload (binary upload)
+        if http_method == HttpMethod.POST and isinstance(payload, bytes):
+            # Ensure session is authenticated
+            client._get_session()
+
+            headers = client._get_headers(
+                content_type=content_type,
+                update_header_fields=update_header_fields,
+            )
+            url = client._format_admin_api_url(request_url)
+
+            response = client.session.post(
+                url,
+                content=payload,  # Raw bytes, not str(payload)
+                headers=headers,
+                params=additional_query_params or {},
+                follow_redirects=client.config.follow_redirects,
+            )
+
+            # Same error handling as the library
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                detailed_error = f" : {exc.response.text}"
+                raise ShopwareAPIError(f"{exc}{detailed_error}") from exc
+
+            return response
+
+        # All other requests go through the original path
+        return _orig_request(
+            http_method, request_url, payload,
+            content_type=content_type,
+            additional_query_params=additional_query_params,
+            update_header_fields=update_header_fields,
+        )
+
+    client._request = _request_with_binary_fix
+
+
+def _patch_client_criteria(client: Shopware6AdminAPIClientBase):
+    """
+    Patch request_post to auto-convert Criteria Pydantic models to clean dicts.
+
+    The newer lib_shopware6_api_base uses Pydantic BaseModel for Criteria,
+    which serializes empty lists (ids: [], etc.). Shopware 6 rejects empty 'ids'.
+    This patch transparently cleans Criteria payloads before sending.
+    """
+    _orig_request_post = client.request_post
+
+    def _request_post_with_clean_criteria(request_url, payload=None, **kwargs):
+        if payload is not None and isinstance(payload, Criteria):
+            payload = criteria_to_dict(payload)
+        return _orig_request_post(request_url, payload, **kwargs)
+
+    client.request_post = _request_post_with_clean_criteria
+
+
+def _patch_client_timeout(client: Shopware6AdminAPIClientBase, timeout: int = 60):
+    """
+    Patch the Shopware client to enforce HTTP timeouts.
+
+    The library's session.post()/get() calls have NO timeout by default,
+    causing requests to hang indefinitely. We patch _get_session() so that
+    every session (including refreshed ones) gets a timeout on the client.
+
+    httpx 0.28+ removed the timeout kwarg from send(), so we set it
+    directly on the client/session object via its timeout property.
+    """
+    import httpx
+
+    _original_get_session = client._get_session
+
+    def _get_session_with_timeout():
+        _original_get_session()
+        # Set timeout on the (possibly new) session object
+        if not getattr(client.session, '_timeout_patched', False):
+            client.session.timeout = httpx.Timeout(timeout)
+            client.session._timeout_patched = True
+
+    client._get_session = _get_session_with_timeout
 
 
 def temp_shopware_session(
@@ -141,7 +284,7 @@ def temp_shopware_session(
             for attempt in range(max_retries + 1):
                 try:
                     return fn(client, *args, **kwargs)
-                except Exception as e:
+                except (Exception, ShopwareAPIError) as e:
                     last_exception = e
 
                     # Check if this is a retriable gateway error

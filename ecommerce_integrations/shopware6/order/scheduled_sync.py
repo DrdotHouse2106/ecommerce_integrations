@@ -14,6 +14,10 @@ from lib_shopware6_api_base import Criteria, RangeFilter
 
 from ecommerce_integrations.shopware6.connection import get_shopware_client
 from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE
+from ecommerce_integrations.shopware6.utils import get_logger
+
+SCHEDULED_SYNC_LOCK_KEY = "shopware6_scheduled_order_sync"
+SCHEDULED_SYNC_LOCK_TIMEOUT_SECONDS = 15 * 60
 
 
 def build_order_criteria(
@@ -41,22 +45,31 @@ def build_order_criteria(
             date_filter["gte"] = f"{from_date}T00:00:00.000Z"
         if to_date:
             date_filter["lte"] = f"{to_date}T23:59:59.999Z"
-        criteria.filter.append(RangeFilter("orderDateTime", date_filter))
+        criteria.filter.append(RangeFilter(field="orderDateTime", parameters=date_filter))
 
     # Add associations
+    # stateMachineState needed to check order state (skip cancelled orders)
+    criteria.associations["stateMachineState"] = Criteria()
     criteria.associations["lineItems"] = Criteria()
     criteria.associations["orderCustomer"] = Criteria()
     criteria.associations["orderCustomer"].associations["salutation"] = Criteria()
+    criteria.associations["orderCustomer"].associations["customer"] = Criteria()  # For accountType, vatIds
     criteria.associations["billingAddress"] = Criteria()
     criteria.associations["billingAddress"].associations["country"] = Criteria()
     criteria.associations["billingAddress"].associations["countryState"] = Criteria()
+    criteria.associations["billingAddress"].associations["salutation"] = Criteria()
     criteria.associations["deliveries"] = Criteria()
     criteria.associations["deliveries"].associations["shippingOrderAddress"] = Criteria()
     criteria.associations["deliveries"].associations["shippingOrderAddress"].associations["country"] = Criteria()
     criteria.associations["deliveries"].associations["shippingOrderAddress"].associations["countryState"] = Criteria()
+    criteria.associations["deliveries"].associations["shippingOrderAddress"].associations["salutation"] = Criteria()
+    criteria.associations["deliveries"].associations["shippingMethod"] = Criteria()
     criteria.associations["transactions"] = Criteria()
     criteria.associations["transactions"].associations["paymentMethod"] = Criteria()
+    criteria.associations["transactions"].associations["stateMachineState"] = Criteria()
     criteria.associations["currency"] = Criteria()
+    # Multi-Storefront: Fetch sales channel info
+    criteria.associations["salesChannel"] = Criteria()
 
     return criteria
 
@@ -93,6 +106,11 @@ def sync_orders_from_shopware(
         try:
             order_id = order_data.get("id")
 
+            # Skip cancelled orders (safety net - API filter should already exclude them)
+            order_state = (order_data.get("stateMachineState") or {}).get("technicalName", "")
+            if order_state == "cancelled":
+                continue
+
             # Check if already synced
             existing = frappe.db.get_value("Sales Order", {"shopware_order_id": order_id}, "name")
             if not existing:
@@ -100,6 +118,9 @@ def sync_orders_from_shopware(
                 synced += 1
         except Exception as e:
             errors += 1
+            # CRITICAL: Rollback to release any locks held by the failed transaction.
+            # Without this, stuck locks block all subsequent sync attempts.
+            frappe.db.rollback()
             get_logger().error(f"Failed to sync order {order_data.get('orderNumber')}: {e}", persist=True)
 
     return {
@@ -117,6 +138,7 @@ def scheduled_order_sync():
     """
     from frappe.utils import now_datetime, time_diff_in_seconds
 
+    logger = get_logger("scheduled_order_sync")
     setting = frappe.get_doc(SETTING_DOCTYPE)
 
     if not setting.is_enabled():
@@ -131,6 +153,16 @@ def scheduled_order_sync():
         elapsed = time_diff_in_seconds(now_datetime(), setting.last_order_sync)
         if elapsed < frequency_seconds:
             return  # Not time yet
+
+    # Prevent overlapping scheduler runs. Overlap can hold open transactions
+    # on the same customer and cascade into lock wait timeouts.
+    lock = frappe.cache().lock(
+        SCHEDULED_SYNC_LOCK_KEY,
+        timeout=SCHEDULED_SYNC_LOCK_TIMEOUT_SECONDS,
+    )
+    if not lock.acquire(blocking=False):
+        logger.info("Skipping run because a previous scheduled order sync is still in progress")
+        return
 
     try:
         # Sync orders from the last 24 hours
@@ -149,7 +181,14 @@ def scheduled_order_sync():
             )
 
     except Exception as e:
-        get_logger().error(f"Scheduled order sync failed: {e}", persist=True)
+        frappe.db.rollback()
+        logger.error(f"Scheduled order sync failed: {e}", persist=True)
+    finally:
+        try:
+            lock.release()
+        except Exception:
+            # Ignore release errors; lock timeout acts as safety net.
+            pass
 
 
 def sync_old_orders():
@@ -190,9 +229,12 @@ def sync_old_orders():
         criteria = Criteria(limit=100)
 
         # Add date filter
-        criteria.filter.append(RangeFilter("orderDateTime", {"gte": from_time, "lte": to_time}))
+        criteria.filter.append(RangeFilter(field="orderDateTime", parameters={"gte": from_time, "lte": to_time}))
 
+        # Exclude cancelled orders
         # Add associations
+        # stateMachineState needed to check order state (skip cancelled orders)
+        criteria.associations["stateMachineState"] = Criteria()
         criteria.associations["lineItems"] = Criteria()
         criteria.associations["orderCustomer"] = Criteria()
         criteria.associations["orderCustomer"].associations["salutation"] = Criteria()
@@ -206,6 +248,7 @@ def sync_old_orders():
         criteria.associations["deliveries"].associations["shippingMethod"] = Criteria()
         criteria.associations["transactions"] = Criteria()
         criteria.associations["transactions"].associations["paymentMethod"] = Criteria()
+        criteria.associations["transactions"].associations["stateMachineState"] = Criteria()
         criteria.associations["currency"] = Criteria()
 
         response = client.request_post("search/order", criteria)
@@ -219,6 +262,12 @@ def sync_old_orders():
             try:
                 order_id = order_data.get("id")
 
+                # Skip cancelled orders
+                order_state = (order_data.get("stateMachineState") or {}).get("technicalName", "")
+                if order_state == "cancelled":
+                    skipped += 1
+                    continue
+
                 # Check if already synced
                 existing = frappe.db.get_value("Sales Order", {"shopware_order_id": order_id}, "name")
                 if existing:
@@ -231,6 +280,7 @@ def sync_old_orders():
 
             except Exception as e:
                 errors += 1
+                frappe.db.rollback()
                 logger = get_logger("scheduled_old_order_sync")
                 logger.error(
                     f"Failed to sync old order {order_data.get('orderNumber')}",

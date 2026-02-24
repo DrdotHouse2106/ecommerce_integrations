@@ -4,28 +4,42 @@ Shopware 6 Tax Handler
 Handles tax calculation and mapping for orders.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import frappe
 from frappe.utils import flt
 
 
-def add_order_taxes(so: "frappe.Document", order_data: Dict[str, Any], setting) -> None:
+def add_order_taxes(
+    so: "frappe.Document",
+    order_data: Dict[str, Any],
+    setting,
+    tax_status: Optional[str] = None,
+) -> None:
     """
     Add taxes to the Sales Order.
 
-    When import_prices_as_net is enabled (B2B mode), taxes are added as "On Net Total"
-    with the tax rate as percentage. This ensures all items are taxed correctly.
+    The tax handling depends on the Shopware order's taxStatus:
+    - "net": B2B order, item prices are net - add tax "On Net Total"
+    - "gross": B2C order, item prices include tax - add tax as "Actual"
+    - "tax-free": No tax - skip adding taxes
 
-    When import_prices_as_net is disabled (B2C mode), taxes are added as "Actual"
-    with the exact amount from Shopware (since prices already include tax).
+    The included_in_print_rate field is set based on taxStatus:
+    - "net": included_in_print_rate = 0 (prices shown are net, tax is added)
+    - "gross": included_in_print_rate = 1 (prices shown include tax)
 
     Args:
         so: Sales Order document
         order_data: Shopware order data
         setting: Shopware Setting document
+        tax_status: Shopware order taxStatus ("net", "gross", or "tax-free")
     """
-    use_net_prices = getattr(setting, 'import_prices_as_net', True)
+    # Skip tax handling for tax-free orders
+    if tax_status == "tax-free":
+        return
+
+    # Determine if prices are net based on taxStatus
+    is_net_pricing = (tax_status == "net")
 
     # Collect unique tax rates and their amounts from line items
     tax_data = collect_tax_data(order_data)
@@ -41,9 +55,9 @@ def add_order_taxes(so: "frappe.Document", order_data: Dict[str, Any], setting) 
         if not data["account"]:
             continue
 
-        if use_net_prices:
-            # B2B mode: Use "On Net Total" with tax rate as percentage
-            # This ensures all items are taxed correctly with the same rate
+        if is_net_pricing:
+            # B2B mode (net): Item prices are net - add tax "On Net Total"
+            # included_in_print_rate = 0 means prices are net, tax will be added
             so.append(
                 "taxes",
                 {
@@ -56,15 +70,19 @@ def add_order_taxes(so: "frappe.Document", order_data: Dict[str, Any], setting) 
                 },
             )
         else:
-            # B2C mode: Use "Actual" with exact amount (prices include tax)
+            # B2C mode (gross): Item prices include tax
+            # Use "On Net Total" with included_in_print_rate = 1
+            # This tells ERPNext that item prices are gross and tax is included
+            # Note: "Actual" charge type cannot be used with included_in_print_rate = 1
             so.append(
                 "taxes",
                 {
-                    "charge_type": "Actual",
+                    "charge_type": "On Net Total",
                     "account_head": data["account"],
-                    "tax_amount": data["amount"],
+                    "rate": tax_rate,
                     "description": f"VAT {tax_rate}%",
                     "cost_center": setting.cost_center,
+                    "included_in_print_rate": 1,
                 },
             )
 
@@ -82,7 +100,7 @@ def collect_tax_data(order_data: Dict[str, Any]) -> Dict[float, Dict]:
     tax_data = {}
 
     # Collect from line items
-    for line_item in order_data.get("lineItems", []):
+    for line_item in (order_data.get("lineItems") or []):
         price = line_item.get("price", {})
         calculated_taxes = price.get("calculatedTaxes", [])
 
@@ -95,7 +113,7 @@ def collect_tax_data(order_data: Dict[str, Any]) -> Dict[float, Dict]:
             tax_data[tax_rate]["amount"] += tax_amount
 
     # Add shipping taxes
-    for delivery in order_data.get("deliveries", []):
+    for delivery in (order_data.get("deliveries") or []):
         shipping_costs = delivery.get("shippingCosts", {})
         calculated_taxes = shipping_costs.get("calculatedTaxes", [])
 

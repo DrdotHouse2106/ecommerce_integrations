@@ -4,6 +4,8 @@ Shopware 6 Customer Sync Module
 Handles synchronization of customers between Shopware 6 and ERPNext.
 """
 
+from contextlib import contextmanager
+from time import perf_counter
 from typing import Any, Dict, Optional
 
 import frappe
@@ -31,6 +33,35 @@ from ecommerce_integrations.shopware6.utils import (
     map_state_from_shopware,
     get_logger,
 )
+
+CUSTOMER_SYNC_LOCK_TIMEOUT_SECONDS = 10 * 60
+CUSTOMER_SYNC_LOCK_PREFIX = "shopware6_customer_sync"
+
+
+class CustomerSyncInProgressError(frappe.ValidationError):
+    """Raised when another worker is already syncing the same Shopware customer."""
+
+
+@contextmanager
+def _acquire_customer_sync_lock(customer_id: str):
+    """Serialize sync operations per Shopware customer ID."""
+    lock = frappe.cache().lock(
+        f"{CUSTOMER_SYNC_LOCK_PREFIX}_{customer_id}",
+        timeout=CUSTOMER_SYNC_LOCK_TIMEOUT_SECONDS,
+    )
+    if not lock.acquire(blocking=False):
+        raise CustomerSyncInProgressError(
+            _("Customer sync already in progress for Shopware customer {0}").format(customer_id)
+        )
+
+    try:
+        yield
+    finally:
+        try:
+            lock.release()
+        except Exception:
+            # Lock timeout is the fallback in case release fails.
+            pass
 
 
 class ShopwareCustomer(EcommerceCustomer):
@@ -104,12 +135,19 @@ class ShopwareCustomer(EcommerceCustomer):
         # Create addresses
         billing_address = customer.get("defaultBillingAddress") or {}
         shipping_address = customer.get("defaultShippingAddress") or {}
-        
+
+        # Check if billing and shipping are the same (or no separate shipping)
+        same_address = (
+            not shipping_address or
+            shipping_address.get("id") == billing_address.get("id")
+        )
+
         if billing_address:
             self.create_customer_address(
-                customer_name, billing_address, address_type="Billing", email=email
+                customer_name, billing_address, address_type="Billing", email=email,
+                is_also_shipping=same_address  # Set both flags if same address
             )
-        if shipping_address and shipping_address.get("id") != billing_address.get("id"):
+        if shipping_address and not same_address:
             self.create_customer_address(
                 customer_name, shipping_address, address_type="Shipping", email=email
             )
@@ -123,10 +161,39 @@ class ShopwareCustomer(EcommerceCustomer):
         shopware_address: Dict[str, Any],
         address_type: str = "Billing",
         email: str = None,
+        is_also_shipping: bool = False,
     ) -> None:
-        """Create customer address using Shopware address data."""
-        address_fields = _map_address_fields(shopware_address, customer_name, address_type, email)
+        """Create customer address using Shopware address data.
+
+        Args:
+            is_also_shipping: If True, set is_shipping_address=1 even for Billing type
+                              (used when billing and shipping are the same address)
+        """
+        logger = get_logger("shopware_customer_address")
+        shopware_address_id = (shopware_address or {}).get("id", "")
+        logger.info(
+            f"Address mapping start: customer_id={self.customer_id}, type={address_type}, "
+            f"shopware_address_id={shopware_address_id}"
+        )
+        map_started_at = perf_counter()
+        address_fields = _map_address_fields(
+            shopware_address, customer_name, address_type, email, is_also_shipping
+        )
+        logger.info(
+            f"Address mapping done in {perf_counter() - map_started_at:.2f}s: "
+            f"customer_id={self.customer_id}, type={address_type}, shopware_address_id={shopware_address_id}"
+        )
+
+        insert_started_at = perf_counter()
+        logger.info(
+            f"Address insert start: customer_id={self.customer_id}, type={address_type}, "
+            f"shopware_address_id={shopware_address_id}"
+        )
         super().create_customer_address(address_fields)
+        logger.info(
+            f"Address insert done in {perf_counter() - insert_started_at:.2f}s: "
+            f"customer_id={self.customer_id}, type={address_type}, shopware_address_id={shopware_address_id}"
+        )
     
     def update_customer_data(self, customer: Dict[str, Any]) -> None:
         """
@@ -144,6 +211,7 @@ class ShopwareCustomer(EcommerceCustomer):
         if not customer_doc:
             return
 
+        update_dict = {}
         updates_made = []
 
         # Update accountType / customer_type
@@ -153,7 +221,7 @@ class ShopwareCustomer(EcommerceCustomer):
         new_customer_type = "Company" if is_business else "Individual"
 
         if customer_doc.customer_type != new_customer_type:
-            customer_doc.customer_type = new_customer_type
+            update_dict["customer_type"] = new_customer_type
             updates_made.append(f"customer_type: {new_customer_type}")
 
         # Update VAT ID
@@ -164,17 +232,21 @@ class ShopwareCustomer(EcommerceCustomer):
                 vat_id = vat_ids[0]
 
         if vat_id and customer_doc.tax_id != vat_id:
-            customer_doc.tax_id = vat_id
+            update_dict["tax_id"] = vat_id
             updates_made.append(f"tax_id: {vat_id}")
 
         # Update email if changed
         email = customer.get("email", "")
         if email and customer_doc.email_id != email:
-            customer_doc.email_id = email
+            update_dict["email_id"] = email
             updates_made.append(f"email_id: {email}")
 
-        if updates_made:
-            customer_doc.save(ignore_permissions=True)
+        if update_dict:
+            # Use set_value to avoid triggering doc_events (e.g. Chatwoot sync
+            # on_update hook) which can hang on HTTP requests and block the
+            # entire DB transaction, causing lock wait timeouts
+            frappe.db.set_value("Customer", customer_doc.name, update_dict, update_modified=True)
+
             frappe.logger("shopware6").info(
                 f"Updated customer {customer_doc.name}: {', '.join(updates_made)}"
             )
@@ -194,9 +266,17 @@ class ShopwareCustomer(EcommerceCustomer):
         customer_name = company or f"{first_name} {last_name}".strip()
         email = customer.get("email")
 
+        # Check if billing and shipping are the same (or no separate shipping)
+        same_address = (
+            not shipping_address or
+            shipping_address.get("id") == billing_address.get("id")
+        )
+
         if billing_address:
-            self._update_existing_address(customer_name, billing_address, "Billing", email)
-        if shipping_address and shipping_address.get("id") != billing_address.get("id"):
+            self._update_existing_address(
+                customer_name, billing_address, "Billing", email, is_also_shipping=same_address
+            )
+        if shipping_address and not same_address:
             self._update_existing_address(customer_name, shipping_address, "Shipping", email)
     
     def _update_existing_address(
@@ -205,19 +285,61 @@ class ShopwareCustomer(EcommerceCustomer):
         shopware_address: Dict[str, Any],
         address_type: str = "Billing",
         email: str = None,
+        is_also_shipping: bool = False,
     ) -> None:
-        """Update a single existing address or create if not exists."""
-        old_address = self.get_customer_address_doc(address_type)
+        """Update existing address or create new one based on Shopware address ID.
         
-        if not old_address:
-            self.create_customer_address(customer_name, shopware_address, address_type, email)
-        else:
-            exclude_in_update = ["address_title", "address_type"]
-            new_values = _map_address_fields(shopware_address, customer_name, address_type, email)
+        Only updates if the Shopware address ID matches. If different address ID,
+        creates a new address to preserve address history (important for PayPal
+        orders where address may change between orders).
+        """
+        if not shopware_address:
+            return
             
-            old_address.update({k: v for k, v in new_values.items() if k not in exclude_in_update})
-            old_address.flags.ignore_mandatory = True
-            old_address.save(ignore_permissions=True)
+        new_shopware_address_id = shopware_address.get("id", "")
+        old_address = self.get_customer_address_doc(address_type)
+
+        if not old_address:
+            # No existing address - create new one
+            self.create_customer_address(
+                customer_name, shopware_address, address_type, email, is_also_shipping
+            )
+        else:
+            # Check if this is the same Shopware address (by ID)
+            old_shopware_address_id = getattr(old_address, ADDRESS_ID_FIELD, "") or ""
+            
+            if old_shopware_address_id and new_shopware_address_id and old_shopware_address_id != new_shopware_address_id:
+                # Different Shopware address ID - this is a NEW address, not an update
+                # Check if we already have this address by shopware_address_id
+                existing_with_id = frappe.db.sql("""
+                    SELECT a.name
+                    FROM `tabAddress` a
+                    INNER JOIN `tabDynamic Link` dl ON dl.parent = a.name AND dl.parenttype = 'Address'
+                    WHERE dl.link_doctype = 'Customer'
+                    AND dl.link_name = %s
+                    AND a.shopware_address_id = %s
+                    LIMIT 1
+                """, (self.get_customer_doc().name, new_shopware_address_id), as_dict=True)
+                
+                if not existing_with_id:
+                    # Create new address with different title to avoid naming conflict
+                    self.create_customer_address(
+                        customer_name, shopware_address, address_type, email, is_also_shipping
+                    )
+                    frappe.logger("shopware6").info(
+                        f"Created new {address_type} address for customer {customer_name} "
+                        f"(Shopware ID: {new_shopware_address_id}, old was {old_shopware_address_id})"
+                    )
+            else:
+                # Same Shopware address ID or no ID tracking - update existing
+                exclude_in_update = ["address_title", "address_type"]
+                new_values = _map_address_fields(
+                    shopware_address, customer_name, address_type, email, is_also_shipping
+                )
+
+                old_address.update({k: v for k, v in new_values.items() if k not in exclude_in_update})
+                old_address.flags.ignore_mandatory = True
+                old_address.save(ignore_permissions=True)
     
     def create_customer_contact(self, shopware_customer: Dict[str, Any]) -> None:
         """Create contact from Shopware customer data."""
@@ -266,7 +388,16 @@ class ShopwareCustomer(EcommerceCustomer):
         except frappe.DoesNotExistError:
             pass
         
+        logger = get_logger("shopware_customer_contact")
+        contact_started_at = perf_counter()
+        logger.info(
+            f"Contact insert start: customer_id={self.customer_id}, email={email or 'n/a'}"
+        )
         super().create_customer_contact(contact_fields)
+        logger.info(
+            f"Contact insert done in {perf_counter() - contact_started_at:.2f}s: "
+            f"customer_id={self.customer_id}, email={email or 'n/a'}"
+        )
     
     def create_or_update_billing_contact(self, billing_email: str, customer_data: Dict[str, Any] = None) -> Optional[str]:
         """
@@ -340,19 +471,36 @@ class ShopwareCustomer(EcommerceCustomer):
         return contact.name
 
 
-def _map_address_fields(shopware_address: Dict[str, Any], customer_name: str, address_type: str, email: str = None) -> Dict[str, Any]:
-    """Map Shopware address fields to ERPNext Address fields."""
+def _map_address_fields(
+    shopware_address: Dict[str, Any],
+    customer_name: str,
+    address_type: str,
+    email: str = None,
+    is_also_shipping: bool = False
+) -> Dict[str, Any]:
+    """Map Shopware address fields to ERPNext Address fields.
+
+    Args:
+        is_also_shipping: If True and address_type is Billing, also set is_shipping_address=1.
+                          This is used when billing and shipping addresses are the same.
+    """
     country_code = shopware_address.get("country", {}).get("iso", "") if isinstance(shopware_address.get("country"), dict) else ""
     country = map_country_code(country_code) or "Germany"
 
     state_data = shopware_address.get("countryState", {}) or {}
     state = map_state_from_shopware(state_data, country)
 
-    # Avoid duplicate address type suffixes (e.g., "X GmbH-Shipping-Shipping")
-    if customer_name.endswith(f"-{address_type}"):
-        address_title = customer_name
-    else:
-        address_title = f"{customer_name}-{address_type}"
+    # ERPNext automatically appends address_type to address_title when creating the document name
+    # So we should NOT include address_type in address_title, otherwise we get "Customer-Billing-Billing"
+    # Just use the customer_name as address_title
+    address_title = customer_name
+
+    # Set preferred address flags so ERPNext auto-selects the correct addresses
+    # is_primary_address = Preferred Billing Address
+    # is_shipping_address = Preferred Shipping Address
+    # When billing = shipping (is_also_shipping=True), set BOTH flags on the billing address
+    is_billing = address_type == "Billing"
+    is_shipping = address_type == "Shipping" or (is_billing and is_also_shipping)
 
     address_fields = {
         "address_title": address_title,
@@ -365,6 +513,8 @@ def _map_address_fields(shopware_address: Dict[str, Any], customer_name: str, ad
         "pincode": shopware_address.get("zipcode"),
         "country": country,
         "email_id": email,
+        "is_primary_address": 1 if is_billing else 0,
+        "is_shipping_address": 1 if is_shipping else 0,
     }
     
     phone = shopware_address.get("phoneNumber")
@@ -413,6 +563,7 @@ def get_customer_from_shopware_order(order: Dict[str, Any]) -> str:
         "salutation": order_customer.get("salutation", {}),
         "salutationId": order_customer.get("salutationId"),
         "accountType": nested_customer.get("accountType", ""),  # "business" or "private"
+        "guest": nested_customer.get("guest", False),  # Guest customers get separate ERPNext customers
         "defaultBillingAddress": order.get("billingAddress"),
         "defaultShippingAddress": order.get("shippingAddress") or (
             order.get("deliveries", [{}])[0].get("shippingOrderAddress")
@@ -427,24 +578,132 @@ def get_customer_from_shopware_order(order: Dict[str, Any]) -> str:
     elif nested_customer.get("vatIds"):
         customer_data["vatIds"] = nested_customer.get("vatIds")
 
-    # Use ShopwareCustomer class (following Shopify pattern)
-    customer = ShopwareCustomer(customer_id=customer_id)
+    logger = get_logger("get_customer_from_shopware_order")
+    try:
+        with _acquire_customer_sync_lock(customer_id):
+            # Use ShopwareCustomer class (following Shopify pattern)
+            customer = ShopwareCustomer(customer_id=customer_id)
 
-    # Multi-Storefront: Get sales channel from order
-    sales_channel_id = order.get("salesChannelId", "")
+            # Multi-Storefront: Get sales channel from order
+            sales_channel_id = order.get("salesChannelId", "")
 
-    if not customer.is_synced():
-        # Customer not synced - create it with source sales channel
-        customer.sync_customer(customer_data, sales_channel_id=sales_channel_id)
-    else:
-        # Customer exists - update core data, addresses and contact
-        customer.update_customer_data(customer_data)
-        customer.update_existing_addresses(customer_data)
-        # Also ensure contact has salutation/gender
-        customer.create_customer_contact(customer_data)
+            if not customer.is_synced():
+                # Customer not synced - create it with source sales channel
+                customer.sync_customer(customer_data, sales_channel_id=sales_channel_id)
+            else:
+                # Customer exists - update core data, addresses and contact
+                customer.update_customer_data(customer_data)
+                customer.update_existing_addresses(customer_data)
+                # Also ensure contact has salutation/gender
+                customer.create_customer_contact(customer_data)
 
-    return customer.get_customer_doc().name
+            customer_name = customer.get_customer_doc().name
+            logger.debug(
+                f"Customer sync completed for customer_id={customer_id}, customer={customer_name}"
+            )
+            return customer_name
+    except CustomerSyncInProgressError:
+        existing_customer = frappe.db.get_value("Customer", {CUSTOMER_ID_FIELD: customer_id}, "name")
+        if existing_customer:
+            logger.info(
+                f"Customer sync lock busy for customer_id={customer_id}; reusing existing customer {existing_customer}"
+            )
+            return existing_customer
+        raise
 
+
+
+def ensure_customer_has_address(customer: str, order_data: Dict[str, Any]) -> None:
+    """
+    Ensure customer has billing and shipping addresses from order data.
+
+    This is especially important for PayPal Express orders where the address
+    may not be available when the customer is initially created, but is
+    included in the order data.
+
+    Args:
+        customer: ERPNext Customer name
+        order_data: Shopware order data containing billingAddress and deliveries
+    """
+    if not customer or not order_data:
+        return
+
+    # Check if customer already has addresses
+    existing_addresses = frappe.db.sql("""
+        SELECT a.name, a.address_type, a.is_primary_address, a.is_shipping_address
+        FROM `tabAddress` a
+        INNER JOIN `tabDynamic Link` dl ON dl.parent = a.name AND dl.parenttype = 'Address'
+        WHERE dl.link_doctype = 'Customer' AND dl.link_name = %s
+    """, (customer,), as_dict=True)
+
+    has_billing = any(
+        addr.get("address_type") == "Billing" or addr.get("is_primary_address")
+        for addr in existing_addresses
+    )
+    has_shipping = any(
+        addr.get("address_type") == "Shipping" or addr.get("is_shipping_address")
+        for addr in existing_addresses
+    )
+
+    # Extract addresses from order data
+    billing_address = order_data.get("billingAddress") or {}
+    shipping_address = order_data.get("shippingAddress") or (
+        order_data.get("deliveries", [{}])[0].get("shippingOrderAddress")
+        if order_data.get("deliveries") else None
+    ) or {}
+
+    # Get customer name for address title
+    order_customer = order_data.get("orderCustomer", {})
+    first_name = order_customer.get("firstName", "")
+    last_name = order_customer.get("lastName", "")
+    company = order_customer.get("company", "")
+    email = order_customer.get("email", "")
+    customer_name = company or f"{first_name} {last_name}".strip() or customer
+
+    # Check if billing and shipping are the same
+    same_address = (
+        not shipping_address or
+        shipping_address.get("id") == billing_address.get("id")
+    )
+
+    # Create billing address if missing
+    if not has_billing and billing_address and billing_address.get("street"):
+        address_fields = _map_address_fields(
+            billing_address, customer_name, "Billing", email, is_also_shipping=same_address
+        )
+        address_fields["links"] = [{"link_doctype": "Customer", "link_name": customer}]
+
+        try:
+            address = frappe.get_doc({"doctype": "Address", **address_fields})
+            address.insert(ignore_permissions=True)
+            frappe.logger("shopware6").info(
+                f"Created billing address for {customer} from order data: {address.name}"
+            )
+            has_billing = True
+            if same_address:
+                has_shipping = True
+        except Exception as e:
+            frappe.logger("shopware6").warning(
+                f"Failed to create billing address for {customer}: {e}"
+            )
+
+    # Create shipping address if missing and different from billing
+    if not has_shipping and shipping_address and shipping_address.get("street") and not same_address:
+        address_fields = _map_address_fields(
+            shipping_address, customer_name, "Shipping", email
+        )
+        address_fields["links"] = [{"link_doctype": "Customer", "link_name": customer}]
+
+        try:
+            address = frappe.get_doc({"doctype": "Address", **address_fields})
+            address.insert(ignore_permissions=True)
+            frappe.logger("shopware6").info(
+                f"Created shipping address for {customer} from order data: {address.name}"
+            )
+        except Exception as e:
+            frappe.logger("shopware6").warning(
+                f"Failed to create shipping address for {customer}: {e}"
+            )
 
 
 def create_guest_customer() -> str:
@@ -786,11 +1045,14 @@ def create_customer_address(
     # Get email from address if available
     email = address_data.get("email", "")
 
-    address_title = f"{customer}-{address_type}"
+    # ERPNext automatically appends address_type to address_title when creating the document name
+    # So use just customer name as address_title to avoid "Customer-Billing-Billing"
+    address_title = customer
 
-    # Check if address already exists
-    if frappe.db.exists("Address", {"address_title": address_title}):
-        return address_title
+    # Check if address already exists (ERPNext creates name as "{address_title}-{address_type}")
+    expected_name = f"{address_title}-{address_type}"
+    if frappe.db.exists("Address", expected_name):
+        return expected_name
 
     address_doc = {
         "doctype": "Address",
@@ -805,6 +1067,9 @@ def create_customer_address(
             "link_doctype": "Customer",
             "link_name": customer,
         }],
+        # Set preferred address flags so ERPNext auto-selects the correct addresses
+        "is_primary_address": 1 if address_type == "Billing" else 0,
+        "is_shipping_address": 1 if address_type == "Shipping" else 0,
     }
     
     # Add state if found
@@ -917,8 +1182,15 @@ def sync_customer_by_id(client: Shopware6AdminAPIClientBase, customer_id: str) -
 def create_customer_from_shopware_data(customer_data: Dict[str, Any]) -> str:
     """
     Create ERPNext Customer from Shopware customer data.
-    
+
     Uses the ShopwareCustomer class following the Shopify pattern.
+
+    Customer matching logic:
+    1. First check by shopware_customer_id (exact match)
+    2. For B2B (with company): Match by company name (not email - same email can have multiple companies)
+    3. For B2C: Match by customer_name (firstName + lastName)
+    4. Guest customers: Always create new customer (one-time orders)
+    5. NEVER overwrite an existing shopware_customer_id (would break existing links)
 
     Args:
         customer_data: Full Shopware customer object
@@ -927,44 +1199,142 @@ def create_customer_from_shopware_data(customer_data: Dict[str, Any]) -> str:
         ERPNext Customer name
     """
     customer_id = customer_data.get("id")
-    
+
     if not customer_id:
         frappe.throw(_("Customer ID is required"))
-    
-    # Use ShopwareCustomer class (following Shopify pattern)
-    customer = ShopwareCustomer(customer_id=customer_id)
 
-    # Multi-Storefront: Get sales channel ID from customer data
-    sales_channel_id = customer_data.get("salesChannelId", "")
+    try:
+        with _acquire_customer_sync_lock(customer_id):
+            # Use ShopwareCustomer class (following Shopify pattern)
+            customer = ShopwareCustomer(customer_id=customer_id)
 
-    if not customer.is_synced():
-        # Check if customer exists by email first
-        email = customer_data.get("email", "")
-        if email:
-            existing_by_email = frappe.db.get_value("Customer", {"email_id": email}, "name")
-            if existing_by_email:
-                # Link existing customer to Shopware ID
-                frappe.db.set_value("Customer", existing_by_email, "shopware_customer_id", customer_id)
-                # Also set source sales channel if available
-                if sales_channel_id:
-                    frappe.db.set_value("Customer", existing_by_email, "shopware_source_sales_channel_id", sales_channel_id)
-                    setting = frappe.get_doc(SETTING_DOCTYPE)
-                    for sc in (setting.sales_channels or []):
-                        if sc.sales_channel_id == sales_channel_id:
-                            frappe.db.set_value("Customer", existing_by_email, "shopware_source_sales_channel_name", sc.sales_channel_name)
-                            break
-                frappe.logger("shopware6").info(f"Linked existing customer {existing_by_email} (by email) to Shopware ID {customer_id}")
-                return existing_by_email
+            # Multi-Storefront: Get sales channel ID from customer data
+            sales_channel_id = customer_data.get("salesChannelId", "")
 
-        # Create new customer with source sales channel
-        customer.sync_customer(customer_data, sales_channel_id=sales_channel_id)
-    else:
-        # Customer exists - update addresses if needed
-        customer.update_existing_addresses(customer_data)
-        # Also update contact salutation/gender
-        customer.create_customer_contact(customer_data)
-    
-    return customer.get_customer_doc().name
+            if not customer.is_synced():
+                # Extract customer details
+                email = customer_data.get("email", "")
+                company = customer_data.get("company", "")
+                first_name = customer_data.get("firstName", "")
+                last_name = customer_data.get("lastName", "")
+                is_guest = customer_data.get("guest", False)
+
+                # Determine the customer name that would be created
+                if company:
+                    expected_customer_name = company
+                else:
+                    expected_customer_name = f"{first_name} {last_name}".strip()
+
+                # Guest customers: Always create new customer (they are one-time orders)
+                # This prevents guest orders from being merged into registered customers
+                if is_guest:
+                    frappe.logger("shopware6").info(
+                        f"Creating new customer for guest order: {expected_customer_name} (Shopware ID: {customer_id})"
+                    )
+                    customer.sync_customer(customer_data, sales_channel_id=sales_channel_id)
+                else:
+                    # Non-guest customers: Try to find existing customer to link
+                    existing_customer = _find_existing_customer_to_link(
+                        email=email,
+                        company=company,
+                        customer_name=expected_customer_name,
+                        customer_id=customer_id
+                    )
+
+                    if existing_customer:
+                        # Found a matching customer without shopware_customer_id - link it
+                        frappe.db.set_value("Customer", existing_customer, "shopware_customer_id", customer_id)
+                        if sales_channel_id:
+                            frappe.db.set_value("Customer", existing_customer, "shopware_source_sales_channel_id", sales_channel_id)
+                            setting = frappe.get_doc(SETTING_DOCTYPE)
+                            for sc in (setting.sales_channels or []):
+                                if sc.sales_channel_id == sales_channel_id:
+                                    frappe.db.set_value("Customer", existing_customer, "shopware_source_sales_channel_name", sc.sales_channel_name)
+                                    break
+                        frappe.logger("shopware6").info(
+                            f"Linked existing customer '{existing_customer}' to Shopware ID {customer_id}"
+                        )
+                        return existing_customer
+                    else:
+                        # No matching customer found - create new
+                        customer.sync_customer(customer_data, sales_channel_id=sales_channel_id)
+            else:
+                # Customer exists - update addresses if needed
+                customer.update_existing_addresses(customer_data)
+                # Also update contact salutation/gender
+                customer.create_customer_contact(customer_data)
+
+            return customer.get_customer_doc().name
+    except CustomerSyncInProgressError:
+        existing_customer = frappe.db.get_value("Customer", {CUSTOMER_ID_FIELD: customer_id}, "name")
+        if existing_customer:
+            get_logger("create_customer_from_shopware_data").info(
+                f"Customer sync lock busy for customer_id={customer_id}; using existing customer {existing_customer}"
+            )
+            return existing_customer
+        raise
+
+
+def _find_existing_customer_to_link(
+    email: str,
+    company: str,
+    customer_name: str,
+    customer_id: str
+) -> Optional[str]:
+    """
+    Find an existing ERPNext customer that can be linked to a Shopware customer.
+
+    Rules:
+    1. Only match customers that DON'T already have a shopware_customer_id
+       (never overwrite existing links - that breaks data integrity)
+    2. For B2B (with company): Match by company name
+    3. For B2C: Match by customer_name
+    4. Email alone is NOT enough (same email can have multiple companies/persons)
+
+    Args:
+        email: Customer email
+        company: Company name (empty for B2C)
+        customer_name: Expected customer name (company or "firstName lastName")
+        customer_id: Shopware customer ID (for logging)
+
+    Returns:
+        ERPNext Customer name if found, None otherwise
+    """
+    if not customer_name:
+        return None
+
+    # Build filter: customer_name matches AND no shopware_customer_id set
+    # We use customer_name field, not name (which can have suffixes like "- 1")
+    filters = {
+        "customer_name": customer_name,
+        "shopware_customer_id": ["is", "not set"]
+    }
+
+    existing = frappe.db.get_value("Customer", filters, "name")
+
+    if existing:
+        frappe.logger("shopware6").info(
+            f"Found existing customer '{existing}' matching name '{customer_name}' "
+            f"(no shopware_customer_id set) - will link to Shopware ID {customer_id}"
+        )
+        return existing
+
+    # For B2B: Also try matching by company name with email as secondary check
+    if company and email:
+        filters_with_email = {
+            "customer_name": company,
+            "email_id": email,
+            "shopware_customer_id": ["is", "not set"]
+        }
+        existing = frappe.db.get_value("Customer", filters_with_email, "name")
+        if existing:
+            frappe.logger("shopware6").info(
+                f"Found existing B2B customer '{existing}' matching company '{company}' + email "
+                f"(no shopware_customer_id set) - will link to Shopware ID {customer_id}"
+            )
+            return existing
+
+    return None
 
 
 
@@ -1142,19 +1512,18 @@ def trigger_vat_id_check(customer_name: str, vat_id: str) -> Optional[str]:
         return existing_check
 
     try:
-        # Get customer's billing address for validation
-        billing_address = frappe.db.get_value(
-            "Address",
-            {
-                "link_doctype": "Customer",
-                "link_name": customer_name,
-                "address_type": "Billing"
-            },
-            "name"
-        )
-
-        # If no billing address, try to get any address
-        if not billing_address:
+        # Get customer's billing address for validation (via Dynamic Link)
+        billing_address = frappe.db.sql("""
+            SELECT a.name
+            FROM `tabAddress` a
+            INNER JOIN `tabDynamic Link` dl ON dl.parent = a.name AND dl.parenttype = 'Address'
+            WHERE dl.link_doctype = 'Customer' AND dl.link_name = %s AND a.address_type = 'Billing'
+            LIMIT 1
+        """, (customer_name,), as_dict=True)
+        if billing_address:
+            billing_address = billing_address[0].name
+        else:
+            # If no billing address, try to get any address
             billing_address = frappe.db.sql("""
                 SELECT a.name
                 FROM `tabAddress` a
@@ -1188,6 +1557,13 @@ def trigger_vat_id_check(customer_name: str, vat_id: str) -> Optional[str]:
             elif hasattr(vat_check, 'check_vat_id'):
                 vat_check.check_vat_id()
                 vat_check.save(ignore_permissions=True)
+
+            # Reload to get validation result
+            # Note: Email notifications for invalid VAT IDs should be configured
+            # via ERPNext Notification on "VAT ID Check" doctype with condition:
+            # doc.status == "Completed" and doc.is_valid == 0
+            vat_check.reload()
+
         except Exception as validation_error:
             frappe.logger("shopware6").warning(
                 f"VAT ID validation failed for {vat_id}: {validation_error}. "

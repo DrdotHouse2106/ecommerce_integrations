@@ -300,6 +300,36 @@ def queue_item_for_sync(doc, method=None):
     )
 
 
+def queue_item_delete_for_sync(doc, method=None):
+    """
+    Queue Item deletion/deactivation from Shopware.
+
+    This is triggered by the Item on_trash hook.
+    It deactivates the product in Shopware and cleans up the Ecommerce Item link.
+    """
+    item = doc
+
+    # Skip if explicit flag is set (for bulk operations from external scripts)
+    if getattr(frappe.flags, 'skip_shopware_sync', False):
+        return
+
+    # Check if Shopware sync is enabled in settings
+    try:
+        setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+        if not setting.is_enabled():
+            return
+    except Exception:
+        return
+
+    # Enqueue to prevent blocking the delete operation
+    frappe.enqueue(
+        "ecommerce_integrations.shopware6.product_export.deactivate_product_in_shopware",
+        queue="short",
+        item_code=item.name,
+        enqueue_after_commit=True,
+    )
+
+
 def sync_single_item_to_shopware(item_code: str):
     """
     Sync a single item to Shopware (async wrapper).
@@ -412,6 +442,95 @@ def queue_item_group_for_sync(doc, method=None):
         "ecommerce_integrations.shopware6.product_export.sync_item_group_to_shopware",
         queue="short",
         item_group_name=item_group.name,
+        enqueue_after_commit=True,
+    )
+
+
+def queue_item_group_rename_for_sync(doc, method=None, old_name=None, new_name=None):
+    """
+    Queue Item Group rename for sync to Shopware.
+
+    This is triggered by the Item Group after_rename hook.
+    It updates the category name in Shopware to match the new ERPNext name.
+
+    Args:
+        doc: The renamed Item Group document (or doctype string for after_rename)
+        method: Hook method name
+        old_name: Old Item Group name (passed by after_rename hook)
+        new_name: New Item Group name (passed by after_rename hook)
+    """
+    from ecommerce_integrations.shopware6.product_export import rename_category_in_shopware
+
+    # after_rename hook signature: (doctype, old_name, new_name, merge)
+    # So 'doc' is actually the doctype string "Item Group"
+    if isinstance(doc, str):
+        # Called from after_rename hook
+        doctype = doc
+        # old_name and new_name are passed as positional args
+    else:
+        # Should not happen, but handle gracefully
+        return
+
+    # Skip root categories
+    root_categories_to_skip = ["All Item Groups", "Alle Artikelgruppen"]
+    if old_name in root_categories_to_skip or new_name in root_categories_to_skip:
+        return
+
+    # Skip if explicit flag is set
+    if getattr(frappe.flags, 'skip_shopware_sync', False):
+        return
+
+    # Check if Shopware sync is enabled in settings
+    try:
+        setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+        if not setting.is_enabled():
+            return
+    except Exception:
+        return
+
+    # Enqueue the rename operation
+    frappe.enqueue(
+        "ecommerce_integrations.shopware6.product_export.rename_category_in_shopware",
+        queue="short",
+        old_name=old_name,
+        new_name=new_name,
+        enqueue_after_commit=True,
+    )
+
+
+def queue_item_group_delete_for_sync(doc, method=None):
+    """
+    Queue Item Group (category) deletion from Shopware.
+
+    This is triggered by the Item Group on_trash hook.
+    It deletes the corresponding category in Shopware.
+    """
+    from ecommerce_integrations.shopware6.product_export import delete_category_from_shopware
+
+    item_group = doc
+
+    # Skip root categories
+    root_categories_to_skip = ["All Item Groups", "Alle Artikelgruppen"]
+    if item_group.name in root_categories_to_skip:
+        return
+
+    # Skip if explicit flag is set (for bulk operations from external scripts)
+    if getattr(frappe.flags, 'skip_shopware_sync', False):
+        return
+
+    # Check if Shopware sync is enabled in settings
+    try:
+        setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+        if not setting.is_enabled():
+            return
+    except Exception:
+        return
+
+    # Enqueue to prevent blocking the delete operation
+    frappe.enqueue(
+        "ecommerce_integrations.shopware6.product_export.delete_category_from_shopware",
+        queue="short",
+        category_name=item_group.name,
         enqueue_after_commit=True,
     )
 

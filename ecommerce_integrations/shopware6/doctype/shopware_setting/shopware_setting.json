@@ -51,6 +51,8 @@
   "price_handling_section",
   "default_selling_price_list",
   "default_price_list_includes_tax",
+  "list_price_price_list",
+  "list_price_includes_tax",
   "import_prices_as_net",
   "default_tax_rate",
   "column_break_price_handling",
@@ -82,11 +84,17 @@
   "sync_new_item_as_active",
   "export_parent_products_inactive",
   "discount_item",
+  "shipping_section",
+  "add_shipping_as_item",
+  "shipping_item",
+  "column_break_shipping",
+  "shipping_info_html",
   "category_sync_section",
   "category_sync_root",
   "skip_root_category",
   "column_break_category_sync",
   "sync_empty_categories",
+  "protected_shopware_categories",
   "category_sync_info_html",
   "reconciliation_batch_section",
   "product_batch_size",
@@ -412,6 +420,22 @@
    "label": "Default Price List Includes Tax (Gross)"
   },
   {
+   "depends_on": "default_selling_price_list",
+   "description": "Price list containing original/UVP prices. If an item has a higher price in this list than its selling price, the UVP is sent as strikethrough price (listPrice) to Shopware.",
+   "fieldname": "list_price_price_list",
+   "fieldtype": "Link",
+   "label": "Streichpreis/UVP Preisliste",
+   "options": "Price List"
+  },
+  {
+   "default": "0",
+   "depends_on": "list_price_price_list",
+   "description": "Enable if the UVP/Streichpreis Price List contains gross prices (including tax). Prices will be converted to net before sending to Shopware.",
+   "fieldname": "list_price_includes_tax",
+   "fieldtype": "Check",
+   "label": "Streichpreis-Preisliste enth\u00e4lt Bruttopreise"
+  },
+  {
    "default": "1",
    "description": "Import prices from Shopware as net prices (excluding VAT). Enable for B2B. Disable for B2C to keep gross prices.",
    "fieldname": "import_prices_as_net",
@@ -607,6 +631,37 @@
    "description": "ERPNext Item to use for Shopware discounts/promotions. This item will be added with negative amount when promotions are applied."
   },
   {
+   "fieldname": "shipping_section",
+   "fieldtype": "Section Break",
+   "label": "Shipping Costs",
+   "description": "Configure how shipping costs from Shopware are handled in ERPNext"
+  },
+  {
+   "default": "1",
+   "fieldname": "add_shipping_as_item",
+   "fieldtype": "Check",
+   "label": "Add Shipping as Line Item",
+   "description": "Add shipping costs as a separate line item in Sales Order. Required to transfer shipping costs from Shopware."
+  },
+  {
+   "depends_on": "eval:doc.add_shipping_as_item",
+   "fieldname": "shipping_item",
+   "fieldtype": "Link",
+   "label": "Shipping Item",
+   "options": "Item",
+   "description": "ERPNext item code for shipping (e.g., VERSAND or SHIPPING). This item will be added when shipping costs exist."
+  },
+  {
+   "fieldname": "column_break_shipping",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "shipping_info_html",
+   "fieldtype": "HTML",
+   "label": "Shipping Info",
+   "options": "<div class=\"alert alert-info\"><h5>Shipping Cost Handling</h5><p>When enabled, shipping costs from Shopware orders are added as a separate line item using the configured Shipping Item.</p><p><strong>Note:</strong> Make sure to create a service item (e.g., 'VERSAND') with appropriate tax settings.</p></div>"
+  },
+  {
    "fieldname": "category_sync_section",
    "fieldtype": "Section Break",
    "label": "Category Sync Settings",
@@ -638,6 +693,12 @@
    "label": "Sync Empty Categories",
    "default": "1",
    "description": "Sync categories even if they have no products assigned"
+  },
+  {
+   "fieldname": "protected_shopware_categories",
+   "fieldtype": "Small Text",
+   "label": "Protected Shopware Category IDs",
+   "description": "Shopware category IDs (one per line) that should never be deleted during orphan cleanup. These categories and all their descendants are protected. Use this for categories managed directly in Shopware (not synced from ERPNext)."
   },
   {
    "fieldname": "category_sync_info_html",
@@ -834,7 +895,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2024-01-01 00:00:00.000000",
+ "modified": "2026-02-16 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "shopware6",
  "name": "Shopware Setting",

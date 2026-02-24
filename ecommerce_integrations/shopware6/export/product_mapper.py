@@ -77,9 +77,51 @@ def get_tax_id_by_rate(client, tax_rate: float = 19.0) -> Optional[str]:
         return None
 
 
+def _parse_delivery_time(delivery_time_name: str) -> tuple:
+    """
+    Parse delivery time name into (min, max, unit) values.
+
+    Examples:
+        "25 Tage" -> (25, 25, 'day')
+        "3-5 Werktage" -> (3, 5, 'day')
+        "2 Wochen" -> (2, 2, 'week')
+        "sofort lieferbar" -> (1, 3, 'day')
+    """
+    import re
+
+    name_lower = delivery_time_name.lower()
+
+    if "sofort" in name_lower or "lagernd" in name_lower:
+        return 1, 3, 'day'
+
+    match_range = re.search(r'(\d+)\s*[-–]\s*(\d+)', delivery_time_name)
+    match_single = re.search(r'(\d+)', delivery_time_name)
+
+    if match_range:
+        min_val = int(match_range.group(1))
+        max_val = int(match_range.group(2))
+    elif match_single:
+        val = int(match_single.group(1))
+        min_val = max_val = val
+    else:
+        min_val, max_val = 1, 3
+
+    if 'woche' in name_lower or 'week' in name_lower:
+        unit = 'week'
+    elif 'monat' in name_lower or 'month' in name_lower:
+        unit = 'month'
+    elif 'jahr' in name_lower or 'year' in name_lower:
+        unit = 'year'
+    else:
+        unit = 'day'
+
+    return min_val, max_val, unit
+
+
 def get_or_create_delivery_time(client, delivery_time_name: str) -> Optional[str]:
     """
     Get existing or create new Delivery Time in Shopware.
+    Updates min/max/unit on existing entities if they don't match the parsed name.
 
     Args:
         client: Shopware API client
@@ -88,8 +130,6 @@ def get_or_create_delivery_time(client, delivery_time_name: str) -> Optional[str
     Returns:
         Shopware delivery time ID
     """
-    import re
-
     cache = get_cache()
     cached_id = cache.get("delivery_time", delivery_time_name)
     if cached_id:
@@ -104,35 +144,30 @@ def get_or_create_delivery_time(client, delivery_time_name: str) -> Optional[str
 
         if times:
             dt_id = times[0]["id"]
+            existing = times[0].get("attributes", times[0])
+            existing_min = existing.get("min", 0)
+            existing_max = existing.get("max", 0)
+            existing_unit = existing.get("unit", "day")
+
+            # Ensure min/max/unit match the parsed name
+            expected_min, expected_max, expected_unit = _parse_delivery_time(delivery_time_name)
+            if existing_min != expected_min or existing_max != expected_max or existing_unit != expected_unit:
+                get_logger().info(
+                    f"Updating DeliveryTime '{delivery_time_name}': "
+                    f"min {existing_min}->{expected_min}, max {existing_max}->{expected_max}, "
+                    f"unit {existing_unit}->{expected_unit}"
+                )
+                client.request_patch(f"delivery-time/{dt_id}", {
+                    "min": expected_min,
+                    "max": expected_max,
+                    "unit": expected_unit,
+                })
+
             cache.set("delivery_time", delivery_time_name, dt_id)
             return dt_id
 
-        # Parse delivery time
-        name_lower = delivery_time_name.lower()
-
-        if "sofort" in name_lower or "lagernd" in name_lower:
-            min_val, max_val, unit = 1, 3, 'day'
-        else:
-            match_range = re.search(r'(\d+)\s*[-–]\s*(\d+)', delivery_time_name)
-            match_single = re.search(r'(\d+)', delivery_time_name)
-
-            if match_range:
-                min_val = int(match_range.group(1))
-                max_val = int(match_range.group(2))
-            elif match_single:
-                val = int(match_single.group(1))
-                min_val = max_val = val
-            else:
-                min_val, max_val = 1, 3
-
-            if 'woche' in name_lower or 'week' in name_lower:
-                unit = 'week'
-            elif 'monat' in name_lower or 'month' in name_lower:
-                unit = 'month'
-            elif 'jahr' in name_lower or 'year' in name_lower:
-                unit = 'year'
-            else:
-                unit = 'day'
+        # Parse and create new delivery time
+        min_val, max_val, unit = _parse_delivery_time(delivery_time_name)
 
         dt_id = generate_uuid(f"delivery_time_{delivery_time_name}")
         client.request_post("delivery-time", {
@@ -287,6 +322,7 @@ def map_erpnext_item_to_shopware(erpnext_item) -> Dict[str, Any]:
         "active": active,
         "stock": 0,
         "isCloseout": False,
+        "markAsTopseller": bool(getattr(erpnext_item, 'shopware_topseller', 0)),
         "translations": {
             "de-DE": {
                 "name": erpnext_item.item_name,
@@ -353,12 +389,22 @@ def map_erpnext_item_to_shopware(erpnext_item) -> Dict[str, Any]:
     net_price = price
     gross_price = round(net_price * (1 + tax_rate / 100), 2)
 
-    payload["price"] = [{
+    # Check for listPrice (Streichpreis/UVP)
+    from ecommerce_integrations.shopware6.export.price_handler import _get_list_price_payload
+    list_price = _get_list_price_payload(erpnext_item.name, net_price, tax_rate, None)
+
+    price_entry = {
         "currencyId": None,
         "gross": gross_price,
         "net": net_price,
         "linked": False,
-    }]
+    }
+    if list_price:
+        # currencyId will be set later by the caller when it's available
+        list_price["currencyId"] = None
+        price_entry["listPrice"] = list_price
+
+    payload["price"] = [price_entry]
     payload["_tax_rate"] = tax_rate
 
     # Weight
@@ -385,6 +431,11 @@ def map_erpnext_item_to_shopware(erpnext_item) -> Dict[str, Any]:
         payload["metaDescription"] = seo_description
     if seo_keywords:
         payload["keywords"] = seo_keywords
+
+    # Manufacturer Part Number (HAN/MPN)
+    manufacturer_part_no = getattr(erpnext_item, 'default_manufacturer_part_no', None)
+    if manufacturer_part_no:
+        payload["manufacturerNumber"] = manufacturer_part_no
 
     # Barcode/EAN
     if erpnext_item.barcodes:
@@ -674,20 +725,26 @@ def build_channel_prices(
 
         gross_price = round(net_price * (1 + tax_rate / 100), 2)
 
+        # Check for listPrice (Streichpreis/UVP)
+        from ecommerce_integrations.shopware6.export.price_handler import _get_list_price_payload
+        list_price = _get_list_price_payload(item.name, net_price, tax_rate, currency_id)
+
         # Get rule ID for this channel
         rule_id = get_channel_rule_id(client, channel_id, setting)
 
         # Shopware prices structure requires nested price array
+        inner_price = {
+            "currencyId": currency_id,
+            "gross": gross_price,
+            "net": net_price,
+            "linked": False,
+        }
+        if list_price:
+            inner_price["listPrice"] = list_price
+
         price_entry = {
             "quantityStart": 1,
-            "price": [
-                {
-                    "currencyId": currency_id,
-                    "gross": gross_price,
-                    "net": net_price,
-                    "linked": False,
-                }
-            ]
+            "price": [inner_price]
         }
 
         # Only add ruleId if we have one (otherwise it's the default price)
@@ -709,16 +766,22 @@ def build_channel_prices(
             )
         gross_price = round(net_price * (1 + tax_rate / 100), 2)
 
+        # Check for listPrice (Streichpreis/UVP)
+        from ecommerce_integrations.shopware6.export.price_handler import _get_list_price_payload
+        fallback_list_price = _get_list_price_payload(item.name, net_price, tax_rate, currency_id)
+
+        fallback_inner = {
+            "currencyId": currency_id,
+            "gross": gross_price,
+            "net": net_price,
+            "linked": False,
+        }
+        if fallback_list_price:
+            fallback_inner["listPrice"] = fallback_list_price
+
         prices.append({
             "quantityStart": 1,
-            "price": [
-                {
-                    "currencyId": currency_id,
-                    "gross": gross_price,
-                    "net": net_price,
-                    "linked": False,
-                }
-            ]
+            "price": [fallback_inner]
         })
 
     return prices

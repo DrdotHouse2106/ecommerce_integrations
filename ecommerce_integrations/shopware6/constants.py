@@ -90,6 +90,9 @@ SHOPWARE_CATEGORY_FAQ4_ANSWER = "erpnext_faq4_answer"
 SHOPWARE_CATEGORY_FAQ5_QUESTION = "erpnext_faq5_question"
 SHOPWARE_CATEGORY_FAQ5_ANSWER = "erpnext_faq5_answer"
 
+# Category Priority Custom Field (for frontend sorting)
+SHOPWARE_CATEGORY_PRIORITY = "erpnext_priority"
+
 # Mapping: ERPNext Item Group FAQ fields -> Shopware category custom fields
 CATEGORY_FAQ_FIELDS_MAP = {
     "faq1_question": SHOPWARE_CATEGORY_FAQ1_QUESTION,
@@ -147,7 +150,7 @@ PAYMENT_STATE_MAP = {
     "pending": "Unpaid",           # Waiting for payment
     "unconfirmed": "Unpaid",       # Payment not confirmed yet
     "reminded": "Unpaid",          # Reminder sent, still unpaid
-    "failed": "Unpaid",            # Payment failed
+    "failed": "Failed",            # Payment failed
     # Paid states
     "authorized": "Paid",          # PayPal/Klarna authorization = payment captured
     "paid": "Paid",
@@ -186,6 +189,9 @@ PAYMENT_METHOD_MAP = {
     "acdc": "Kreditkarte",
     # PayPal Pay Later
     "pay_later": "PayPal",
+    # PayPal PUI (Pay Upon Invoice / Rechnungskauf)
+    "p_u_i": "PayPal Rechnungskauf",
+    "pui": "PayPal Rechnungskauf",
     # SEPA (PayPal SEPA or standard)
     "s_e_p_a": "SEPA Lastschrift",
     "sepa": "SEPA Lastschrift",
@@ -232,4 +238,29 @@ SHOPWARE_CHECKOUT_CUSTOM_FIELDS = {
     "tel_avis": ["custom_tel_avis", "tel_avis", "telAvis", "telephone_notification"],
     "forklift": ["custom_forklift_required", "forklift_required", "forkliftRequired", "hebebuehne"],
     "invoice_email": ["invoice_email", "invoiceEmail", "billing_email", "billingEmail"],
+    "is_government_org": ["is_government_org", "isGovernmentOrg", "government_org", "governmentOrg"],
+    "leitweg_id": ["leitweg_id", "leitwegId", "leitweg-id", "buyer_reference"],
+}
+
+# EU member state ISO codes (excluding domestic country)
+EU_COUNTRY_CODES = {
+    "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR",
+    "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL",
+    "PT", "RO", "SK", "SI", "ES", "SE",
+}
+
+# Domestic country (Germany)
+DOMESTIC_COUNTRY_CODE = "DE"
+
+# Tax template mapping by delivery scenario
+# {company_abbr} will be replaced with actual company abbreviation
+TAX_TEMPLATE_MAP = {
+    # Domestic (Germany) - B2B and B2C same
+    "domestic": "Lieferung oder sonstige Leistung im Inland - {company_abbr}",
+    # EU B2B with valid VAT ID (reverse charge, 0% tax)
+    "eu_b2b": "Lieferung an Unternehmen in der EU - {company_abbr}",
+    # EU B2C without VAT ID (German VAT applies)
+    "eu_b2c": "Lieferung oder sonstige Leistung an nicht-Unternehmen in der EU - {company_abbr}",
+    # Third country (non-EU) - export, 0% tax
+    "drittland": "Lieferung in Drittland - {company_abbr}",
 }

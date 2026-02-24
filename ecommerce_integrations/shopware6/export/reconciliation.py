@@ -965,11 +965,28 @@ def cleanup_orphaned_shopware_categories(
         return {"success": False, "message": f"Failed to fetch Shopware categories: {e}"}
 
     # Step 3: Find orphaned categories (in Shopware under root but not in ERPNext)
+    # Protect category trees managed directly in Shopware (not via ERPNext sync).
+    # IDs are configured in Shopware Setting > Protected Shopware Category IDs.
+    protected_ids_raw = getattr(setting, 'protected_shopware_categories', '') or ''
+    protected_category_ids = {
+        line.strip() for line in protected_ids_raw.splitlines() if line.strip()
+    }
+
+    def _is_protected(cat):
+        if not protected_category_ids:
+            return False
+        cat_id = cat.get("id", "")
+        cat_path = cat.get("path") or ""
+        if cat_id in protected_category_ids:
+            return True
+        return any(pid in cat_path for pid in protected_category_ids)
+
     orphaned = [
         {"id": c.get("id"), "name": c.get("name"), "parent_id": c.get("parentId")}
         for c in all_shopware_cats
         if c.get("name") and c.get("name") not in erpnext_categories
         and c.get("id") != shopware_root_id  # Never delete the root itself
+        and not _is_protected(c)  # Never delete protected category trees
     ]
 
     stats = {

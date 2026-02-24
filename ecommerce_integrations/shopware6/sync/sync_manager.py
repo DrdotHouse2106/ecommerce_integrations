@@ -33,7 +33,11 @@ from frappe.utils import now, cint
 
 from ecommerce_integrations.shopware6.connection import get_shopware_client, temp_shopware_session
 from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCTYPE
-from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
+from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log, update_shopware_log
+
+# CRITICAL: ShopwareAPIError inherits from BaseException, NOT Exception!
+# We must catch it explicitly alongside Exception in all error handlers.
+from lib_shopware6_api_base.conf_shopware6_api_base_classes import ShopwareAPIError
 
 
 @dataclass
@@ -121,9 +125,10 @@ class SyncManager:
     Core Principle: ERPNext is ALWAYS the source of truth.
     """
 
-    def __init__(self):
+    def __init__(self, log_name: str = None):
         self.setting = frappe.get_cached_doc(SETTING_DOCTYPE)
         self.logger = get_logger("SyncManager")
+        self._log_name = log_name
 
         if not self.setting.is_enabled():
             frappe.throw(_("Shopware integration is not enabled"))
@@ -224,26 +229,22 @@ class SyncManager:
                 self._notify("Phase 1/6: Syncing categories...")
                 self.logger.info("Full Reconciliation: Starting Phase 1 (Categories)")
 
-                # Create savepoint for partial rollback capability
-                frappe.db.savepoint("sync_phase_1_categories")
                 try:
                     cat_result = self._sync_all_categories(client, dry_run)
                     result.categories_synced = cat_result.get("synced", 0)
                     result.categories_created = cat_result.get("created", 0)
-                    frappe.db.commit()  # Commit phase on success
+                    frappe.db.commit()
                     self.logger.info(f"Full Reconciliation: Phase 1 complete - synced={result.categories_synced}, created={result.categories_created}")
-                except Exception as e:
-                    frappe.db.rollback(save_point="sync_phase_1_categories")
+                except (Exception, ShopwareAPIError) as e:
+                    self._safe_db_recover()
                     result.errors.append({"phase": "1_categories", "error": str(e)[:200]})
-                    self.logger.error(f"Phase 1 failed, rolled back: {e}")
+                    self.logger.error(f"Phase 1 failed: {e}")
             else:
                 self._notify("Phase 1/6: Skipping categories (disabled in settings)...")
                 self.logger.info("Full Reconciliation: Phase 1 (Categories) skipped per settings")
 
             # Phase 2 & 3: Products and Variants
             if sync_products or sync_variants:
-                # Create savepoint for products/variants phase
-                frappe.db.savepoint("sync_phase_2_3_products")
                 try:
                     if use_batch_sync and not dry_run:
                         # BATCH MODE: Use Sync API for 5-10x speedup
@@ -289,11 +290,11 @@ class SyncManager:
                             result.variants_synced = var_result.get("synced", 0)
                             self.logger.info(f"Full Reconciliation: Phase 3 complete - synced={result.variants_synced}")
 
-                    frappe.db.commit()  # Commit phase on success
-                except Exception as e:
-                    frappe.db.rollback(save_point="sync_phase_2_3_products")
+                    frappe.db.commit()
+                except (Exception, ShopwareAPIError) as e:
+                    self._safe_db_recover()
                     result.errors.append({"phase": "2_3_products", "error": str(e)[:200]})
-                    self.logger.error(f"Phase 2-3 failed, rolled back: {e}")
+                    self.logger.error(f"Phase 2-3 failed: {e}")
 
             # Phase 4: Force Price Sync
             if sync_prices:
@@ -303,18 +304,16 @@ class SyncManager:
                     self._notify("Phase 4/6: Syncing prices...")
                 self.logger.info("Full Reconciliation: Starting Phase 4 (Prices)")
 
-                # Create savepoint for price sync phase
-                frappe.db.savepoint("sync_phase_4_prices")
                 try:
                     price_result = self._force_sync_all_prices(client, limit, dry_run, use_batch=use_batch_sync)
                     result.prices_synced = price_result.get("synced", 0)
                     result.prices_fixed = price_result.get("broken_fixed", 0)
-                    frappe.db.commit()  # Commit phase on success
+                    frappe.db.commit()
                     self.logger.info(f"Full Reconciliation: Phase 4 complete - synced={result.prices_synced}, fixed={result.prices_fixed}")
-                except Exception as e:
-                    frappe.db.rollback(save_point="sync_phase_4_prices")
+                except (Exception, ShopwareAPIError) as e:
+                    self._safe_db_recover()
                     result.errors.append({"phase": "4_prices", "error": str(e)[:200]})
-                    self.logger.error(f"Phase 4 failed, rolled back: {e}")
+                    self.logger.error(f"Phase 4 failed: {e}")
 
             # Phase 5: Cleanup orphans
             if use_batch_sync and not dry_run:
@@ -323,8 +322,6 @@ class SyncManager:
                 self._notify("Phase 5/6: Cleaning up orphans...")
             self.logger.info("Full Reconciliation: Starting Phase 5 (Cleanup)")
 
-            # Create savepoint for cleanup phase
-            frappe.db.savepoint("sync_phase_5_cleanup")
             try:
                 if cleanup_orphan_variants and not dry_run:
                     cleanup = self._cleanup_orphan_variants(client, use_batch=use_batch_sync)
@@ -342,29 +339,27 @@ class SyncManager:
                     deactivated = self._deactivate_orphan_products(client)
                     result.products_deactivated = deactivated
 
-                frappe.db.commit()  # Commit phase on success
+                frappe.db.commit()
                 self.logger.info(f"Full Reconciliation: Phase 5 complete - variants_deleted={result.variants_deleted}, categories_deleted={result.categories_deleted}, properties_deleted={result.properties_deleted}, products_deactivated={result.products_deactivated}")
-            except Exception as e:
-                frappe.db.rollback(save_point="sync_phase_5_cleanup")
+            except (Exception, ShopwareAPIError) as e:
+                self._safe_db_recover()
                 result.errors.append({"phase": "5_cleanup", "error": str(e)[:200]})
-                self.logger.error(f"Phase 5 failed, rolled back: {e}")
+                self.logger.error(f"Phase 5 failed: {e}")
 
             # Phase 6: Stock sync (if enabled)
             if sync_stock:
                 self._notify("Phase 6/6: Syncing stock levels...")
                 self.logger.info("Full Reconciliation: Starting Phase 6 (Stock)")
 
-                # Create savepoint for stock sync phase
-                frappe.db.savepoint("sync_phase_6_stock")
                 try:
                     stock_result = self._sync_all_stock(client, limit, dry_run)
                     result.stock_adjusted = stock_result.get("adjusted", 0)
-                    frappe.db.commit()  # Commit phase on success
+                    frappe.db.commit()
                     self.logger.info(f"Full Reconciliation: Phase 6 complete - adjusted={result.stock_adjusted}")
-                except Exception as e:
-                    frappe.db.rollback(save_point="sync_phase_6_stock")
+                except (Exception, ShopwareAPIError) as e:
+                    self._safe_db_recover()
                     result.errors.append({"phase": "6_stock", "error": str(e)[:200]})
-                    self.logger.error(f"Phase 6 failed, rolled back: {e}")
+                    self.logger.error(f"Phase 6 failed: {e}")
             else:
                 self._notify("Phase 6/6: Stock sync skipped (disabled)")
                 self.logger.info("Full Reconciliation: Phase 6 (Stock) skipped")
@@ -379,7 +374,7 @@ class SyncManager:
                 message=result.summary
             )
 
-        except Exception as e:
+        except (Exception, ShopwareAPIError) as e:
             result.success = False
             result.errors.append({"phase": "general", "error": str(e)})
             self.logger.error("Full reconciliation failed", exception=e)
@@ -936,10 +931,25 @@ class SyncManager:
             dry_run=dry_run
         )
 
+    def _safe_db_recover(self):
+        """Safely recover DB connection after an error — never raises."""
+        try:
+            frappe.db.rollback()
+        except Exception:
+            try:
+                frappe.connect()
+            except Exception:
+                pass
+
     def _notify(self, message: str, indicator: str = "blue"):
-        """Log progress message (popup notifications disabled for cleaner UX)."""
-        # Popup disabled - progress is logged to file and Ecommerce Integration Log
+        """Log progress message and update the integration log if available."""
         self.logger.info(message)
+        # Update the Ecommerce Integration Log document with progress
+        if self._log_name:
+            try:
+                update_shopware_log(self._log_name, message=message)
+            except Exception:
+                pass  # Don't let log updates break the sync
 
 
 @frappe.whitelist()
@@ -1003,6 +1013,7 @@ def full_reconciliation_no_brainer(
     skip_variants: bool = False,
     skip_prices: bool = False,
     skip_cleanup: bool = False,
+    log_name: str = None,
 ) -> Dict[str, Any]:
     """
     THE NO-BRAINER FUNCTION.
@@ -1030,77 +1041,129 @@ def full_reconciliation_no_brainer(
         skip_cleanup: Skip orphan cleanup phases
         category_root: Root category - only categories under this are synced/cleaned
         cleanup_orphan_categories: Delete orphaned categories (only under root)
+        log_name: Name of the Ecommerce Integration Log entry to update with progress
 
     Returns:
         Complete reconciliation result
     """
-    manager = SyncManager()
+    # Update log to "Running" immediately
+    if log_name:
+        try:
+            update_shopware_log(log_name, status="Running", message="Full reconciliation starting...")
+        except Exception:
+            pass
 
-    # Override category root if provided
-    if category_root:
-        manager.setting.category_sync_root = category_root
+    try:
+        manager = SyncManager(log_name=log_name)
 
-    # Check if category sync should be skipped (from settings or parameter)
-    skip_category_sync = skip_categories or getattr(
-        manager.setting, 'skip_category_sync_on_full_reconciliation', False
-    )
+        # Override category root if provided
+        if category_root:
+            manager.setting.category_sync_root = category_root
 
-    # Store skip_templates flag on manager for use in _sync_all_products_batch
-    manager._skip_templates = skip_templates
+        # Check if category sync should be skipped (from settings or parameter)
+        skip_category_sync = skip_categories or getattr(
+            manager.setting, 'skip_category_sync_on_full_reconciliation', False
+        )
 
-    result = manager.full_reconciliation(
-        sync_categories=not skip_category_sync,
-        sync_products=not skip_products,
-        sync_variants=not skip_variants,
-        sync_prices=not skip_prices,
-        sync_images=sync_images,
-        sync_stock=sync_stock,
-        cleanup_orphan_variants=not skip_cleanup,
-        cleanup_orphan_categories=cleanup_orphan_categories and not skip_category_sync and not skip_cleanup,
-        cleanup_orphan_properties=not skip_cleanup,
-        deactivate_missing_products=not skip_cleanup,
-        limit=0,  # No limit - process ALL
-        dry_run=dry_run,
-        use_batch_sync=True,  # Use Batch Sync API for 5-10x speedup
-    )
+        # Store skip_templates flag on manager for use in _sync_all_products_batch
+        manager._skip_templates = skip_templates
 
-    return {
-        "success": result.success,
-        "summary": result.summary,
-        "started_at": result.started_at,
-        "completed_at": result.completed_at,
-        "category_sync_skipped": skip_category_sync,
-        "statistics": {
-            "categories": {
-                "synced": result.categories_synced,
-                "created": result.categories_created,
-                "deleted": result.categories_deleted,
-                "skipped": skip_category_sync,
+        result = manager.full_reconciliation(
+            sync_categories=not skip_category_sync,
+            sync_products=not skip_products,
+            sync_variants=not skip_variants,
+            sync_prices=not skip_prices,
+            sync_images=sync_images,
+            sync_stock=sync_stock,
+            cleanup_orphan_variants=not skip_cleanup,
+            cleanup_orphan_categories=cleanup_orphan_categories and not skip_category_sync and not skip_cleanup,
+            cleanup_orphan_properties=not skip_cleanup,
+            deactivate_missing_products=not skip_cleanup,
+            limit=0,  # No limit - process ALL
+            dry_run=dry_run,
+            use_batch_sync=True,  # Use Batch Sync API for 5-10x speedup
+        )
+
+        response = {
+            "success": result.success,
+            "summary": result.summary,
+            "started_at": result.started_at,
+            "completed_at": result.completed_at,
+            "category_sync_skipped": skip_category_sync,
+            "statistics": {
+                "categories": {
+                    "synced": result.categories_synced,
+                    "created": result.categories_created,
+                    "deleted": result.categories_deleted,
+                    "skipped": skip_category_sync,
+                },
+                "products": {
+                    "checked": result.products_checked,
+                    "in_sync": result.products_in_sync,
+                    "synced": result.products_synced,
+                    "created": result.products_created,
+                    "deactivated": result.products_deactivated,
+                },
+                "variants": {
+                    "synced": result.variants_synced,
+                    "deleted": result.variants_deleted,
+                },
+                "properties": {
+                    "deleted": result.properties_deleted,
+                },
+                "prices": {
+                    "synced": result.prices_synced,
+                    "broken_fixed": result.prices_fixed,
+                },
+                "images_synced": result.images_synced,
+                "stock_adjusted": result.stock_adjusted,
             },
-            "products": {
-                "checked": result.products_checked,
-                "in_sync": result.products_in_sync,
-                "synced": result.products_synced,
-                "created": result.products_created,
-                "deactivated": result.products_deactivated,
-            },
-            "variants": {
-                "synced": result.variants_synced,
-                "deleted": result.variants_deleted,
-            },
-            "properties": {
-                "deleted": result.properties_deleted,
-            },
-            "prices": {
-                "synced": result.prices_synced,
-                "broken_fixed": result.prices_fixed,
-            },
-            "images_synced": result.images_synced,
-            "stock_adjusted": result.stock_adjusted,
-        },
-        "errors": result.errors[:20] if result.errors else [],
-        "dry_run": dry_run,
-    }
+            "errors": result.errors[:20] if result.errors else [],
+            "dry_run": dry_run,
+        }
+
+        # Update the log entry to Success with summary
+        if log_name:
+            try:
+                final_status = "Success" if not result.errors else "Partial Success"
+                update_shopware_log(
+                    log_name,
+                    status=final_status,
+                    message=result.summary,
+                    response_data=response,
+                )
+            except Exception:
+                pass
+
+        return response
+    except (Exception, ShopwareAPIError) as e:
+        import traceback
+        error_msg = f"Full reconciliation crashed: {e}\n{traceback.format_exc()}"
+        get_logger().error(error_msg, persist=True)
+
+        # Update the original log entry to Error
+        if log_name:
+            try:
+                update_shopware_log(
+                    log_name,
+                    status="Error",
+                    message=error_msg[:10000],
+                    exception=traceback.format_exc(),
+                )
+            except Exception:
+                pass
+        else:
+            # Fallback: create a separate error log if no log_name
+            try:
+                create_shopware_log(
+                    status="Error",
+                    method="full_reconciliation_no_brainer",
+                    message=error_msg[:10000],
+                )
+            except Exception:
+                pass
+
+        raise
 
 
 @frappe.whitelist()
@@ -1172,7 +1235,7 @@ def enqueue_full_reconciliation_no_brainer(
 
     skip_msg = f", skipping: {', '.join(skip_info)}" if skip_info else ""
 
-    create_shopware_log(
+    log = create_shopware_log(
         status="Queued",
         method="full_reconciliation_no_brainer",
         message=f"Full reconciliation queued (root: {category_root}, dry_run: {dry_run}{skip_msg})"
@@ -1194,6 +1257,7 @@ def enqueue_full_reconciliation_no_brainer(
         skip_variants=skip_variants,
         skip_prices=skip_prices,
         skip_cleanup=skip_cleanup,
+        log_name=log.name,
     )
 
     return {

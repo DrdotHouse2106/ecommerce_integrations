@@ -24,6 +24,7 @@ from ecommerce_integrations.shopware6.export import (
     ShopwareProductUploader,
     # Upload functions
     upload_erpnext_item_to_shopware,
+    deactivate_product_in_shopware,
     upload_template_item_to_shopware,
     upload_variant_item_to_shopware,
     sync_all_variants,
@@ -32,6 +33,8 @@ from ecommerce_integrations.shopware6.export import (
     sync_all_item_categories,
     get_or_create_category,
     sync_item_group_to_shopware,
+    rename_category_in_shopware,
+    delete_category_from_shopware,
     # Images
     sync_product_images_to_shopware,
     upload_media_to_shopware,
@@ -132,10 +135,10 @@ def sync_template_with_variants_to_shopware(template_item_code: str) -> dict:
     try:
         # Get the template item document
         template_item = frappe.get_doc("Item", template_item_code)
-        
+
         # Get Shopware client
         client = get_shopware_client()
-        
+
         # First sync the template
         template_result = upload_template_item_to_shopware(client, template_item)
 
@@ -163,6 +166,52 @@ def sync_template_with_variants_to_shopware(template_item_code: str) -> dict:
         }
 
 
+@frappe.whitelist()
+def sync_category_to_shopware(item_group_name: str) -> dict:
+    """
+    Sync a single ERPNext Item Group (category) to Shopware.
+
+    Args:
+        item_group_name: The ERPNext Item Group name to sync
+
+    Returns:
+        dict with success status and message
+    """
+    from ecommerce_integrations.shopware6.utils import get_logger
+    from ecommerce_integrations.shopware6.connection import get_shopware_client
+
+    logger = get_logger("sync_category_to_shopware")
+
+    # Skip root categories
+    root_to_skip = ["All Item Groups", "Alle Artikelgruppen"]
+    if item_group_name in root_to_skip:
+        return {
+            "success": False,
+            "message": _("Root categories cannot be synced")
+        }
+
+    try:
+        client = get_shopware_client()
+        result = sync_item_group_to_shopware(client, item_group_name)
+
+        if result:
+            return {
+                "success": True,
+                "message": _("Category {0} synced to Shopware").format(item_group_name)
+            }
+        else:
+            return {
+                "success": False,
+                "message": _("Failed to sync category {0}").format(item_group_name)
+            }
+    except Exception as e:
+        logger.error(f"Failed to sync category {item_group_name} to Shopware", exception=e)
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+
 __all__ = [
     # Main class
     "ShopwareProductUploader",
@@ -176,6 +225,7 @@ __all__ = [
     "sync_all_item_categories",
     "get_or_create_category",
     "sync_item_group_to_shopware",
+    "rename_category_in_shopware",
     # Images
     "sync_product_images_to_shopware",
     "upload_media_to_shopware",
@@ -215,4 +265,5 @@ __all__ = [
     # Backwards-compatible wrappers
     "sync_item_to_shopware",
     "sync_template_with_variants_to_shopware",
+    "sync_category_to_shopware",
 ]

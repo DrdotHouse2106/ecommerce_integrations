@@ -12,6 +12,8 @@ import json
 import frappe
 from frappe.utils import now_datetime, time_diff_in_seconds
 
+from ecommerce_integrations.shopware6.utils import get_logger
+
 
 # Event processing timeout in seconds (prevents stuck events)
 EVENT_LOCK_TIMEOUT = 30

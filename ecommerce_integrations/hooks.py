@@ -45,6 +45,10 @@ doctype_js = {
 	"Item": [
 		"public/js/unicommerce/item.js",
 		"public/js/ai_description/item.js",
+		"public/js/shopware6/item.js",
+	],
+	"Item Group": [
+		"public/js/shopware6/item_group.js",
 	],
 	"Stock Entry": "public/js/unicommerce/stock_entry.js",
 	"Pick List": "public/js/unicommerce/pick_list.js",
@@ -129,6 +133,8 @@ doc_events = {
 		"on_trash": [
 			# RAG: Delete items from Vector Search
 			"ecommerce_integrations.rag.product_export.delete_item_from_rag",
+			# Shopware6: Deactivate product in Shopware and cleanup Ecommerce Item
+			"ecommerce_integrations.shopware6.bulk_sync.queue_item_delete_for_sync",
 		],
 		"validate": [
 			"ecommerce_integrations.utils.taxation.validate_tax_template",
@@ -138,8 +144,11 @@ doc_events = {
 	# Shopware6: Sync Item Group changes (description, shopware_active, SEO) to Shopware categories
 	"Item Group": {
 		"on_update": "ecommerce_integrations.shopware6.bulk_sync.queue_item_group_for_sync",
+		"after_rename": "ecommerce_integrations.shopware6.bulk_sync.queue_item_group_rename_for_sync",
+		"on_trash": "ecommerce_integrations.shopware6.bulk_sync.queue_item_group_delete_for_sync",
 	},
 	"Sales Order": {
+		"on_submit": "ecommerce_integrations.shopware6.status_sync.on_sales_order_submit",
 		"on_update_after_submit": "ecommerce_integrations.unicommerce.order.update_shipping_info",
 		"on_cancel": [
 			"ecommerce_integrations.unicommerce.status_updater.ignore_pick_list_on_sales_order_cancel",
@@ -160,6 +169,10 @@ doc_events = {
 			"ecommerce_integrations.shopware6.inventory.update_stock_on_stock_entry",
 		],
 		"on_cancel": "ecommerce_integrations.unicommerce.grn.prevent_grn_cancel",
+	},
+	# Shopware6: Sync stock after Stock Reconciliation
+	"Stock Reconciliation": {
+		"on_submit": "ecommerce_integrations.shopware6.inventory.update_stock_on_stock_reconciliation",
 	},
 	"Item Price": {
 		"on_change": [

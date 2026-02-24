@@ -433,7 +433,7 @@ def create_items_if_not_exist(order: Dict[str, Any]) -> None:
         order: Shopware order data
     """
     logger = get_logger("create_items_if_not_exist")
-    line_items = order.get("lineItems", [])
+    line_items = order.get("lineItems") or []
 
     for item in line_items:
         # Skip non-product items (shipping, discounts, etc.)

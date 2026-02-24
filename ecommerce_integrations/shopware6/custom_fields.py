@@ -24,10 +24,18 @@ CUSTOM_FIELDS = {
             "description": "If unchecked, this category will be set to inactive in Shopware (hidden from customers). This only affects Shopware visibility, not ERPNext.",
         },
         {
+            "fieldname": "shopware_priority",
+            "label": "Priority (Shopware)",
+            "fieldtype": "Int",
+            "insert_after": "shopware_active",
+            "default": "0",
+            "description": "Sort priority for this category in Shopware. Lower numbers appear first. Used by frontend for sorting.",
+        },
+        {
             "fieldname": "category_image",
             "label": "Category Image (Shopware)",
             "fieldtype": "Attach Image",
-            "insert_after": "shopware_active",
+            "insert_after": "shopware_priority",
             "description": "Image displayed for this category in Shopware. If empty, the standard Item Group image will be used.",
         },
     ],
@@ -46,6 +54,14 @@ CUSTOM_FIELDS = {
 
         # Shopware Properties Table (Key-Value pairs for flexible property management)
         # Replaces old individual custom fields (shopware_zubehoer, jattr_*, etc.)
+        {
+            "fieldname": "shopware_topseller",
+            "label": "Topseller (Shopware)",
+            "fieldtype": "Check",
+            "insert_after": "shopware_selling_rate",
+            "default": "0",
+            "description": "Markiert dieses Produkt als Topseller im Shop (gelbes 'Tipp'-Badge)",
+        },
         {
             "fieldname": "shopware_properties_section",
             "label": "Shopware Properties",

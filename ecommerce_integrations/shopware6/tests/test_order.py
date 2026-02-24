@@ -243,33 +243,92 @@ class TestScheduledSync(ShopwareTestCase):
     """Test cases for scheduled order sync."""
 
     @patch("ecommerce_integrations.shopware6.order.scheduled_sync.frappe")
-    def test_get_sync_start_date(self, mock_frappe):
-        """Test getting sync start date from settings."""
-        from ecommerce_integrations.shopware6.order.scheduled_sync import get_sync_start_date
-
-        mock_setting = MagicMock()
-        mock_setting.order_sync_start_date = "2024-01-01"
-        mock_frappe.get_cached_doc.return_value = mock_setting
-
-        start_date = get_sync_start_date()
-
-        self.assertEqual(start_date, "2024-01-01")
-
-    @patch("ecommerce_integrations.shopware6.order.scheduled_sync.frappe")
     def test_scheduled_order_sync_disabled(self, mock_frappe):
         """Test that sync is skipped when disabled."""
         from ecommerce_integrations.shopware6.order.scheduled_sync import scheduled_order_sync
 
         mock_setting = MagicMock()
-        mock_setting.enable_shopware = 0
-        mock_frappe.get_cached_doc.return_value = mock_setting
+        mock_setting.is_enabled.return_value = False
+        mock_frappe.get_doc.return_value = mock_setting
 
-        # Should return early without processing
         result = scheduled_order_sync()
 
-        # When disabled, should return None or empty
         self.assertIsNone(result)
+        mock_frappe.cache.assert_not_called()
 
+    @patch("ecommerce_integrations.shopware6.order.scheduled_sync.sync_orders_from_shopware")
+    @patch("ecommerce_integrations.shopware6.order.scheduled_sync.get_logger")
+    @patch("ecommerce_integrations.shopware6.order.scheduled_sync.frappe")
+    def test_scheduled_order_sync_skips_if_lock_is_held(self, mock_frappe, mock_get_logger, mock_sync):
+        """Test that overlapping scheduler runs are skipped."""
+        from ecommerce_integrations.shopware6.order.scheduled_sync import scheduled_order_sync
+
+        mock_setting = MagicMock()
+        mock_setting.is_enabled.return_value = True
+        mock_setting.order_sync_frequency = 60
+        mock_setting.last_order_sync = None
+        mock_frappe.get_doc.return_value = mock_setting
+
+        mock_lock = MagicMock()
+        mock_lock.acquire.return_value = False
+        mock_frappe.cache.return_value.lock.return_value = mock_lock
+
+        scheduled_order_sync()
+
+        mock_sync.assert_not_called()
+        mock_get_logger.return_value.info.assert_called_once()
+        mock_lock.release.assert_not_called()
+
+    @patch("ecommerce_integrations.shopware6.order.scheduled_sync.sync_orders_from_shopware")
+    @patch("ecommerce_integrations.shopware6.order.scheduled_sync.frappe")
+    def test_scheduled_order_sync_releases_lock_on_success(self, mock_frappe, mock_sync):
+        """Test lock release and commit on successful run."""
+        from ecommerce_integrations.shopware6.order.scheduled_sync import scheduled_order_sync
+
+        mock_setting = MagicMock()
+        mock_setting.is_enabled.return_value = True
+        mock_setting.order_sync_frequency = 60
+        mock_setting.last_order_sync = None
+        mock_frappe.get_doc.return_value = mock_setting
+
+        mock_lock = MagicMock()
+        mock_lock.acquire.return_value = True
+        mock_frappe.cache.return_value.lock.return_value = mock_lock
+        mock_sync.return_value = {"synced": 1, "errors": 0}
+
+        scheduled_order_sync()
+
+        mock_sync.assert_called_once()
+        mock_frappe.db.set_single_value.assert_called_once()
+        mock_frappe.db.commit.assert_called_once()
+        mock_frappe.db.rollback.assert_not_called()
+        mock_lock.release.assert_called_once()
+
+    @patch("ecommerce_integrations.shopware6.order.scheduled_sync.sync_orders_from_shopware")
+    @patch("ecommerce_integrations.shopware6.order.scheduled_sync.get_logger")
+    @patch("ecommerce_integrations.shopware6.order.scheduled_sync.frappe")
+    def test_scheduled_order_sync_rolls_back_and_releases_lock_on_error(
+        self, mock_frappe, mock_get_logger, mock_sync
+    ):
+        """Test rollback and lock release if sync raises an exception."""
+        from ecommerce_integrations.shopware6.order.scheduled_sync import scheduled_order_sync
+
+        mock_setting = MagicMock()
+        mock_setting.is_enabled.return_value = True
+        mock_setting.order_sync_frequency = 60
+        mock_setting.last_order_sync = None
+        mock_frappe.get_doc.return_value = mock_setting
+
+        mock_lock = MagicMock()
+        mock_lock.acquire.return_value = True
+        mock_frappe.cache.return_value.lock.return_value = mock_lock
+        mock_sync.side_effect = RuntimeError("boom")
+
+        scheduled_order_sync()
+
+        mock_frappe.db.rollback.assert_called_once()
+        mock_get_logger.return_value.error.assert_called_once()
+        mock_lock.release.assert_called_once()
 
 if __name__ == "__main__":
     unittest.main()
