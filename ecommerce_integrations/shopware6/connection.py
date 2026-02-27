@@ -205,11 +205,14 @@ def _patch_client_criteria(client: Shopware6AdminAPIClientBase):
 
 def _patch_client_timeout(client: Shopware6AdminAPIClientBase, timeout: int = 60):
     """
-    Patch the Shopware client to enforce HTTP timeouts.
+    Patch the Shopware client to enforce HTTP timeouts and better error handling.
 
     The library's session.post()/get() calls have NO timeout by default,
     causing requests to hang indefinitely. We patch _get_session() so that
     every session (including refreshed ones) gets a timeout on the client.
+
+    Also wraps token acquisition to produce clear error messages when the
+    Shopware API returns empty responses (e.g. reverse proxy blocking).
 
     httpx 0.28+ removed the timeout kwarg from send(), so we set it
     directly on the client/session object via its timeout property.
@@ -219,7 +222,14 @@ def _patch_client_timeout(client: Shopware6AdminAPIClientBase, timeout: int = 60
     _original_get_session = client._get_session
 
     def _get_session_with_timeout():
-        _original_get_session()
+        try:
+            _original_get_session()
+        except json.JSONDecodeError as e:
+            raise ShopwareAPIError(
+                f"Shopware API returned empty/invalid response during authentication. "
+                f"This usually means the shop URL is unreachable or blocked by a reverse proxy. "
+                f"Configured URL: {client.config.shopware_admin_api_url} — Error: {e}"
+            ) from e
         # Set timeout on the (possibly new) session object
         if not getattr(client.session, '_timeout_patched', False):
             client.session.timeout = httpx.Timeout(timeout)
