@@ -9,7 +9,7 @@ readme = "./README.md"
 dynamic = ["version"]
 
 dependencies = [
-    "ShopifyAPI==12.4.0",  # update after resolving pyjwt conflict in frappe
+    "ShopifyAPI==12.7.0",
     "boto3~=1.28.10",
     "lib-shopware6-api-base>=2.1.9",  # Shopware 6 API SDK
     "google-genai>=1.0.0",  # Google Gemini API (new SDK) for AI descriptions
@@ -58,3 +58,9 @@ typing-modules = ["frappe.types.DF"]
 quote-style = "double"
 indent-style = "tab"
 docstring-code-format = true
+
+[tool.bench.frappe-dependencies]
+frappe = ">=16.0.0-dev,<=17.0.0-dev"
+erpnext = ">=16.0.0-dev,<=17.0.0-dev"
+
+
