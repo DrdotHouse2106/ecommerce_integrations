@@ -63,7 +63,7 @@
       "fieldtype": "Select",
       "label": "Gemini Model",
       "options": "gemini-2.5-flash\ngemini-2.5-flash-lite\ngemini-3-flash-preview",
-      "description": "gemini-2.5-flash: Stable default. gemini-3-flash-preview: Latest & fastest (Dec 2025). gemini-2.5-flash-lite: Most cost-effective."
+      "description": "gemini-2.5-flash: stable default. gemini-2.5-flash-lite: lighter variant for higher throughput. gemini-3-flash-preview: preview model."
     },
     {
       "fieldname": "column_break_gemini",
@@ -94,7 +94,7 @@
       "fieldtype": "Code",
       "label": "System Prompt",
       "options": "Markdown",
-      "description": "Instructions for the AI. Use {company_name} as placeholder."
+      "description": "Instructions for the AI. Optional placeholder: {company_name}."
     },
     {
       "fieldname": "user_prompt_template",

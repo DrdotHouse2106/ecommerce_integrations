@@ -71,7 +71,11 @@ from ecommerce_integrations.shopware6.constants import (
     SETTING_DOCTYPE,
     MODULE_NAME,
 )
-from ecommerce_integrations.shopware6.utils import get_logger, is_retriable_error
+from ecommerce_integrations.shopware6.utils import (
+    get_logger,
+    is_retriable_error,
+    require_shopware_admin,
+)
 
 
 # Retry configuration for gateway errors
@@ -366,6 +370,7 @@ def test_connection() -> Dict[str, Any]:
 @frappe.whitelist()
 def test_shopware_connection() -> Dict[str, Any]:
     """Whitelisted method to test connection from the frontend."""
+    require_shopware_admin()
     return test_connection()
 
 
@@ -449,7 +454,7 @@ def webhook_handler():
             from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
             create_shopware_log(
                 method="webhook_handler",
-                request_data={"raw": frappe.request.data.decode("utf-8", errors="replace")[:1000]},
+                request_data={"payload_length": len(frappe.request.data or b"")},
                 status="Error",
                 message=f"Invalid JSON in webhook payload: {e}"
             )
@@ -468,7 +473,7 @@ def webhook_handler():
             f"Webhook processing error: {e}",
             exception=e,
             persist=True,
-            request_data={"payload": frappe.request.data}
+            request_data={"payload_length": len(frappe.request.data or b"")}
         )
         raise
 

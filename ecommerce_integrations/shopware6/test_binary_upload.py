@@ -8,12 +8,14 @@ from ecommerce_integrations.shopware6.export.category_handler import (
 )
 import time
 import hashlib
+from ecommerce_integrations.shopware6.utils import require_shopware_admin
 
 
 @frappe.whitelist()
 @temp_shopware_session
 def test_upload(client, category_name="Werkbänke"):
     """Test uploading a category image with the binary fix."""
+    require_shopware_admin()
     # Get item group data
     ig = frappe.get_doc("Item Group", category_name)
     img_path = getattr(ig, "category_image", None) or ig.image

@@ -1,24 +1,30 @@
 """Utility functions for Shopware 6 Integration"""
 
-import time
 import functools
+import time
 from typing import Any, Callable, Dict, Optional, Tuple, Type, Union
 
 import frappe
 from frappe import _
+from ecommerce_integrations.shopware6.services.access import (
+    require_item_write_permission,
+    require_shopware_admin,
+)
+from ecommerce_integrations.shopware6.services.log_sanitizer import (
+    sanitize_shopware_log_data,
+    sanitize_shopware_log_text,
+)
 
 from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_integration_log.ecommerce_integration_log import (
     create_log,
 )
 from ecommerce_integrations.shopware6.constants import (
     MODULE_NAME,
-    LOG_DOCTYPE,
     SETTING_DOCTYPE,
 )
 
 
 # Gateway error codes that should trigger a retry
-RETRIABLE_STATUS_CODES = (502, 503, 504)
 RETRIABLE_ERROR_MESSAGES = (
     "Bad Gateway",
     "Service Unavailable",
@@ -27,7 +33,6 @@ RETRIABLE_ERROR_MESSAGES = (
     "503",
     "504",
 )
-
 
 def is_retriable_error(error: BaseException) -> bool:
     """
@@ -215,10 +220,10 @@ def create_shopware_log(
     return create_log(
         module_def=MODULE_NAME,
         status=status,
-        request_data=request_data,
-        response_data=response_data,
+        request_data=sanitize_shopware_log_data(request_data),
+        response_data=sanitize_shopware_log_data(response_data),
         message=message,
-        exception=exception,
+        exception=sanitize_shopware_log_text(str(exception)) if exception else exception,
         method=method,
         rollback=rollback,
         make_new=make_new,
@@ -248,11 +253,13 @@ def update_shopware_log(
         if status:
             log.status = status
         if response_data:
-            log.response_data = frappe.as_json(response_data, indent=2)
+            log.response_data = frappe.as_json(sanitize_shopware_log_data(response_data), indent=2)
         if message:
             log.message = message
         if exception:
-            log.traceback = frappe.get_traceback() if not isinstance(exception, str) else exception
+            log.traceback = sanitize_shopware_log_text(
+                frappe.get_traceback() if not isinstance(exception, str) else str(exception)
+            )
             
         log.save(ignore_permissions=True)
         frappe.db.commit()

@@ -2,15 +2,17 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe import _
 from frappe.model.document import Document
+from ecommerce_integrations.ai_description.services.access import require_ai_admin
 
 
-# Default system prompt for B2B industrial products
-DEFAULT_SYSTEM_PROMPT = """Du bist ein erfahrener B2B-Texter für Industrieprodukte, spezialisiert auf
-Lagertechnik und Betriebseinrichtungen. Du schreibst für den deutschen Markt.
+# Default system prompt for structured product descriptions
+DEFAULT_SYSTEM_PROMPT = """Du erstellst strukturierte Produktbeschreibungen fuer Industrieprodukte.
+Schreibe fuer den deutschen Markt in sachlicher, klarer Sprache.
 
 ## Deine Aufgabe
-Erstelle aus den technischen Rohdaten eine verkaufsstarke, SEO-optimierte
+Erstelle aus den technischen Rohdaten eine praezise und gut strukturierte
 Produktbeschreibung für einen B2B-Online-Shop.
 
 ## Zielgruppe
@@ -20,18 +22,18 @@ Produktbeschreibung für einen B2B-Online-Shop.
 - Wollen schnell die wichtigsten Fakten erfassen
 
 ## Tonalität
-- Professionell, aber nicht steif
-- Nutzenorientiert statt feature-fokussiert
+- Professionell und neutral
+- Klar statt werblich
 - Konkret und präzise
-- Vertrauenswürdig ({company_name})
+- Konsistent und nachvollziehbar
 
 ## Regeln
-1. Immer den NUTZEN vor dem FEATURE nennen ("800 kg Tragkraft für schwere Formen" statt "Tragkraft: 800 kg")
-2. Konkrete Anwendungsbeispiele nennen (Werkzeugbau, Formenlager, etc.)
-3. Bei Anbauregalen erwähnen, dass ein Grundregal benötigt wird
-4. Deutsche Qualität und Zertifizierungen betonen
-5. Keine erfundenen technischen Daten - nur das verwenden, was in den Rohdaten steht
-6. SEO-Keywords natürlich einbauen
+1. Stelle zentrale Eigenschaften und erkennbare praktische Auswirkungen klar heraus
+2. Nenne Anwendungsbeispiele nur, wenn sie aus den vorhandenen Daten ableitbar sind
+3. Weise bei Anbauregalen darauf hin, dass ein Grundregal benoetigt wird, falls passend
+4. Keine erfundenen technischen Daten - nur das verwenden, was in den Rohdaten steht
+5. Keine unbelegten Qualitaets- oder Herkunftsaussagen
+6. Fachbegriffe nur verwenden, wenn sie zum Produkt passen
 
 ## Output-Format (JSON)
 Antworte ausschließlich mit einem JSON-Objekt:
@@ -72,19 +74,19 @@ DEFAULT_USER_PROMPT = """## Produktdaten
 ## Hinweise
 - Zielmarkt: Deutschland, Österreich, Schweiz
 
-Erstelle die optimierte Produktbeschreibung im JSON-Format."""
+Erstelle die Produktbeschreibung im JSON-Format."""
 
 
 class AIDescriptionSetting(Document):
     def validate(self):
         if self.enabled and not self.gemini_api_key:
-            frappe.throw("Google Gemini API Key is required when enabled")
+            frappe.throw(_("Google Gemini API Key is required when enabled"))
 
         if self.temperature and (self.temperature < 0 or self.temperature > 2):
-            frappe.throw("Temperature must be between 0 and 2")
+            frappe.throw(_("Temperature must be between 0 and 2"))
 
         if self.batch_size and self.batch_size < 1:
-            frappe.throw("Batch size must be at least 1")
+            frappe.throw(_("Batch size must be at least 1"))
 
     def before_save(self):
         # Set default prompts if empty
@@ -97,13 +99,18 @@ class AIDescriptionSetting(Document):
     @frappe.whitelist()
     def test_connection(self):
         """Test Gemini API connection"""
+        require_ai_admin()
         try:
             from ecommerce_integrations.ai_description.gemini import get_gemini_client
 
-            model = get_gemini_client()
+            client, model_name, generation_config = get_gemini_client()
 
             # Simple test prompt
-            response = model.generate_content("Say 'Connection successful' in German.")
+            response = client.models.generate_content(
+                model=model_name,
+                contents="Say 'Connection successful' in German.",
+                config=generation_config,
+            )
 
             if response and response.text:
                 return {
@@ -125,6 +132,7 @@ class AIDescriptionSetting(Document):
     @frappe.whitelist()
     def reset_prompts(self):
         """Reset prompts to defaults"""
+        require_ai_admin()
         self.system_prompt = DEFAULT_SYSTEM_PROMPT
         self.user_prompt_template = DEFAULT_USER_PROMPT
         self.save()
@@ -133,6 +141,7 @@ class AIDescriptionSetting(Document):
     @frappe.whitelist()
     def get_pending_items_count(self):
         """Get count of items pending AI description generation"""
+        require_ai_admin()
         filters = self._build_item_filters()
 
         count = frappe.db.count("Item", filters=filters)

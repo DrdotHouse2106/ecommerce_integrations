@@ -67,9 +67,9 @@ frappe.ui.form.on('AI Description Setting', {
     gemini_model: function(frm) {
         // Show model information
         const model_info = {
-            'gemini-2.5-flash': 'Stable, balanced performance (recommended for production)',
-            'gemini-2.5-flash-lite': 'Fastest, most cost-effective (good for high volume)',
-            'gemini-3-flash-preview': 'Latest model, best quality (preview - Dec 2025)'
+            'gemini-2.5-flash': 'Stable, balanced model for regular use',
+            'gemini-2.5-flash-lite': 'Lighter model for higher throughput',
+            'gemini-3-flash-preview': 'Preview model for evaluation'
         };
 
         if (model_info[frm.doc.gemini_model]) {

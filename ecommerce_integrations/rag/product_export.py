@@ -1,31 +1,11 @@
 # Copyright (c) 2024, Frappe and contributors
 # For license information, please see license.txt
 
-import json
 import frappe
 from frappe.utils import now_datetime
 from .connection import get_pinecone_index, get_rag_settings
 from .embedding import generate_embedding, generate_embeddings_batch, build_product_text
-
-
-def create_rag_log(status, method, item_code=None, request_data=None,
-                   response_data=None, message=None, exception=None):
-    """Create log entry"""
-    try:
-        log = frappe.new_doc("RAG Log")
-        log.status = status
-        log.method = method
-        log.item_code = item_code
-        log.request_data = json.dumps(request_data, default=str)[:65000] if request_data else None
-        log.response_data = json.dumps(response_data, default=str)[:65000] if response_data else None
-        log.message = message[:65000] if message else None
-        log.exception = str(exception)[:65000] if exception else None
-        log.insert(ignore_permissions=True)
-        frappe.db.commit()
-        return log.name
-    except Exception as e:
-        frappe.logger().error(f"Failed to create RAG log: {e}")
-        return None
+from ecommerce_integrations.rag.services import create_rag_log, require_rag_admin
 
 
 def upload_item_to_rag(item_code: str):
@@ -190,6 +170,7 @@ def delete_item_from_rag(doc, method=None):
 @frappe.whitelist()
 def full_sync():
     """Full sync of all items"""
+    require_rag_admin()
     frappe.enqueue(
         _full_sync_job,
         queue="long",
@@ -413,6 +394,7 @@ def build_item_metadata(item, text):
 @frappe.whitelist()
 def sync_single_item(item_code):
     """Manually sync a single item"""
+    require_rag_admin()
     frappe.enqueue(
         upload_item_to_rag,
         item_code=item_code,
@@ -424,7 +406,9 @@ def sync_single_item(item_code):
 @frappe.whitelist()
 def search_products(query: str, top_k: int = 10, filters: dict = None):
     """Search products using semantic similarity"""
+    require_rag_admin()
     settings = get_rag_settings()
+    top_k = max(1, min(int(top_k), 50))
 
     if not settings.enabled:
         return {"error": "RAG is not enabled"}

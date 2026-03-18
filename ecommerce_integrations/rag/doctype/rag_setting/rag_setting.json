@@ -86,7 +86,7 @@
       "fieldtype": "Select",
       "label": "Embedding Provider",
       "options": "Google\nOpenAI\nLocal (sentence-transformers)",
-      "description": "Google is FREE (1500 req/min). OpenAI is very cheap ($0.02/1M tokens)."
+      "description": "Choose the embedding provider that fits your deployment and cost requirements."
     },
     {
       "fieldname": "google_api_key",
@@ -113,7 +113,7 @@
       "fieldtype": "Select",
       "label": "Embedding Model",
       "options": "text-embedding-004\ngemini-embedding-001\ntext-embedding-3-small\ntext-embedding-3-large",
-      "description": "Google: text-embedding-004 (768 dim, FREE) or gemini-embedding-001 (3072 dim, latest). OpenAI: text-embedding-3-small/large."
+      "description": "Google: text-embedding-004 (768 dim) or gemini-embedding-001 (3072 dim). OpenAI: text-embedding-3-small or text-embedding-3-large."
     },
     {
       "default": "1536",

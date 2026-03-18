@@ -46,7 +46,7 @@ def generate_embedding(text: str) -> list:
 
 
 def _generate_google_embedding(text: str) -> list:
-    """Generate embedding using Google Gemini API (FREE!)"""
+    """Generate embedding using the configured Google embedding model."""
     from .connection import get_rag_settings
 
     client = get_google_client()
@@ -115,7 +115,7 @@ def generate_embeddings_batch(texts: list) -> list:
 
 
 def _generate_google_embeddings_batch(texts: list) -> list:
-    """Generate embeddings using Google Gemini API (batch) - FREE!"""
+    """Generate embeddings using the configured Google embedding model in batches."""
     from .connection import get_rag_settings
 
     client = get_google_client()

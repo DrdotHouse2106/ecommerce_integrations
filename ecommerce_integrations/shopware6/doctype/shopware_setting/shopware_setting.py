@@ -3,6 +3,8 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from ecommerce_integrations.shopware6.services.access import require_shopware_admin
+from ecommerce_integrations.shopware6.utils import get_logger
 
 
 class ShopwareSetting(Document):
@@ -55,6 +57,7 @@ class ShopwareSetting(Document):
     @frappe.whitelist()
     def test_connection(self):
         """Test the Shopware API connection."""
+        require_shopware_admin()
         from ecommerce_integrations.shopware6.connection import test_connection
 
         result = test_connection()
@@ -79,6 +82,7 @@ class ShopwareSetting(Document):
     @frappe.whitelist()
     def fetch_shopware_warehouses(self):
         """Fetch warehouse/location data from Shopware."""
+        require_shopware_admin()
         from ecommerce_integrations.shopware6.connection import get_shopware_client
 
         if not self.is_enabled():
@@ -169,24 +173,28 @@ class ShopwareSetting(Document):
     @frappe.whitelist()
     def get_bulk_sync_status(self):
         """Get current bulk sync queue status."""
+        require_shopware_admin()
         from ecommerce_integrations.shopware6.bulk_sync import get_queue_status
         return get_queue_status()
 
     @frappe.whitelist()
     def force_process_bulk_sync(self):
         """Force process the bulk sync queue."""
+        require_shopware_admin()
         from ecommerce_integrations.shopware6.bulk_sync import force_process_queue
         return force_process_queue()
 
     @frappe.whitelist()
     def clear_bulk_sync_queues(self):
         """Clear all bulk sync queues."""
+        require_shopware_admin()
         from ecommerce_integrations.shopware6.bulk_sync import clear_all_queues
         return clear_all_queues()
 
     @frappe.whitelist()
     def fetch_sales_channels(self):
         """Fetch all Sales Channels from Shopware API and update the table."""
+        require_shopware_admin()
         from ecommerce_integrations.shopware6.connection import get_shopware_client
 
         if not self.is_enabled():

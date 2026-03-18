@@ -32,6 +32,10 @@ from ecommerce_integrations.shopware6.export.property_handler import (
     get_or_create_property_group as _get_or_create_property_group,
     get_or_create_property_option as _get_or_create_property_option,
 )
+from ecommerce_integrations.shopware6.services.access import (
+    require_item_write_permission,
+    require_shopware_admin,
+)
 from ecommerce_integrations.shopware6.utils import get_logger
 
 
@@ -161,6 +165,7 @@ def sync_all_item_properties(limit: int = 100) -> Dict[str, Any]:
     Returns:
         Dict with sync results
     """
+    require_shopware_admin()
     setting = frappe.get_doc(SETTING_DOCTYPE)
 
     if not setting.is_enabled():
@@ -175,6 +180,7 @@ def sync_all_item_properties(limit: int = 100) -> Dict[str, Any]:
 
     synced = 0
     errors = 0
+    logger = get_logger("bulk_sync_all_properties")
 
     for ecom_item in ecommerce_items:
         try:
@@ -185,7 +191,6 @@ def sync_all_item_properties(limit: int = 100) -> Dict[str, Any]:
                 errors += 1
         except Exception as e:
             errors += 1
-            logger = get_logger("bulk_sync_all_properties")
             logger.error(
                 f"Failed to sync properties for {ecom_item.erpnext_item_code}",
                 exception=e,
@@ -230,12 +235,14 @@ def upload_item_properties(doc, method=None):
 @frappe.whitelist()
 def sync_single_item_properties(item_code: str) -> Dict[str, Any]:
     """Manually sync jattr_* properties for a single item."""
+    require_item_write_permission(item_code)
     return sync_item_properties_to_shopware(item_code=item_code)
 
 
 @frappe.whitelist()
 def create_all_property_groups() -> Dict[str, Any]:
     """Pre-create all PropertyGroups in Shopware based on jattr_* Custom Fields."""
+    require_shopware_admin()
     jattr_fields = get_jattr_fields()
 
     if not jattr_fields:
@@ -244,6 +251,7 @@ def create_all_property_groups() -> Dict[str, Any]:
     client = get_shopware_client()
     created = 0
     errors = 0
+    logger = get_logger("ensure_property_groups_exist")
 
     for field in jattr_fields:
         label = field["label"] or sanitize_field_to_label(field["fieldname"])
@@ -255,7 +263,6 @@ def create_all_property_groups() -> Dict[str, Any]:
                 errors += 1
         except Exception as e:
             errors += 1
-            logger = get_logger("ensure_property_groups_exist")
             logger.error(f"Failed to create PropertyGroup {label}", exception=e, persist=False)
 
     return {

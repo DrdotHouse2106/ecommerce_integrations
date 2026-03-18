@@ -14,6 +14,11 @@ RATE LIMITING:
 
 import frappe
 from frappe import _
+from ecommerce_integrations.ai_description.services import (
+    clamp_limit,
+    get_item_with_permission,
+    require_ai_admin,
+)
 
 
 def _check_rate_limit(key: str, limit: int, seconds: int = 60) -> None:
@@ -59,6 +64,7 @@ def generate_description_for_item(item_code: str) -> dict:
     """
     # Rate limit: 10 requests per minute
     _check_rate_limit("ai_generate_single", limit=10, seconds=60)
+    get_item_with_permission(item_code, "write")
 
     from .gemini import generate_description
 
@@ -91,6 +97,7 @@ def generate_descriptions_batch(item_codes: str = None) -> dict:
     """
     # Rate limit: 2 requests per minute (batch is expensive)
     _check_rate_limit("ai_generate_batch", limit=2, seconds=60)
+    require_ai_admin()
 
     import json
     from .gemini import generate_descriptions_batch as batch_generate
@@ -134,6 +141,7 @@ def get_pending_items(limit: int = 50) -> list:
     Returns:
         list of item codes
     """
+    require_ai_admin()
     from .doctype.ai_description_setting.ai_description_setting import get_settings
 
     settings = get_settings()
@@ -143,7 +151,7 @@ def get_pending_items(limit: int = 50) -> list:
         "Item",
         filters=filters,
         fields=["item_code"],
-        limit=int(limit),
+        limit_page_length=clamp_limit(limit),
         order_by="modified desc"
     )
 
@@ -161,7 +169,7 @@ def get_generation_status(item_code: str) -> dict:
     Returns:
         dict with status information
     """
-    item = frappe.get_doc("Item", item_code)
+    item = get_item_with_permission(item_code, "read")
 
     # Get latest log entry
     logs = frappe.get_all(
@@ -201,7 +209,8 @@ def regenerate_description(item_code: str) -> dict:
     _check_rate_limit("ai_regenerate", limit=5, seconds=60)
 
     # Reset the generated flag first
-    frappe.db.set_value("Item", item_code, "ai_description_generated", 0)
+    item = get_item_with_permission(item_code, "write")
+    frappe.db.set_value("Item", item.name, "ai_description_generated", 0)
     frappe.db.commit()
 
     return generate_description_for_item(item_code)
@@ -220,7 +229,8 @@ def mark_as_reviewed(item_code: str, reviewed: bool = True) -> dict:
         dict with success status
     """
     try:
-        frappe.db.set_value("Item", item_code, "ai_description_reviewed", 1 if reviewed else 0)
+        item = get_item_with_permission(item_code, "write")
+        frappe.db.set_value("Item", item.name, "ai_description_reviewed", 1 if reviewed else 0)
         frappe.db.commit()
         return {"success": True}
     except Exception as e:
@@ -235,6 +245,7 @@ def get_ai_settings_summary() -> dict:
     Returns:
         dict with settings summary
     """
+    require_ai_admin()
     from .doctype.ai_description_setting.ai_description_setting import get_settings
 
     settings = get_settings()
@@ -275,13 +286,13 @@ def copy_ai_to_main_description(item_code: str) -> dict:
         dict with success status
     """
     try:
-        item = frappe.get_doc("Item", item_code)
+        item = get_item_with_permission(item_code, "write")
 
         if not item.ai_long_description:
             return {"success": False, "error": "No AI description available"}
 
         item.description = item.ai_long_description
-        item.save(ignore_permissions=True)
+        item.save()
 
         return {"success": True, "message": "Description copied successfully"}
     except Exception as e:
@@ -308,7 +319,7 @@ def sync_ai_description_to_shopware(item_code: str) -> dict:
     _check_rate_limit("ai_sync_shopware", limit=10, seconds=60)
 
     try:
-        item = frappe.get_doc("Item", item_code)
+        item = get_item_with_permission(item_code, "write")
 
         # Copy AI fields to standard/Shopware fields
         if item.ai_long_description:
@@ -322,7 +333,7 @@ def sync_ai_description_to_shopware(item_code: str) -> dict:
             if hasattr(item, 'seo_meta_description'):
                 item.seo_meta_description = item.ai_seo_description
 
-        item.save(ignore_permissions=True)
+        item.save()
 
         # Trigger Shopware sync if available
         try:

@@ -17,6 +17,7 @@ Replaces the following global caches from product_export.py:
 
 from typing import Any, Dict, Optional
 import frappe
+from ecommerce_integrations.shopware6.utils import require_shopware_admin
 
 
 class ShopwareCacheManager:
@@ -367,4 +368,5 @@ def clear_shopware_cache() -> Dict[str, str]:
     Returns:
         Status message dict
     """
+    require_shopware_admin()
     return get_cache().clear_all()

@@ -5,9 +5,9 @@
 Google Gemini API Integration for Product Description Generation
 
 Supports:
-- gemini-2.5-flash (stable, default)
-- gemini-2.5-flash-lite (cost-effective, recommended for bulk)
-- gemini-3-flash-preview (latest, fastest - Dec 2025)
+- gemini-2.5-flash (stable default)
+- gemini-2.5-flash-lite (lighter variant for larger batches)
+- gemini-3-flash-preview (preview variant)
 
 Features:
 - Single item generation
@@ -18,14 +18,18 @@ import frappe
 import json
 import re
 import time
-from typing import Optional, List, Dict, Any
+from typing import Dict, List
+from ecommerce_integrations.ai_description.services.logging import (
+    create_ai_description_log,
+    mark_ai_description_log_failed,
+    mark_ai_description_log_success,
+    truncate_for_log,
+)
 
 
 def get_settings():
     """Get AI Description Settings singleton"""
     return frappe.get_single("AI Description Setting")
-
-
 def get_gemini_client(max_tokens_override: int = None):
     """
     Get configured Gemini client and generation config
@@ -102,12 +106,11 @@ def generate_description(item_code: str) -> dict:
     user_prompt = build_user_prompt(settings, item)
 
     # Create log entry
-    log = frappe.new_doc("AI Description Log")
-    log.item = item_code
-    log.status = "Pending"
-    log.model_used = settings.gemini_model
-    log.prompt_used = f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}"
-    log.insert(ignore_permissions=True)
+    log = create_ai_description_log(
+        item=item_code,
+        model_used=settings.gemini_model,
+        prompt_used=f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}",
+    )
 
     try:
         client, model_name, generation_config = get_gemini_client()
@@ -129,16 +132,16 @@ def generate_description(item_code: str) -> dict:
 
         generation_time = time.time() - start_time
 
-        # Update log
-        log.status = "Success"
-        log.generation_time = generation_time
-        log.response_raw = response.text
-
-        # Extract token count if available
-        if hasattr(response, 'usage_metadata') and response.usage_metadata:
-            log.tokens_used = getattr(response.usage_metadata, 'total_token_count', None)
-
-        log.save(ignore_permissions=True)
+        mark_ai_description_log_success(
+            log,
+            response_text=response.text,
+            generation_time=generation_time,
+            tokens_used=(
+                getattr(response.usage_metadata, "total_token_count", None)
+                if hasattr(response, "usage_metadata") and response.usage_metadata
+                else None
+            ),
+        )
 
         # Update item with generated content
         update_item_with_description(item, result, settings)
@@ -154,10 +157,7 @@ def generate_description(item_code: str) -> dict:
         generation_time = time.time() - start_time
         error_msg = str(e)
 
-        log.status = "Failed"
-        log.generation_time = generation_time
-        log.error_message = error_msg
-        log.save(ignore_permissions=True)
+        mark_ai_description_log_failed(log, error_msg, generation_time)
 
         frappe.log_error(
             title=f"AI Description Generation Failed: {item_code}",
@@ -191,11 +191,11 @@ def build_system_prompt(settings, is_batch: bool = False) -> str:
 
 def build_batch_system_prompt(settings) -> str:
     """Build system prompt for multi-product batch processing"""
-    return '''Du bist ein erfahrener B2B-Texter für Industrieprodukte, spezialisiert auf
-Lagertechnik und Betriebseinrichtungen. Du schreibst für den deutschen Markt.
+    return '''Du erstellst strukturierte Produktbeschreibungen fuer Industrieprodukte.
+Schreibe fuer den deutschen Markt in sachlicher, klarer Sprache.
 
 ## Deine Aufgabe
-Erstelle aus den technischen Rohdaten verkaufsstarke, SEO-optimierte
+Erstelle aus den technischen Rohdaten praezise und gut strukturierte
 Produktbeschreibungen für einen B2B-Online-Shop.
 
 Du erhältst MEHRERE PRODUKTE auf einmal und musst für JEDES Produkt eine eigene Beschreibung erstellen.
@@ -206,17 +206,17 @@ Du erhältst MEHRERE PRODUKTE auf einmal und musst für JEDES Produkt eine eigen
 - Suchen nach konkreten Lösungen für Lagerprobleme
 
 ## Tonalität
-- Professionell, aber nicht steif
-- Nutzenorientiert statt feature-fokussiert
+- Professionell und neutral
+- Klar statt werblich
 - Konkret und präzise
 
 ## Regeln
-1. Immer den NUTZEN vor dem FEATURE nennen
-2. Konkrete Anwendungsbeispiele nennen (Werkzeugbau, Formenlager, etc.)
-3. Bei Anbauregalen erwähnen, dass ein Grundregal benötigt wird
-4. Deutsche Qualität und Zertifizierungen betonen
-5. Keine erfundenen technischen Daten - nur das verwenden, was in den Rohdaten steht
-6. SEO-Keywords natürlich einbauen
+1. Stelle zentrale Eigenschaften und erkennbare praktische Auswirkungen klar heraus
+2. Nenne Anwendungsbeispiele nur, wenn sie aus den vorhandenen Daten ableitbar sind
+3. Weise bei Anbauregalen darauf hin, dass ein Grundregal benoetigt wird, falls passend
+4. Keine erfundenen technischen Daten - nur das verwenden, was in den Rohdaten steht
+5. Keine unbelegten Qualitaets- oder Herkunftsaussagen
+6. Formuliere ohne werbliche Zuspitzung
 
 ## WICHTIGE SEO-Regeln (STRIKT einhalten!)
 7. seo_title: EXAKT 40-50 Zeichen, Format: "Kurzname | Keyword" (ohne Shop-Name, wird vom Frontend ergänzt)
@@ -584,16 +584,16 @@ def _process_multi_batch(item_codes: list, settings, batch_num: int, total_batch
     max_tokens = min(max(estimated_tokens, 8192), 65536)  # Between 8k and 65k
 
     # Create batch log entry
-    log = frappe.new_doc("AI Description Log")
-    log.item = f"BATCH-{batch_num}-of-{total_batches}"
-    log.status = "Pending"
-    log.model_used = settings.gemini_model
-    log.prompt_used = f"BATCH ({len(items_data)} items)\n\nSYSTEM:\n{system_prompt[:500]}...\n\nUSER:\n{user_prompt[:1000]}..."
-    log.insert(ignore_permissions=True)
+    log = create_ai_description_log(
+        item=f"BATCH-{batch_num}-of-{total_batches}",
+        model_used=settings.gemini_model,
+        prompt_used=f"BATCH ({len(items_data)} items)\n\nSYSTEM:\n{system_prompt[:500]}...\n\nUSER:\n{user_prompt[:1000]}...",
+    )
 
     try:
         # Get client with appropriate token limit
         client, model_name, generation_config = get_gemini_client(max_tokens_override=max_tokens)
+        start_time = time.time()
 
         full_prompt = f"{system_prompt}\n\n---\n\n{user_prompt}"
 
@@ -609,12 +609,16 @@ def _process_multi_batch(item_codes: list, settings, batch_num: int, total_batch
         # Parse response
         parsed = parse_ai_response(response.text)
 
-        # Update log
-        log.status = "Success"
-        log.response_raw = response.text[:10000]  # Truncate for storage
-        if hasattr(response, 'usage_metadata') and response.usage_metadata:
-            log.tokens_used = getattr(response.usage_metadata, 'total_token_count', None)
-        log.save(ignore_permissions=True)
+        mark_ai_description_log_success(
+            log,
+            response_text=truncate_for_log(response.text, 10000),
+            generation_time=time.time() - start_time,
+            tokens_used=(
+                getattr(response.usage_metadata, "total_token_count", None)
+                if hasattr(response, "usage_metadata") and response.usage_metadata
+                else None
+            ),
+        )
 
         # Process each product in response
         products = parsed.get("products", [])
@@ -656,9 +660,8 @@ def _process_multi_batch(item_codes: list, settings, batch_num: int, total_batch
         return result
 
     except Exception as e:
-        log.status = "Failed"
-        log.error_message = str(e)
-        log.save(ignore_permissions=True)
+        generation_time = time.time() - start_time if "start_time" in locals() else None
+        mark_ai_description_log_failed(log, str(e), generation_time)
 
         # Mark all items as failed
         for item_code in item_codes:

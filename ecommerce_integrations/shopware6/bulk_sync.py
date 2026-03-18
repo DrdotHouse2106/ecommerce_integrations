@@ -218,116 +218,17 @@ def release_sync_lock():
 
 
 def queue_item_for_sync(doc, method=None):
-    """
-    Main entry point for queueing items.
+    from ecommerce_integrations.shopware6.services.queue_hooks import queue_item_for_sync as _queue_item_for_sync
 
-    This function should be called from the doc_events hook instead of
-    upload_erpnext_item_to_shopware directly.
-
-    It will:
-    1. Check if bulk sync is enabled
-    2. Check if we're in a bulk update scenario
-    3. If yes: queue the item for later batch processing
-    4. If no: process immediately (original behavior)
-    """
-    from ecommerce_integrations.shopware6.product_export import upload_erpnext_item_to_shopware
-
-    item = doc
-
-    # Skip if this came from integration
-    if item.flags.from_integration:
-        return
-
-    # Skip if explicit flag is set (for bulk operations from external scripts)
-    if getattr(frappe.flags, 'skip_shopware_sync', False):
-        return
-
-    # Check if Shopware sync is enabled in settings
-    try:
-        setting = frappe.get_cached_doc(SETTING_DOCTYPE)
-        if not setting.is_enabled():
-            return
-
-        # Check if item is already synced to determine which setting to check
-        from ecommerce_integrations.shopware6.utils import get_shopware_document_id
-        shopware_id = get_shopware_document_id("Item", item.name)
-        is_new_product = not bool(shopware_id)
-
-        # For NEW products: check upload_erpnext_items setting
-        # For EXISTING products: check update_shopware_item_on_update setting
-        if is_new_product:
-            if not getattr(setting, 'upload_erpnext_items', False):
-                return
-        else:
-            if not getattr(setting, 'update_shopware_item_on_update', True):
-                return
-    except Exception:
-        return
-
-    settings = get_bulk_sync_settings()
-
-    # Always queue during imports or bulk updates - never process directly
-    if frappe.flags.in_import or getattr(frappe.flags, 'in_bulk_update', False):
-        add_to_sync_queue(item.name, "product")
-        if not is_bulk_mode_active():
-            activate_bulk_mode()
-        return
-
-    # If bulk sync is disabled, use async sync with item_code (not doc object)
-    if not settings["enabled"]:
-        frappe.enqueue(
-            "ecommerce_integrations.shopware6.bulk_sync.sync_single_item_to_shopware",
-            queue="short",
-            item_code=item.name,
-            enqueue_after_commit=True,
-        )
-        return
-
-    # Check if we should use bulk mode (for mass updates)
-    if should_use_bulk_mode():
-        add_to_sync_queue(item.name, "product")
-
-        # Schedule bulk processing if not already scheduled
-        schedule_bulk_sync_processing()
-        return
-
-    # Single update - async with item_code to avoid UI blocking
-    frappe.enqueue(
-        "ecommerce_integrations.shopware6.bulk_sync.sync_single_item_to_shopware",
-        queue="short",
-        item_code=item.name,
-        enqueue_after_commit=True,
-    )
+    return _queue_item_for_sync(doc, method)
 
 
 def queue_item_delete_for_sync(doc, method=None):
-    """
-    Queue Item deletion/deactivation from Shopware.
-
-    This is triggered by the Item on_trash hook.
-    It deactivates the product in Shopware and cleans up the Ecommerce Item link.
-    """
-    item = doc
-
-    # Skip if explicit flag is set (for bulk operations from external scripts)
-    if getattr(frappe.flags, 'skip_shopware_sync', False):
-        return
-
-    # Check if Shopware sync is enabled in settings
-    try:
-        setting = frappe.get_cached_doc(SETTING_DOCTYPE)
-        if not setting.is_enabled():
-            return
-    except Exception:
-        return
-
-    # Enqueue to prevent blocking the delete operation
-    frappe.enqueue(
-        "ecommerce_integrations.shopware6.product_export.deactivate_product_in_shopware",
-        queue="short",
-        item_code=item.name,
-        enqueue_after_commit=True,
+    from ecommerce_integrations.shopware6.services.queue_hooks import (
+        queue_item_delete_for_sync as _queue_item_delete_for_sync,
     )
+
+    return _queue_item_delete_for_sync(doc, method)
 
 
 def sync_single_item_to_shopware(item_code: str):
@@ -350,189 +251,35 @@ def sync_single_item_to_shopware(item_code: str):
 
 
 def queue_properties_for_sync(doc, method=None):
-    """
-    Queue properties sync for bulk processing.
-    """
-    from ecommerce_integrations.shopware6.properties import upload_item_properties
-    from ecommerce_integrations.shopware6.utils import get_shopware_document_id
+    from ecommerce_integrations.shopware6.services.queue_hooks import (
+        queue_properties_for_sync as _queue_properties_for_sync,
+    )
 
-    item = doc
-
-    if item.flags.from_integration:
-        return
-
-    # Skip if explicit flag is set (for bulk operations from external scripts)
-    if getattr(frappe.flags, 'skip_shopware_sync', False):
-        return
-
-    # Check if Shopware sync is enabled in settings
-    try:
-        setting = frappe.get_cached_doc(SETTING_DOCTYPE)
-        if not setting.is_enabled():
-            return
-        # Check if update on item change is enabled
-        if not getattr(setting, 'update_shopware_item_on_update', True):
-            return
-    except Exception:
-        return
-
-    # Only queue if item is synced
-    shopware_id = get_shopware_document_id("Item", item.name)
-    if not shopware_id:
-        return
-
-    settings = get_bulk_sync_settings()
-
-    # Always queue during imports or bulk updates - never process directly
-    if frappe.flags.in_import or getattr(frappe.flags, 'in_bulk_update', False):
-        add_to_sync_queue(item.name, "properties")
-        if not is_bulk_mode_active():
-            activate_bulk_mode()
-        return
-
-    # If bulk sync is disabled, enqueue to prevent blocking
-    if not settings["enabled"]:
-        frappe.enqueue(
-            "ecommerce_integrations.shopware6.properties.upload_item_properties",
-            queue="short",
-            doc=doc,
-            enqueue_after_commit=True,
-        )
-        return
-
-    if should_use_bulk_mode():
-        add_to_sync_queue(item.name, "properties")
-        schedule_bulk_sync_processing()
-        return
-
-    # Single update - use enqueue (properties.upload_item_properties already enqueues internally)
-    upload_item_properties(doc, method)
+    return _queue_properties_for_sync(doc, method)
 
 
 def queue_item_group_for_sync(doc, method=None):
-    """
-    Queue Item Group (category) for sync to Shopware.
-
-    This is triggered by the Item Group on_update hook.
-    It syncs the category with description, shopware_active status, SEO fields, etc.
-    """
-    from ecommerce_integrations.shopware6.product_export import sync_item_group_to_shopware
-
-    item_group = doc
-
-    # Skip root categories
-    root_categories_to_skip = ["All Item Groups", "Alle Artikelgruppen"]
-    if item_group.name in root_categories_to_skip:
-        return
-
-    # Skip if explicit flag is set (for bulk operations from external scripts)
-    if getattr(frappe.flags, 'skip_shopware_sync', False):
-        return
-
-    # Check if Shopware sync is enabled in settings
-    try:
-        setting = frappe.get_cached_doc(SETTING_DOCTYPE)
-        if not setting.is_enabled():
-            return
-    except Exception:
-        return
-
-    # Enqueue to prevent blocking the save operation
-    frappe.enqueue(
-        "ecommerce_integrations.shopware6.product_export.sync_item_group_to_shopware",
-        queue="short",
-        item_group_name=item_group.name,
-        enqueue_after_commit=True,
+    from ecommerce_integrations.shopware6.services.queue_hooks import (
+        queue_item_group_for_sync as _queue_item_group_for_sync,
     )
+
+    return _queue_item_group_for_sync(doc, method)
 
 
 def queue_item_group_rename_for_sync(doc, method=None, old_name=None, new_name=None):
-    """
-    Queue Item Group rename for sync to Shopware.
-
-    This is triggered by the Item Group after_rename hook.
-    It updates the category name in Shopware to match the new ERPNext name.
-
-    Args:
-        doc: The renamed Item Group document (or doctype string for after_rename)
-        method: Hook method name
-        old_name: Old Item Group name (passed by after_rename hook)
-        new_name: New Item Group name (passed by after_rename hook)
-    """
-    from ecommerce_integrations.shopware6.product_export import rename_category_in_shopware
-
-    # after_rename hook signature: (doctype, old_name, new_name, merge)
-    # So 'doc' is actually the doctype string "Item Group"
-    if isinstance(doc, str):
-        # Called from after_rename hook
-        doctype = doc
-        # old_name and new_name are passed as positional args
-    else:
-        # Should not happen, but handle gracefully
-        return
-
-    # Skip root categories
-    root_categories_to_skip = ["All Item Groups", "Alle Artikelgruppen"]
-    if old_name in root_categories_to_skip or new_name in root_categories_to_skip:
-        return
-
-    # Skip if explicit flag is set
-    if getattr(frappe.flags, 'skip_shopware_sync', False):
-        return
-
-    # Check if Shopware sync is enabled in settings
-    try:
-        setting = frappe.get_cached_doc(SETTING_DOCTYPE)
-        if not setting.is_enabled():
-            return
-    except Exception:
-        return
-
-    # Enqueue the rename operation
-    frappe.enqueue(
-        "ecommerce_integrations.shopware6.product_export.rename_category_in_shopware",
-        queue="short",
-        old_name=old_name,
-        new_name=new_name,
-        enqueue_after_commit=True,
+    from ecommerce_integrations.shopware6.services.queue_hooks import (
+        queue_item_group_rename_for_sync as _queue_item_group_rename_for_sync,
     )
+
+    return _queue_item_group_rename_for_sync(doc, method, old_name, new_name)
 
 
 def queue_item_group_delete_for_sync(doc, method=None):
-    """
-    Queue Item Group (category) deletion from Shopware.
-
-    This is triggered by the Item Group on_trash hook.
-    It deletes the corresponding category in Shopware.
-    """
-    from ecommerce_integrations.shopware6.product_export import delete_category_from_shopware
-
-    item_group = doc
-
-    # Skip root categories
-    root_categories_to_skip = ["All Item Groups", "Alle Artikelgruppen"]
-    if item_group.name in root_categories_to_skip:
-        return
-
-    # Skip if explicit flag is set (for bulk operations from external scripts)
-    if getattr(frappe.flags, 'skip_shopware_sync', False):
-        return
-
-    # Check if Shopware sync is enabled in settings
-    try:
-        setting = frappe.get_cached_doc(SETTING_DOCTYPE)
-        if not setting.is_enabled():
-            return
-    except Exception:
-        return
-
-    # Enqueue to prevent blocking the delete operation
-    frappe.enqueue(
-        "ecommerce_integrations.shopware6.product_export.delete_category_from_shopware",
-        queue="short",
-        category_name=item_group.name,
-        enqueue_after_commit=True,
+    from ecommerce_integrations.shopware6.services.queue_hooks import (
+        queue_item_group_delete_for_sync as _queue_item_group_delete_for_sync,
     )
+
+    return _queue_item_group_delete_for_sync(doc, method)
 
 
 def schedule_bulk_sync_processing():
@@ -852,53 +599,32 @@ def is_processing() -> bool:
 
 @frappe.whitelist()
 def get_queue_status():
-    """Get current queue status for monitoring.
+    """Get current queue status for monitoring."""
+    from ecommerce_integrations.shopware6.services.bulk_sync_api import (
+        get_queue_status as _get_queue_status,
+    )
 
-    Returns format similar to RAG sync for consistency:
-    - queue_size: Total items in queue
-    - bulk_mode_active: Whether bulk mode is on
-    - processing: Whether sync is currently running
-    """
-    product_queue = get_sync_queue("product")
-    properties_queue = get_sync_queue("properties")
-    price_queue = get_sync_queue("price")
-
-    return {
-        "queue_size": len(product_queue) + len(properties_queue) + len(price_queue),
-        "bulk_mode_active": is_bulk_mode_active(),
-        "processing": is_processing(),
-        "product_queue_size": len(product_queue),
-        "properties_queue_size": len(properties_queue),
-        "price_queue_size": len(price_queue),
-        "product_queue": product_queue[:10],  # First 10 items
-        "properties_queue": properties_queue[:10],
-        "price_queue": price_queue[:10],
-    }
+    return _get_queue_status()
 
 
 @frappe.whitelist()
 def force_process_queue():
     """Manually trigger queue processing."""
-    deactivate_bulk_mode()
-    frappe.enqueue(
-        "ecommerce_integrations.shopware6.bulk_sync.process_bulk_sync_queue",
-        queue="long",
-        timeout=1800,
-        job_name="shopware6_force_bulk_sync",
-        now=True
+    from ecommerce_integrations.shopware6.services.bulk_sync_api import (
+        force_process_queue as _force_process_queue,
     )
-    return {"status": "Processing started"}
+
+    return _force_process_queue()
 
 
 @frappe.whitelist()
 def clear_all_queues():
     """Clear all sync queues (admin function)."""
-    clear_sync_queue("product")
-    clear_sync_queue("properties")
-    clear_sync_queue("price")
-    deactivate_bulk_mode()
-    release_sync_lock()
-    return {"status": "All queues cleared"}
+    from ecommerce_integrations.shopware6.services.bulk_sync_api import (
+        clear_all_queues as _clear_all_queues,
+    )
+
+    return _clear_all_queues()
 
 
 def check_and_process_queue():
@@ -944,78 +670,9 @@ def check_and_process_queue():
 
 
 def queue_price_for_sync(doc, method=None):
-    """
-    Queue price sync when an Item Price is changed.
-
-    This function is called from the doc_events hook for Item Price.
-    It finds the item associated with the price and queues it for price sync.
-    """
-    from ecommerce_integrations.shopware6.utils import get_shopware_document_id
-
-    item_price = doc
-
-    # Skip if this came from integration
-    if item_price.flags.from_integration:
-        return
-
-    # Skip if explicit flag is set
-    if getattr(frappe.flags, 'skip_shopware_sync', False):
-        return
-
-    # Check if Shopware sync is enabled in settings
-    try:
-        setting = frappe.get_cached_doc(SETTING_DOCTYPE)
-        if not setting.is_enabled():
-            return
-    except Exception:
-        return
-
-    # Get item code from Item Price
-    item_code = item_price.item_code
-    if not item_code:
-        return
-
-    # Only sync if item is already synced to Shopware
-    shopware_id = get_shopware_document_id("Item", item_code)
-    if not shopware_id:
-        return
-
-    # Check if this is the selling price list
-    selling_price_list = setting.get("price_list") or frappe.db.get_single_value("Selling Settings", "selling_price_list")
-    if item_price.price_list != selling_price_list:
-        return
-
-    logger.info(f"Shopware6: Queueing price sync for item {item_code} (price list: {item_price.price_list})")
-
-    settings = get_bulk_sync_settings()
-
-    # Always queue during imports or bulk updates
-    if frappe.flags.in_import or getattr(frappe.flags, 'in_bulk_update', False):
-        add_to_sync_queue(item_code, "price")
-        if not is_bulk_mode_active():
-            activate_bulk_mode()
-        return
-
-    # If bulk sync is disabled, process immediately
-    if not settings["enabled"]:
-        frappe.enqueue(
-            "ecommerce_integrations.shopware6.product_export.update_item_price_in_shopware",
-            queue="short",
-            item_code=item_code,
-            enqueue_after_commit=True,
-        )
-        return
-
-    # Check if we should use bulk mode
-    if should_use_bulk_mode():
-        add_to_sync_queue(item_code, "price")
-        schedule_bulk_sync_processing()
-        return
-
-    # Single update - enqueue to prevent blocking
-    frappe.enqueue(
-        "ecommerce_integrations.shopware6.product_export.update_item_price_in_shopware",
-        queue="short",
-        item_code=item_code,
-        enqueue_after_commit=True,
+    """Queue price sync when an Item Price is changed."""
+    from ecommerce_integrations.shopware6.services.queue_hooks import (
+        queue_price_for_sync as _queue_price_for_sync,
     )
+
+    return _queue_price_for_sync(doc, method)

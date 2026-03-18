@@ -5,6 +5,7 @@ import json
 import time
 import frappe
 from frappe.utils import now_datetime
+from ecommerce_integrations.rag.services.access import require_rag_admin
 
 # Redis Keys
 SYNC_QUEUE_KEY = "rag:sync_queue"
@@ -281,6 +282,7 @@ def check_and_process_queue():
 @frappe.whitelist()
 def force_process_queue():
     """Manual trigger for queue processing"""
+    require_rag_admin()
     frappe.enqueue(
         process_bulk_sync_queue,
         queue="long"
@@ -291,6 +293,7 @@ def force_process_queue():
 @frappe.whitelist()
 def get_queue_status():
     """Get queue status for UI"""
+    require_rag_admin()
     redis = get_redis()
     items = get_queue_items()
 
@@ -313,6 +316,7 @@ def get_queue_status():
 @frappe.whitelist()
 def clear_sync_queue():
     """Clear the sync queue (for manual cleanup)"""
+    require_rag_admin()
     clear_queue()
     return {"status": "Queue cleared"}
 
