@@ -35,12 +35,8 @@ class MedusaProductExporter:
         payload = self._build_product_payload()
         result = medusa_request(session, base_url, "POST", API_PRODUCTS, json=payload)
         product = result.get("product", {})
-        medusa_id = product.get("id")
-        if medusa_id:
-            frappe.db.set_value("Item", self.item_code, PRODUCT_ID_FIELD, medusa_id)
-            variants = product.get("variants", [])
-            if variants:
-                frappe.db.set_value("Item", self.item_code, VARIANT_ID_FIELD, variants[0].get("id"))
+        if product.get("id"):
+            _save_medusa_ids(product)
             frappe.db.commit()
 
     @temp_medusa_session
@@ -65,15 +61,9 @@ class MedusaProductExporter:
         })
 
     def _build_product_payload(self, is_update=False) -> dict:
-        """Build Medusa product payload from ERPNext Item.
-
-        For template items (has_variants=1): creates product with options
-        and all child variants inline. For simple items: creates product
-        with a single default variant.
-        """
+        """Build Medusa product payload from ERPNext Item."""
         currency = (frappe.db.get_default("currency") or "EUR").lower()
 
-        # Direct ERPNext fields
         title = self.item.item_name
         description = self.item.description or self.item.item_name
         handle = self._make_handle(title)
@@ -87,32 +77,37 @@ class MedusaProductExporter:
             "discountable": True,
         }
 
-        # Dimensions
         for dim, field in [("weight", "weight_per_unit"), ("height", "item_height"),
                            ("width", "item_width"), ("length", "item_length")]:
             val = getattr(self.item, field, None)
             if val:
                 payload[dim] = float(val)
 
-        # Category
         category_id = self._get_medusa_category_id()
         if category_id:
             payload["categories"] = [{"id": category_id}]
 
-        # Sales channels (on create only)
         if not is_update:
             channel_ids = self.setting.get_active_sales_channel_ids() if hasattr(self.setting, 'get_active_sales_channel_ids') else []
             if channel_ids:
                 payload["sales_channels"] = [{"id": ch_id} for ch_id in channel_ids]
 
-        # All AI + SEO fields go into metadata for storefront consumption
         meta = self._build_metadata()
         if meta:
             payload["metadata"] = meta
 
-        # Images: collect all unique images (template + variants)
-        if self.item.has_variants:
-            image_urls = self._collect_template_images()
+        if not is_update:
+            if self.item.has_variants:
+                options, variants, image_urls = self._build_template_variants(currency)
+                payload["options"] = options
+                payload["variants"] = variants
+            else:
+                image_urls = []
+                img = self._get_image_url()
+                if img:
+                    image_urls.append(img)
+                payload["options"] = [{"title": "Default", "values": ["Default"]}]
+                payload["variants"] = [self._build_single_variant_payload(currency)]
         else:
             image_urls = []
             img = self._get_image_url()
@@ -123,20 +118,10 @@ class MedusaProductExporter:
             payload["images"] = [{"url": url} for url in image_urls]
             payload["thumbnail"] = image_urls[0]
 
-        # Variants
-        if not is_update:
-            if self.item.has_variants:
-                options, variants = self._build_template_variants(currency)
-                payload["options"] = options
-                payload["variants"] = variants
-            else:
-                payload["options"] = [{"title": "Default", "values": ["Default"]}]
-                payload["variants"] = [self._build_variant_payload(self.item, currency)]
-
         return {k: v for k, v in payload.items() if v is not None}
 
     def _build_metadata(self) -> dict:
-        """Build metadata dict from AI fields, SEO fields and ecommerce properties."""
+        """Build metadata from AI fields, SEO fields and ecommerce properties."""
         meta = {}
 
         ai_fields = {
@@ -153,94 +138,126 @@ class MedusaProductExporter:
             if val:
                 meta[meta_key] = val
 
-        # Standard SEO fields as fallback (only if AI version not set)
         if not meta.get("seo_title"):
-            seo_title = getattr(self.item, "seo_title", None)
-            if seo_title:
-                meta["seo_title"] = seo_title
+            val = getattr(self.item, "seo_title", None)
+            if val:
+                meta["seo_title"] = val
         if not meta.get("seo_description"):
-            seo_desc = getattr(self.item, "seo_meta_description", None)
-            if seo_desc:
-                meta["seo_description"] = seo_desc
-        seo_keywords = getattr(self.item, "seo_keywords", None)
-        if seo_keywords:
-            meta["seo_keywords"] = seo_keywords
+            val = getattr(self.item, "seo_meta_description", None)
+            if val:
+                meta["seo_description"] = val
+        seo_kw = getattr(self.item, "seo_keywords", None)
+        if seo_kw:
+            meta["seo_keywords"] = seo_kw
 
-        # Ecommerce properties
         prop_meta = self._get_medusa_metadata()
         if prop_meta:
             meta.update(prop_meta)
 
         return meta
 
-    def _build_variant_payload(self, item_doc, currency, option_values=None) -> dict:
-        """Build a single variant payload from an ERPNext Item."""
-        price = self._get_selling_price(item_doc.item_code)
-        variant = {
-            "title": item_doc.item_name,
-            "sku": item_doc.item_code,
-            "manage_inventory": True,
-            "allow_backorder": False,
-            "prices": [{"currency_code": currency, "amount": erpnext_price_to_medusa(price)}],
-        }
-
-        if option_values:
-            variant["options"] = option_values
-
-        for dim, field in [("weight", "weight_per_unit"), ("height", "item_height"),
-                           ("width", "item_width"), ("length", "item_length")]:
-            val = getattr(item_doc, field, None)
-            if val:
-                variant[dim] = float(val)
-
-        if item_doc.customs_tariff_number:
-            variant["hs_code"] = item_doc.customs_tariff_number
-        if item_doc.country_of_origin:
-            variant["origin_country"] = self._get_country_code(item_doc.country_of_origin)
-
-        return variant
+    def _build_single_variant_payload(self, currency) -> dict:
+        """Build variant payload for a simple (non-template) item."""
+        return self._make_variant_dict(self.item, currency)
 
     def _build_template_variants(self, currency) -> tuple:
-        """Build options and variants arrays for a template item.
+        """Build options, variants, and image URLs for a template item.
 
-        Returns (options, variants) where options defines the attribute
-        axes and variants are the child items with their option values.
+        Uses batch queries to avoid N+1: fetches all child items, their
+        attributes, prices, and images in bulk.
+
+        Returns (options, variant_payloads, image_urls).
         """
-        child_items = frappe.get_all(
+        attribute_names = [a.attribute for a in self.item.get("attributes", [])] or ["Default"]
+
+        # Batch fetch all child data in 3 queries instead of N * get_doc
+        child_codes_rows = frappe.get_all(
             "Item",
             filters={"variant_of": self.item_code, "disabled": 0},
-            fields=["item_code"],
+            fields=["item_code", "item_name", "weight_per_unit", "item_height",
+                     "item_width", "item_length", "customs_tariff_number",
+                     "country_of_origin", "image"],
         )
+        if not child_codes_rows:
+            return [{"title": "Default", "values": ["Default"]}], [], []
 
-        # Collect unique attributes from child items
-        attribute_names = []
-        for attr in self.item.get("attributes", []):
-            attribute_names.append(attr.attribute)
+        child_codes = [r.item_code for r in child_codes_rows]
+        child_map = {r.item_code: r for r in child_codes_rows}
 
-        if not attribute_names:
-            attribute_names = ["Default"]
+        # Batch fetch variant attributes
+        variant_attrs = frappe.get_all(
+            "Item Variant Attribute",
+            filters={"parent": ["in", child_codes]},
+            fields=["parent", "attribute", "attribute_value"],
+        )
+        attrs_by_item = {}
+        for va in variant_attrs:
+            attrs_by_item.setdefault(va.parent, {})[va.attribute] = va.attribute_value
 
-        # Build option values per attribute from actual variants
+        # Batch fetch prices
+        price_list = self.setting.default_selling_price_list
+        price_map = {}
+        if price_list:
+            prices = frappe.get_all(
+                "Item Price",
+                filters={"item_code": ["in", child_codes], "price_list": price_list, "selling": 1},
+                fields=["item_code", "price_list_rate"],
+            )
+            price_map = {p.item_code: p.price_list_rate for p in prices}
+
+        # Build variants and collect images + option values
         all_values = {attr: set() for attr in attribute_names}
         variant_payloads = []
+        image_urls = []
+        seen_images = set()
 
-        for child in child_items:
-            child_doc = frappe.get_doc("Item", child.item_code)
+        # Template image first
+        template_img = self._get_image_url()
+        if template_img:
+            image_urls.append(template_img)
+            seen_images.add(template_img)
 
-            # Get this variant's attribute values
-            option_values = {}
-            for va in child_doc.get("attributes", []):
-                if va.attribute in all_values:
-                    all_values[va.attribute].add(va.attribute_value)
-                    option_values[va.attribute] = va.attribute_value
+        for code in child_codes:
+            child = child_map[code]
+            option_values = attrs_by_item.get(code, {})
+
+            for attr in attribute_names:
+                if attr in option_values:
+                    all_values[attr].add(option_values[attr])
 
             if not option_values and attribute_names == ["Default"]:
-                option_values = {"Default": child_doc.item_name}
-                all_values["Default"].add(child_doc.item_name)
+                option_values = {"Default": child.item_name}
+                all_values["Default"].add(child.item_name)
 
-            variant_payloads.append(
-                self._build_variant_payload(child_doc, currency, option_values)
-            )
+            price = price_map.get(code, 0) or 0
+            variant = {
+                "title": child.item_name,
+                "sku": code,
+                "manage_inventory": True,
+                "allow_backorder": False,
+                "prices": [{"currency_code": (frappe.db.get_default("currency") or "EUR").lower(),
+                            "amount": erpnext_price_to_medusa(price)}],
+                "options": option_values,
+            }
+
+            for dim, field in [("weight", "weight_per_unit"), ("height", "item_height"),
+                               ("width", "item_width"), ("length", "item_length")]:
+                val = child.get(field)
+                if val:
+                    variant[dim] = float(val)
+            if child.customs_tariff_number:
+                variant["hs_code"] = child.customs_tariff_number
+            if child.country_of_origin:
+                variant["origin_country"] = self._get_country_code(child.country_of_origin)
+
+            variant_payloads.append(variant)
+
+            # Collect variant image
+            if child.image:
+                url = self._resolve_image_url(child.image)
+                if url and url not in seen_images:
+                    image_urls.append(url)
+                    seen_images.add(url)
 
         options = []
         for attr_name in attribute_names:
@@ -251,58 +268,48 @@ class MedusaProductExporter:
         if not options:
             options = [{"title": "Default", "values": ["Default"]}]
 
-        return options, variant_payloads
+        return options, variant_payloads, image_urls
 
-    def _collect_template_images(self) -> list:
-        """Collect all unique image URLs from template and its variants."""
-        urls = []
-        seen = set()
-
-        # Template image first
-        template_img = self._get_image_url()
-        if template_img:
-            urls.append(template_img)
-            seen.add(template_img)
-
-        # Variant images
-        child_items = frappe.get_all(
-            "Item",
-            filters={"variant_of": self.item_code, "disabled": 0, "image": ["is", "set"]},
-            fields=["image"],
-        )
-        for child in child_items:
-            url = self._resolve_image_url(child.image)
-            if url and url not in seen:
-                urls.append(url)
-                seen.add(url)
-
-        return urls
+    def _make_variant_dict(self, item_data, currency) -> dict:
+        """Build a variant dict from item data (doc or dict-like)."""
+        price = self._get_selling_price(item_data.item_code if hasattr(item_data, 'item_code') else item_data.get('item_code'))
+        variant = {
+            "title": item_data.item_name if hasattr(item_data, 'item_name') else item_data.get('item_name', ''),
+            "sku": item_data.item_code if hasattr(item_data, 'item_code') else item_data.get('item_code', ''),
+            "manage_inventory": True,
+            "allow_backorder": False,
+            "prices": [{"currency_code": currency, "amount": erpnext_price_to_medusa(price)}],
+        }
+        for dim, field in [("weight", "weight_per_unit"), ("height", "item_height"),
+                           ("width", "item_width"), ("length", "item_length")]:
+            val = getattr(item_data, field, None) or (item_data.get(field) if hasattr(item_data, 'get') else None)
+            if val:
+                variant[dim] = float(val)
+        hs = getattr(item_data, 'customs_tariff_number', None)
+        if hs:
+            variant["hs_code"] = hs
+        co = getattr(item_data, 'country_of_origin', None)
+        if co:
+            variant["origin_country"] = self._get_country_code(co)
+        return variant
 
     def _make_handle(self, title) -> str:
-        """Generate a URL-safe handle from title + item_code."""
         handle_base = re.sub(r'[^a-z0-9-]', '-', title.lower())
         handle_base = re.sub(r'-+', '-', handle_base).strip('-')
         sku_slug = re.sub(r'[^a-z0-9-]', '-', self.item.item_code.lower()).strip('-')
         return f"{handle_base}-{sku_slug}"
 
-    def _get_medusa_category_id(self) -> str:
-        """Look up the Medusa category ID for this item's Item Group."""
+    def _get_medusa_category_id(self):
         from ecommerce_integrations.medusa.constants import API_CATEGORIES
 
         item_group = self.item.item_group
         if not item_group:
             return None
 
-        cache_key = f"medusa_category_id:{item_group}"
-        cached = frappe.cache.get_value(cache_key)
-        if cached:
-            return cached
-
-        # Batch-fetch all categories once and cache them
         all_cats_key = "medusa_category_map"
         cat_map = frappe.cache.get_value(all_cats_key)
         if not cat_map:
-            from ecommerce_integrations.medusa.connection import get_medusa_session, medusa_request
+            from ecommerce_integrations.medusa.connection import get_medusa_session
             session, base_url = get_medusa_session()
             try:
                 categories = medusa_request_all(session, base_url, API_CATEGORIES, "product_categories")
@@ -313,22 +320,14 @@ class MedusaProductExporter:
             finally:
                 session.close()
 
-        cat_id = cat_map.get(item_group)
-        if cat_id:
-            frappe.cache.set_value(cache_key, cat_id, expires_in_sec=300)
-        return cat_id
+        return cat_map.get(item_group)
 
     def _get_image_url(self):
-        """Get public URL for this item's image."""
         return self._resolve_image_url(self.item.image)
 
     @staticmethod
     def _resolve_image_url(image_path):
-        """Resolve an ERPNext image path to a public URL.
-
-        For S3-backed files (dfp_external_storage): builds CDN URL.
-        For relative paths: prepends site URL.
-        """
+        """Resolve ERPNext image path to public URL (S3/CDN or site URL)."""
         if not image_path:
             return None
         if "/private/" in image_path:
@@ -341,52 +340,26 @@ class MedusaProductExporter:
             ["dfp_external_storage", "dfp_external_storage_s3_key"], as_dict=True
         )
         if file_data and file_data.dfp_external_storage_s3_key and file_data.dfp_external_storage:
-            storage = frappe.db.get_value(
-                "DFP External Storage", file_data.dfp_external_storage,
-                ["bucket_name", "endpoint"], as_dict=True
-            )
-            if storage and storage.endpoint:
+            storage = _get_dfp_storage_config(file_data.dfp_external_storage)
+            if storage:
                 return f"https://{storage.endpoint}/{storage.bucket_name}/{file_data.dfp_external_storage_s3_key}"
 
         return f"{frappe.utils.get_url().rstrip('/')}{image_path}"
 
     @staticmethod
     def _get_country_code(country_name: str) -> str:
-        """Convert ERPNext country name to ISO 2-letter code."""
         if not country_name:
             return ""
         code = frappe.db.get_value("Country", country_name, "code")
         return (code or "").upper()
 
     def _get_medusa_metadata(self) -> dict:
-        """Get ecommerce_properties marked for Medusa sync as product metadata."""
         metadata = {}
         for row in get_ecommerce_properties(self.item, "sync_to_medusa"):
             if row.property_value:
-                if row.property_type == 'Custom Field':
-                    metadata[f"custom_{row.property_name}"] = cstr(row.property_value).strip()
-                else:
-                    metadata[row.property_name] = cstr(row.property_value).strip()
+                key = f"custom_{row.property_name}" if row.property_type == 'Custom Field' else row.property_name
+                metadata[key] = cstr(row.property_value).strip()
         return metadata
-
-    def _get_medusa_options(self) -> list:
-        """Get Item Attributes marked for Medusa sync as Product Options."""
-        if not self.item.has_variants:
-            return []
-
-        options = []
-        for attr_row in self.item.get("attributes", []):
-            attr_doc = frappe.get_cached_doc("Item Attribute", attr_row.attribute)
-            if not getattr(attr_doc, 'sync_to_medusa', 0):
-                continue
-            if getattr(attr_doc, 'medusa_property_type', '') != 'Option':
-                continue
-
-            values = [v.attribute_value for v in attr_doc.item_attribute_values]
-            if values:
-                options.append({"title": attr_row.attribute, "values": values})
-
-        return options
 
     def _get_selling_price(self, item_code=None) -> float:
         price_list = self.setting.default_selling_price_list
@@ -395,6 +368,52 @@ class MedusaProductExporter:
         code = item_code or self.item_code
         price = frappe.db.get_value("Item Price", {"item_code": code, "price_list": price_list, "selling": 1}, "price_list_rate")
         return price or 0.0
+
+
+def _get_dfp_storage_config(storage_name):
+    """Get DFP External Storage config (cached)."""
+    cache_key = f"dfp_storage:{storage_name}"
+    cached = frappe.cache.get_value(cache_key)
+    if cached:
+        return cached
+    storage = frappe.db.get_value(
+        "DFP External Storage", storage_name,
+        ["bucket_name", "endpoint"], as_dict=True
+    )
+    if storage and storage.endpoint:
+        frappe.cache.set_value(cache_key, storage, expires_in_sec=3600)
+    return storage
+
+
+def _save_medusa_ids(product: dict):
+    """Save Medusa product/variant IDs back to ERPNext Items.
+
+    For template products: saves product ID to template, variant IDs to child items.
+    For simple products: saves both to the same item.
+    """
+    product_id = product.get("id")
+    if not product_id:
+        return
+
+    variants = product.get("variants", [])
+    for variant in variants:
+        sku = variant.get("sku")
+        variant_id = variant.get("id")
+        if not sku or not frappe.db.exists("Item", sku):
+            continue
+
+        # Check if this item is a variant (has variant_of)
+        variant_of = frappe.db.get_value("Item", sku, "variant_of")
+        if variant_of:
+            # Child variant: save product ID to template, variant ID to child
+            frappe.db.set_value("Item", variant_of, PRODUCT_ID_FIELD, product_id)
+            if variant_id:
+                frappe.db.set_value("Item", sku, VARIANT_ID_FIELD, variant_id)
+        else:
+            # Simple item: save both to same item
+            frappe.db.set_value("Item", sku, PRODUCT_ID_FIELD, product_id)
+            if variant_id:
+                frappe.db.set_value("Item", sku, VARIANT_ID_FIELD, variant_id)
 
 
 @frappe.whitelist()
@@ -433,11 +452,15 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 
 	if sync_products or sync_prices:
 		setting = frappe.get_cached_doc(SETTING_DOCTYPE)
-		filters = {"disabled": 0, "has_variants": 0}
+		filters = {"disabled": 0}
 		if setting.category_sync_root:
 			filters["item_group"] = ["descendants of (inclusive)", setting.category_sync_root]
 
-		items = frappe.get_all("Item", filters=filters, fields=["item_code", PRODUCT_ID_FIELD], limit=0)
+		# Sync both simple items and templates
+		items = frappe.get_all("Item", filters=filters, fields=["item_code", PRODUCT_ID_FIELD, "has_variants", "variant_of"], limit=0)
+
+		# Exclude child variants (they are synced via their template)
+		items = [i for i in items if not i.variant_of]
 
 		if dry_run:
 			stats["skipped"] = len(items)
@@ -495,21 +518,6 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 
 	frappe.logger("medusa").info(f"Full sync complete: {stats}")
 	return stats
-
-
-def _save_medusa_ids(product: dict):
-	"""Save Medusa product/variant IDs back to ERPNext Item."""
-	variants = product.get("variants", [])
-	if not variants:
-		return
-	sku = variants[0].get("sku")
-	if not sku:
-		return
-	if not frappe.db.exists("Item", sku):
-		return
-	frappe.db.set_value("Item", sku, PRODUCT_ID_FIELD, product.get("id"))
-	if variants[0].get("id"):
-		frappe.db.set_value("Item", sku, VARIANT_ID_FIELD, variants[0]["id"])
 
 
 @frappe.whitelist()
