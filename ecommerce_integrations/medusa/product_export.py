@@ -454,26 +454,31 @@ class MedusaProductExporter:
         return metadata
 
     def _get_attribute_values(self) -> list:
-        """Filterable ecommerce properties -> medusa-product-attributes plugin.
+        """Filterable ecommerce properties + brand -> medusa-product-attributes plugin.
 
         Creates attributes and possible values in Medusa if they don't
         exist yet (cached). Returns list of {attribute_id, value} dicts
         for additional_data.attribute_values on the product payload.
         """
-        filterable_props = [
-            row for row in get_ecommerce_properties(self.item, "sync_to_medusa")
-            if row.property_value and row.property_type == "Property" and getattr(row, "filterable", 0)
-        ]
-        if not filterable_props:
+        entries = []
+
+        # Brand as filterable attribute
+        brand = getattr(self.item, "brand", None)
+        if brand:
+            entries.append(("Brand", cstr(brand).strip()))
+
+        # Filterable ecommerce properties
+        for row in get_ecommerce_properties(self.item, "sync_to_medusa"):
+            if row.property_value and row.property_type == "Property" and getattr(row, "filterable", 0):
+                entries.append((row.property_name, cstr(row.property_value).strip()))
+
+        if not entries:
             return []
 
         attr_map = _get_or_build_attribute_map()
         result = []
 
-        for row in filterable_props:
-            prop_name = row.property_name
-            prop_value = cstr(row.property_value).strip()
-
+        for prop_name, prop_value in entries:
             attr_id = attr_map.get(prop_name, {}).get("id")
             if not attr_id:
                 attr_id = _ensure_medusa_attribute(prop_name, attr_map)
