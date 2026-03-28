@@ -139,36 +139,19 @@ class ShopwareSetting(Document):
         product_count = status.get("product_queue_size", 0)
         properties_count = status.get("properties_queue_size", 0)
 
-        html = f"""
-        <div class="bulk-sync-status" style="padding: 10px; background: #f5f5f5; border-radius: 4px; margin-top: 10px;">
-            <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-                <div>
-                    <strong>Bulk Mode:</strong>
-                    <span class="indicator-pill {bulk_mode_class}">{bulk_mode}</span>
-                </div>
-                <div>
-                    <strong>Products in Queue:</strong>
-                    <span class="badge" style="background: #2490ef; color: white;">{product_count}</span>
-                </div>
-                <div>
-                    <strong>Properties in Queue:</strong>
-                    <span class="badge" style="background: #2490ef; color: white;">{properties_count}</span>
-                </div>
+        return f"""
+        <div style="padding: 10px; background: var(--bg-light-gray); border-radius: 4px;">
+            <div style="display: flex; gap: 20px; flex-wrap: wrap; align-items: center;">
+                <div><strong>Bulk Mode:</strong>
+                    <span class="indicator-pill {bulk_mode_class}">{bulk_mode}</span></div>
+                <div><strong>Products in Queue:</strong> {product_count}</div>
+                <div><strong>Properties in Queue:</strong> {properties_count}</div>
             </div>
-            <div style="margin-top: 10px;">
-                <button class="btn btn-xs btn-primary" onclick="frappe.call({{method: 'ecommerce_integrations.shopware6.bulk_sync.force_process_queue', callback: function(r) {{ frappe.msgprint('Queue processing started'); cur_frm.reload_doc(); }}}})">
-                    Process Queue Now
-                </button>
-                <button class="btn btn-xs btn-default" onclick="cur_frm.reload_doc()">
-                    Refresh Status
-                </button>
-                <button class="btn btn-xs btn-danger" onclick="frappe.confirm('Are you sure you want to clear all queues?', function() {{ frappe.call({{method: 'ecommerce_integrations.shopware6.bulk_sync.clear_all_queues', callback: function(r) {{ frappe.msgprint('All queues cleared'); cur_frm.reload_doc(); }}}}); }})">
-                    Clear All Queues
-                </button>
-            </div>
+            <p class="text-muted small" style="margin: 8px 0 0;">
+                Use Tools &gt; Process Queue Now / Clear Queue to manage the queue.
+            </p>
         </div>
         """
-        return html
 
     @frappe.whitelist()
     def get_bulk_sync_status(self):

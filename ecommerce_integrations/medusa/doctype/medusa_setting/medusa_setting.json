@@ -13,6 +13,9 @@
   "api_key",
   "section_break_webhook",
   "webhook_secret",
+  "sales_channels_section",
+  "sales_channels",
+  "fetch_sales_channels_btn",
   "customer_settings_section",
   "default_customer",
   "sync_customers",
@@ -37,6 +40,13 @@
   "last_order_sync",
   "column_break_order",
   "sales_order_series",
+  "delivery_note_series",
+  "section_break_order_automation",
+  "sync_delivery_note",
+  "auto_create_invoice_on_shipment",
+  "column_break_order_automation",
+  "sync_sales_invoice",
+  "auto_send_invoice_email",
   "section_break_tax",
   "default_sales_tax_template",
   "column_break_tax",
@@ -44,8 +54,10 @@
   "product_sync_section",
   "upload_erpnext_items",
   "sync_item_on_update",
+  "sync_new_item_as_active",
   "column_break_product_sync",
   "category_sync_root",
+  "product_batch_size",
   "inventory_sync_section",
   "sync_inventory",
   "inventory_sync_frequency",
@@ -100,10 +112,30 @@
    "label": "Webhook Settings"
   },
   {
-   "description": "Secret key to validate incoming Medusa webhooks",
+   "description": "Secret key to validate incoming Medusa webhooks (requires Medusa subscriber plugin)",
    "fieldname": "webhook_secret",
    "fieldtype": "Password",
    "label": "Webhook Secret"
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:doc.enable_medusa",
+   "fieldname": "sales_channels_section",
+   "fieldtype": "Section Break",
+   "label": "Sales Channels"
+  },
+  {
+   "fieldname": "sales_channels",
+   "fieldtype": "Table",
+   "label": "Sales Channels",
+   "options": "Medusa Sales Channel",
+   "description": "Sales channels fetched from Medusa. Enable/disable channels for product assignment."
+  },
+  {
+   "depends_on": "eval:doc.enable_medusa",
+   "fieldname": "fetch_sales_channels_btn",
+   "fieldtype": "Button",
+   "label": "Refresh Sales Channels"
   },
   {
    "fieldname": "customer_settings_section",
@@ -242,8 +274,51 @@
   },
   {
    "fieldname": "sales_order_series",
-   "fieldtype": "Data",
+   "fieldtype": "Select",
    "label": "Sales Order Series"
+  },
+  {
+   "fieldname": "delivery_note_series",
+   "fieldtype": "Select",
+   "label": "Delivery Note Series"
+  },
+  {
+   "fieldname": "section_break_order_automation",
+   "fieldtype": "Section Break",
+   "label": "Order Automation"
+  },
+  {
+   "default": "0",
+   "fieldname": "sync_delivery_note",
+   "fieldtype": "Check",
+   "label": "Create Delivery Notes from Fulfillments",
+   "description": "Creates a Delivery Note when a fulfillment is created in Medusa"
+  },
+  {
+   "default": "0",
+   "fieldname": "auto_create_invoice_on_shipment",
+   "fieldtype": "Check",
+   "label": "Auto-create Invoice after Shipment",
+   "description": "Creates a Sales Invoice when a Delivery Note is submitted"
+  },
+  {
+   "fieldname": "column_break_order_automation",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "sync_sales_invoice",
+   "fieldtype": "Check",
+   "label": "Create Sales Invoices for Paid Orders",
+   "description": "Creates a Sales Invoice when an order payment is confirmed in Medusa"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.sync_sales_invoice || doc.auto_create_invoice_on_shipment",
+   "fieldname": "auto_send_invoice_email",
+   "fieldtype": "Check",
+   "label": "Auto-send Invoice Email",
+   "description": "Sends the invoice via email to the customer after creation"
   },
   {
    "fieldname": "section_break_tax",
@@ -285,6 +360,13 @@
    "label": "Sync Item on Update"
   },
   {
+   "default": "1",
+   "depends_on": "eval:doc.upload_erpnext_items",
+   "fieldname": "sync_new_item_as_active",
+   "fieldtype": "Check",
+   "label": "Sync New Items as Active"
+  },
+  {
    "fieldname": "column_break_product_sync",
    "fieldtype": "Column Break"
   },
@@ -294,6 +376,14 @@
    "fieldtype": "Link",
    "label": "Category Sync Root",
    "options": "Item Group"
+  },
+  {
+   "default": "50",
+   "depends_on": "eval:doc.upload_erpnext_items",
+   "fieldname": "product_batch_size",
+   "fieldtype": "Int",
+   "label": "Product Batch Size",
+   "description": "Number of products per sync batch"
   },
   {
    "fieldname": "inventory_sync_section",

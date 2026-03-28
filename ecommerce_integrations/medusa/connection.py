@@ -64,12 +64,13 @@ def medusa_request(session, base_url, method, path, **kwargs):
 
 @frappe.whitelist()
 def test_connection():
-    """Test the Medusa API connection."""
+    """Test the Medusa API connection. Returns product count on success."""
+    session, base_url = get_medusa_session()
     try:
-        session, base_url = get_medusa_session()
-        response = session.get(f"{base_url}/admin/products", params={"limit": 1})
-        response.raise_for_status()
-        session.close()
-        return {"success": True, "message": "Connection successful"}
+        result = medusa_request(session, base_url, "GET", "/admin/products", params={"limit": 1})
+        count = result.get("count", len(result.get("products", [])))
+        return {"success": True, "message": "Connection successful", "product_count": count}
     except Exception as e:
         return {"success": False, "message": str(e)}
+    finally:
+        session.close()

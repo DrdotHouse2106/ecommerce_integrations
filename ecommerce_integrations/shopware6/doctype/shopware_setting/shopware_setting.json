@@ -418,16 +418,16 @@
    "description": "Price list containing original/UVP prices. If an item has a higher price in this list than its selling price, the UVP is sent as strikethrough price (listPrice) to Shopware.",
    "fieldname": "list_price_price_list",
    "fieldtype": "Link",
-   "label": "Streichpreis/UVP Preisliste",
+   "label": "List Price / RRP Price List",
    "options": "Price List"
   },
   {
    "default": "0",
    "depends_on": "list_price_price_list",
-   "description": "Enable if the UVP/Streichpreis Price List contains gross prices (including tax). Prices will be converted to net before sending to Shopware.",
+   "description": "Enable if the List Price / RRP Price List contains gross prices (including tax). Prices will be converted to net before sending to Shopware.",
    "fieldname": "list_price_includes_tax",
    "fieldtype": "Check",
-   "label": "Streichpreis-Preisliste enth\u00e4lt Bruttopreise"
+   "label": "List Price Includes Tax (Gross)"
   },
   {
    "default": "1",
@@ -515,8 +515,8 @@
    "default": "0",
    "fieldname": "sync_sales_invoice",
    "fieldtype": "Check",
-   "label": "Create Sales Invoices for paid orders (Legacy)",
-   "description": "Legacy: Creates invoices only after payment. Use 'Auto-create Invoice after Shipment' instead for compliance."
+   "label": "Create Sales Invoices for Paid Orders",
+   "description": "Creates a Sales Invoice when an order payment is confirmed in Shopware."
   },
   {
    "default": "0",
