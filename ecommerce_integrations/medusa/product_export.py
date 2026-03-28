@@ -101,10 +101,10 @@ class MedusaProductExporter:
             if channel_ids:
                 payload["sales_channels"] = [{"id": ch_id} for ch_id in channel_ids]
 
-        # Filterable properties -> tags, non-filterable -> metadata
-        tag_ids = self._get_tag_ids()
-        if tag_ids:
-            payload["tags"] = [{"id": tid} for tid in tag_ids]
+        # Filterable properties -> plugin attributes (via additional_data)
+        attr_values = self._get_attribute_values()
+        if attr_values:
+            payload["additional_data"] = {"attribute_values": attr_values}
 
         meta = self._build_metadata()
         if meta:
@@ -394,18 +394,18 @@ class MedusaProductExporter:
         for row in get_ecommerce_properties(self.item, "sync_to_medusa"):
             if not row.property_value:
                 continue
-            # Filterable properties go to tags (handled by _get_tag_ids)
             if row.property_type == "Property" and getattr(row, "filterable", 0):
                 continue
             key = f"custom_{row.property_name}" if row.property_type == 'Custom Field' else row.property_name
             metadata[key] = cstr(row.property_value).strip()
         return metadata
 
-    def _get_tag_ids(self) -> list:
-        """Filterable ecommerce properties -> Medusa product tags.
+    def _get_attribute_values(self) -> list:
+        """Filterable ecommerce properties -> medusa-product-attributes plugin.
 
-        Creates tags in Medusa if they don't exist yet (cached).
-        Tag value format: "PropertyName: Value" for structured filtering.
+        Creates attributes and possible values in Medusa if they don't
+        exist yet (cached). Returns list of {attribute_id, value} dicts
+        for additional_data.attribute_values on the product payload.
         """
         filterable_props = [
             row for row in get_ecommerce_properties(self.item, "sync_to_medusa")
@@ -414,53 +414,22 @@ class MedusaProductExporter:
         if not filterable_props:
             return []
 
-        tag_map = self._get_or_build_tag_map()
-        tag_ids = []
+        attr_map = _get_or_build_attribute_map()
+        result = []
 
         for row in filterable_props:
-            tag_value = f"{row.property_name}: {cstr(row.property_value).strip()}"
-            tag_id = tag_map.get(tag_value)
-            if not tag_id:
-                tag_id = self._create_medusa_tag(tag_value)
-                if tag_id:
-                    tag_map[tag_value] = tag_id
-            if tag_id:
-                tag_ids.append(tag_id)
+            prop_name = row.property_name
+            prop_value = cstr(row.property_value).strip()
 
-        return tag_ids
+            attr_id = attr_map.get(prop_name, {}).get("_id")
+            if not attr_id:
+                attr_id = _ensure_medusa_attribute(prop_name, attr_map)
 
-    def _get_or_build_tag_map(self) -> dict:
-        """Get {tag_value: tag_id} map, cached."""
-        cache_key = "medusa_tag_map"
-        tag_map = frappe.cache.get_value(cache_key)
-        if tag_map is not None:
-            return tag_map
+            if attr_id:
+                _ensure_possible_value(attr_id, prop_name, prop_value, attr_map)
+                result.append({"attribute_id": attr_id, "value": prop_value})
 
-        from ecommerce_integrations.medusa.connection import get_medusa_session
-        session, base_url = get_medusa_session()
-        try:
-            tags = medusa_request_all(session, base_url, "/admin/product-tags", "product_tags")
-            tag_map = {t["value"]: t["id"] for t in tags}
-            frappe.cache.set_value(cache_key, tag_map, expires_in_sec=300)
-        except Exception:
-            tag_map = {}
-        finally:
-            session.close()
-        return tag_map
-
-    @staticmethod
-    def _create_medusa_tag(value: str):
-        """Create a tag in Medusa and return its ID."""
-        from ecommerce_integrations.medusa.connection import get_medusa_session
-        session, base_url = get_medusa_session()
-        try:
-            result = medusa_request(session, base_url, "POST", "/admin/product-tags", json={"value": value})
-            tag = result.get("product_tag", {})
-            return tag.get("id")
-        except Exception:
-            return None
-        finally:
-            session.close()
+        return result
 
     def _get_price(self, price_list, item_code=None) -> float:
         if not price_list:
@@ -473,6 +442,85 @@ class MedusaProductExporter:
 
     def _get_list_price(self, item_code=None) -> float:
         return self._get_price(getattr(self.setting, "list_price_price_list", None), item_code)
+
+
+def _get_or_build_attribute_map() -> dict:
+    """Get {attr_name: {"_id": attr_id, value1: pv_id, ...}} map, cached."""
+    cache_key = "medusa_attribute_map"
+    attr_map = frappe.cache.get_value(cache_key)
+    if attr_map is not None:
+        return attr_map
+
+    from ecommerce_integrations.medusa.connection import get_medusa_session
+    session, base_url = get_medusa_session()
+    try:
+        attrs = medusa_request_all(session, base_url, "/admin/plugin/attributes", "attributes")
+        attr_map = {}
+        for a in attrs:
+            entry = {"_id": a["id"]}
+            for pv in a.get("possible_values", []):
+                entry[pv["value"]] = pv["id"]
+            attr_map[a["name"]] = entry
+        frappe.cache.set_value(cache_key, attr_map, expires_in_sec=300)
+    except Exception:
+        attr_map = {}
+    finally:
+        session.close()
+    return attr_map
+
+
+def _ensure_medusa_attribute(name: str, attr_map: dict) -> str:
+    """Create an attribute in Medusa if it doesn't exist. Returns attribute ID."""
+    from ecommerce_integrations.medusa.connection import get_medusa_session
+    handle = re.sub(r'[^a-z0-9-]', '-', name.lower())
+    handle = re.sub(r'-+', '-', handle).strip('-')
+
+    session, base_url = get_medusa_session()
+    try:
+        result = medusa_request(session, base_url, "POST", "/admin/plugin/attributes", json={
+            "name": name,
+            "handle": handle,
+            "is_filterable": True,
+            "is_variant_defining": False,
+            "ui_component": "select",
+        })
+        attr = result.get("attribute", {})
+        attr_id = attr.get("id")
+        if attr_id:
+            attr_map[name] = {"_id": attr_id}
+            frappe.cache.delete_value("medusa_attribute_map")
+        return attr_id
+    except Exception:
+        return None
+    finally:
+        session.close()
+
+
+def _ensure_possible_value(attr_id: str, attr_name: str, value: str, attr_map: dict):
+    """Ensure a possible value exists for an attribute. Creates it if missing."""
+    entry = attr_map.get(attr_name, {})
+    if value in entry:
+        return entry[value]
+
+    from ecommerce_integrations.medusa.connection import get_medusa_session
+    session, base_url = get_medusa_session()
+    try:
+        result = medusa_request(
+            session, base_url, "POST",
+            f"/admin/plugin/attributes/{attr_id}/values",
+            json={"value": value},
+        )
+        pv = result.get("possible_value", result.get("attribute_possible_value", {}))
+        pv_id = pv.get("id")
+        if pv_id:
+            entry[value] = pv_id
+            attr_map[attr_name] = entry
+            frappe.cache.delete_value("medusa_attribute_map")
+        return pv_id
+    except Exception:
+        return None
+    finally:
+        session.close()
 
 
 def _get_dfp_storage_config(storage_name):
