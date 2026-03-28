@@ -6,14 +6,15 @@
 
 </div>
 
-> **Note:** This is an extended fork with Shopware6, RAG (Vector Search) and German E-Invoice support.
+> **Note:** This is an extended fork with Shopware 6, Medusa v2, RAG (AI-powered product search) and German E-Invoice support.
 
 ### Supported Integrations
 
 | Integration | Description | Documentation |
 |-------------|-------------|---------------|
 | **Shopware 6** | Full bidirectional sync with Shopware 6 | See below |
-| **RAG** | Vector search for products (semantic search) | See below |
+| **Medusa v2** | Product, order, customer and inventory sync with Medusa v2 | See below |
+| **RAG** | AI-powered product search (FAQ, assistant integration) | See below |
 | Shopify | Shopify integration | [User docs](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/shopify_integration) |
 | Unicommerce | Unicommerce integration | [User docs](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/unicommerce_integration) |
 | Zenoti | Zenoti integration | [User docs](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/zenoti_integration) |
@@ -38,18 +39,35 @@ Full bidirectional sync between ERPNext and Shopware 6:
 4. Enable sync options as needed
 
 
-### RAG Integration (Vector Search)
+### Medusa v2 Integration
 
-Semantic product search using embeddings:
+Sync ERPNext with Medusa v2 headless commerce:
 
-- Automatic embedding generation for products
-- Vector search for similar products
-- Integration with AI assistants
+- **Products**: Export items with prices, metadata from ecommerce_properties
+- **Orders**: Import orders from Medusa via webhooks or scheduled sync
+- **Customers**: Bidirectional customer sync
+- **Inventory**: Stock level sync to Medusa locations
+- **Status Sync**: Order fulfillment and payment status updates
 
 **Setup:**
-1. Go to `RAG Setting` in ERPNext
-2. Configure your embedding API endpoint
-3. Enable product sync
+1. Go to `Medusa Setting` in ERPNext
+2. Enter your Medusa v2 API key and base URL
+3. Configure price list and warehouse mappings
+4. Enable sync options as needed
+
+
+### RAG Integration (AI Product Search)
+
+AI-powered product search and FAQ generation for shop assistants:
+
+- FAQ field sync to Shopware custom fields
+- AI-generated product descriptions
+- Integration with AI assistants and chatbots
+
+**Setup:**
+1. Go to `Shopware Setting` > AI/RAG section in ERPNext
+2. Configure your AI service endpoint
+3. Enable FAQ and description sync
 
 
 ### Installation
@@ -82,7 +100,7 @@ After installation, follow the documentation for each integration.
 
 ### Contributing
 
-- For Shopware6/RAG: PRs to `shopware6-clean` branch
+- For Shopware6/Medusa/RAG: PRs to `shopware6-clean` branch
 - For upstream integrations: Follow [ERPNext contribution guidelines](https://github.com/frappe/erpnext/wiki/Contribution-Guidelines)
 
 
