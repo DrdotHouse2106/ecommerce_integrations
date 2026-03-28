@@ -22,7 +22,7 @@ def get_medusa_session() -> tuple:
     session.headers.update({
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "x-medusa-access-token": api_key,
+        "Authorization": f"Basic {api_key}",
     })
     session.timeout = 60
 
