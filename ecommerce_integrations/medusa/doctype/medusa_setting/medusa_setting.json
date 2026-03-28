@@ -64,6 +64,9 @@
   "last_inventory_sync",
   "column_break_inventory",
   "medusa_stock_location_id",
+  "warehouse_mappings_section",
+  "warehouse_mappings",
+  "fetch_stock_locations_btn",
   "shipping_section",
   "add_shipping_as_item",
   "shipping_item",
@@ -420,6 +423,26 @@
    "fieldname": "medusa_stock_location_id",
    "fieldtype": "Data",
    "label": "Medusa Stock Location ID"
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:doc.enable_medusa",
+   "fieldname": "warehouse_mappings_section",
+   "fieldtype": "Section Break",
+   "label": "Warehouse Mappings"
+  },
+  {
+   "fieldname": "warehouse_mappings",
+   "fieldtype": "Table",
+   "label": "Warehouse Mappings",
+   "options": "Medusa Warehouse Mapping",
+   "description": "Map ERPNext Warehouses to Medusa Stock Locations for multi-location inventory sync"
+  },
+  {
+   "depends_on": "eval:doc.enable_medusa",
+   "fieldname": "fetch_stock_locations_btn",
+   "fieldtype": "Button",
+   "label": "Sync Stock Locations"
   },
   {
    "fieldname": "shipping_section",

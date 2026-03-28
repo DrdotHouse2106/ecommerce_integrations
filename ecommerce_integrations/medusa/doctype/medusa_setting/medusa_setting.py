@@ -86,6 +86,58 @@ class MedusaSetting(Document):
 		)
 		return {"success": True, "count": len(channels)}
 
+	@frappe.whitelist()
+	def fetch_stock_locations(self):
+		"""Fetch stock locations from Medusa and create mappings.
+
+		For each ERPNext warehouse in warehouse_mappings that has no
+		Medusa Stock Location ID, creates a new location in Medusa.
+		Also fetches existing locations and maps by name.
+		"""
+		from ecommerce_integrations.medusa.connection import get_medusa_session, medusa_request
+
+		session, base_url = get_medusa_session()
+		try:
+			result = medusa_request(session, base_url, "GET", "/admin/stock-locations", params={"limit": 100})
+			existing_locations = {loc["name"]: loc["id"] for loc in result.get("stock_locations", [])}
+
+			created = 0
+			for row in self.warehouse_mappings or []:
+				wh_name = row.erpnext_warehouse
+				if row.medusa_stock_location_id:
+					continue
+
+				if wh_name in existing_locations:
+					row.medusa_stock_location_id = existing_locations[wh_name]
+					row.medusa_stock_location_name = wh_name
+				else:
+					loc = medusa_request(session, base_url, "POST", "/admin/stock-locations", json={"name": wh_name})
+					loc_data = loc.get("stock_location", {})
+					if loc_data.get("id"):
+						row.medusa_stock_location_id = loc_data["id"]
+						row.medusa_stock_location_name = wh_name
+						existing_locations[wh_name] = loc_data["id"]
+						created += 1
+
+			self.save()
+			total = len([r for r in (self.warehouse_mappings or []) if r.medusa_stock_location_id])
+			frappe.msgprint(
+				_("{0} warehouse mappings configured ({1} new locations created in Medusa).").format(total, created),
+				title=_("Stock Locations"),
+				indicator="green",
+			)
+			return {"success": True, "total": total, "created": created}
+		finally:
+			session.close()
+
+	def get_warehouse_location_map(self) -> dict:
+		"""Return {erpnext_warehouse: medusa_stock_location_id} dict."""
+		return {
+			row.erpnext_warehouse: row.medusa_stock_location_id
+			for row in (self.warehouse_mappings or [])
+			if row.medusa_stock_location_id
+		}
+
 	def get_default_sales_channel_id(self):
 		for row in self.sales_channels or []:
 			if row.is_default:

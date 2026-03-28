@@ -23,6 +23,18 @@ frappe.ui.form.on('Medusa Setting', {
 			});
 		}
 
+		if (frm.fields_dict.fetch_stock_locations_btn && frm.fields_dict.fetch_stock_locations_btn.$input) {
+			frm.fields_dict.fetch_stock_locations_btn.$input.off('click').on('click', function() {
+				frm.call({
+					method: 'fetch_stock_locations',
+					doc: frm.doc,
+					freeze: true,
+					freeze_message: __('Syncing Stock Locations with Medusa...'),
+					callback: function() { frm.reload_doc(); }
+				});
+			});
+		}
+
 		if (frm.is_new()) return;
 
 		frm.add_custom_button(__('Complete Sync'), function() {

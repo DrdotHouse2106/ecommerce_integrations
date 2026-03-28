@@ -114,6 +114,17 @@ class MedusaProductExporter:
         if category_id:
             payload["categories"] = [{"id": category_id}]
 
+        # Sales channel assignment
+        channel_ids = self.setting.get_active_sales_channel_ids() if hasattr(self.setting, 'get_active_sales_channel_ids') else []
+        if channel_ids and not is_update:
+            payload["sales_channels"] = [{"id": ch_id} for ch_id in channel_ids]
+
+        # Images (from S3/CDN URL or ERPNext file URL)
+        image_url = self._get_image_url()
+        if image_url:
+            payload["images"] = [{"url": image_url}]
+            payload["thumbnail"] = image_url
+
         # Ecommerce properties -> Medusa metadata
         metadata = self._get_medusa_metadata()
         if metadata:
@@ -180,6 +191,20 @@ class MedusaProductExporter:
         if cat_id:
             frappe.cache.set_value(cache_key, cat_id, expires_in_sec=300)
         return cat_id
+
+    def _get_image_url(self) -> str:
+        """Get public image URL for this item.
+
+        If the image path is already an absolute URL (S3/CDN), return as-is.
+        If it's a relative path (/file/...), prepend the site URL.
+        """
+        image = self.item.image
+        if not image:
+            return None
+        if image.startswith("http"):
+            return image
+        site_url = frappe.utils.get_url()
+        return f"{site_url}{image}"
 
     @staticmethod
     def _get_country_code(country_name: str) -> str:
