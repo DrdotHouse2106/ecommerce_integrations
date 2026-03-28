@@ -186,7 +186,22 @@ class MedusaProductExporter:
         if prop_meta:
             meta.update(prop_meta)
 
-        return meta
+        # Return sorted: AI fields first, then SEO, then properties (alphabetical)
+        ai_keys = {"short_description", "long_description", "benefits", "applications", "delivery_scope"}
+        seo_keys = {"seo_title", "seo_description", "seo_keywords"}
+
+        sorted_meta = {}
+        for k in ["short_description", "long_description", "benefits", "applications", "delivery_scope"]:
+            if k in meta:
+                sorted_meta[k] = meta[k]
+        for k in ["seo_title", "seo_description", "seo_keywords"]:
+            if k in meta:
+                sorted_meta[k] = meta[k]
+        for k in sorted(meta.keys()):
+            if k not in ai_keys and k not in seo_keys:
+                sorted_meta[k] = meta[k]
+
+        return sorted_meta
 
     def _build_single_variant_payload(self, currency) -> dict:
         """Build variant payload for a simple (non-template) item."""
