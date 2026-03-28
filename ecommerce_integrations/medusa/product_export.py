@@ -45,6 +45,8 @@ class MedusaProductExporter:
                 _sync_sale_prices(session, base_url, product, self._sale_prices)
             if self._channel_prices:
                 _sync_channel_prices(session, base_url, product, self._channel_prices)
+            if self._attribute_values:
+                _assign_product_attributes(session, base_url, product["id"], self._attribute_values)
             frappe.db.commit()
 
     @temp_medusa_session
@@ -108,10 +110,9 @@ class MedusaProductExporter:
             if channel_ids:
                 payload["sales_channels"] = [{"id": ch_id} for ch_id in channel_ids]
 
-        # Filterable properties -> plugin attributes (via additional_data)
-        attr_values = self._get_attribute_values()
-        if attr_values:
-            payload["additional_data"] = {"attribute_values": attr_values}
+        # Filterable properties -> stored for post-create assignment
+        # (additional_data is not supported by the batch API)
+        self._attribute_values = self._get_attribute_values()
 
         meta = self._build_metadata()
         if meta:
@@ -789,6 +790,16 @@ def _get_or_create_channel_price_list(session, base_url, channel_id: str, channe
         return None
 
 
+def _assign_product_attributes(session, base_url, product_id: str, attribute_values: list):
+    """Assign attribute values to a product via POST /admin/products/{id} with additional_data."""
+    try:
+        medusa_request(session, base_url, "POST", f"{API_PRODUCTS}/{product_id}", json={
+            "additional_data": {"attribute_values": attribute_values},
+        })
+    except Exception as e:
+        frappe.log_error("Medusa Attributes", f"Failed to assign attributes to {product_id}: {e}")
+
+
 def _save_medusa_ids(product: dict):
     """Save Medusa product/variant IDs back to ERPNext Items.
 
@@ -1054,6 +1065,7 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 					variant_image_maps = {}
 					sale_price_maps = {}
 					channel_price_maps = {}
+					attribute_maps = {}
 
 					for item_row in chunk:
 						try:
@@ -1071,6 +1083,8 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 								channel_price_maps[item_row.item_code] = exporter._channel_prices
 							if exporter._sale_prices:
 								sale_price_maps[item_row.item_code] = exporter._sale_prices
+							if exporter._attribute_values:
+								attribute_maps[item_row.item_code] = exporter._attribute_values
 						except Exception as e:
 							stats["errors"] += 1
 							frappe.log_error("Medusa Full Sync", f"Payload build failed for {item_row.item_code}: {e}")
@@ -1099,11 +1113,14 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 							if chunk_sale_prices:
 								_sync_sale_prices_batch(session, base_url, chunk_sale_prices)
 
-							# Channel-specific prices
+							# Channel-specific prices + attribute assignment
 							for product in result.get("created", []):
 								cp = _find_in_product_map(product, channel_price_maps, [])
 								if cp:
 									_sync_channel_prices(session, base_url, product, cp)
+								av = _find_in_product_map(product, attribute_maps, [])
+								if av:
+									_assign_product_attributes(session, base_url, product["id"], av)
 
 							stats["updated"] += len(result.get("updated", []))
 						except Exception as e:
