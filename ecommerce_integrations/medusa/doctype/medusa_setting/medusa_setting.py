@@ -148,3 +148,50 @@ class MedusaSetting(Document):
 
 	def get_active_sales_channel_ids(self):
 		return [row.sales_channel_id for row in (self.sales_channels or []) if row.active]
+
+	def get_channels_for_item(self, item_group, brand=None) -> list:
+		"""Get sales channel IDs for an item based on Item Group mappings.
+
+		If no mappings are configured, returns all active channels.
+		If mappings exist, returns only channels matching the item's group
+		(with optional manufacturer/brand filter).
+		"""
+		mappings = self.item_group_channel_mappings or []
+		if not mappings:
+			return self.get_active_sales_channel_ids()
+
+		# Build channel name -> ID lookup
+		ch_lookup = {}
+		for ch in (self.sales_channels or []):
+			ch_lookup[ch.sales_channel_name] = ch.sales_channel_id
+			if ch.short_code:
+				ch_lookup[ch.short_code] = ch.sales_channel_id
+
+		# Get item group ancestry for subcategory matching
+		item_groups = {item_group}
+		if item_group:
+			ancestors = frappe.get_all(
+				"Item Group",
+				filters={"lft": ["<=", frappe.db.get_value("Item Group", item_group, "lft") or 0],
+				         "rgt": [">=", frappe.db.get_value("Item Group", item_group, "rgt") or 0]},
+				fields=["name"],
+			)
+			item_groups.update(a.name for a in ancestors)
+
+		matched_channels = set()
+		for m in mappings:
+			if m.include_subcategories:
+				if m.item_group not in item_groups:
+					continue
+			else:
+				if m.item_group != item_group:
+					continue
+
+			if m.manufacturer_filter and brand and m.manufacturer_filter != brand:
+				continue
+
+			ch_id = ch_lookup.get(m.sales_channel)
+			if ch_id:
+				matched_channels.add(ch_id)
+
+		return list(matched_channels) if matched_channels else self.get_active_sales_channel_ids()

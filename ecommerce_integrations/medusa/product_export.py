@@ -100,7 +100,11 @@ class MedusaProductExporter:
             payload["categories"] = [{"id": category_id}]
 
         if not is_update:
-            channel_ids = self.setting.get_active_sales_channel_ids() if hasattr(self.setting, 'get_active_sales_channel_ids') else []
+            brand = getattr(self.item, "brand", None)
+            if hasattr(self.setting, 'get_channels_for_item'):
+                channel_ids = self.setting.get_channels_for_item(self.item.item_group, brand)
+            else:
+                channel_ids = self.setting.get_active_sales_channel_ids() if hasattr(self.setting, 'get_active_sales_channel_ids') else []
             if channel_ids:
                 payload["sales_channels"] = [{"id": ch_id} for ch_id in channel_ids]
 

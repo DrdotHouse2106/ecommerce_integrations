@@ -16,6 +16,8 @@
   "sales_channels_section",
   "sales_channels",
   "fetch_sales_channels_btn",
+  "item_group_channel_section",
+  "item_group_channel_mappings",
   "customer_settings_section",
   "default_customer",
   "sync_customers",
@@ -140,6 +142,20 @@
    "fieldname": "fetch_sales_channels_btn",
    "fieldtype": "Button",
    "label": "Refresh Sales Channels"
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:doc.enable_medusa",
+   "fieldname": "item_group_channel_section",
+   "fieldtype": "Section Break",
+   "label": "Item Group Channel Mappings",
+   "description": "Map Item Groups to Sales Channels. Products inherit channel visibility from their Item Group."
+  },
+  {
+   "fieldname": "item_group_channel_mappings",
+   "fieldtype": "Table",
+   "label": "Category Channel Mappings",
+   "options": "Medusa Item Group Channel"
   },
   {
    "fieldname": "customer_settings_section",
