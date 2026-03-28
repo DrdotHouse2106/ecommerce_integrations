@@ -63,6 +63,30 @@ def medusa_request(session, base_url, method, path, **kwargs):
     return response.json()
 
 
+def medusa_request_all(session, base_url, path, data_key, page_size=100, **kwargs):
+    """Fetch all items from a paginated Medusa endpoint.
+
+    Medusa v2 has no 'no limit' option — limit=0 returns 0 results.
+    This fetches pages of page_size until all items are retrieved.
+    """
+    all_items = []
+    offset = 0
+    params = kwargs.pop("params", {})
+
+    while True:
+        params["limit"] = page_size
+        params["offset"] = offset
+        result = medusa_request(session, base_url, "GET", path, params=params, **kwargs)
+        items = result.get(data_key, [])
+        all_items.extend(items)
+        total = result.get("count", len(items))
+        offset += page_size
+        if offset >= total or not items:
+            break
+
+    return all_items
+
+
 @frappe.whitelist()
 def test_connection():
     """Test the Medusa API connection. Returns product count on success."""

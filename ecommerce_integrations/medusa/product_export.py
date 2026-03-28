@@ -2,7 +2,7 @@
 import frappe
 from frappe.utils import cstr
 from ecommerce_integrations.property_utils import get_ecommerce_properties
-from ecommerce_integrations.medusa.connection import medusa_request, temp_medusa_session
+from ecommerce_integrations.medusa.connection import medusa_request, medusa_request_all, temp_medusa_session
 from ecommerce_integrations.medusa.constants import (
     API_PRODUCTS, API_PRODUCTS_BATCH, API_PRODUCT_VARIANTS,
     PRODUCT_ID_FIELD, SETTING_DOCTYPE, VARIANT_ID_FIELD,
@@ -76,6 +76,7 @@ class MedusaProductExporter:
 
         payload = {
             "title": title,
+            "handle": frappe.scrub(self.item.item_code).replace("_", "-"),
             "subtitle": self.item.item_name if title != self.item.item_name else None,
             "description": description,
             "status": "published" if not self.item.disabled else "draft",
@@ -173,8 +174,8 @@ class MedusaProductExporter:
             from ecommerce_integrations.medusa.connection import get_medusa_session, medusa_request
             session, base_url = get_medusa_session()
             try:
-                result = medusa_request(session, base_url, "GET", API_CATEGORIES, params={"limit": 0})
-                cat_map = {c["name"]: c["id"] for c in result.get("product_categories", [])}
+                categories = medusa_request_all(session, base_url, API_CATEGORIES, "product_categories")
+                cat_map = {c["name"]: c["id"] for c in categories}
                 frappe.cache.set_value(all_cats_key, cat_map, expires_in_sec=300)
             except Exception:
                 cat_map = {}
@@ -187,10 +188,12 @@ class MedusaProductExporter:
         return cat_id
 
     def _get_image_url(self):
-        """Get public image URL for this item.
+        """Get public CDN URL for this item's image.
 
-        Returns absolute URL (S3/CDN) as-is, prepends site URL for
-        relative public paths. Skips private files.
+        Resolves S3-backed files (dfp_external_storage) to CDN URLs:
+        cdn_url = https://cdn.example.com/{bucket_name}/{s3_key}
+
+        Falls back to site_url + relative path for non-S3 files.
         """
         image = self.item.image
         if not image:
@@ -199,6 +202,21 @@ class MedusaProductExporter:
             return None
         if image.startswith("http"):
             return image
+
+        file_data = frappe.db.get_value(
+            "File", {"file_url": image},
+            ["dfp_external_storage", "dfp_external_storage_s3_key"], as_dict=True
+        )
+        if file_data and file_data.dfp_external_storage_s3_key and file_data.dfp_external_storage:
+            s3_key = file_data.dfp_external_storage_s3_key
+            storage = frappe.db.get_value(
+                "DFP External Storage", file_data.dfp_external_storage,
+                ["bucket_name", "endpoint", "secure"], as_dict=True
+            )
+            if storage and storage.endpoint:
+                scheme = "https" if storage.secure else "https"
+                return f"{scheme}://{storage.endpoint}/{storage.bucket_name}/{s3_key}"
+
         return f"{frappe.utils.get_url().rstrip('/')}{image}"
 
     @staticmethod
@@ -389,8 +407,8 @@ def _sync_categories_to_medusa(session, base_url, category_root=None, dry_run=0)
 	if dry_run:
 		return stats
 
-	existing = medusa_request(session, base_url, "GET", API_CATEGORIES, params={"limit": 0})
-	existing_by_name = {c.get("name"): c.get("id") for c in existing.get("product_categories", [])}
+	existing_cats = medusa_request_all(session, base_url, API_CATEGORIES, "product_categories")
+	existing_by_name = {c.get("name"): c.get("id") for c in existing_cats}
 
 	for group in groups:
 		if group.name in existing_by_name:
