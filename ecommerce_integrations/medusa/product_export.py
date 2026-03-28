@@ -421,7 +421,7 @@ class MedusaProductExporter:
             prop_name = row.property_name
             prop_value = cstr(row.property_value).strip()
 
-            attr_id = attr_map.get(prop_name, {}).get("_id")
+            attr_id = attr_map.get(prop_name, {}).get("id")
             if not attr_id:
                 attr_id = _ensure_medusa_attribute(prop_name, attr_map)
 
@@ -445,7 +445,7 @@ class MedusaProductExporter:
 
 
 def _get_or_build_attribute_map() -> dict:
-    """Get {attr_name: {"_id": attr_id, value1: pv_id, ...}} map, cached."""
+    """Get {attr_name: {"id": attr_id, "values": {val: pv_id}}} map, cached."""
     cache_key = "medusa_attribute_map"
     attr_map = frappe.cache.get_value(cache_key)
     if attr_map is not None:
@@ -457,10 +457,10 @@ def _get_or_build_attribute_map() -> dict:
         attrs = medusa_request_all(session, base_url, "/admin/plugin/attributes", "attributes")
         attr_map = {}
         for a in attrs:
-            entry = {"_id": a["id"]}
-            for pv in a.get("possible_values", []):
-                entry[pv["value"]] = pv["id"]
-            attr_map[a["name"]] = entry
+            attr_map[a["name"]] = {
+                "id": a["id"],
+                "values": {pv["value"]: pv["id"] for pv in a.get("possible_values", [])},
+            }
         frappe.cache.set_value(cache_key, attr_map, expires_in_sec=300)
     except Exception:
         attr_map = {}
@@ -469,13 +469,21 @@ def _get_or_build_attribute_map() -> dict:
     return attr_map
 
 
-def _ensure_medusa_attribute(name: str, attr_map: dict) -> str:
+def _save_attribute_map(attr_map: dict):
+    frappe.cache.set_value("medusa_attribute_map", attr_map, expires_in_sec=300)
+
+
+def _ensure_medusa_attribute(name: str, attr_map: dict, session=None, base_url=None) -> str:
     """Create an attribute in Medusa if it doesn't exist. Returns attribute ID."""
-    from ecommerce_integrations.medusa.connection import get_medusa_session
     handle = re.sub(r'[^a-z0-9-]', '-', name.lower())
     handle = re.sub(r'-+', '-', handle).strip('-')
 
-    session, base_url = get_medusa_session()
+    own_session = False
+    if not session:
+        from ecommerce_integrations.medusa.connection import get_medusa_session
+        session, base_url = get_medusa_session()
+        own_session = True
+
     try:
         result = medusa_request(session, base_url, "POST", "/admin/plugin/attributes", json={
             "name": name,
@@ -487,23 +495,29 @@ def _ensure_medusa_attribute(name: str, attr_map: dict) -> str:
         attr = result.get("attribute", {})
         attr_id = attr.get("id")
         if attr_id:
-            attr_map[name] = {"_id": attr_id}
-            frappe.cache.delete_value("medusa_attribute_map")
+            attr_map[name] = {"id": attr_id, "values": {}}
+            _save_attribute_map(attr_map)
         return attr_id
     except Exception:
         return None
     finally:
-        session.close()
+        if own_session:
+            session.close()
 
 
-def _ensure_possible_value(attr_id: str, attr_name: str, value: str, attr_map: dict):
+def _ensure_possible_value(attr_id: str, attr_name: str, value: str, attr_map: dict, session=None, base_url=None):
     """Ensure a possible value exists for an attribute. Creates it if missing."""
     entry = attr_map.get(attr_name, {})
-    if value in entry:
-        return entry[value]
+    existing = entry.get("values", {})
+    if value in existing:
+        return existing[value]
 
-    from ecommerce_integrations.medusa.connection import get_medusa_session
-    session, base_url = get_medusa_session()
+    own_session = False
+    if not session:
+        from ecommerce_integrations.medusa.connection import get_medusa_session
+        session, base_url = get_medusa_session()
+        own_session = True
+
     try:
         result = medusa_request(
             session, base_url, "POST",
@@ -513,14 +527,16 @@ def _ensure_possible_value(attr_id: str, attr_name: str, value: str, attr_map: d
         pv = result.get("possible_value", result.get("attribute_possible_value", {}))
         pv_id = pv.get("id")
         if pv_id:
-            entry[value] = pv_id
+            existing[value] = pv_id
+            entry["values"] = existing
             attr_map[attr_name] = entry
-            frappe.cache.delete_value("medusa_attribute_map")
+            _save_attribute_map(attr_map)
         return pv_id
     except Exception:
         return None
     finally:
-        session.close()
+        if own_session:
+            session.close()
 
 
 def _get_dfp_storage_config(storage_name):
