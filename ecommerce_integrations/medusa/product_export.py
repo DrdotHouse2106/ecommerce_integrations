@@ -1,4 +1,6 @@
 """Export ERPNext Items to Medusa v2 as Products."""
+import re
+
 import frappe
 from frappe.utils import cstr
 from ecommerce_integrations.property_utils import get_ecommerce_properties
@@ -76,7 +78,7 @@ class MedusaProductExporter:
 
         payload = {
             "title": title,
-            "handle": frappe.scrub(self.item.item_code).replace("_", "-"),
+            "handle": re.sub(r'[^a-z0-9-]', '-', self.item.item_code.lower()).strip('-'),
             "subtitle": self.item.item_name if title != self.item.item_name else None,
             "description": description,
             "status": "published" if not self.item.disabled else "draft",
