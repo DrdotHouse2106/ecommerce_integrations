@@ -95,9 +95,9 @@ class MedusaProductExporter:
             if val:
                 payload[dim] = float(val)
 
-        category_id = self._get_medusa_category_id()
-        if category_id:
-            payload["categories"] = [{"id": category_id}]
+        category_ids = self._get_medusa_category_ids()
+        if category_ids:
+            payload["categories"] = [{"id": cid} for cid in category_ids]
 
         if not is_update:
             brand = getattr(self.item, "brand", None)
@@ -375,28 +375,55 @@ class MedusaProductExporter:
         sku_slug = re.sub(r'[^a-z0-9-]', '-', self.item.item_code.lower()).strip('-')
         return f"{handle_base}-{sku_slug}"
 
-    def _get_medusa_category_id(self):
+    def _get_medusa_category_ids(self) -> list:
+        """Get all Medusa category IDs for this item.
+
+        Sources:
+        1. Item's primary item_group
+        2. Website Item's additional item groups (multi-category)
+        """
+        cat_map = self._get_category_map()
+        if not cat_map:
+            return []
+
+        groups = set()
+
+        # Primary item group
+        if self.item.item_group:
+            groups.add(self.item.item_group)
+
+        # Additional groups from Website Item
+        extra_groups = frappe.get_all(
+            "Website Item Group",
+            filters={"parenttype": "Website Item", "parent": ["in",
+                frappe.get_all("Website Item", filters={"item_code": self.item_code}, pluck="name") or [""]
+            ]},
+            pluck="item_group",
+        )
+        groups.update(extra_groups)
+
+        return [cat_map[g] for g in groups if g in cat_map]
+
+    def _get_category_map(self) -> dict:
+        """Get {item_group_name: medusa_category_id} map, cached."""
         from ecommerce_integrations.medusa.constants import API_CATEGORIES
 
-        item_group = self.item.item_group
-        if not item_group:
-            return None
+        cache_key = "medusa_category_map"
+        cat_map = frappe.cache.get_value(cache_key)
+        if cat_map is not None:
+            return cat_map
 
-        all_cats_key = "medusa_category_map"
-        cat_map = frappe.cache.get_value(all_cats_key)
-        if not cat_map:
-            from ecommerce_integrations.medusa.connection import get_medusa_session
-            session, base_url = get_medusa_session()
-            try:
-                categories = medusa_request_all(session, base_url, API_CATEGORIES, "product_categories")
-                cat_map = {c["name"]: c["id"] for c in categories}
-                frappe.cache.set_value(all_cats_key, cat_map, expires_in_sec=300)
-            except Exception:
-                cat_map = {}
-            finally:
-                session.close()
-
-        return cat_map.get(item_group)
+        from ecommerce_integrations.medusa.connection import get_medusa_session
+        session, base_url = get_medusa_session()
+        try:
+            categories = medusa_request_all(session, base_url, API_CATEGORIES, "product_categories")
+            cat_map = {c["name"]: c["id"] for c in categories}
+            frappe.cache.set_value(cache_key, cat_map, expires_in_sec=300)
+        except Exception:
+            cat_map = {}
+        finally:
+            session.close()
+        return cat_map
 
     def _get_image_url(self):
         return self._resolve_image_url(self.item.image)
