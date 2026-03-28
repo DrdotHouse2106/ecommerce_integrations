@@ -68,36 +68,60 @@ class MedusaProductExporter:
         price = self._get_selling_price()
         currency = (frappe.db.get_default("currency") or "EUR").lower()
 
-        # Prefer AI-generated title/description over standard fields
-        title = getattr(self.item, "ai_seo_title", None) or self.item.item_name
-        description = (
-            getattr(self.item, "ai_short_description", None)
-            or self.item.description
-            or self.item.item_name
-        )
+        # AI fields (preferred) with fallback to standard fields
+        ai_title = getattr(self.item, "ai_seo_title", None)
+        ai_short = getattr(self.item, "ai_short_description", None)
+        ai_long = getattr(self.item, "ai_long_description", None)
+
+        title = self.item.item_name
+        subtitle = ai_title if ai_title and ai_title != title else None
+        description = ai_long or self.item.description or self.item.item_name
+
+        handle_source = ai_title or title
+        handle_base = re.sub(r'[^a-z0-9-]', '-', handle_source.lower())
+        handle_base = re.sub(r'-+', '-', handle_base).strip('-')
+        sku_slug = re.sub(r'[^a-z0-9-]', '-', self.item.item_code.lower()).strip('-')
+        handle = f"{handle_base}-{sku_slug}"
 
         payload = {
             "title": title,
-            "handle": re.sub(r'[^a-z0-9-]', '-', self.item.item_code.lower()).strip('-'),
-            "subtitle": self.item.item_name if title != self.item.item_name else None,
+            "handle": handle,
+            "subtitle": subtitle,
             "description": description,
             "status": "published" if not self.item.disabled else "draft",
             "is_giftcard": False,
             "discountable": True,
         }
 
-        # SEO metadata
+        # SEO + AI metadata for storefront consumption
+        meta = {}
+        ai_seo_desc = getattr(self.item, "ai_seo_description", None)
         seo_title = getattr(self.item, "seo_title", None)
         seo_description = getattr(self.item, "seo_meta_description", None)
         seo_keywords = getattr(self.item, "seo_keywords", None)
-        if seo_title or seo_description or seo_keywords:
-            payload.setdefault("metadata", {})
-            if seo_title:
-                payload["metadata"]["seo_title"] = seo_title
-            if seo_description:
-                payload["metadata"]["seo_description"] = seo_description
-            if seo_keywords:
-                payload["metadata"]["seo_keywords"] = seo_keywords
+        ai_benefits = getattr(self.item, "ai_benefits", None)
+        ai_applications = getattr(self.item, "ai_applications", None)
+        ai_delivery_scope = getattr(self.item, "ai_delivery_scope", None)
+
+        if ai_seo_desc:
+            meta["seo_description"] = ai_seo_desc
+        elif seo_description:
+            meta["seo_description"] = seo_description
+        if seo_title:
+            meta["seo_title"] = seo_title
+        if seo_keywords:
+            meta["seo_keywords"] = seo_keywords
+        if ai_short:
+            meta["short_description"] = ai_short
+        if ai_benefits:
+            meta["benefits"] = ai_benefits
+        if ai_applications:
+            meta["applications"] = ai_applications
+        if ai_delivery_scope:
+            meta["delivery_scope"] = ai_delivery_scope
+
+        if meta:
+            payload["metadata"] = meta
 
         payload = {k: v for k, v in payload.items() if v is not None}
 
