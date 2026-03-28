@@ -38,17 +38,18 @@ def temp_medusa_session(func):
         max_retries = 3
         delay = 2.0
 
-        for attempt in range(max_retries + 1):
-            try:
-                return func(session, base_url, *args, **kwargs)
-            except requests.exceptions.HTTPError as e:
-                if e.response is not None and e.response.status_code in (502, 503, 504) and attempt < max_retries:
-                    time.sleep(delay)
-                    delay *= 2.0
-                    continue
-                raise
-            finally:
-                session.close()
+        try:
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(session, base_url, *args, **kwargs)
+                except requests.exceptions.HTTPError as e:
+                    if e.response is not None and e.response.status_code in (502, 503, 504) and attempt < max_retries:
+                        time.sleep(delay)
+                        delay *= 2.0
+                        continue
+                    raise
+        finally:
+            session.close()
     return wrapper
 
 
