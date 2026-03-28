@@ -8,73 +8,68 @@ from ecommerce_integrations.ai_description.services.access import require_ai_adm
 
 
 # Default system prompt for structured product descriptions
-DEFAULT_SYSTEM_PROMPT = """Du erstellst strukturierte Produktbeschreibungen fuer Industrieprodukte.
-Schreibe fuer den deutschen Markt in sachlicher, klarer Sprache.
+DEFAULT_SYSTEM_PROMPT = """You create structured product descriptions for an online shop.
+Write in a professional, clear, and neutral tone.
 
-## Deine Aufgabe
-Erstelle aus den technischen Rohdaten eine praezise und gut strukturierte
-Produktbeschreibung für einen B2B-Online-Shop.
+## Your Task
+Create a precise and well-structured product description from raw technical data
+for a B2B online shop.
 
-## Zielgruppe
-- Einkäufer in Industrie, Handwerk, Logistik
-- Technisch versiert, aber zeitknapp
-- Suchen nach konkreten Lösungen für Lagerprobleme
-- Wollen schnell die wichtigsten Fakten erfassen
+## Target Audience
+- Professional buyers in industry, trade, and logistics
+- Technically knowledgeable but time-constrained
+- Looking for specific solutions
+- Want to quickly grasp the key facts
 
-## Tonalität
-- Professionell und neutral
-- Klar statt werblich
-- Konkret und präzise
-- Konsistent und nachvollziehbar
+## Tone
+- Professional and neutral
+- Clear, not promotional
+- Specific and precise
 
-## Regeln
-1. Stelle zentrale Eigenschaften und erkennbare praktische Auswirkungen klar heraus
-2. Nenne Anwendungsbeispiele nur, wenn sie aus den vorhandenen Daten ableitbar sind
-3. Weise bei Anbauregalen darauf hin, dass ein Grundregal benoetigt wird, falls passend
-4. Keine erfundenen technischen Daten - nur das verwenden, was in den Rohdaten steht
-5. Keine unbelegten Qualitaets- oder Herkunftsaussagen
-6. Fachbegriffe nur verwenden, wenn sie zum Produkt passen
+## Rules
+1. Clearly highlight key features and their practical implications
+2. Only mention use cases that can be derived from the provided data
+3. Do not invent technical specifications - only use what is in the raw data
+4. No unsubstantiated quality or origin claims
+5. Only use technical terms when they are relevant to the product
 
-## Output-Format (JSON)
-Antworte ausschließlich mit einem JSON-Objekt:
+## Output Format (JSON)
+Respond exclusively with a JSON object:
 
 ```json
 {
-  "short_description": "1-2 Sätze Hook mit Hauptnutzen",
+  "short_description": "1-2 sentence hook with main benefit",
   "benefits": [
-    "Vorteil 1 mit konkretem Nutzen",
-    "Vorteil 2 mit konkretem Nutzen",
-    "Vorteil 3 mit konkretem Nutzen",
-    "Vorteil 4 mit konkretem Nutzen",
-    "Vorteil 5 mit konkretem Nutzen"
+    "Benefit 1 with specific value",
+    "Benefit 2 with specific value",
+    "Benefit 3 with specific value",
+    "Benefit 4 with specific value",
+    "Benefit 5 with specific value"
   ],
-  "long_description": "<p>Ausführliche HTML-Beschreibung...</p>",
-  "applications": "Anwendungsbereich 1, Anwendungsbereich 2, Anwendungsbereich 3",
+  "long_description": "<p>Detailed HTML description...</p>",
+  "applications": "Application area 1, Application area 2, Application area 3",
   "scope_of_delivery": [
-    "Komponente 1",
-    "Komponente 2"
+    "Component 1",
+    "Component 2"
   ],
-  "seo_title": "Produktname | Hauptkeyword | Shop (max 60 Zeichen)",
-  "seo_description": "Meta-Description mit Hauptnutzen, Call-to-Action, max 155 Zeichen"
+  "seo_title": "Product Name | Main Keyword (max 60 characters)",
+  "seo_description": "Meta description with main benefit, max 155 characters"
 }
 ```"""
 
-DEFAULT_USER_PROMPT = """## Produktdaten
+DEFAULT_USER_PROMPT = """## Product Data
 
-**Artikelnummer:** {item_code}
-**Artikelname:** {item_name}
-**Produktgruppe:** {item_group}
-**Hersteller:** {brand}
+**Item Code:** {item_code}
+**Item Name:** {item_name}
+**Product Group:** {item_group}
+**Brand:** {brand}
 
-**Technische Rohdaten:**
+**Technical Data:**
 {description}
 
-**Preis:** {standard_rate} EUR (netto)
+**Price:** {standard_rate}
 
-## Hinweise
-- Zielmarkt: Deutschland, Österreich, Schweiz
-
-Erstelle die Produktbeschreibung im JSON-Format."""
+Create the product description in JSON format."""
 
 
 class AIDescriptionSetting(Document):
@@ -108,7 +103,7 @@ class AIDescriptionSetting(Document):
             # Simple test prompt
             response = client.models.generate_content(
                 model=model_name,
-                contents="Say 'Connection successful' in German.",
+                contents="Say 'Connection successful'.",
                 config=generation_config,
             )
 

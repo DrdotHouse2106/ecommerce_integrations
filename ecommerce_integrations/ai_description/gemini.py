@@ -182,87 +182,79 @@ def build_system_prompt(settings, is_batch: bool = False) -> str:
     company_name = frappe.defaults.get_user_default("company")
     if not company_name:
         companies = frappe.get_all("Company", limit=1, pluck="name")
-        company_name = companies[0] if companies else "Unser Unternehmen"
+        company_name = companies[0] if companies else "Our Company"
 
     prompt = prompt.replace("{company_name}", company_name)
 
     return prompt
 
 
-def build_batch_system_prompt(settings) -> str:
-    """Build system prompt for multi-product batch processing"""
-    return '''Du erstellst strukturierte Produktbeschreibungen fuer Industrieprodukte.
-Schreibe fuer den deutschen Markt in sachlicher, klarer Sprache.
+DEFAULT_BATCH_SYSTEM_PROMPT = '''You create structured product descriptions for an online shop.
+Write in a professional, clear, and neutral tone.
 
-## Deine Aufgabe
-Erstelle aus den technischen Rohdaten praezise und gut strukturierte
-Produktbeschreibungen für einen B2B-Online-Shop.
+## Your Task
+Create precise and well-structured product descriptions from raw technical data.
+You will receive MULTIPLE PRODUCTS at once and must create a separate description for EACH product.
 
-Du erhältst MEHRERE PRODUKTE auf einmal und musst für JEDES Produkt eine eigene Beschreibung erstellen.
+## Target Audience
+- Professional buyers in industry, trade, and logistics
+- Technically knowledgeable but time-constrained
+- Looking for specific solutions
 
-## Zielgruppe
-- Einkäufer in Industrie, Handwerk, Logistik
-- Technisch versiert, aber zeitknapp
-- Suchen nach konkreten Lösungen für Lagerprobleme
+## Rules
+1. Highlight key features and practical benefits clearly
+2. Only mention use cases that can be derived from the provided data
+3. Do not invent technical specifications - only use what is in the raw data
+4. No unsubstantiated quality or origin claims
+5. Write without promotional exaggeration
 
-## Tonalität
-- Professionell und neutral
-- Klar statt werblich
-- Konkret und präzise
+## SEO Rules (STRICT!)
+6. seo_title: EXACTLY 40-50 characters, format: "Short Name | Keyword"
+7. seo_description: EXACTLY 130-155 characters, purely informative sentence
+   - FORBIDDEN: Call-to-action like "Buy now", "Order today", etc.
+   - Write ONLY about product properties and benefits
 
-## Regeln
-1. Stelle zentrale Eigenschaften und erkennbare praktische Auswirkungen klar heraus
-2. Nenne Anwendungsbeispiele nur, wenn sie aus den vorhandenen Daten ableitbar sind
-3. Weise bei Anbauregalen darauf hin, dass ein Grundregal benoetigt wird, falls passend
-4. Keine erfundenen technischen Daten - nur das verwenden, was in den Rohdaten steht
-5. Keine unbelegten Qualitaets- oder Herkunftsaussagen
-6. Formuliere ohne werbliche Zuspitzung
+## HTML Formatting in long_description
+Use rich HTML formatting for readability:
+- <strong>...</strong> for important terms (product name, dimensions, capacity, manufacturer)
+- <p>...</p> for paragraphs (at least 3-4 paragraphs)
+- <ul><li>...</li></ul> for lists (e.g., scope of delivery, features)
+- Highlight 3-5 key terms per description with <strong>
 
-## WICHTIGE SEO-Regeln (STRIKT einhalten!)
-7. seo_title: EXAKT 40-50 Zeichen, Format: "Kurzname | Keyword" (ohne Shop-Name, wird vom Frontend ergänzt)
-8. seo_description: EXAKT 130-155 Zeichen, rein informativer Satz
-   - VERBOTEN: Call-to-Action wie "Jetzt bestellen", "Kaufen", etc.
-   - Schreibe NUR über Produkteigenschaften und Vorteile
-   - ✓ GUT: "Schwerlast-Palettenregal für 3.000 kg pro Ebene. Pulverbeschichteter Stahl, TÜV-geprüft. Ideal für Industrie und Logistik."
-   - ✓ GUT: "Kompakter Auflagedeckel aus robustem PP. Passt auf Euro-Stapelkästen 300x400mm. Schützt zuverlässig vor Staub und Schmutz."
-   - ✗ SCHLECHT: Call-to-Action oder Shop-Referenzen am Ende
+## Length of long_description
+- Target: 200-350 words (thorough but substantive)
+- Avoid marketing buzzwords and empty phrases
+- Focus on: use cases, benefits, technical details, compatibility
 
-## HTML-Formatierung in long_description (WICHTIG!)
-Nutze reichhaltige HTML-Formatierung für bessere Lesbarkeit:
-- <strong>...</strong> für wichtige Begriffe (Produktname, Maße, Tragkraft, Hersteller)
-- <p>...</p> für Absätze (mind. 3-4 Absätze)
-- <ul><li>...</li></ul> für Aufzählungen (z.B. Lieferumfang, Features)
-- <table>...</table> für technische Daten wenn sinnvoll (Maße, Gewicht, Material)
-- Hebe 3-5 Schlüsselbegriffe pro Beschreibung mit <strong> hervor
-- Strukturiere den Text visuell ansprechend
-
-## Länge der long_description
-- Ziel: 200-350 Wörter (ausführlich aber substanziell)
-- Vermeide Marketing-Floskeln und leere Phrasen
-- Fokussiere auf: Anwendungsszenarien, Vorteile, technische Details, Kompatibilität
-- Schreibe so, dass ein Einkäufer alle wichtigen Infos bekommt
-
-## Output-Format (JSON Array)
-Antworte mit einem JSON-Array. Für JEDES Produkt ein Objekt mit dem item_code als Schlüssel:
+## Output Format (JSON Array)
+Respond with a JSON array. For EACH product, one object:
 
 {
   "products": [
     {
-      "item_code": "ARTIKEL-123",
-      "short_description": "1-2 Sätze Hook mit Hauptnutzen",
-      "benefits": ["Vorteil 1", "Vorteil 2", "Vorteil 3", "Vorteil 4", "Vorteil 5"],
-      "long_description": "<p>Ausführliche HTML-Beschreibung...</p>",
-      "applications": "Anwendungsbereich 1, Anwendungsbereich 2",
-      "scope_of_delivery": ["Komponente 1", "Komponente 2"],
-      "seo_title": "Produktname | Keyword",
-      "seo_description": "Meta-Description unter 155 Zeichen."
-    },
-    {
-      "item_code": "ARTIKEL-456",
-      ...
+      "item_code": "ITEM-123",
+      "short_description": "1-2 sentence hook with main benefit",
+      "benefits": ["Benefit 1", "Benefit 2", "Benefit 3", "Benefit 4", "Benefit 5"],
+      "long_description": "<p>Detailed HTML description...</p>",
+      "applications": "Application area 1, Application area 2",
+      "scope_of_delivery": ["Component 1", "Component 2"],
+      "seo_title": "Product Name | Keyword",
+      "seo_description": "Meta description under 155 characters."
     }
   ]
 }'''
+
+
+def build_batch_system_prompt(settings) -> str:
+    """Build system prompt for multi-product batch processing.
+
+    Uses the batch_system_prompt from settings if configured,
+    otherwise falls back to the default English prompt.
+    """
+    custom_prompt = getattr(settings, 'batch_system_prompt', None)
+    if custom_prompt and custom_prompt.strip():
+        return custom_prompt.strip()
+    return DEFAULT_BATCH_SYSTEM_PROMPT
 
 
 def build_user_prompt(settings, item) -> str:
@@ -287,22 +279,22 @@ def build_user_prompt(settings, item) -> str:
 
 def build_batch_user_prompt(items: List[Dict]) -> str:
     """Build user prompt for multiple products"""
-    prompt_parts = ["## Produktdaten\n\nErstelle Beschreibungen für folgende Produkte:\n"]
+    prompt_parts = ["## Product Data\n\nCreate descriptions for the following products:\n"]
 
     for i, item in enumerate(items, 1):
         prompt_parts.append(f"""
 ---
-### Produkt {i}: {item.get('item_code', 'N/A')}
+### Product {i}: {item.get('item_code', 'N/A')}
 
-**Artikelnummer:** {item.get('item_code', '')}
-**Artikelname:** {item.get('item_name', '')}
-**Produktgruppe:** {item.get('item_group', '')}
-**Hersteller:** {item.get('brand', '')}
-**Technische Rohdaten:** {item.get('description', '')}
-**Preis:** {item.get('standard_rate', 0)} EUR (netto)
+**Item Code:** {item.get('item_code', '')}
+**Item Name:** {item.get('item_name', '')}
+**Product Group:** {item.get('item_group', '')}
+**Brand:** {item.get('brand', '')}
+**Technical Data:** {item.get('description', '')}
+**Price:** {item.get('standard_rate', 0)}
 """)
 
-    prompt_parts.append("\n---\n\nErstelle für ALLE oben genannten Produkte die optimierten Beschreibungen im JSON-Format.")
+    prompt_parts.append("\n---\n\nCreate optimized descriptions for ALL products listed above in JSON format.")
 
     return "".join(prompt_parts)
 

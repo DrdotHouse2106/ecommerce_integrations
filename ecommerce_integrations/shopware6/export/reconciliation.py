@@ -33,6 +33,7 @@ from ecommerce_integrations.shopware6.connection import (
 )
 from ecommerce_integrations.shopware6.constants import (
     MODULE_NAME,
+    ROOT_ITEM_GROUPS,
     SETTING_DOCTYPE,
     ITEM_SELLING_RATE_FIELD,
 )
@@ -94,7 +95,7 @@ def sync_all_categories_to_shopware(
 
     # Use setting default if not provided
     if not root_category:
-        root_category = getattr(setting, 'category_sync_root', 'Produkte') or 'Produkte'
+        root_category = getattr(setting, 'category_sync_root', 'Products') or 'Products'
 
     # Get root category info for nested set query
     root_info = frappe.db.get_value(
@@ -361,11 +362,75 @@ def compare_item_with_shopware(
     if erpnext_has_image != shopware_has_image:
         differences.append("image")
 
+    # Custom Fields (from PRODUCT_CUSTOM_FIELDS_MAP + shopware_properties child table)
+    cf_diffs = _compare_custom_fields(erpnext_item, shopware_data)
+    if cf_diffs:
+        differences.append("customFields")
+        details["customFields"] = cf_diffs
+
     return {
         "needs_sync": len(differences) > 0,
         "differences": differences,
         "details": details
     }
+
+
+def _compare_custom_fields(erpnext_item, shopware_data: Dict[str, Any]) -> Optional[Dict]:
+    """Compare ERPNext custom fields with Shopware customFields.
+
+    Builds the expected custom fields dict the same way the uploader does
+    (PRODUCT_CUSTOM_FIELDS_MAP + shopware_properties child table) and compares
+    with what Shopware currently has.
+
+    Returns:
+        Dict with differing fields or None if in sync.
+    """
+    from frappe.utils import cstr
+    from ecommerce_integrations.shopware6.constants import PRODUCT_CUSTOM_FIELDS_MAP
+
+    # Build expected custom fields (same logic as BatchProductUploader._build_custom_fields)
+    expected = {}
+
+    # Source 1: Hardcoded mappings (AI fields)
+    for erpnext_field, shopware_field in PRODUCT_CUSTOM_FIELDS_MAP.items():
+        value = getattr(erpnext_item, erpnext_field, None)
+        if value:
+            expected[shopware_field] = cstr(value).strip()
+
+    # Source 2: shopware_properties child table
+    for prop in (erpnext_item.get("shopware_properties") or []):
+        if prop.get("property_type") == "Custom Field" and prop.get("property_value"):
+            shopware_field_name = f"erpnext_{prop.property_name.lower().replace(' ', '_')}"
+            value = cstr(prop.property_value).strip()
+            if value.lower() in ('true', '1', 'yes'):
+                expected[shopware_field_name] = True
+            elif value.lower() in ('false', '0', 'no'):
+                expected[shopware_field_name] = False
+            else:
+                expected[shopware_field_name] = value
+
+    if not expected:
+        return None
+
+    # Get current Shopware custom fields
+    shopware_cf = shopware_data.get("customFields") or {}
+
+    # Compare only fields we manage (don't flag Shopware-only fields)
+    diffs = {}
+    for field, erpnext_val in expected.items():
+        shopware_val = shopware_cf.get(field)
+        # Normalize for comparison: treat None and "" as equivalent
+        sw_normalized = cstr(shopware_val).strip() if shopware_val is not None else ""
+        erp_normalized = cstr(erpnext_val).strip() if not isinstance(erpnext_val, bool) else erpnext_val
+
+        if isinstance(erpnext_val, bool):
+            # Boolean comparison
+            if shopware_val != erpnext_val:
+                diffs[field] = {"erpnext": erpnext_val, "shopware": shopware_val}
+        elif sw_normalized != erp_normalized:
+            diffs[field] = {"erpnext": erpnext_val, "shopware": shopware_val}
+
+    return diffs if diffs else None
 
 
 @frappe.whitelist()
@@ -598,7 +663,7 @@ def full_reconciliation(
     sync_empty_categories: bool = True,
     cleanup_orphaned_categories: bool = False,
     cleanup_orphaned_variants: bool = True,
-    sync_mehrpreis: bool = True,
+    sync_surcharge: bool = True,
     skip_category_sync: bool = None
 ) -> Dict[str, Any]:
     """
@@ -617,7 +682,7 @@ def full_reconciliation(
         sync_empty_categories: Sync categories even without products
         cleanup_orphaned_categories: Delete Shopware categories not in ERPNext
         cleanup_orphaned_variants: Delete Shopware variants not in ERPNext
-        sync_mehrpreis: Sync Mehrpreis properties for items with is_sales_item=0
+        sync_surcharge: Sync Surcharge properties for items with is_sales_item=0
         skip_category_sync: Skip category sync phase (defaults to setting if None)
 
     Returns:
@@ -631,7 +696,7 @@ def full_reconciliation(
     sync_empty_categories = _parse_bool(sync_empty_categories)
     cleanup_orphaned_categories = _parse_bool(cleanup_orphaned_categories)
     cleanup_orphaned_variants = _parse_bool(cleanup_orphaned_variants)
-    sync_mehrpreis = _parse_bool(sync_mehrpreis)
+    sync_surcharge = _parse_bool(sync_surcharge)
 
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
     
@@ -642,7 +707,7 @@ def full_reconciliation(
         skip_category_sync = _parse_bool(skip_category_sync)
     
     if not category_root:
-        category_root = getattr(setting, 'category_sync_root', 'Produkte') or 'Produkte'
+        category_root = getattr(setting, 'category_sync_root', 'Products') or 'Products'
 
     results = {
         "success": True,
@@ -651,7 +716,7 @@ def full_reconciliation(
         "product_sync": None,
         "category_cleanup": None,
         "variant_cleanup": None,
-        "mehrpreis_sync": None
+        "surcharge_sync": None
     }
 
     _logger.info(
@@ -669,16 +734,16 @@ def full_reconciliation(
             except Exception as e:
                 _logger.warning(f"Full Reconciliation: Reconnect attempt failed: {e}")
 
-    # Phase 0: Sync Mehrpreis properties (before product sync)
-    if sync_mehrpreis and not dry_run:
-        from ecommerce_integrations.shopware6.export.property_handler import sync_mehrpreis_properties_batch
+    # Phase 0: Sync Surcharge properties (before product sync)
+    if sync_surcharge and not dry_run:
+        from ecommerce_integrations.shopware6.export.property_handler import sync_surcharge_properties_batch
         _ensure_db_connection()
-        _notify_user("Phase 0/5: Syncing Mehrpreis properties...", "blue")
+        _notify_user("Phase 0/5: Syncing Surcharge properties...", "blue")
         try:
-            results["mehrpreis_sync"] = sync_mehrpreis_properties_batch()
+            results["surcharge_sync"] = sync_surcharge_properties_batch()
         except Exception as e:
-            _logger.error(f"Full Reconciliation: Mehrpreis sync failed: {e}")
-            results["mehrpreis_sync"] = {"error": str(e)[:200]}
+            _logger.error(f"Full Reconciliation: Surcharge sync failed: {e}")
+            results["surcharge_sync"] = {"error": str(e)[:200]}
             _ensure_db_connection()
 
     # Phase 1: Sync categories
@@ -748,10 +813,10 @@ def full_reconciliation(
 
     message_parts = []
 
-    # Mehrpreis sync stats
-    if results.get("mehrpreis_sync"):
-        mehrpreis_stats = results["mehrpreis_sync"]
-        message_parts.append(f"Mehrpreis: {mehrpreis_stats.get('added', 0)} added")
+    # Surcharge sync stats
+    if results.get("surcharge_sync"):
+        surcharge_stats = results["surcharge_sync"]
+        message_parts.append(f"Surcharge: {surcharge_stats.get('added', 0)} added")
 
     message_parts.extend([
         f"Categories: {cat_stats.get('synced', 0)}/{cat_stats.get('total', 0)}",
@@ -891,7 +956,7 @@ def cleanup_orphaned_shopware_categories(
         return {"success": False, "message": "Shopware integration is not enabled"}
 
     if not root_category:
-        root_category = getattr(setting, 'category_sync_root', 'Produkte') or 'Produkte'
+        root_category = getattr(setting, 'category_sync_root', 'Products') or 'Products'
 
     # Get ERPNext categories under root
     root_info = frappe.db.get_value("Item Group", root_category, ["lft", "rgt"], as_dict=True)
@@ -902,7 +967,7 @@ def cleanup_orphaned_shopware_categories(
         "Item Group",
         filters=[["lft", ">=", root_info.lft], ["rgt", "<=", root_info.rgt]],
         pluck="name"
-    )) - {"All Item Groups", "Alle Artikelgruppen"}
+    )) - ROOT_ITEM_GROUPS
 
     # Step 1: Find the Shopware root category by name
     try:
@@ -1423,7 +1488,7 @@ def enqueue_full_reconciliation_with_categories(
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
 
     if category_root is None:
-        category_root = getattr(setting, 'category_sync_root', 'Produkte') or 'Produkte'
+        category_root = getattr(setting, 'category_sync_root', 'Products') or 'Products'
     if skip_root_category is None:
         skip_root_category = getattr(setting, 'skip_root_category', False)
     if sync_empty_categories is None:
@@ -1971,7 +2036,7 @@ def _batch_delete_products(client, product_ids: List[str]) -> int:
     deleted = 0
 
     # Process in small batches to avoid Shopware DB lock timeouts
-    # Reduced from 100 to 10 after issues with large templates like vendor-trolley (120 variants)
+    # Reduced from 100 to 10 after issues with large templates having many variants
     batch_size = 10
     for i in range(0, len(product_ids), batch_size):
         batch_ids = product_ids[i:i + batch_size]
@@ -2456,7 +2521,7 @@ def enqueue_force_sync_all_variants(
         dry_run: Preview mode
         sync_prices: Also force sync prices (default: True)
         price_list: Price list for price sync
-        brand: Filter by brand (e.g. 'vendor')
+        brand: Filter by brand (e.g. 'MyBrand')
         start_batch: Start from this batch number (1-based, for resuming interrupted syncs)
 
     Returns:

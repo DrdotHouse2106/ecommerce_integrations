@@ -245,8 +245,10 @@ class ShopwareProductUploader:
                     currency_id=currency_id
                 )
                 payload["prices"] = channel_prices
-                # Remove single price, use prices array instead
-                payload.pop("price", None)
+                # Keep price as default/fallback — Shopware requires it for product creation.
+                # Only remove price on updates (handled below in product_exists block).
+                if currency_id and payload.get("price"):
+                    payload["price"][0]["currencyId"] = currency_id
             else:
                 # Single-channel mode: keep original price logic
                 if currency_id and payload.get("price"):
@@ -286,10 +288,10 @@ class ShopwareProductUploader:
                 if property_ids:
                     payload["properties"] = property_ids
 
-            # Delivery Time (Lieferzeit)
-            lieferzeit = getattr(item, 'delivery_time', None)
-            if lieferzeit:
-                delivery_time_id = get_or_create_delivery_time(client, lieferzeit)
+            # Delivery Time
+            delivery_time_str = getattr(item, 'delivery_time', None)
+            if delivery_time_str:
+                delivery_time_id = get_or_create_delivery_time(client, delivery_time_str)
                 if delivery_time_id:
                     payload["deliveryTimeId"] = delivery_time_id
 
@@ -302,6 +304,10 @@ class ShopwareProductUploader:
                 pass
 
             if product_exists:
+                # For updates, remove default price when channel prices are set
+                # (channel prices via rules take precedence over default price)
+                if payload.get("prices"):
+                    payload.pop("price", None)
                 # For updates with multi-channel support, update visibilities separately
                 new_visibilities = payload.pop("visibilities", None)
                 # Store categories before clearing (for debug)
@@ -401,8 +407,9 @@ def deactivate_product_in_shopware(item_code: str) -> bool:
         True if successful or product not in Shopware
     """
     from ecommerce_integrations.shopware6.connection import temp_shopware_session
-    from ecommerce_integrations.shopware6.utils import create_shopware_log
+    from ecommerce_integrations.shopware6.utils import create_shopware_log, require_item_write_permission
 
+    require_item_write_permission(item_code)
     logger = get_logger("deactivate_product_in_shopware")
 
     # Find the Ecommerce Item linking record
@@ -493,7 +500,9 @@ def sync_item_if_changed(item_code: str, force: bool = False) -> dict:
     from ecommerce_integrations.shopware6.connection import get_shopware_client
     from ecommerce_integrations.shopware6.export.reconciliation import compare_item_with_shopware
     from frappe.utils import flt
+    from ecommerce_integrations.shopware6.utils import require_item_write_permission
 
+    require_item_write_permission(item_code)
     result = {
         "synced": False,
         "differences": [],

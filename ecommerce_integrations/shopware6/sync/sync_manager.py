@@ -387,7 +387,7 @@ class SyncManager:
             sync_all_categories_to_shopware
         )
 
-        category_root = getattr(self.setting, 'category_sync_root', 'Produkte') or 'Produkte'
+        category_root = getattr(self.setting, 'category_sync_root', 'Products') or 'Products'
 
         return sync_all_categories_to_shopware(
             root_category=category_root,
@@ -840,7 +840,7 @@ class SyncManager:
             cleanup_orphaned_shopware_categories
         )
 
-        category_root = getattr(self.setting, 'category_sync_root', 'Produkte')
+        category_root = getattr(self.setting, 'category_sync_root', 'Products')
 
         result = cleanup_orphaned_shopware_categories(
             root_category=category_root,
@@ -971,6 +971,7 @@ def quick_reconciliation(
     Returns:
         dict with results
     """
+    frappe.only_for("System Manager")
     manager = SyncManager()
 
     result = manager.full_reconciliation(
@@ -1046,6 +1047,7 @@ def full_reconciliation_no_brainer(
     Returns:
         Complete reconciliation result
     """
+    frappe.only_for("System Manager")
     # Update log to "Running" immediately
     if log_name:
         try:
@@ -1201,6 +1203,7 @@ def enqueue_full_reconciliation_no_brainer(
     Returns:
         Job enqueue status
     """
+    frappe.only_for("System Manager")
     from frappe.utils.background_jobs import is_job_enqueued
 
     job_name = "shopware6_no_brainer_reconciliation"
@@ -1214,7 +1217,7 @@ def enqueue_full_reconciliation_no_brainer(
     # Get category root from settings if not provided
     if not category_root:
         setting = frappe.get_cached_doc(SETTING_DOCTYPE)
-        category_root = getattr(setting, 'category_sync_root', 'Produkte') or 'Produkte'
+        category_root = getattr(setting, 'category_sync_root', 'Products') or 'Products'
 
     # Build skip info for log message
     skip_info = []

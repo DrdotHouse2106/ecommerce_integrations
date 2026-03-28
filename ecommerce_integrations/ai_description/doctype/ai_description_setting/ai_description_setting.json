@@ -13,6 +13,7 @@
     "temperature",
     "prompt_section",
     "system_prompt",
+    "batch_system_prompt",
     "user_prompt_template",
     "output_section",
     "target_language",
@@ -97,6 +98,13 @@
       "description": "Instructions for the AI. Optional placeholder: {company_name}."
     },
     {
+      "fieldname": "batch_system_prompt",
+      "fieldtype": "Code",
+      "label": "Batch System Prompt",
+      "options": "Markdown",
+      "description": "System prompt for batch processing. If empty, a default English prompt is used. Write in your target language."
+    },
+    {
       "fieldname": "user_prompt_template",
       "fieldtype": "Code",
       "label": "User Prompt Template",
@@ -109,7 +117,7 @@
       "label": "Output Configuration"
     },
     {
-      "default": "German",
+      "default": "English",
       "fieldname": "target_language",
       "fieldtype": "Select",
       "label": "Target Language",

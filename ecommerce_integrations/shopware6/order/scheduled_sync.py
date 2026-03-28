@@ -91,6 +91,7 @@ def sync_orders_from_shopware(
     Returns:
         dict: Sync results
     """
+    frappe.only_for("System Manager")
     from ecommerce_integrations.shopware6.order.order_sync import create_sales_order
 
     client = get_shopware_client()

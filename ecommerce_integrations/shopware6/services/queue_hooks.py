@@ -2,7 +2,7 @@
 
 import frappe
 
-_ROOT_CATEGORIES = {"All Item Groups", "Alle Artikelgruppen"}
+from ecommerce_integrations.shopware6.constants import ROOT_ITEM_GROUPS
 
 
 def queue_item_for_sync(doc, method=None):
@@ -121,7 +121,7 @@ def queue_item_group_for_sync(doc, method=None):
     """Queue an Item Group for category sync."""
     item_group = doc
 
-    if item_group.name in _ROOT_CATEGORIES:
+    if item_group.name in ROOT_ITEM_GROUPS:
         return
 
     if getattr(frappe.flags, "skip_shopware_sync", False):
@@ -144,7 +144,7 @@ def queue_item_group_rename_for_sync(doc, method=None, old_name=None, new_name=N
     if not previous_name or not current_name:
         return
 
-    if previous_name in _ROOT_CATEGORIES or current_name in _ROOT_CATEGORIES:
+    if previous_name in ROOT_ITEM_GROUPS or current_name in ROOT_ITEM_GROUPS:
         return
 
     if getattr(frappe.flags, "skip_shopware_sync", False):
@@ -166,7 +166,7 @@ def queue_item_group_delete_for_sync(doc, method=None):
     """Queue Item Group deletion from Shopware."""
     item_group = doc
 
-    if item_group.name in _ROOT_CATEGORIES:
+    if item_group.name in ROOT_ITEM_GROUPS:
         return
 
     if getattr(frappe.flags, "skip_shopware_sync", False):

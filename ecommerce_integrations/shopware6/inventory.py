@@ -87,10 +87,13 @@ def sync_all_inventory() -> Dict[str, int]:
     # Batch stock updates for efficiency
     stock_updates = []
 
+    # Pre-fetch all stock quantities in one query to avoid N+1
+    item_codes = [e.erpnext_item_code for e in ecommerce_items]
+    stock_map = _batch_get_stock_qty(item_codes, setting.warehouse)
+
     for ecom_item in ecommerce_items:
         try:
-            # Get current stock level from ERPNext
-            stock_qty = get_stock_qty(ecom_item.erpnext_item_code, setting.warehouse)
+            stock_qty = stock_map.get(ecom_item.erpnext_item_code, 0)
 
             # Prepare update payload
             product_id = ecom_item.integration_item_code
@@ -195,6 +198,41 @@ def _send_stock_updates(client: Shopware6AdminAPIClientBase, updates: List[Dict]
     client.request_post("_action/sync", sync_payload, update_header_fields=HEADER_index_asynchronously)
 
 
+def _batch_get_stock_qty(item_codes: list, warehouse: str = None) -> dict:
+    """Fetch stock quantities for multiple items in a single query.
+
+    Returns:
+        Dict mapping item_code to stock quantity.
+    """
+    if not item_codes:
+        return {}
+
+    if warehouse:
+        rows = frappe.db.sql(
+            """
+            SELECT item_code, SUM(actual_qty) as qty
+            FROM `tabBin`
+            WHERE item_code IN ({}) AND warehouse = %s
+            GROUP BY item_code
+            """.format(", ".join(["%s"] * len(item_codes))),
+            (*item_codes, warehouse),
+            as_dict=True,
+        )
+    else:
+        rows = frappe.db.sql(
+            """
+            SELECT item_code, SUM(actual_qty) as qty
+            FROM `tabBin`
+            WHERE item_code IN ({})
+            GROUP BY item_code
+            """.format(", ".join(["%s"] * len(item_codes))),
+            item_codes,
+            as_dict=True,
+        )
+
+    return {row.item_code: flt(row.qty) for row in rows}
+
+
 def get_stock_qty(item_code: str, warehouse: str = None) -> float:
     """
     Get actual stock quantity for an item.
@@ -233,6 +271,7 @@ def sync_single_item_stock(item_code: str) -> Dict[str, Any]:
     Returns:
         dict: Result of sync operation
     """
+    frappe.only_for("System Manager")
     setting = frappe.get_doc(SETTING_DOCTYPE)
 
     if not setting.is_enabled():

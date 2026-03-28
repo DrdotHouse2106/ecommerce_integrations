@@ -17,7 +17,7 @@ from ecommerce_integrations.shopware6.order.order_sync import (
 
 # Order mapping utilities
 from ecommerce_integrations.shopware6.order.order_mapper import (
-    get_checkout_custom_field,
+    extract_checkout_field_value,
     get_payment_method_info,
     calculate_delivery_date,
 )
@@ -44,10 +44,9 @@ from ecommerce_integrations.shopware6.order.delivery_handler import (
     create_delivery_note,
 )
 
-# Service items (Tel. Avis, Forklift)
+# Checkout fields and service items
 from ecommerce_integrations.shopware6.order.service_items import (
-    add_service_items_if_needed,
-    add_service_item_if_needed,
+    process_checkout_fields,
 )
 
 # Scheduled sync functions
@@ -67,7 +66,7 @@ __all__ = [
     "update_order_status",
     "update_order_custom_fields",
     # Mapping
-    "get_checkout_custom_field",
+    "extract_checkout_field_value",
     "get_payment_method_info",
     "calculate_delivery_date",
     # Line items
@@ -80,9 +79,8 @@ __all__ = [
     "verify_payment_status_from_shopware",
     # Delivery
     "create_delivery_note",
-    # Service items
-    "add_service_items_if_needed",
-    "add_service_item_if_needed",
+    # Checkout fields / service items
+    "process_checkout_fields",
     # Scheduled
     "sync_orders_from_shopware",
     "scheduled_order_sync",

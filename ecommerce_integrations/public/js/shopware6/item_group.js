@@ -15,7 +15,7 @@ function add_shopware_category_resync_button(frm) {
     if (frm.is_new()) return;
 
     // Skip root categories
-    const root_categories = ['All Item Groups', 'Alle Artikelgruppen'];
+    const root_categories = ['All Item Groups'];
     if (root_categories.includes(frm.doc.name)) {
         return;
     }

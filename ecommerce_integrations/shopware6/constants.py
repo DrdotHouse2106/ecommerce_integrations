@@ -2,6 +2,9 @@
 
 from frappe import _
 
+# Root item groups to skip during category sync (ERPNext default root nodes)
+ROOT_ITEM_GROUPS = {"All Item Groups"}
+
 # Module and DocType names
 MODULE_NAME = "shopware6"
 SETTING_DOCTYPE = "Shopware Setting"
@@ -45,31 +48,16 @@ SUPPLIER_ID_FIELD = "shopware_supplier_id"
 ADDRESS_ID_FIELD = "shopware_address_id"
 ITEM_SELLING_RATE_FIELD = "standard_rate"
 
-# Shopware Custom Fields for Products (ERPNext field -> Shopware custom field name)
-ITEM_ZUBEHOER_FIELD = "shopware_zubehoer"
-ITEM_SICHERHEITSBLAETTER_FIELD = "shopware_sicherheitsblaetter"
-ITEM_PRODUKTBLAETTER_FIELD = "shopware_produktblaetter"
-
 # Shopware Custom Field Set and Field names (in Shopware)
 SHOPWARE_CUSTOM_FIELD_SET_NAME = "erpnext_product_fields"
-SHOPWARE_CUSTOM_FIELD_ZUBEHOER = "erpnext_zubehoer"
-SHOPWARE_CUSTOM_FIELD_SICHERHEITSBLAETTER = "erpnext_sicherheitsblaetter"
-SHOPWARE_CUSTOM_FIELD_PRODUKTBLAETTER = "erpnext_produktblaetter"
-
 # AI Description Custom Fields (in Shopware)
+# These are defaults - configure via Shopware Field Mapping for custom names
 SHOPWARE_CUSTOM_FIELD_AI_SHORT_DESCRIPTION = "erpnext_ai_short_description"
 SHOPWARE_CUSTOM_FIELD_AI_BENEFITS = "erpnext_ai_benefits"
 SHOPWARE_CUSTOM_FIELD_AI_SEO_DESCRIPTION = "erpnext_ai_seo_description"
 
-# Mehrpreis (Surcharge) Custom Field - products that cannot be sold individually
-SHOPWARE_CUSTOM_FIELD_IS_MEHRPREIS = "erpnext_is_mehrpreis"
-
-# Mapping: ERPNext field -> Shopware custom field
+# Mapping: ERPNext field -> Shopware custom field for AI descriptions
 PRODUCT_CUSTOM_FIELDS_MAP = {
-    ITEM_ZUBEHOER_FIELD: SHOPWARE_CUSTOM_FIELD_ZUBEHOER,
-    ITEM_SICHERHEITSBLAETTER_FIELD: SHOPWARE_CUSTOM_FIELD_SICHERHEITSBLAETTER,
-    ITEM_PRODUKTBLAETTER_FIELD: SHOPWARE_CUSTOM_FIELD_PRODUKTBLAETTER,
-    # AI Description fields
     "ai_short_description": SHOPWARE_CUSTOM_FIELD_AI_SHORT_DESCRIPTION,
     "ai_benefits": SHOPWARE_CUSTOM_FIELD_AI_BENEFITS,
     "ai_seo_description": SHOPWARE_CUSTOM_FIELD_AI_SEO_DESCRIPTION,
@@ -121,7 +109,7 @@ WEIGHT_TO_ERPNEXT_UOM_MAP = {
 # Default pagination settings
 DEFAULT_PAGE_SIZE = 100
 
-# Default tax rate (German VAT)
+# Default tax rate (configure in Shopware Settings for your country)
 DEFAULT_TAX_RATE = 19.0
 
 # Sync status values
@@ -178,30 +166,31 @@ DELIVERY_STATE_MAP = {
 # Payment method mappings: Shopware payment method short name -> ERPNext Mode of Payment
 # These mappings support both standard Shopware handlers and SwagPayPal plugin handlers
 # The matching logic checks if any key is contained in the shortName (case-insensitive)
+# NOTE: Values must match your ERPNext "Mode of Payment" names. Configure them in Shopware Settings.
 PAYMENT_METHOD_MAP = {
     # PayPal (SwagPayPal plugin uses various handler names)
-    "pay_pal_payment_handler": "PayPal",  # SwagPayPal main handler
+    "pay_pal_payment_handler": "PayPal",
     "pay_pal": "PayPal",
     "paypal": "PayPal",
     "swag_paypal": "PayPal",
     # PayPal ACDC (Credit/Debit Card via PayPal)
-    "a_c_d_c": "Kreditkarte",
-    "acdc": "Kreditkarte",
+    "a_c_d_c": "Credit Card",
+    "acdc": "Credit Card",
     # PayPal Pay Later
     "pay_later": "PayPal",
-    # PayPal PUI (Pay Upon Invoice / Rechnungskauf)
-    "p_u_i": "PayPal Rechnungskauf",
-    "pui": "PayPal Rechnungskauf",
-    # SEPA (PayPal SEPA or standard)
-    "s_e_p_a": "SEPA Lastschrift",
-    "sepa": "SEPA Lastschrift",
-    "debit": "SEPA Lastschrift",
+    # PayPal PUI (Pay Upon Invoice)
+    "p_u_i": "PayPal Invoice",
+    "pui": "PayPal Invoice",
+    # SEPA
+    "s_e_p_a": "SEPA Direct Debit",
+    "sepa": "SEPA Direct Debit",
+    "debit": "SEPA Direct Debit",
     # Standard Shopware payment methods
-    "invoice": "Rechnung",
-    "pre_payment": "Vorkasse",
-    "prepayment": "Vorkasse",
-    "cash": "Bargeld",
-    "cash_payment": "Nachnahme",
+    "invoice": "Invoice",
+    "pre_payment": "Prepayment",
+    "prepayment": "Prepayment",
+    "cash": "Cash",
+    "cash_payment": "Cash on Delivery",
     # Stripe
     "stripe": "Stripe",
     "stripe_card": "Stripe",
@@ -211,8 +200,8 @@ PAYMENT_METHOD_MAP = {
     "klarna_pay_now": "Klarna",
     "klarna_slice_it": "Klarna",
     # Credit card
-    "card": "Kreditkarte",
-    "creditcard": "Kreditkarte",
+    "card": "Credit Card",
+    "creditcard": "Credit Card",
     # Other PayPal APMs (Alternative Payment Methods)
     "bancontact": "PayPal",
     "blik": "PayPal",
@@ -224,23 +213,7 @@ PAYMENT_METHOD_MAP = {
 }
 
 # Default mode of payment when no mapping is found
-DEFAULT_MODE_OF_PAYMENT = "Rechnung"
-
-# Service products for checkout options
-SERVICE_PRODUCTS = {
-    "tel_avis": "SERVICE-TEL-AVIS",
-    "forklift": "SERVICE-FORKLIFT",
-}
-
-# Shopware custom field names used in checkout
-SHOPWARE_CHECKOUT_CUSTOM_FIELDS = {
-    "po_number": ["custom_po_number", "customer_reference", "po_number", "poNumber"],
-    "tel_avis": ["custom_tel_avis", "tel_avis", "telAvis", "telephone_notification"],
-    "forklift": ["custom_forklift_required", "forklift_required", "forkliftRequired", "hebebuehne"],
-    "invoice_email": ["invoice_email", "invoiceEmail", "billing_email", "billingEmail"],
-    "is_government_org": ["is_government_org", "isGovernmentOrg", "government_org", "governmentOrg"],
-    "leitweg_id": ["leitweg_id", "leitwegId", "leitweg-id", "buyer_reference"],
-}
+DEFAULT_MODE_OF_PAYMENT = "Invoice"
 
 # EU member state ISO codes (excluding domestic country)
 EU_COUNTRY_CODES = {
@@ -249,18 +222,20 @@ EU_COUNTRY_CODES = {
     "PT", "RO", "SK", "SI", "ES", "SE",
 }
 
-# Domestic country (Germany)
+# Domestic country code (configure in Shopware Settings for your country)
 DOMESTIC_COUNTRY_CODE = "DE"
 
 # Tax template mapping by delivery scenario
 # {company_abbr} will be replaced with actual company abbreviation
+# NOTE: Values must match your ERPNext "Sales Taxes and Charges Template" names.
+# Configure these in Shopware Settings to match your locale.
 TAX_TEMPLATE_MAP = {
-    # Domestic (Germany) - B2B and B2C same
-    "domestic": "Lieferung oder sonstige Leistung im Inland - {company_abbr}",
+    # Domestic delivery - B2B and B2C same
+    "domestic": "Domestic Supply - {company_abbr}",
     # EU B2B with valid VAT ID (reverse charge, 0% tax)
-    "eu_b2b": "Lieferung an Unternehmen in der EU - {company_abbr}",
-    # EU B2C without VAT ID (German VAT applies)
-    "eu_b2c": "Lieferung oder sonstige Leistung an nicht-Unternehmen in der EU - {company_abbr}",
+    "eu_b2b": "EU B2B Reverse Charge - {company_abbr}",
+    # EU B2C without VAT ID (domestic VAT applies)
+    "eu_b2c": "EU B2C Supply - {company_abbr}",
     # Third country (non-EU) - export, 0% tax
-    "drittland": "Lieferung in Drittland - {company_abbr}",
+    "export": "Export to Third Country - {company_abbr}",
 }

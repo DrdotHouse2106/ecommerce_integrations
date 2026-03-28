@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 import frappe
 from frappe import _
 
-from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE
+from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCTYPE
 from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
 from ecommerce_integrations.shopware6.validators import ShopwareDataValidator
 
@@ -245,7 +245,7 @@ class WebhookHandler:
         # Find linked ERPNext Item
         ecommerce_item = frappe.db.get_value(
             "Ecommerce Item",
-            {"integration_item_code": product_id, "integration": "Shopware6"},
+            {"integration_item_code": product_id, "integration": MODULE_NAME},
             ["erpnext_item_code", "name"],
             as_dict=True
         )

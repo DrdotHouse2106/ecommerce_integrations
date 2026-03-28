@@ -114,14 +114,8 @@
   "column_break_inventory",
   "shopware_warehouse_mapping",
   "last_inventory_sync",
-  "checkout_services_section",
-  "enable_tel_avis_service",
-  "tel_avis_item",
-  "tel_avis_price",
-  "column_break_checkout_services",
-  "enable_forklift_service",
-  "forklift_item",
-  "forklift_price",
+  "checkout_fields_section",
+  "checkout_fields",
   "checkout_fields_info_section",
   "checkout_fields_info_html"
  ],
@@ -673,7 +667,7 @@
    "fieldtype": "Link",
    "label": "Category Sync Root",
    "options": "Item Group",
-   "default": "Produkte",
+   "default": "Products",
    "description": "Root category for Shopware sync. All subcategories under this will be synced."
   },
   {
@@ -824,72 +818,18 @@
    "read_only": 1
   },
   {
-   "fieldname": "checkout_services_section",
+   "fieldname": "checkout_fields_section",
    "fieldtype": "Section Break",
-   "label": "Checkout Service Products",
-   "description": "Configure service products that can be added via Shopware checkout custom fields"
+   "label": "Checkout Custom Fields",
+   "collapsible": 1,
+   "description": "Map Shopware checkout custom fields to ERPNext fields or service items. Add rows for each custom field you want to process during order sync."
   },
   {
-   "default": "1",
-   "fieldname": "enable_tel_avis_service",
-   "fieldtype": "Check",
-   "label": "Enable Tel. Avis Service",
-   "description": "Auto-add telephone notification service when customer selects it in checkout"
-  },
-  {
-   "depends_on": "eval:doc.enable_tel_avis_service",
-   "fieldname": "tel_avis_item",
-   "fieldtype": "Link",
-   "label": "Tel. Avis Item",
-   "options": "Item",
-   "description": "ERPNext item code for telephone notification service (e.g., SERVICE-TEL-AVIS)"
-  },
-  {
-   "depends_on": "eval:doc.enable_tel_avis_service",
-   "fieldname": "tel_avis_price",
-   "fieldtype": "Currency",
-   "label": "Tel. Avis Default Price",
-   "default": "7.50",
-   "description": "Default price if item doesn't exist (creates line item with this rate)"
-  },
-  {
-   "fieldname": "column_break_checkout_services",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "1",
-   "fieldname": "enable_forklift_service",
-   "fieldtype": "Check",
-   "label": "Enable Forklift/Hebebühne Service",
-   "description": "Auto-add forklift service when customer selects it in checkout"
-  },
-  {
-   "depends_on": "eval:doc.enable_forklift_service",
-   "fieldname": "forklift_item",
-   "fieldtype": "Link",
-   "label": "Forklift Item",
-   "options": "Item",
-   "description": "ERPNext item code for forklift/lifting platform service (e.g., SERVICE-FORKLIFT)"
-  },
-  {
-   "depends_on": "eval:doc.enable_forklift_service",
-   "fieldname": "forklift_price",
-   "fieldtype": "Currency",
-   "label": "Forklift Default Price",
-   "default": "0",
-   "description": "Default price if item doesn't exist (0 = free, or set a custom rate)"
-  },
-  {
-   "fieldname": "checkout_fields_info_section",
-   "fieldtype": "Section Break",
-   "label": "Shopware Checkout Field Mapping",
-   "collapsible": 1
-  },
-  {
-   "fieldname": "checkout_fields_info_html",
-   "fieldtype": "HTML",
-   "label": "Checkout Fields Info",
-   "options": "<div class=\"alert alert-info\"><h5>Required Shopware Custom Fields</h5><p>Add these custom fields to your Shopware checkout (order entity):</p><table class=\"table table-bordered table-sm\"><thead><tr><th>Field Name</th><th>Type</th><th>Description</th></tr></thead><tbody><tr><td><code>custom_po_number</code></td><td>Text</td><td>Customer's internal order reference / commission</td></tr><tr><td><code>custom_tel_avis</code></td><td>Checkbox</td><td>Telephone notification before delivery</td></tr><tr><td><code>custom_forklift_required</code></td><td>Checkbox</td><td>Forklift/lifting platform required</td></tr><tr><td><code>invoice_email</code></td><td>Email</td><td>Alternative email for invoices</td></tr></tbody></table><p><strong>Note:</strong> Custom fields should be added to the Order entity in Shopware Admin > Settings > System > Custom Fields.</p></div>"
+   "fieldname": "checkout_fields",
+   "fieldtype": "Table",
+   "label": "Checkout Field Mappings",
+   "options": "Shopware Checkout Field",
+   "description": "Configure which Shopware checkout custom fields to process and how to map them"
   }
  ],
  "index_web_pages_for_search": 1,

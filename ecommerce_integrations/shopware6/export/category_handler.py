@@ -17,6 +17,7 @@ from frappe.utils import get_files_path
 
 from ecommerce_integrations.shopware6.connection import temp_shopware_session, get_shopware_client
 from ecommerce_integrations.shopware6.constants import (
+    ROOT_ITEM_GROUPS,
     SHOPWARE_CATEGORY_CUSTOM_FIELD_SET_NAME,
     SHOPWARE_CATEGORY_PRIORITY,
     CATEGORY_FAQ_FIELDS_MAP,
@@ -278,6 +279,51 @@ def get_or_create_media_folder(client, folder_name: str) -> Optional[str]:
         return None
 
 
+def resolve_category_image_path(item_group_data: Dict[str, Any]) -> Optional[str]:
+    """
+    Get the best available image path from item group data.
+
+    Prefers category_image, falls back to image. Validates that the
+    referenced file actually exists before returning.
+
+    Args:
+        item_group_data: Dict with 'category_image' and 'image' keys
+
+    Returns:
+        Valid image path or None
+    """
+    if not item_group_data:
+        return None
+
+    candidates = [
+        item_group_data.get("category_image"),
+        item_group_data.get("image"),
+    ]
+
+    for path in candidates:
+        if not path:
+            continue
+
+        # Validate /file/{id}/... paths by checking if the File doc exists
+        if path.startswith("/file/"):
+            parts = path.split("/")
+            if len(parts) >= 3:
+                file_id = parts[2]
+                if not frappe.db.exists("File", file_id):
+                    get_logger().warning(
+                        f"Category image file reference broken: {path} "
+                        f"(File {file_id} not found), trying fallback",
+                        persist=False
+                    )
+                    continue
+            else:
+                continue
+
+        return path
+
+    return None
+
+
 def get_image_content_and_filename(image_path: str) -> tuple:
     """
     Get image content and filename from a path (local or URL).
@@ -371,18 +417,39 @@ def upload_category_media(client, category_id: str, image_path: str) -> Optional
         # Check if media exists and has valid content
         media_exists = False
         media_has_content = False
+        existing_file_name = None
         try:
             existing = client.request_get(f"media/{media_id}")
             if existing and existing.get("data"):
                 media_exists = True
-                # Check if media has actual content (fileName indicates uploaded)
-                media_has_content = bool(existing.get("data", {}).get("fileName"))
+                existing_file_name = existing.get("data", {}).get("fileName")
+                media_has_content = bool(existing_file_name)
         except BaseException:
             pass
 
-        # If media exists with valid content, return it
+        # If media exists with content, check if image actually changed
+        # by comparing the base filename (without timestamp suffix)
         if media_exists and media_has_content:
-            return media_id
+            # Extract base name from existing (format: "basename-timestamp")
+            # and compare with new image's base name
+            existing_base = existing_file_name.rsplit("-", 1)[0] if existing_file_name else ""
+            if existing_base == safe_name:
+                # Same image file - no update needed
+                return media_id
+            # Image changed - delete old media so we can re-upload
+            try:
+                client.request_patch(f"category/{category_id}", {"mediaId": None})
+            except BaseException:
+                pass
+            try:
+                client.request_delete(f"media/{media_id}")
+                media_exists = False
+            except BaseException:
+                # If delete fails, use a fresh media ID
+                media_id = hashlib.md5(
+                    f"category_media_{category_id}_{int(time.time())}".encode()
+                ).hexdigest()
+                media_exists = False
 
         if not media_exists:
             try:
@@ -512,7 +579,7 @@ def get_or_create_category(
 
         # Handle category image
         if item_group_data:
-            image_path = item_group_data.get("category_image") or item_group_data.get("image")
+            image_path = resolve_category_image_path(item_group_data)
             if image_path:
                 media_id = upload_category_media(client, cat_id, image_path)
                 if media_id:
@@ -554,7 +621,7 @@ def sync_category_hierarchy(client, item_group_name: str) -> Optional[str]:
         return None
 
     # Skip root categories
-    root_to_skip = ["All Item Groups", "Alle Artikelgruppen"]
+    root_to_skip = ROOT_ITEM_GROUPS
     while hierarchy and hierarchy[0] in root_to_skip:
         hierarchy = hierarchy[1:]
 
@@ -974,7 +1041,7 @@ def force_resync_category_image(client, item_group_name: str) -> bool:
         if not item_group_data:
             return False
 
-        image_path = item_group_data.get("category_image") or item_group_data.get("image")
+        image_path = resolve_category_image_path(item_group_data)
         if not image_path:
             return False
 
@@ -1047,7 +1114,7 @@ def delete_category_from_shopware(client, category_name: str) -> bool:
 
     try:
         # Skip root categories
-        root_to_skip = ["All Item Groups", "Alle Artikelgruppen"]
+        root_to_skip = ROOT_ITEM_GROUPS
         if category_name in root_to_skip:
             return True
 
@@ -1121,7 +1188,7 @@ def rename_category_in_shopware(client, old_name: str, new_name: str) -> bool:
 
     try:
         # Skip root categories
-        root_to_skip = ["All Item Groups", "Alle Artikelgruppen"]
+        root_to_skip = ROOT_ITEM_GROUPS
         if old_name in root_to_skip or new_name in root_to_skip:
             return True
 
@@ -1194,7 +1261,7 @@ def sync_item_group_to_shopware(client, item_group_name: str) -> bool:
     """
     try:
         # Skip root categories
-        root_to_skip = ["All Item Groups", "Alle Artikelgruppen"]
+        root_to_skip = ROOT_ITEM_GROUPS
         if item_group_name in root_to_skip:
             return True
 
@@ -1231,7 +1298,7 @@ def sync_item_group_to_shopware(client, item_group_name: str) -> bool:
                     parent_item_group = frappe.db.get_value(
                         "Item Group", item_group_name, "parent_item_group"
                     )
-                    if parent_item_group and parent_item_group not in ["All Item Groups", "Alle Artikelgruppen"]:
+                    if parent_item_group and parent_item_group not in ROOT_ITEM_GROUPS:
                         parent_cat_id = get_category_id_fast(client, parent_item_group)
                         if parent_cat_id:
                             _reorder_children_by_priority(client, parent_cat_id)
@@ -1302,7 +1369,7 @@ def bulk_sync_categories(
     logger.info(f"[TIMING] Bulk category sync START for {len(item_groups)} categories")
 
     # Root categories to skip
-    root_to_skip = {"All Item Groups", "Alle Artikelgruppen"}
+    root_to_skip = ROOT_ITEM_GROUPS
 
     try:
         # Step 1: Pre-fetch ALL existing Shopware categories (paginated if needed)
@@ -1552,7 +1619,7 @@ def bulk_sync_category_images(
             if not item_group_data:
                 continue
 
-            image_path = item_group_data.get("category_image") or item_group_data.get("image")
+            image_path = resolve_category_image_path(item_group_data)
             if not image_path:
                 stats["skipped"] += 1
                 continue

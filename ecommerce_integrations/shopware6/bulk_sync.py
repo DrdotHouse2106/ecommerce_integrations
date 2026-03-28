@@ -600,6 +600,7 @@ def is_processing() -> bool:
 @frappe.whitelist()
 def get_queue_status():
     """Get current queue status for monitoring."""
+    frappe.only_for("System Manager")
     from ecommerce_integrations.shopware6.services.bulk_sync_api import (
         get_queue_status as _get_queue_status,
     )
@@ -610,6 +611,7 @@ def get_queue_status():
 @frappe.whitelist()
 def force_process_queue():
     """Manually trigger queue processing."""
+    frappe.only_for("System Manager")
     from ecommerce_integrations.shopware6.services.bulk_sync_api import (
         force_process_queue as _force_process_queue,
     )
@@ -620,6 +622,7 @@ def force_process_queue():
 @frappe.whitelist()
 def clear_all_queues():
     """Clear all sync queues (admin function)."""
+    frappe.only_for("System Manager")
     from ecommerce_integrations.shopware6.services.bulk_sync_api import (
         clear_all_queues as _clear_all_queues,
     )

@@ -14,10 +14,6 @@ from ecommerce_integrations.shopware6.connection import temp_shopware_session
 from ecommerce_integrations.shopware6.constants import (
     SETTING_DOCTYPE,
     SHOPWARE_CUSTOM_FIELD_SET_NAME,
-    SHOPWARE_CUSTOM_FIELD_ZUBEHOER,
-    SHOPWARE_CUSTOM_FIELD_SICHERHEITSBLAETTER,
-    SHOPWARE_CUSTOM_FIELD_PRODUKTBLAETTER,
-    SHOPWARE_CUSTOM_FIELD_IS_MEHRPREIS,
     PRODUCT_CUSTOM_FIELDS_MAP,
     WEIGHT_TO_ERPNEXT_UOM_MAP,
 )
@@ -89,54 +85,12 @@ def ensure_shopware_custom_field_set(client) -> Optional[str]:
             cache.set("custom_field_set", SHOPWARE_CUSTOM_FIELD_SET_NAME, set_id)
             return set_id
 
-        # Build custom fields from mappings
+        # Build custom fields from configured field mappings (Shopware Field Mapping DocType)
         custom_fields = build_custom_fields_from_mappings()
 
-        # Fallback to legacy hardcoded fields if no mappings configured
         if not custom_fields:
-            custom_fields = [
-                {
-                    "id": generate_uuid(f"custom_field_{SHOPWARE_CUSTOM_FIELD_ZUBEHOER}"),
-                    "name": SHOPWARE_CUSTOM_FIELD_ZUBEHOER,
-                    "type": "html",
-                    "config": {
-                        "label": {"en-GB": "Accessories", "de-DE": "Zubehör"},
-                        "customFieldPosition": 1,
-                        "componentName": "sw-text-editor"
-                    }
-                },
-                {
-                    "id": generate_uuid(f"custom_field_{SHOPWARE_CUSTOM_FIELD_SICHERHEITSBLAETTER}"),
-                    "name": SHOPWARE_CUSTOM_FIELD_SICHERHEITSBLAETTER,
-                    "type": "html",
-                    "config": {
-                        "label": {"en-GB": "Safety Data Sheets", "de-DE": "Sicherheitsblätter"},
-                        "customFieldPosition": 2,
-                        "componentName": "sw-text-editor"
-                    }
-                },
-                {
-                    "id": generate_uuid(f"custom_field_{SHOPWARE_CUSTOM_FIELD_PRODUKTBLAETTER}"),
-                    "name": SHOPWARE_CUSTOM_FIELD_PRODUKTBLAETTER,
-                    "type": "html",
-                    "config": {
-                        "label": {"en-GB": "Product Data Sheets", "de-DE": "Produktblätter"},
-                        "customFieldPosition": 3,
-                        "componentName": "sw-text-editor"
-                    }
-                },
-                {
-                    "id": generate_uuid(f"custom_field_{SHOPWARE_CUSTOM_FIELD_IS_MEHRPREIS}"),
-                    "name": SHOPWARE_CUSTOM_FIELD_IS_MEHRPREIS,
-                    "type": "bool",
-                    "config": {
-                        "label": {"en-GB": "Is Surcharge Product", "de-DE": "Ist Mehrpreis"},
-                        "customFieldPosition": 4,
-                        "componentName": "sw-field",
-                        "helpText": {"en-GB": "Product cannot be sold individually, only as accessory", "de-DE": "Produkt kann nicht einzeln gekauft werden, nur als Zubehör"}
-                    }
-                }
-            ]
+            logger = get_logger("property_handler")
+            logger.warning("No custom field mappings configured. Set up Shopware Field Mapping to define custom fields.")
 
         # Create new custom field set
         set_id = generate_uuid(f"custom_field_set_{SHOPWARE_CUSTOM_FIELD_SET_NAME}")
@@ -656,13 +610,12 @@ def clear_product_options(client, product_id: str) -> bool:
         return False
 
 
-def ensure_mehrpreis_property(item_code: str) -> bool:
+def ensure_surcharge_property(item_code: str) -> bool:
     """
-    Ensure an item has the is_mehrpreis property set if it's a Mehrpreis item.
+    Ensure an item has the is_surcharge property set if it's a Surcharge item.
 
-    Mehrpreis items are detected by:
+    Surcharge items are detected by:
     - is_sales_item = 0 (cannot be sold individually)
-    - OR brand = 'vendor' and specific product codes (legacy detection)
 
     This function checks if the property already exists and adds it if missing.
 
@@ -675,26 +628,26 @@ def ensure_mehrpreis_property(item_code: str) -> bool:
     try:
         item = frappe.get_doc("Item", item_code)
 
-        # Check if item is a Mehrpreis item (is_sales_item = 0)
+        # Check if item is a Surcharge item (is_sales_item = 0)
         if item.is_sales_item:
-            return True  # Not a Mehrpreis item, nothing to do
+            return True  # Not a Surcharge item, nothing to do
 
-        # Check if is_mehrpreis property already exists
+        # Check if is_surcharge property already exists
         existing_props = getattr(item, 'shopware_properties', []) or []
         for prop in existing_props:
-            if prop.property_name == 'is_mehrpreis':
+            if prop.property_name == 'is_surcharge':
                 return True  # Already has the property
 
-        # Add the is_mehrpreis property
+        # Add the is_surcharge property
         item.append('shopware_properties', {
-            'property_name': 'is_mehrpreis',
+            'property_name': 'is_surcharge',
             'property_type': 'Custom Field',
             'property_value': 'true'
         })
         item.save(ignore_permissions=True)
 
         frappe.logger("shopware6").info(
-            f"Added is_mehrpreis property to item {item_code}"
+            f"Added is_surcharge property to item {item_code}"
         )
         return True
 
@@ -703,12 +656,12 @@ def ensure_mehrpreis_property(item_code: str) -> bool:
         return False
 
 
-def sync_mehrpreis_properties_batch(limit: int = 500) -> Dict[str, Any]:
+def sync_surcharge_properties_batch(limit: int = 500) -> Dict[str, Any]:
     """
-    Batch sync Mehrpreis properties for all items where is_sales_item = 0.
+    Batch sync Surcharge properties for all items where is_sales_item = 0.
 
-    This can be run during reconciliation to ensure all Mehrpreis items
-    have the is_mehrpreis custom field property set.
+    This can be run during reconciliation to ensure all Surcharge items
+    have the is_surcharge custom field property set.
 
     Args:
         limit: Maximum number of items to process
@@ -742,18 +695,18 @@ def sync_mehrpreis_properties_batch(limit: int = 500) -> Dict[str, Any]:
 
             # Check if property already exists
             existing_props = getattr(item_doc, 'shopware_properties', []) or []
-            has_mehrpreis = any(
-                prop.property_name == 'is_mehrpreis'
+            has_surcharge = any(
+                prop.property_name == 'is_surcharge'
                 for prop in existing_props
             )
 
-            if has_mehrpreis:
+            if has_surcharge:
                 stats["already_set"] += 1
                 continue
 
             # Add the property
             item_doc.append('shopware_properties', {
-                'property_name': 'is_mehrpreis',
+                'property_name': 'is_surcharge',
                 'property_type': 'Custom Field',
                 'property_value': 'true'
             })
@@ -771,7 +724,7 @@ def sync_mehrpreis_properties_batch(limit: int = 500) -> Dict[str, Any]:
     frappe.db.commit()
 
     frappe.logger("shopware6").info(
-        f"Mehrpreis batch sync: {stats['checked']} checked, "
+        f"Surcharge batch sync: {stats['checked']} checked, "
         f"{stats['added']} added, {stats['already_set']} already set, "
         f"{stats['errors']} errors"
     )

@@ -24,9 +24,6 @@ from ecommerce_integrations.shopware6.constants import (
     MODULE_NAME,
     SETTING_DOCTYPE,
     ITEM_SELLING_RATE_FIELD,
-    ITEM_ZUBEHOER_FIELD,
-    ITEM_SICHERHEITSBLAETTER_FIELD,
-    ITEM_PRODUKTBLAETTER_FIELD,
     PRODUCT_CUSTOM_FIELDS_MAP,
 )
 from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
@@ -614,15 +611,11 @@ class BatchProductUploader:
                 # AI Benefits and Custom Fields
                 "ai_benefits",
                 "ai_short_description",
-                # Shopware custom fields
-                ITEM_ZUBEHOER_FIELD,
-                ITEM_SICHERHEITSBLAETTER_FIELD,
-                ITEM_PRODUKTBLAETTER_FIELD,
                 # Dimensions
                 "item_height", "item_width", "item_length",
                 # Custom selling rate field
                 ITEM_SELLING_RATE_FIELD,
-                # Delivery time (Lieferzeit)
+                # Delivery time
                 "delivery_time",
             ]
         )
@@ -910,10 +903,10 @@ class BatchProductUploader:
         except Exception as cat_err:
             self.logger.warning(f"Category sync failed for {item_code}: {cat_err}")
 
-        # Delivery Time (Lieferzeit)
-        lieferzeit = item_data.get("delivery_time")
-        if lieferzeit:
-            delivery_time_id = self._get_delivery_time_id(client, lieferzeit)
+        # Delivery Time
+        delivery_time_str = item_data.get("delivery_time")
+        if delivery_time_str:
+            delivery_time_id = self._get_delivery_time_id(client, delivery_time_str)
             if delivery_time_id:
                 payload["deliveryTimeId"] = delivery_time_id
 
@@ -1300,9 +1293,6 @@ class BatchProductUploader:
         Maps ERPNext fields to Shopware custom field names using:
         1. PRODUCT_CUSTOM_FIELDS_MAP (hardcoded mappings)
         2. shopware_properties child table (flexible key-value pairs)
-
-        Includes: ai_benefits, ai_short_description, ai_seo_description,
-                  shopware_zubehoer, shopware_sicherheitsblaetter, shopware_produktblaetter
 
         Args:
             item_data: Item data dict from batch read
@@ -1960,14 +1950,10 @@ class BatchProductUploader:
                 # AI Benefits and Custom Fields
                 "ai_benefits",
                 "ai_short_description",
-                # Shopware custom fields
-                ITEM_ZUBEHOER_FIELD,
-                ITEM_SICHERHEITSBLAETTER_FIELD,
-                ITEM_PRODUKTBLAETTER_FIELD,
                 "item_height", "item_width", "item_length",
                 ITEM_SELLING_RATE_FIELD,
                 "standard_rate",  # Fallback price for templates
-                # Delivery time (Lieferzeit)
+                # Delivery time
                 "delivery_time",
             ]
         )
@@ -2196,10 +2182,10 @@ class BatchProductUploader:
         if custom_fields:
             payload["customFields"] = custom_fields
 
-        # Delivery Time (Lieferzeit)
-        lieferzeit = item_data.get("delivery_time")
-        if lieferzeit:
-            delivery_time_id = self._get_delivery_time_id(client, lieferzeit)
+        # Delivery Time
+        delivery_time_str = item_data.get("delivery_time")
+        if delivery_time_str:
+            delivery_time_id = self._get_delivery_time_id(client, delivery_time_str)
             if delivery_time_id:
                 payload["deliveryTimeId"] = delivery_time_id
 
@@ -2509,15 +2495,11 @@ class BatchProductUploader:
                 # AI Benefits and Custom Fields
                 "ai_benefits",
                 "ai_short_description",
-                # Shopware custom fields
-                ITEM_ZUBEHOER_FIELD,
-                ITEM_SICHERHEITSBLAETTER_FIELD,
-                ITEM_PRODUKTBLAETTER_FIELD,
                 # Dimensions
                 "item_height", "item_width", "item_length",
                 # Custom selling rate field
                 ITEM_SELLING_RATE_FIELD,
-                # Delivery time (Lieferzeit)
+                # Delivery time
                 "delivery_time",
             ]
         )
@@ -2708,10 +2690,10 @@ class BatchProductUploader:
         if custom_fields:
             payload["customFields"] = custom_fields
 
-        # Delivery Time (Lieferzeit)
-        lieferzeit = item_data.get("delivery_time")
-        if lieferzeit:
-            delivery_time_id = self._get_delivery_time_id(client, lieferzeit)
+        # Delivery Time
+        delivery_time_str = item_data.get("delivery_time")
+        if delivery_time_str:
+            delivery_time_id = self._get_delivery_time_id(client, delivery_time_str)
             if delivery_time_id:
                 payload["deliveryTimeId"] = delivery_time_id
 

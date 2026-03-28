@@ -166,10 +166,10 @@ def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
         if custom_fields:
             product_payload["customFields"] = custom_fields
 
-        # Delivery Time (Lieferzeit)
-        lieferzeit = getattr(variant_item, 'delivery_time', None)
-        if lieferzeit:
-            delivery_time_id = get_or_create_delivery_time(client, lieferzeit)
+        # Delivery Time
+        delivery_time_str = getattr(variant_item, 'delivery_time', None)
+        if delivery_time_str:
+            delivery_time_id = get_or_create_delivery_time(client, delivery_time_str)
             if delivery_time_id:
                 product_payload["deliveryTimeId"] = delivery_time_id
 

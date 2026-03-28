@@ -20,6 +20,28 @@ from ecommerce_integrations.shopware6.export.utils import generate_uuid, sanitiz
 from ecommerce_integrations.shopware6.utils import get_logger
 
 
+def _is_safe_url(url: str) -> bool:
+    """Block requests to internal/private networks (SSRF protection)."""
+    from urllib.parse import urlparse
+    import ipaddress
+    import socket
+
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        # Resolve hostname to IP
+        try:
+            ip = ipaddress.ip_address(socket.gethostbyname(hostname))
+        except (socket.gaierror, ValueError):
+            return False
+        # Block private, loopback, link-local ranges
+        return not (ip.is_private or ip.is_loopback or ip.is_link_local)
+    except Exception:
+        return False
+
+
 def get_product_media_folder_id(client) -> Optional[str]:
     """
     Get the Product Media folder ID in Shopware.
@@ -108,7 +130,10 @@ def get_file_content_and_type(file_url: str) -> Tuple[Optional[bytes], Optional[
             return None, None, None
 
         if file_url.startswith(('http://', 'https://')):
-            response = requests.get(file_url, timeout=30)
+            if not _is_safe_url(file_url):
+                get_logger().warning(f"Blocked SSRF attempt: {file_url[:100]}")
+                return None, None, None
+            response = requests.get(file_url, timeout=30, allow_redirects=False)
             if response.status_code == 200:
                 content_type = response.headers.get('Content-Type', 'image/jpeg')
                 ext = mimetypes.guess_extension(content_type) or '.jpg'
@@ -130,15 +155,28 @@ def get_file_content_and_type(file_url: str) -> Tuple[Optional[bytes], Optional[
                     get_logger().error(f"Failed to get content from external storage for {file_url}: {str(e)}", persist=False)
             return None, None, None
 
-        # Local file
-        if file_url.startswith('/private/files/'):
-            file_path = os.path.join(frappe.get_site_path(), file_url.lstrip('/'))
-        elif file_url.startswith('/files/'):
-            file_path = os.path.join(frappe.get_site_path(), 'public', file_url.lstrip('/'))
-        else:
-            file_path = os.path.join(get_files_path(), file_url.lstrip('/'))
+        # Local file — validate path stays within allowed directories
+        import pathlib
+        site_path = pathlib.Path(frappe.get_site_path()).resolve()
 
-        if os.path.exists(file_path):
+        if file_url.startswith('/private/files/'):
+            file_path = (site_path / file_url.lstrip('/')).resolve()
+            allowed_base = (site_path / 'private' / 'files').resolve()
+        elif file_url.startswith('/files/'):
+            file_path = (site_path / 'public' / file_url.lstrip('/')).resolve()
+            allowed_base = (site_path / 'public' / 'files').resolve()
+        else:
+            allowed_base = pathlib.Path(get_files_path()).resolve()
+            file_path = (allowed_base / file_url.lstrip('/')).resolve()
+
+        # Prevent path traversal
+        try:
+            file_path.relative_to(allowed_base)
+        except ValueError:
+            get_logger().warning(f"Path traversal blocked: {file_url[:100]}")
+            return None, None, None
+
+        if file_path.exists():
             with open(file_path, 'rb') as f:
                 content = f.read()
             mime_type, _ = mimetypes.guess_type(file_path)
@@ -269,7 +307,7 @@ def _upload_media_via_url(client, media_id: str, public_url: str, extension: str
         # Ignore "already exists" errors
         if "already exists" in error_str or "duplicate" in error_str:
             return True
-        get_logger().debug(f"URL-based upload failed for {public_url}: {str(e)[:100]}", persist=False)
+        get_logger().debug(f"URL-based upload failed for {public_url}: {str(e)[:100]}")
         return False
 
 

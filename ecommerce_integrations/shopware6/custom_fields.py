@@ -246,30 +246,6 @@ CUSTOM_FIELDS = {
             "translatable": 0,
             "description": "Customer's internal order reference / commission number",
         },
-        {
-            "fieldname": "tel_avis_requested",
-            "label": "Tel. Avis Requested",
-            "fieldtype": "Check",
-            "insert_after": "customer_po_no",
-            "read_only": 0,
-            "default": 0,
-            "description": "Telephone notification before delivery (+7.50 EUR)",
-        },
-        {
-            "fieldname": "shopware_custom_cb",
-            "label": "",
-            "fieldtype": "Column Break",
-            "insert_after": "tel_avis_requested",
-        },
-        {
-            "fieldname": "forklift_requested",
-            "label": "Forklift Requested",
-            "fieldtype": "Check",
-            "insert_after": "shopware_custom_cb",
-            "read_only": 0,
-            "default": 0,
-            "description": "Forklift/lifting platform required for delivery",
-        },
     ],
     "Delivery Note": [
         {

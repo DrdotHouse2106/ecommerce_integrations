@@ -11,7 +11,6 @@ import frappe
 from frappe.utils import flt, getdate, add_days
 
 from ecommerce_integrations.shopware6.constants import (
-    SHOPWARE_CHECKOUT_CUSTOM_FIELDS,
     PAYMENT_METHOD_MAP,
     PAYMENT_STATE_MAP,
     DEFAULT_MODE_OF_PAYMENT,
@@ -113,41 +112,34 @@ def calculate_delivery_date(order_date: str, line_items: list) -> str:
     return str(delivery_date)
 
 
-def get_checkout_custom_field(order_data: dict, field_type: str) -> Any:
+def extract_checkout_field_value(order_data: dict, field_names: list) -> Any:
     """
-    Extract a custom field value from Shopware order data.
+    Extract a custom field value from Shopware order data by searching
+    multiple locations for any of the given field names.
 
-    Shopware custom fields can be in multiple locations:
-    - order.customFields
-    - order.orderCustomer.customFields
-    - Direct order payload fields (for webhook payloads)
+    Searches in order: order.customFields, orderCustomer.customFields,
+    then direct order payload fields (webhook format).
 
     Args:
         order_data: Shopware order object
-        field_type: Type of field to extract (po_number, tel_avis, forklift, invoice_email)
+        field_names: List of Shopware field name variants to search for
 
     Returns:
         Field value or None if not found
     """
-    field_names = SHOPWARE_CHECKOUT_CUSTOM_FIELDS.get(field_type, [])
-
-    # Check order customFields
     custom_fields = order_data.get("customFields", {}) or {}
-    for field_name in field_names:
-        if field_name in custom_fields:
-            return custom_fields[field_name]
+    for name in field_names:
+        if name in custom_fields:
+            return custom_fields[name]
 
-    # Check orderCustomer customFields
-    order_customer = order_data.get("orderCustomer", {}) or {}
-    customer_custom_fields = order_customer.get("customFields", {}) or {}
-    for field_name in field_names:
-        if field_name in customer_custom_fields:
-            return customer_custom_fields[field_name]
+    customer_cf = (order_data.get("orderCustomer", {}) or {}).get("customFields", {}) or {}
+    for name in field_names:
+        if name in customer_cf:
+            return customer_cf[name]
 
-    # Check direct payload fields (for webhook format)
-    for field_name in field_names:
-        if field_name in order_data:
-            return order_data[field_name]
+    for name in field_names:
+        if name in order_data:
+            return order_data[name]
 
     return None
 
@@ -336,7 +328,7 @@ def get_tax_template(order_data: dict, company: str) -> str:
     elif country_code in EU_COUNTRY_CODES:
         template_key = "eu_b2b" if is_b2b else "eu_b2c"
     else:
-        template_key = "drittland"
+        template_key = "export"
 
     # Get template name pattern
     template_pattern = TAX_TEMPLATE_MAP.get(template_key, "")

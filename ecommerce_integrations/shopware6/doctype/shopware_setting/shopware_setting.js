@@ -120,7 +120,7 @@ frappe.ui.form.on('Shopware Setting', {
 							fieldtype: 'Link',
 							label: __('Root Kategorie'),
 							options: 'Item Group',
-							default: frm.doc.category_sync_root || 'Produkte',
+							default: frm.doc.category_sync_root || 'Products',
 							description: __('Nur Kategorien unter diesem Root')
 						},
 						{
@@ -236,7 +236,7 @@ frappe.ui.form.on('Shopware Setting', {
 							fieldtype: 'Link',
 							label: __('Root Kategorie'),
 							options: 'Item Group',
-							default: frm.doc.category_sync_root || 'Produkte',
+							default: frm.doc.category_sync_root || 'Products',
 							reqd: 1
 						},
 						{
@@ -723,7 +723,7 @@ frappe.ui.form.on('Shopware Setting', {
 						frappe.call({
 							method: 'ecommerce_integrations.shopware6.product_export.cleanup_orphaned_shopware_categories',
 							args: {
-								root_category: frm.doc.category_sync_root || 'Produkte',
+								root_category: frm.doc.category_sync_root || 'Products',
 								dry_run: false
 							},
 							freeze: true,

@@ -14,7 +14,7 @@ from frappe.utils import getdate, nowdate
 from lib_shopware6_api_base import Shopware6AdminAPIClientBase, Criteria
 
 from ecommerce_integrations.shopware6.connection import temp_shopware_session, get_shopware_client
-from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE, SERVICE_PRODUCTS
+from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE
 from ecommerce_integrations.shopware6.utils import (
     get_logger,
     create_shopware_log,
@@ -38,10 +38,7 @@ from ecommerce_integrations.shopware6.order.order_mapper import (
 )
 from ecommerce_integrations.shopware6.order.line_item_handler import add_order_item, add_shipping_costs
 from ecommerce_integrations.shopware6.order.tax_handler import add_order_taxes
-from ecommerce_integrations.shopware6.order.service_items import (
-    add_service_items_if_needed,
-    detect_service_items_from_line_items,
-)
+from ecommerce_integrations.shopware6.order.service_items import process_checkout_fields
 from ecommerce_integrations.shopware6.order.delivery_handler import create_delivery_note
 from ecommerce_integrations.shopware6.order.payment_handler import (
     create_sales_invoice,
@@ -258,38 +255,8 @@ def create_sales_order(order_data: Dict[str, Any]) -> str:
     if hasattr(so, 'shopware_erpnext_mode_of_payment'):
         so.shopware_erpnext_mode_of_payment = erpnext_mode
 
-    # Extract custom fields from Shopware order
-    customer_po_no = get_checkout_custom_field(order_data, "po_number")
-    tel_avis_requested = bool(get_checkout_custom_field(order_data, "tel_avis"))
-    forklift_requested = bool(get_checkout_custom_field(order_data, "forklift"))
-    invoice_email = get_checkout_custom_field(order_data, "invoice_email")
-    is_government_org = bool(get_checkout_custom_field(order_data, "is_government_org"))
-    leitweg_id = get_checkout_custom_field(order_data, "leitweg_id")
-
-    # Also check if service products exist in line items
-    line_items = order_data.get("lineItems") or []
-    detected_tel_avis, detected_forklift = detect_service_items_from_line_items(line_items, setting)
-    tel_avis_requested = tel_avis_requested or detected_tel_avis
-    forklift_requested = forklift_requested or detected_forklift
-
-    # Set custom fields on Sales Order
-    if customer_po_no:
-        so.customer_po_no = customer_po_no
-        # Also set po_no if it exists (standard ERPNext field)
-        so_meta = frappe.get_meta("Sales Order")
-        if so_meta.has_field("po_no"):
-            so.po_no = customer_po_no
-
-    so.tel_avis_requested = 1 if tel_avis_requested else 0
-    so.forklift_requested = 1 if forklift_requested else 0
-
-    # Handle invoice_email: Create or update a Billing Contact
-    if invoice_email and customer:
-        _handle_invoice_email(customer, invoice_email, order_data)
-
-    # Handle Leitweg-ID for government organizations (XRechnung/B2G invoicing)
-    if leitweg_id and customer:
-        _handle_leitweg_id(customer, leitweg_id, is_government_org)
+    # Process all configured checkout custom fields from Shopware Settings
+    process_checkout_fields(so, setting, order_data, customer)
 
     # Extract taxStatus from Shopware order to determine price handling
     # - "net": B2B order, prices are already net
@@ -305,8 +272,6 @@ def create_sales_order(order_data: Dict[str, Any]) -> str:
     for line_item in (order_data.get("lineItems") or []):
         add_order_item(so, line_item, setting, tax_status)
 
-    # Add service items if requested (Tel. Avis, Forklift/Hebebühne)
-    add_service_items_if_needed(so, setting, order_data, tel_avis_requested, forklift_requested)
 
     # Add shipping costs as line item if configured
     add_shipping_costs(so, order_data, setting, tax_status)
@@ -419,63 +384,6 @@ def _validate_item_group_hierarchy(so: "frappe.Document") -> None:
                     _("Invalid Item Group hierarchy for item {0}: maximum depth exceeded").format(item_code)
                 )
 
-
-def _handle_invoice_email(customer: str, invoice_email: str, order_data: Dict[str, Any]) -> None:
-    """Store invoice email and enqueue billing-contact sync after commit."""
-    try:
-        order_customer = order_data.get("orderCustomer", {})
-
-        # Also store on customer for backward compatibility
-        if frappe.db.has_column("Customer", "invoice_email"):
-            frappe.db.set_value("Customer", customer, "invoice_email", invoice_email, update_modified=False)
-
-        # Do contact creation asynchronously to keep order sync transaction short
-        # and avoid blocking on downstream hooks/network calls.
-        frappe.enqueue(
-            "ecommerce_integrations.shopware6.customer.create_or_update_billing_contact",
-            customer=customer,
-            billing_email=invoice_email,
-            customer_data=order_customer,
-            queue="short",
-            timeout=120,
-            enqueue_after_commit=True,
-        )
-    except Exception as e:
-        get_logger().error(f"Failed to create/update billing contact for {customer}: {e}", persist=True)
-
-
-def _handle_leitweg_id(customer: str, leitweg_id: str, is_government_org: bool = False) -> None:
-    """
-    Update Customer's buyer_reference field with Leitweg-ID for XRechnung/B2G invoicing.
-
-    The Leitweg-ID is a routing ID required for electronic invoicing (XRechnung) to German
-    public authorities. It flows from Customer → Sales Invoice → XRechnung XML export.
-
-    IMPORTANT: If a Leitweg-ID is provided, the customer IS a government organization
-    by definition (private companies don't have Leitweg-IDs), so we always set XRECHNUNG.
-
-    Args:
-        customer: ERPNext Customer name
-        leitweg_id: German Leitweg-ID (e.g., "991-12345-67")
-        is_government_org: Whether customer is explicitly marked as government organization
-    """
-    try:
-        updates = {}
-
-        # buyer_reference field (used by eu_einvoice/ERPNext Germany for XRechnung BT-10)
-        if frappe.db.has_column("Customer", "buyer_reference"):
-            updates["buyer_reference"] = leitweg_id
-
-        # Set einvoice_profile to XRECHNUNG if leitweg_id is provided
-        # Having a Leitweg-ID implies government organization (B2G)
-        if frappe.db.has_column("Customer", "einvoice_profile"):
-            updates["einvoice_profile"] = "XRECHNUNG"
-
-        if updates:
-            frappe.db.set_value("Customer", customer, updates, update_modified=False)
-            get_logger().info(f"Updated Customer {customer} with Leitweg-ID: {leitweg_id}, einvoice_profile=XRECHNUNG")
-    except Exception as e:
-        get_logger().error(f"Failed to update Leitweg-ID for {customer}: {e}", persist=True)
 
 
 def _create_delivery_note_if_shipped(
@@ -616,51 +524,31 @@ def update_order_custom_fields(
         so = frappe.get_doc("Sales Order", sales_order_name)
         setting = frappe.get_doc(SETTING_DOCTYPE)
 
-        # Extract custom fields
-        customer_po_no = webhook_custom_fields.get("custom_po_number")
-        tel_avis_requested = bool(webhook_custom_fields.get("custom_tel_avis"))
-        forklift_requested = bool(webhook_custom_fields.get("custom_forklift_required"))
-        invoice_email = webhook_custom_fields.get("invoice_email")
-        is_government_org = bool(webhook_custom_fields.get("is_government_org"))
-        leitweg_id = webhook_custom_fields.get("leitweg_id")
-
         updates_made = []
+        so_meta = frappe.get_meta("Sales Order")
 
-        # Update PO number if set and different
-        if customer_po_no and so.get("customer_po_no") != customer_po_no:
-            frappe.db.set_value("Sales Order", sales_order_name, "customer_po_no", customer_po_no)
-            if frappe.get_meta("Sales Order").has_field("po_no"):
-                frappe.db.set_value("Sales Order", sales_order_name, "po_no", customer_po_no)
-            updates_made.append(f"customer_po_no={customer_po_no}")
+        for row in (setting.get("checkout_fields") or []):
+            if not row.enabled:
+                continue
 
-        # Update Tel. Avis flag
-        if tel_avis_requested and not so.get("tel_avis_requested"):
-            frappe.db.set_value("Sales Order", sales_order_name, "tel_avis_requested", 1)
-            updates_made.append("tel_avis_requested=1")
+            field_names = [n.strip() for n in (row.shopware_field_names or "").split(",") if n.strip()]
+            value = None
+            for name in field_names:
+                if name in webhook_custom_fields:
+                    value = webhook_custom_fields[name]
+                    break
 
-        # Update Forklift flag
-        if forklift_requested and not so.get("forklift_requested"):
-            frappe.db.set_value("Sales Order", sales_order_name, "forklift_requested", 1)
-            updates_made.append("forklift_requested=1")
+            if value is None:
+                continue
 
-        # Handle billing contact if invoice_email is set
-        if invoice_email and so.customer:
-            if frappe.db.has_column("Customer", "invoice_email"):
-                frappe.db.set_value("Customer", so.customer, "invoice_email", invoice_email, update_modified=False)
-            frappe.enqueue(
-                "ecommerce_integrations.shopware6.customer.create_or_update_billing_contact",
-                customer=so.customer,
-                billing_email=invoice_email,
-                queue="short",
-                timeout=120,
-                enqueue_after_commit=True,
-            )
-            updates_made.append(f"invoice_email={invoice_email}")
-
-        # Handle Leitweg-ID for government organizations (XRechnung/B2G invoicing)
-        if leitweg_id and so.customer:
-            _handle_leitweg_id(so.customer, leitweg_id, is_government_org)
-            updates_made.append(f"leitweg_id={leitweg_id}")
+            if row.mapping_type == "Sales Order Field" and row.target_field:
+                if so_meta.has_field(row.target_field) and so.get(row.target_field) != value:
+                    frappe.db.set_value("Sales Order", sales_order_name, row.target_field, value)
+                    updates_made.append(f"{row.target_field}={value}")
+            elif row.mapping_type == "Customer Update" and row.target_field and so.customer:
+                if frappe.db.has_column("Customer", row.target_field):
+                    frappe.db.set_value("Customer", so.customer, row.target_field, value, update_modified=False)
+                    updates_made.append(f"customer.{row.target_field}={value}")
 
         if updates_made:
             frappe.db.commit()

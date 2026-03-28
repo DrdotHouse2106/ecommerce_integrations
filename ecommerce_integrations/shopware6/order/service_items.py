@@ -1,197 +1,131 @@
 """
-Shopware 6 Service Items Handler
+Shopware 6 Checkout Fields & Service Items Handler
 
-Handles service items like Tel. Avis and Forklift/Hebebühne.
+Processes checkout custom fields configured in Shopware Settings.
+Supports mapping to Sales Order fields, Customer fields, and service items.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import frappe
-
-from ecommerce_integrations.shopware6.utils import get_logger
 from frappe.utils import flt
 
-from ecommerce_integrations.shopware6.constants import SERVICE_PRODUCTS
+from ecommerce_integrations.shopware6.utils import get_logger
 
 
-def add_service_items_if_needed(
+def process_checkout_fields(
     so: "frappe.Document",
     setting,
     order_data: Dict[str, Any],
-    tel_avis_requested: bool = False,
-    forklift_requested: bool = False
+    customer: Optional[str] = None,
 ) -> None:
     """
-    Add service items (Tel. Avis, Forklift/Hebebühne) to the Sales Order if requested.
+    Process all configured checkout custom fields from Shopware order data.
 
-    The services can come from:
-    1. A custom field checkbox in the order
-    2. An actual line item with the service product number
+    Reads the checkout_fields table from Shopware Settings and processes each
+    enabled mapping: sets Sales Order fields, updates Customer records, or
+    adds service items.
+
+    Args:
+        so: Sales Order document (being built, not yet saved)
+        setting: Shopware Setting document
+        order_data: Shopware order data dict
+        customer: ERPNext Customer name (for Customer Update mappings)
+    """
+    from ecommerce_integrations.shopware6.order.order_mapper import extract_checkout_field_value
+
+    so_meta = frappe.get_meta("Sales Order")
+    service_items = {}
+
+    for row in (setting.get("checkout_fields") or []):
+        if not row.enabled:
+            continue
+
+        field_names = [n.strip() for n in (row.shopware_field_names or "").split(",") if n.strip()]
+        value = extract_checkout_field_value(order_data, field_names)
+
+        # Collect service items for line-item detection below
+        if row.mapping_type == "Service Item" and row.service_item:
+            service_items[row.service_item] = row
+            if value and bool(value):
+                _add_service_item(so, setting, row.service_item, row.service_price)
+
+        elif value is None:
+            continue
+
+        elif row.mapping_type == "Sales Order Field" and row.target_field:
+            if so_meta.has_field(row.target_field):
+                setattr(so, row.target_field, value)
+
+        elif row.mapping_type == "Customer Update" and row.target_field and customer:
+            if frappe.db.has_column("Customer", row.target_field):
+                frappe.db.set_value(
+                    "Customer", customer, row.target_field, value,
+                    update_modified=False
+                )
+
+    # Also detect service items present as Shopware line items
+    if service_items:
+        _detect_service_items_in_line_items(so, setting, order_data, service_items)
+
+
+def _add_service_item(
+    so: "frappe.Document",
+    setting,
+    item_code: str,
+    override_price: float = None,
+) -> None:
+    """
+    Add a service item to the Sales Order.
 
     Args:
         so: Sales Order document
         setting: Shopware Setting document
-        order_data: Shopware order data
-        tel_avis_requested: Whether tel avis was requested via custom field
-        forklift_requested: Whether forklift was requested via custom field
+        item_code: ERPNext Item code
+        override_price: Optional price override
     """
-    line_items = order_data.get("lineItems") or []
+    # Check if already added
+    for item in (so.get("items") or []):
+        if item.item_code == item_code:
+            return
 
-    # Get all product numbers already in the order
-    existing_product_numbers = set()
-    for line_item in line_items:
+    rate = override_price
+    if rate is None:
+        standard_rate = frappe.db.get_value("Item", item_code, "standard_rate")
+        if standard_rate is None:
+            get_logger().warning(
+                f"Service item '{item_code}' not found in ERPNext. "
+                f"Create this item or update Shopware Settings."
+            )
+            return
+        rate = standard_rate or 0
+
+    so.append("items", {
+        "item_code": item_code,
+        "qty": 1,
+        "rate": flt(rate),
+        "warehouse": setting.warehouse,
+        "delivery_date": so.delivery_date,
+    })
+
+
+def _detect_service_items_in_line_items(
+    so: "frappe.Document",
+    setting,
+    order_data: Dict[str, Any],
+    service_items: Dict[str, Any],
+) -> None:
+    """
+    Detect service items present as Shopware line items and add them.
+
+    Args:
+        service_items: Dict of {item_code: checkout_field_row} built by caller
+    """
+    for line_item in (order_data.get("lineItems") or []):
         product_number = line_item.get("payload", {}).get("productNumber", "")
-        if product_number:
-            existing_product_numbers.add(product_number)
-
-    # Handle Tel. Avis service
-    if tel_avis_requested and getattr(setting, 'enable_tel_avis_service', True):
-        _add_tel_avis_item(so, setting, existing_product_numbers)
-
-    # Handle Forklift/Hebebühne service
-    if forklift_requested and getattr(setting, 'enable_forklift_service', True):
-        _add_forklift_item(so, setting, existing_product_numbers)
-
-
-def _add_tel_avis_item(
-    so: "frappe.Document",
-    setting,
-    existing_product_numbers: set
-) -> None:
-    """
-    Add Tel. Avis service item to Sales Order.
-
-    Args:
-        so: Sales Order document
-        setting: Shopware Setting document
-        existing_product_numbers: Set of product numbers already in the order
-    """
-    tel_avis_item_code = (
-        getattr(setting, 'tel_avis_item', None) or
-        SERVICE_PRODUCTS.get("tel_avis", "SERVICE-TEL-AVIS")
-    )
-
-    if tel_avis_item_code in existing_product_numbers:
-        return
-
-    # Check if the item exists in ERPNext
-    if frappe.db.exists("Item", tel_avis_item_code):
-        item_rate = frappe.db.get_value("Item", tel_avis_item_code, "standard_rate")
-        if item_rate is None:
-            item_rate = getattr(setting, 'tel_avis_price', 7.50) or 7.50
-        so.append(
-            "items",
-            {
-                "item_code": tel_avis_item_code,
-                "qty": 1,
-                "rate": flt(item_rate),
-                "warehouse": setting.warehouse,
-                "delivery_date": so.delivery_date,
-                "description": "Service: Telefonisches Avis",
-            },
-        )
-    else:
-        # Item doesn't exist - log a warning so the admin knows to create it
-        get_logger().error("Error occurred", persist=False)
-
-
-def _add_forklift_item(
-    so: "frappe.Document",
-    setting,
-    existing_product_numbers: set
-) -> None:
-    """
-    Add Forklift/Hebebühne service item to Sales Order.
-
-    Args:
-        so: Sales Order document
-        setting: Shopware Setting document
-        existing_product_numbers: Set of product numbers already in the order
-    """
-    forklift_item_code = (
-        getattr(setting, 'forklift_item', None) or
-        SERVICE_PRODUCTS.get("forklift", "SERVICE-FORKLIFT")
-    )
-
-    if forklift_item_code in existing_product_numbers:
-        return
-
-    # Check if the item exists in ERPNext
-    if frappe.db.exists("Item", forklift_item_code):
-        item_rate = frappe.db.get_value("Item", forklift_item_code, "standard_rate")
-        if item_rate is None:
-            item_rate = getattr(setting, 'forklift_price', 0) or 0
-        so.append(
-            "items",
-            {
-                "item_code": forklift_item_code,
-                "qty": 1,
-                "rate": flt(item_rate),
-                "warehouse": setting.warehouse,
-                "delivery_date": so.delivery_date,
-                "description": "Service: Hebebühne / Forklift",
-            },
-        )
-    else:
-        # Item doesn't exist - log a warning so the admin knows to create it
-        get_logger().error("Error occurred", persist=False)
-
-
-def add_service_item_if_needed(
-    so: "frappe.Document",
-    setting,
-    order_data: Dict[str, Any],
-    tel_avis_requested: bool = False
-) -> None:
-    """
-    Backwards compatible wrapper for add_service_items_if_needed.
-
-    Only handles Tel. Avis for backwards compatibility.
-    Use add_service_items_if_needed for full functionality.
-    """
-    add_service_items_if_needed(so, setting, order_data, tel_avis_requested, False)
-
-
-def detect_service_items_from_line_items(
-    line_items: list,
-    setting
-) -> tuple:
-    """
-    Detect if service items are present in line items.
-
-    Args:
-        line_items: List of Shopware line items
-        setting: Shopware Setting document
-
-    Returns:
-        tuple: (tel_avis_detected, forklift_detected)
-    """
-    tel_avis_detected = False
-    forklift_detected = False
-
-    tel_avis_item = (
-        getattr(setting, 'tel_avis_item', None) or
-        SERVICE_PRODUCTS.get("tel_avis", "SERVICE-TEL-AVIS")
-    )
-    forklift_item = (
-        getattr(setting, 'forklift_item', None) or
-        SERVICE_PRODUCTS.get("forklift", "SERVICE-FORKLIFT")
-    )
-
-    for line_item in line_items:
-        product_number = line_item.get("payload", {}).get("productNumber", "") if line_item.get("payload") else ""
-
-        # Check for Tel. Avis service product
-        if not tel_avis_detected:
-            if product_number == tel_avis_item or "tel" in product_number.lower() or "avis" in product_number.lower():
-                tel_avis_detected = True
-
-        # Check for Forklift/Hebebühne service product
-        if not forklift_detected:
-            if product_number == forklift_item or "forklift" in product_number.lower() or "hebebuehne" in product_number.lower() or "hebebühne" in product_number.lower():
-                forklift_detected = True
-
-        if tel_avis_detected and forklift_detected:
-            break
-
-    return tel_avis_detected, forklift_detected
+        if not product_number:
+            continue
+        for item_code, row in service_items.items():
+            if product_number == item_code:
+                _add_service_item(so, setting, item_code, row.service_price)
+                break

@@ -11,7 +11,7 @@ import frappe
 from frappe.utils import flt
 
 from ecommerce_integrations.shopware6.connection import temp_shopware_session, get_shopware_client
-from ecommerce_integrations.shopware6.constants import ITEM_SELLING_RATE_FIELD, SETTING_DOCTYPE
+from ecommerce_integrations.shopware6.constants import ITEM_SELLING_RATE_FIELD, MODULE_NAME, SETTING_DOCTYPE
 from lib_shopware6_api_base import HEADER_index_asynchronously
 from ecommerce_integrations.shopware6.export.utils import get_shopware_document_id
 from ecommerce_integrations.shopware6.export.product_mapper import get_cached_currency_id
@@ -836,7 +836,7 @@ def enqueue_force_sync_all_prices(
     dry_run = dry_run in [True, "true", "True", 1, "1"]
 
     # Count total products
-    total = frappe.db.count("Ecommerce Item", {"integration": "Shopware6"})
+    total = frappe.db.count("Ecommerce Item", {"integration": MODULE_NAME})
 
     job_name = f"shopware6_force_price_sync_{now()}"
 

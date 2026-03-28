@@ -139,20 +139,20 @@ def create_customer_vat_fields():
 
 def create_delivery_time_field():
     """
-    Create custom field for German delivery time on Item.
+    Create custom field for delivery time on Item.
 
     Field created:
-    - custom_lieferzeit: German delivery time string (e.g., "3-5 Werktage", "2 Wochen")
+    - custom_delivery_time: Delivery time string (e.g., "3-5 business days", "2 weeks")
     """
     custom_fields = {
         "Item": [
             {
-                "fieldname": "custom_lieferzeit",
-                "label": "Lieferzeit",
+                "fieldname": "custom_delivery_time",
+                "label": "Delivery Time",
                 "fieldtype": "Data",
                 "insert_after": "weight_uom",
-                "description": "Deutsche Lieferzeit (z.B. '3-5 Werktage', '2 Wochen', 'Sofort lieferbar'). "
-                               "Wird für die Berechnung des Liefertermins verwendet."
+                "description": "Delivery time estimate (e.g., '3-5 business days', '2 weeks', 'In stock'). "
+                               "Used for delivery date calculation."
             }
         ]
     }
@@ -167,7 +167,7 @@ def create_all_custom_fields():
     Create all custom fields required for EU tax handling and delivery time calculation.
 
     Run this function once during deployment:
-    bench --site erp.example.com execute \
+    bench --site your-site.localhost execute \
         ecommerce_integrations.shopware6.setup.custom_fields_tax.create_all_custom_fields
     """
     print("Creating custom fields for EU tax handling...")
@@ -181,7 +181,7 @@ def create_all_custom_fields():
     print("  - Sales Order: eu_reverse_charge, tax_exemption_notice, validated_vat_id, vat_validation_status")
     print("  - Sales Invoice: eu_reverse_charge, tax_exemption_notice, validated_vat_id, vat_validation_status")
     print("  - Customer: vat_id_last_validated, vat_validation_result")
-    print("  - Item: custom_lieferzeit")
+    print("  - Item: custom_delivery_time")
 
 
 def remove_all_custom_fields():
@@ -189,7 +189,7 @@ def remove_all_custom_fields():
     Remove all custom fields created by this module.
 
     Use this for cleanup during development/testing:
-    bench --site erp.example.com execute \
+    bench --site your-site.localhost execute \
         ecommerce_integrations.shopware6.setup.custom_fields_tax.remove_all_custom_fields
     """
     fields_to_remove = [
@@ -203,7 +203,7 @@ def remove_all_custom_fields():
         ("Sales Invoice", "vat_validation_status"),
         ("Customer", "vat_id_last_validated"),
         ("Customer", "vat_validation_result"),
-        ("Item", "custom_lieferzeit"),
+        ("Item", "custom_delivery_time"),
     ]
 
     for dt, fieldname in fields_to_remove:

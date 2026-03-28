@@ -78,8 +78,11 @@ from ecommerce_integrations.shopware6.export.property_handler import (
 # Cache management
 from ecommerce_integrations.shopware6.base.cache_manager import clear_shopware_cache
 
+from ecommerce_integrations.shopware6.constants import ROOT_ITEM_GROUPS
+
 import frappe
 from frappe import _
+from ecommerce_integrations.shopware6.utils import require_item_write_permission
 
 
 # ============================================================================
@@ -99,6 +102,7 @@ def sync_item_to_shopware(item_code: str) -> dict:
     """
     from ecommerce_integrations.shopware6.utils import get_logger
 
+    require_item_write_permission(item_code)
     logger = get_logger("sync_item_to_shopware")
     try:
         uploader = ShopwareProductUploader(item_code=item_code)
@@ -131,6 +135,7 @@ def sync_template_with_variants_to_shopware(template_item_code: str) -> dict:
     from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
     from ecommerce_integrations.shopware6.connection import get_shopware_client
 
+    require_item_write_permission(template_item_code)
     logger = get_logger("sync_template_with_variants")
     try:
         # Get the template item document
@@ -179,11 +184,12 @@ def sync_category_to_shopware(item_group_name: str) -> dict:
     """
     from ecommerce_integrations.shopware6.utils import get_logger
     from ecommerce_integrations.shopware6.connection import get_shopware_client
+    frappe.only_for("System Manager")
 
     logger = get_logger("sync_category_to_shopware")
 
     # Skip root categories
-    root_to_skip = ["All Item Groups", "Alle Artikelgruppen"]
+    root_to_skip = ROOT_ITEM_GROUPS
     if item_group_name in root_to_skip:
         return {
             "success": False,

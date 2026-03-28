@@ -515,15 +515,9 @@ def sync_product_from_webhook(payload: Dict[str, Any], request_id: str = None):
 
 @frappe.whitelist()
 def sync_products_from_shopware(limit: int = 100):
-    """
-    Manually sync products from Shopware.
-
-    Args:
-        limit: Maximum number of products to sync
-
-    Returns:
-        dict: Sync results
-    """
+    """Manually sync products from Shopware."""
+    frappe.only_for("System Manager")
+    limit = min(int(limit), 500)
     logger = get_logger("sync_products_from_shopware")
     client = get_shopware_client()
 

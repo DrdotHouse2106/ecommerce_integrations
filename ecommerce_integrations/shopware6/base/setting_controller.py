@@ -193,43 +193,25 @@ class ShopwareSettingController(SettingController):
         """
         return f"{self.get_shop_url()}/api"
 
-    def get_service_item(self, service_type: str) -> Optional[str]:
+    def get_checkout_field_config(self, field_key: str) -> Optional[dict]:
         """
-        Get the ERPNext Item code for a service type.
+        Get checkout field configuration by key.
 
         Args:
-            service_type: Type of service ('tel_avis' or 'forklift')
+            field_key: The field key as configured in the Checkout Fields table
 
         Returns:
-            Item code or None
+            Dict with mapping config or None
         """
-        field_map = {
-            "tel_avis": "tel_avis_item",
-            "forklift": "forklift_item",
-        }
-        field_name = field_map.get(service_type)
-        if field_name:
-            return getattr(self, field_name, None)
+        for row in (self.get("checkout_fields") or []):
+            if row.enabled and row.field_key == field_key:
+                return {
+                    "mapping_type": row.mapping_type,
+                    "target_field": row.target_field,
+                    "service_item": row.service_item,
+                    "service_price": row.service_price,
+                }
         return None
-
-    def get_service_item_price(self, service_type: str) -> float:
-        """
-        Get the price for a service item.
-
-        Args:
-            service_type: Type of service ('tel_avis' or 'forklift')
-
-        Returns:
-            Price as float (0.0 if not configured)
-        """
-        field_map = {
-            "tel_avis": "tel_avis_price",
-            "forklift": "forklift_price",
-        }
-        field_name = field_map.get(service_type)
-        if field_name:
-            return float(getattr(self, field_name, 0) or 0)
-        return 0.0
 
     def is_bulk_sync_enabled(self) -> bool:
         """
