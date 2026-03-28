@@ -531,13 +531,16 @@ class MedusaProductExporter:
         result = []
 
         for prop_name, prop_value in entries:
-            attr_id = attr_map.get(prop_name, {}).get("id")
-            if not attr_id:
-                attr_id = _ensure_medusa_attribute(prop_name, attr_map)
+            attr_entry = attr_map.get(prop_name)
+            if not attr_entry:
+                # Create attribute with this value as first possible_value
+                attr_entry = _create_attribute_with_value(prop_name, prop_value, attr_map)
+            elif prop_value not in attr_entry.get("values", {}):
+                # Attribute exists but value is new
+                _ensure_possible_value(attr_entry["id"], prop_name, prop_value, attr_map)
 
-            if attr_id:
-                _ensure_possible_value(attr_id, prop_name, prop_value, attr_map)
-                result.append({"attribute_id": attr_id, "value": prop_value})
+            if attr_entry and attr_entry.get("id"):
+                result.append({"attribute_id": attr_entry["id"], "value": prop_value})
 
         return result
 
@@ -616,9 +619,14 @@ def _save_attribute_map(attr_map: dict):
     frappe.cache.set_value("medusa_attribute_map", attr_map, expires_in_sec=300)
 
 
-def _ensure_medusa_attribute(name: str, attr_map: dict, session=None, base_url=None) -> str:
-    """Create an attribute in Medusa if it doesn't exist. Returns attribute ID."""
-    handle = re.sub(r'[^a-z0-9-]', '-', name.lower())
+def _create_attribute_with_value(name: str, first_value: str, attr_map: dict, session=None, base_url=None) -> dict:
+    """Create an attribute in Medusa with its first possible value.
+
+    The plugin requires possible_values when ui_component is 'select'.
+    Returns the attr_map entry dict or None on failure.
+    """
+    handle = _transliterate(name.lower())
+    handle = re.sub(r'[^a-z0-9-]', '-', handle)
     handle = re.sub(r'-+', '-', handle).strip('-')
 
     own_session = False
@@ -634,14 +642,19 @@ def _ensure_medusa_attribute(name: str, attr_map: dict, session=None, base_url=N
             "is_filterable": True,
             "is_variant_defining": False,
             "ui_component": "select",
+            "possible_values": [{"value": first_value, "rank": 0}],
         })
         attr = result.get("attribute", {})
         attr_id = attr.get("id")
         if attr_id:
-            attr_map[name] = {"id": attr_id, "values": {}}
+            values = {pv["value"]: pv["id"] for pv in attr.get("possible_values", [])}
+            entry = {"id": attr_id, "values": values}
+            attr_map[name] = entry
             _save_attribute_map(attr_map)
-        return attr_id
-    except Exception:
+            return entry
+        return None
+    except Exception as e:
+        frappe.log_error("Medusa Attributes", f"Failed to create attribute '{name}': {e}")
         return None
     finally:
         if own_session:
