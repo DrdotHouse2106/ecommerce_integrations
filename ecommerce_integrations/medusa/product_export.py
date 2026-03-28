@@ -118,17 +118,11 @@ class MedusaProductExporter:
                 payload["options"] = options
                 payload["variants"] = variants
             else:
-                image_urls = []
-                img = self._get_image_url()
-                if img:
-                    image_urls.append(img)
+                image_urls = self._get_all_image_urls()
                 payload["options"] = [{"title": "Default", "values": ["Default"]}]
                 payload["variants"] = [self._build_single_variant_payload(currency)]
         else:
-            image_urls = []
-            img = self._get_image_url()
-            if img:
-                image_urls.append(img)
+            image_urls = self._get_all_image_urls()
 
         if image_urls:
             payload["images"] = [{"url": url} for url in image_urls]
@@ -149,20 +143,30 @@ class MedusaProductExporter:
             "ai_applications": "applications",
             "ai_delivery_scope": "delivery_scope",
         }
+        # Source for AI fields: item itself, or first variant for templates without AI data
+        source = self.item
+        if self.item.has_variants and not getattr(self.item, "ai_short_description", None):
+            first_variant = frappe.db.get_value(
+                "Item", {"variant_of": self.item_code, "disabled": 0, "ai_short_description": ["is", "set"]},
+                "item_code",
+            )
+            if first_variant:
+                source = frappe.get_doc("Item", first_variant)
+
         for erpnext_field, meta_key in ai_fields.items():
-            val = getattr(self.item, erpnext_field, None)
+            val = getattr(source, erpnext_field, None)
             if val:
                 meta[meta_key] = val
 
         if not meta.get("seo_title"):
-            val = getattr(self.item, "seo_title", None)
+            val = getattr(source, "seo_title", None)
             if val:
                 meta["seo_title"] = val
         if not meta.get("seo_description"):
-            val = getattr(self.item, "seo_meta_description", None)
+            val = getattr(source, "seo_meta_description", None)
             if val:
                 meta["seo_description"] = val
-        seo_kw = getattr(self.item, "seo_keywords", None)
+        seo_kw = getattr(source, "seo_keywords", None)
         if seo_kw:
             meta["seo_keywords"] = seo_kw
 
@@ -195,7 +199,8 @@ class MedusaProductExporter:
             filters={"variant_of": self.item_code, "disabled": 0},
             fields=["item_code", "item_name", "weight_per_unit", "item_height",
                      "item_width", "item_length", "customs_tariff_number",
-                     "country_of_origin", "delivered_by_supplier", "image"],
+                     "country_of_origin", "delivered_by_supplier", "image",
+                     "ai_short_description", "ai_seo_title", "ai_seo_description"],
         )
         if not child_codes_rows:
             return [{"title": "Default", "values": ["Default"]}], [], []
@@ -264,6 +269,17 @@ class MedusaProductExporter:
                 price_override=selling, list_price_override=list_p
             )
             variant["options"] = option_values
+
+            # Variant-level metadata (AI descriptions specific to this variant)
+            v_meta = {}
+            if child.get("ai_short_description"):
+                v_meta["short_description"] = child.ai_short_description
+            if child.get("ai_seo_title"):
+                v_meta["seo_title"] = child.ai_seo_title
+            if child.get("ai_seo_description"):
+                v_meta["seo_description"] = child.ai_seo_description
+            if v_meta:
+                variant["metadata"] = v_meta
 
             variant_payloads.append(variant)
 
@@ -359,6 +375,41 @@ class MedusaProductExporter:
 
     def _get_image_url(self):
         return self._resolve_image_url(self.item.image)
+
+    def _get_all_image_urls(self) -> list:
+        """Get all image URLs for this item (main image + file attachments)."""
+        urls = []
+        seen = set()
+
+        # Main image first
+        main = self._get_image_url()
+        if main:
+            urls.append(main)
+            seen.add(main)
+
+        # All image attachments
+        attachments = frappe.get_all(
+            "File",
+            filters={
+                "attached_to_doctype": "Item",
+                "attached_to_name": self.item_code,
+                "is_folder": 0,
+            },
+            fields=["file_url"],
+            order_by="creation",
+        )
+        for f in attachments:
+            if not f.file_url:
+                continue
+            ext = (f.file_url.rsplit(".", 1)[-1] if "." in f.file_url else "").lower()
+            if ext not in ("jpg", "jpeg", "png", "webp", "avif", "gif"):
+                continue
+            url = self._resolve_image_url(f.file_url)
+            if url and url not in seen:
+                urls.append(url)
+                seen.add(url)
+
+        return urls
 
     @staticmethod
     def _resolve_image_url(image_path):
