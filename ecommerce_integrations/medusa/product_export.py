@@ -37,6 +37,8 @@ class MedusaProductExporter:
         product = result.get("product", {})
         if product.get("id"):
             _save_medusa_ids(product)
+            if self.item.has_variants and self._variant_image_map:
+                _associate_variant_images(session, base_url, product, self._variant_image_map)
             frappe.db.commit()
 
     @temp_medusa_session
@@ -101,11 +103,14 @@ class MedusaProductExporter:
         if meta:
             payload["metadata"] = meta
 
+        self._variant_image_map = {}
+
         if not is_update:
             if self.item.has_variants:
-                options, variants, image_urls = self._build_template_variants(currency)
+                options, variants, image_urls, variant_image_map = self._build_template_variants(currency)
                 payload["options"] = options
                 payload["variants"] = variants
+                self._variant_image_map = variant_image_map
             else:
                 image_urls = []
                 img = self._get_image_url()
@@ -174,6 +179,9 @@ class MedusaProductExporter:
         Returns (options, variant_payloads, image_urls).
         """
         attribute_names = [a.attribute for a in self.item.get("attributes", [])] or ["Default"]
+
+        # {sku: image_url} for post-create variant-image association
+        variant_image_map = {}
 
         # Batch fetch all child data in 3 queries instead of N * get_doc
         child_codes_rows = frappe.get_all(
@@ -257,12 +265,14 @@ class MedusaProductExporter:
 
             variant_payloads.append(variant)
 
-            # Collect variant image
+            # Collect variant image and track SKU→URL mapping
             if child.image:
                 url = self._resolve_image_url(child.image)
-                if url and url not in seen_images:
-                    image_urls.append(url)
-                    seen_images.add(url)
+                if url:
+                    variant_image_map[code] = url
+                    if url not in seen_images:
+                        image_urls.append(url)
+                        seen_images.add(url)
 
         options = []
         for attr_name in attribute_names:
@@ -273,7 +283,7 @@ class MedusaProductExporter:
         if not options:
             options = [{"title": "Default", "values": ["Default"]}]
 
-        return options, variant_payloads, image_urls
+        return options, variant_payloads, image_urls, variant_image_map
 
     def _make_variant_dict(self, item_data, currency) -> dict:
         """Build a variant dict from item data (doc or dict-like)."""
@@ -473,18 +483,60 @@ def _save_medusa_ids(product: dict):
         if not sku or not frappe.db.exists("Item", sku):
             continue
 
-        # Check if this item is a variant (has variant_of)
         variant_of = frappe.db.get_value("Item", sku, "variant_of")
         if variant_of:
-            # Child variant: save product ID to template, variant ID to child
             frappe.db.set_value("Item", variant_of, PRODUCT_ID_FIELD, product_id)
             if variant_id:
                 frappe.db.set_value("Item", sku, VARIANT_ID_FIELD, variant_id)
         else:
-            # Simple item: save both to same item
             frappe.db.set_value("Item", sku, PRODUCT_ID_FIELD, product_id)
             if variant_id:
                 frappe.db.set_value("Item", sku, VARIANT_ID_FIELD, variant_id)
+
+
+def _associate_variant_images(session, base_url, product: dict, variant_image_map: dict):
+    """Associate product images with their specific variants in Medusa.
+
+    After product creation, all images are on the product level. This
+    function maps each variant's image URL to its Medusa image ID and
+    calls the variant-image batch endpoint to associate them.
+
+    Args:
+        variant_image_map: {sku: image_url} from _build_template_variants
+    """
+    product_id = product.get("id")
+    if not product_id:
+        return
+
+    # Build {url: image_id} from created product
+    url_to_image_id = {}
+    for img in product.get("images", []):
+        if img.get("url") and img.get("id"):
+            url_to_image_id[img["url"]] = img["id"]
+
+    if not url_to_image_id:
+        return
+
+    # Build {variant_id: [image_id]} from SKU matching
+    variant_to_images = {}
+    for variant in product.get("variants", []):
+        sku = variant.get("sku")
+        variant_id = variant.get("id")
+        if not sku or not variant_id or sku not in variant_image_map:
+            continue
+
+        image_url = variant_image_map[sku]
+        image_id = url_to_image_id.get(image_url)
+        if image_id:
+            variant_to_images[variant_id] = [image_id]
+
+    # Call the batch endpoint for each variant
+    for variant_id, image_ids in variant_to_images.items():
+        try:
+            endpoint = f"{API_PRODUCTS}/{product_id}/variants/{variant_id}/images/batch"
+            medusa_request(session, base_url, "POST", endpoint, json={"add": image_ids})
+        except Exception as e:
+            frappe.log_error("Medusa Variant Images", f"Failed to associate images for variant {variant_id}: {e}")
 
 
 @frappe.whitelist()
