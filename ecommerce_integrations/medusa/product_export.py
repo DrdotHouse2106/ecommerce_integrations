@@ -2,6 +2,7 @@
 import re
 
 import frappe
+import requests
 from frappe.utils import cstr
 from ecommerce_integrations.property_utils import get_ecommerce_properties
 from ecommerce_integrations.medusa.connection import medusa_request, medusa_request_all, temp_medusa_session
@@ -862,13 +863,23 @@ def _associate_variant_images(session, base_url, product: dict, variant_image_ma
         if image_id:
             variant_to_images[variant_id] = [image_id]
 
-    # Call the batch endpoint for each variant
     for variant_id, image_ids in variant_to_images.items():
         try:
             endpoint = f"{API_PRODUCTS}/{product_id}/variants/{variant_id}/images/batch"
             medusa_request(session, base_url, "POST", endpoint, json={"add": image_ids})
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 401:
+                # Session expired — get fresh one and retry
+                from ecommerce_integrations.medusa.connection import get_medusa_session
+                session, base_url = get_medusa_session()
+                try:
+                    medusa_request(session, base_url, "POST", endpoint, json={"add": image_ids})
+                except Exception:
+                    frappe.log_error("Medusa Variant Images", f"Retry failed for variant {variant_id}")
+            else:
+                frappe.log_error("Medusa Variant Images", f"Failed for variant {variant_id}: {e}")
         except Exception as e:
-            frappe.log_error("Medusa Variant Images", f"Failed to associate images for variant {variant_id}: {e}")
+            frappe.log_error("Medusa Variant Images", f"Failed for variant {variant_id}: {e}")
 
 
 def _sync_sale_prices(session, base_url, product: dict, sale_prices: list):
