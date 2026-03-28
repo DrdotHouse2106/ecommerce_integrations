@@ -195,7 +195,7 @@ class MedusaProductExporter:
             filters={"variant_of": self.item_code, "disabled": 0},
             fields=["item_code", "item_name", "weight_per_unit", "item_height",
                      "item_width", "item_length", "customs_tariff_number",
-                     "country_of_origin", "image"],
+                     "country_of_origin", "delivered_by_supplier", "image"],
         )
         if not child_codes_rows:
             return [{"title": "Default", "values": ["Default"]}], [], []
@@ -308,11 +308,15 @@ class MedusaProductExporter:
         else:
             variant_price = selling_price
 
+        is_dropship = getattr(item_data, "delivered_by_supplier", None) or (
+            item_data.get("delivered_by_supplier") if hasattr(item_data, "get") else False
+        )
+
         variant = {
             "title": item_data.item_name if hasattr(item_data, 'item_name') else item_data.get('item_name', ''),
             "sku": code,
-            "manage_inventory": True,
-            "allow_backorder": False,
+            "manage_inventory": not is_dropship,
+            "allow_backorder": bool(is_dropship),
             "prices": [{"currency_code": currency, "amount": erpnext_price_to_medusa(variant_price)}],
         }
         for dim, field in [("weight", "weight_per_unit"), ("height", "item_height"),
