@@ -96,10 +96,9 @@ class MedusaProductExporter:
             if seo_keywords:
                 payload["metadata"]["seo_keywords"] = seo_keywords
 
-        # Remove None values
         payload = {k: v for k, v in payload.items() if v is not None}
 
-        # Dimensions (in cm on ERPNext, stored as-is in Medusa)
+        # Dimensions stored as-is (cm in ERPNext)
         if self.item.weight_per_unit:
             payload["weight"] = float(self.item.weight_per_unit)
         if self.item.item_height:
@@ -109,28 +108,23 @@ class MedusaProductExporter:
         if self.item.item_length:
             payload["length"] = float(self.item.item_length)
 
-        # Categories (map ERPNext Item Group to Medusa category ID)
         category_id = self._get_medusa_category_id()
         if category_id:
             payload["categories"] = [{"id": category_id}]
 
-        # Sales channel assignment
         channel_ids = self.setting.get_active_sales_channel_ids() if hasattr(self.setting, 'get_active_sales_channel_ids') else []
         if channel_ids and not is_update:
             payload["sales_channels"] = [{"id": ch_id} for ch_id in channel_ids]
 
-        # Images (from S3/CDN URL or ERPNext file URL)
         image_url = self._get_image_url()
         if image_url:
             payload["images"] = [{"url": image_url}]
             payload["thumbnail"] = image_url
 
-        # Ecommerce properties -> Medusa metadata
         metadata = self._get_medusa_metadata()
         if metadata:
-            payload["metadata"] = metadata
+            payload.setdefault("metadata", {}).update(metadata)
 
-        # Variant with price, HS code, origin country
         variant_payload = {
             "title": self.item.item_name,
             "sku": self.item.item_code,
@@ -192,19 +186,20 @@ class MedusaProductExporter:
             frappe.cache.set_value(cache_key, cat_id, expires_in_sec=300)
         return cat_id
 
-    def _get_image_url(self) -> str:
+    def _get_image_url(self):
         """Get public image URL for this item.
 
-        If the image path is already an absolute URL (S3/CDN), return as-is.
-        If it's a relative path (/file/...), prepend the site URL.
+        Returns absolute URL (S3/CDN) as-is, prepends site URL for
+        relative public paths. Skips private files.
         """
         image = self.item.image
         if not image:
             return None
+        if "/private/" in image:
+            return None
         if image.startswith("http"):
             return image
-        site_url = frappe.utils.get_url()
-        return f"{site_url}{image}"
+        return f"{frappe.utils.get_url().rstrip('/')}{image}"
 
     @staticmethod
     def _get_country_code(country_name: str) -> str:
