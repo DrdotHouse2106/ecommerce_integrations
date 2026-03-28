@@ -32,19 +32,19 @@ class MedusaProductExporter:
 
     @temp_medusa_session
     def _create_product(self, session, base_url):
-        payload = self._build_product_payload()
+        payload, variant_image_map = self._build_product_payload()
         result = medusa_request(session, base_url, "POST", API_PRODUCTS, json=payload)
         product = result.get("product", {})
         if product.get("id"):
             _save_medusa_ids(product)
-            if self.item.has_variants and self._variant_image_map:
-                _associate_variant_images(session, base_url, product, self._variant_image_map)
+            if variant_image_map:
+                _associate_variant_images(session, base_url, product, variant_image_map)
             frappe.db.commit()
 
     @temp_medusa_session
     def _update_product(self, session, base_url):
         medusa_id = self.get_medusa_product_id()
-        payload = self._build_product_payload(is_update=True)
+        payload, _ = self._build_product_payload(is_update=True)
         medusa_request(session, base_url, "POST", f"{API_PRODUCTS}/{medusa_id}", json=payload)
 
     @temp_medusa_session
@@ -62,8 +62,12 @@ class MedusaProductExporter:
             "prices": [{"currency_code": currency, "amount": erpnext_price_to_medusa(price)}],
         })
 
-    def _build_product_payload(self, is_update=False) -> dict:
-        """Build Medusa product payload from ERPNext Item."""
+    def _build_product_payload(self, is_update=False) -> tuple:
+        """Build Medusa product payload from ERPNext Item.
+
+        Returns (payload_dict, variant_image_map) where variant_image_map
+        is {sku: image_url} for post-create variant-image association.
+        """
         currency = (frappe.db.get_default("currency") or "EUR").lower()
 
         title = self.item.item_name
@@ -103,14 +107,13 @@ class MedusaProductExporter:
         if meta:
             payload["metadata"] = meta
 
-        self._variant_image_map = {}
+        variant_image_map = {}
 
         if not is_update:
             if self.item.has_variants:
                 options, variants, image_urls, variant_image_map = self._build_template_variants(currency)
                 payload["options"] = options
                 payload["variants"] = variants
-                self._variant_image_map = variant_image_map
             else:
                 image_urls = []
                 img = self._get_image_url()
@@ -128,7 +131,7 @@ class MedusaProductExporter:
             payload["images"] = [{"url": url} for url in image_urls]
             payload["thumbnail"] = image_urls[0]
 
-        return {k: v for k, v in payload.items() if v is not None}
+        return {k: v for k, v in payload.items() if v is not None}, variant_image_map
 
     def _build_metadata(self) -> dict:
         """Build metadata from AI fields, SEO fields and ecommerce properties."""
@@ -539,6 +542,17 @@ def _associate_variant_images(session, base_url, product: dict, variant_image_ma
             frappe.log_error("Medusa Variant Images", f"Failed to associate images for variant {variant_id}: {e}")
 
 
+def _find_variant_image_map(product: dict, variant_image_maps: dict) -> dict:
+    """Find the variant_image_map for a batch-created product by matching variant SKUs."""
+    for variant in product.get("variants", []):
+        sku = variant.get("sku")
+        if sku:
+            template = frappe.db.get_value("Item", sku, "variant_of")
+            if template and template in variant_image_maps:
+                return variant_image_maps[template]
+    return {}
+
+
 @frappe.whitelist()
 def enqueue_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=0, batch_size=50, dry_run=0):
 	"""Enqueue a full product sync to Medusa as a background job."""
@@ -595,16 +609,20 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 					create_batch = []
 					update_batch = []
 
+					variant_image_maps = {}
+
 					for item_row in chunk:
 						try:
 							exporter = MedusaProductExporter(item_row.item_code)
-							payload = exporter._build_product_payload(is_update=bool(item_row.get(PRODUCT_ID_FIELD)))
+							payload, vim = exporter._build_product_payload(is_update=bool(item_row.get(PRODUCT_ID_FIELD)))
 
 							if item_row.get(PRODUCT_ID_FIELD):
 								payload["id"] = item_row.get(PRODUCT_ID_FIELD)
 								update_batch.append(payload)
 							else:
 								create_batch.append(payload)
+								if vim:
+									variant_image_maps[item_row.item_code] = vim
 						except Exception as e:
 							stats["errors"] += 1
 							frappe.log_error("Medusa Full Sync", f"Payload build failed for {item_row.item_code}: {e}")
@@ -622,6 +640,10 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 							for product in result.get("created", []):
 								_save_medusa_ids(product)
 								stats["created"] += 1
+								# Associate variant images for template products
+								vim = _find_variant_image_map(product, variant_image_maps)
+								if vim:
+									_associate_variant_images(session, base_url, product, vim)
 
 							stats["updated"] += len(result.get("updated", []))
 						except Exception as e:
