@@ -6,3 +6,4 @@ unicommerce
 Amazon
 rag
 ai_description
+medusa
