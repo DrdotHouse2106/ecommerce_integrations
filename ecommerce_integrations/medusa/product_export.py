@@ -66,13 +66,38 @@ class MedusaProductExporter:
         price = self._get_selling_price()
         currency = (frappe.db.get_default("currency") or "EUR").lower()
 
+        # Prefer AI-generated title/description over standard fields
+        title = getattr(self.item, "ai_seo_title", None) or self.item.item_name
+        description = (
+            getattr(self.item, "ai_short_description", None)
+            or self.item.description
+            or self.item.item_name
+        )
+
         payload = {
-            "title": self.item.item_name,
-            "description": self.item.description or self.item.item_name,
+            "title": title,
+            "subtitle": self.item.item_name if title != self.item.item_name else None,
+            "description": description,
             "status": "published" if not self.item.disabled else "draft",
             "is_giftcard": False,
             "discountable": True,
         }
+
+        # SEO metadata
+        seo_title = getattr(self.item, "seo_title", None)
+        seo_description = getattr(self.item, "seo_meta_description", None)
+        seo_keywords = getattr(self.item, "seo_keywords", None)
+        if seo_title or seo_description or seo_keywords:
+            payload.setdefault("metadata", {})
+            if seo_title:
+                payload["metadata"]["seo_title"] = seo_title
+            if seo_description:
+                payload["metadata"]["seo_description"] = seo_description
+            if seo_keywords:
+                payload["metadata"]["seo_keywords"] = seo_keywords
+
+        # Remove None values
+        payload = {k: v for k, v in payload.items() if v is not None}
 
         # Dimensions (in cm on ERPNext, stored as-is in Medusa)
         if self.item.weight_per_unit:
