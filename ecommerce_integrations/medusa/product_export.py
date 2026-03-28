@@ -998,6 +998,7 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 
 					variant_image_maps = {}
 					sale_price_maps = {}
+					channel_price_maps = {}
 
 					for item_row in chunk:
 						try:
@@ -1011,6 +1012,8 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 								create_batch.append(payload)
 								if vim:
 									variant_image_maps[item_row.item_code] = vim
+							if exporter._channel_prices:
+								channel_price_maps[item_row.item_code] = exporter._channel_prices
 							if exporter._sale_prices:
 								sale_price_maps[item_row.item_code] = exporter._sale_prices
 						except Exception as e:
@@ -1038,9 +1041,14 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 								if sp:
 									chunk_sale_prices.append((product, sp))
 
-							# Batch sale price sync once per chunk
 							if chunk_sale_prices:
 								_sync_sale_prices_batch(session, base_url, chunk_sale_prices)
+
+							# Channel-specific prices
+							for product in result.get("created", []):
+								cp = _find_in_product_map(product, channel_price_maps, [])
+								if cp:
+									_sync_channel_prices(session, base_url, product, cp)
 
 							stats["updated"] += len(result.get("updated", []))
 						except Exception as e:

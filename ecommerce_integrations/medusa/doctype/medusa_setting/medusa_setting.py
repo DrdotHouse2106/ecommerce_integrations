@@ -170,13 +170,14 @@ class MedusaSetting(Document):
 		# Get item group ancestry for subcategory matching
 		item_groups = {item_group}
 		if item_group:
-			ancestors = frappe.get_all(
-				"Item Group",
-				filters={"lft": ["<=", frappe.db.get_value("Item Group", item_group, "lft") or 0],
-				         "rgt": [">=", frappe.db.get_value("Item Group", item_group, "rgt") or 0]},
-				fields=["name"],
-			)
-			item_groups.update(a.name for a in ancestors)
+			lft_rgt = frappe.db.get_value("Item Group", item_group, ["lft", "rgt"])
+			if lft_rgt:
+				ancestors = frappe.get_all(
+					"Item Group",
+					filters={"lft": ["<=", lft_rgt[0]], "rgt": [">=", lft_rgt[1]]},
+					fields=["name"],
+				)
+				item_groups.update(a.name for a in ancestors)
 
 		matched_channels = set()
 		for m in mappings:
