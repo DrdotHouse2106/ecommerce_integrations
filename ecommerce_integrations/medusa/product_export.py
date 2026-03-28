@@ -32,6 +32,7 @@ class MedusaProductExporter:
 
     @temp_medusa_session
     def _create_product(self, session, base_url):
+        self._sale_prices = []
         payload, variant_image_map = self._build_product_payload()
         result = medusa_request(session, base_url, "POST", API_PRODUCTS, json=payload)
         product = result.get("product", {})
@@ -39,6 +40,8 @@ class MedusaProductExporter:
             _save_medusa_ids(product)
             if variant_image_map:
                 _associate_variant_images(session, base_url, product, variant_image_map)
+            if self._sale_prices:
+                _sync_sale_prices(session, base_url, product, self._sale_prices)
             frappe.db.commit()
 
     @temp_medusa_session
@@ -210,16 +213,25 @@ class MedusaProductExporter:
         for va in variant_attrs:
             attrs_by_item.setdefault(va.parent, {})[va.attribute] = va.attribute_value
 
-        # Batch fetch prices
-        price_list = self.setting.default_selling_price_list
+        # Batch fetch selling prices and list/RRP prices
         price_map = {}
-        if price_list:
+        list_price_map = {}
+        if self.setting.default_selling_price_list:
             prices = frappe.get_all(
                 "Item Price",
-                filters={"item_code": ["in", child_codes], "price_list": price_list, "selling": 1},
+                filters={"item_code": ["in", child_codes], "price_list": self.setting.default_selling_price_list, "selling": 1},
                 fields=["item_code", "price_list_rate"],
             )
             price_map = {p.item_code: p.price_list_rate for p in prices}
+
+        list_pl = getattr(self.setting, "list_price_price_list", None)
+        if list_pl:
+            list_prices = frappe.get_all(
+                "Item Price",
+                filters={"item_code": ["in", child_codes], "price_list": list_pl, "selling": 1},
+                fields=["item_code", "price_list_rate"],
+            )
+            list_price_map = {p.item_code: p.price_list_rate for p in list_prices}
 
         # Build variants and collect images + option values
         all_values = {attr: set() for attr in attribute_names}
@@ -245,26 +257,13 @@ class MedusaProductExporter:
                 option_values = {"Default": child.item_name}
                 all_values["Default"].add(child.item_name)
 
-            price = price_map.get(code, 0) or 0
-            variant = {
-                "title": child.item_name,
-                "sku": code,
-                "manage_inventory": True,
-                "allow_backorder": False,
-                "prices": [{"currency_code": (frappe.db.get_default("currency") or "EUR").lower(),
-                            "amount": erpnext_price_to_medusa(price)}],
-                "options": option_values,
-            }
-
-            for dim, field in [("weight", "weight_per_unit"), ("height", "item_height"),
-                               ("width", "item_width"), ("length", "item_length")]:
-                val = child.get(field)
-                if val:
-                    variant[dim] = float(val)
-            if child.customs_tariff_number:
-                variant["hs_code"] = child.customs_tariff_number
-            if child.country_of_origin:
-                variant["origin_country"] = self._get_country_code(child.country_of_origin)
+            selling = price_map.get(code, 0) or 0
+            list_p = list_price_map.get(code, 0) or 0
+            variant = self._make_variant_dict(
+                child, (frappe.db.get_default("currency") or "EUR").lower(),
+                price_override=selling, list_price_override=list_p
+            )
+            variant["options"] = option_values
 
             variant_payloads.append(variant)
 
@@ -288,15 +287,33 @@ class MedusaProductExporter:
 
         return options, variant_payloads, image_urls, variant_image_map
 
-    def _make_variant_dict(self, item_data, currency) -> dict:
-        """Build a variant dict from item data (doc or dict-like)."""
-        price = self._get_selling_price(item_data.item_code if hasattr(item_data, 'item_code') else item_data.get('item_code'))
+    def _make_variant_dict(self, item_data, currency, price_override=None, list_price_override=None) -> dict:
+        """Build a variant dict from item data.
+
+        Uses UVP/list price as variant price if higher than selling price.
+        The selling price will be added to a sale price list after creation.
+        Stores sale price info in self._sale_prices for later sync.
+        """
+        code = item_data.item_code if hasattr(item_data, 'item_code') else item_data.get('item_code')
+        selling_price = price_override if price_override is not None else self._get_selling_price(code)
+        list_price = list_price_override if list_price_override is not None else self._get_list_price(code)
+
+        # If UVP is higher, use it as variant price (becomes original_amount in storefront)
+        # The selling price goes into a sale price list (becomes calculated_amount)
+        if list_price and list_price > selling_price:
+            variant_price = list_price
+            if not hasattr(self, '_sale_prices'):
+                self._sale_prices = []
+            self._sale_prices.append({"sku": code, "amount": erpnext_price_to_medusa(selling_price), "currency_code": currency})
+        else:
+            variant_price = selling_price
+
         variant = {
             "title": item_data.item_name if hasattr(item_data, 'item_name') else item_data.get('item_name', ''),
-            "sku": item_data.item_code if hasattr(item_data, 'item_code') else item_data.get('item_code', ''),
+            "sku": code,
             "manage_inventory": True,
             "allow_backorder": False,
-            "prices": [{"currency_code": currency, "amount": erpnext_price_to_medusa(price)}],
+            "prices": [{"currency_code": currency, "amount": erpnext_price_to_medusa(variant_price)}],
         }
         for dim, field in [("weight", "weight_per_unit"), ("height", "item_height"),
                            ("width", "item_width"), ("length", "item_length")]:
@@ -453,6 +470,15 @@ class MedusaProductExporter:
         price = frappe.db.get_value("Item Price", {"item_code": code, "price_list": price_list, "selling": 1}, "price_list_rate")
         return price or 0.0
 
+    def _get_list_price(self, item_code=None) -> float:
+        """Get list/RRP price from the configured list price price list."""
+        list_pl = getattr(self.setting, "list_price_price_list", None)
+        if not list_pl:
+            return 0.0
+        code = item_code or self.item_code
+        price = frappe.db.get_value("Item Price", {"item_code": code, "price_list": list_pl, "selling": 1}, "price_list_rate")
+        return price or 0.0
+
 
 def _get_dfp_storage_config(storage_name):
     """Get DFP External Storage config (cached)."""
@@ -540,6 +566,84 @@ def _associate_variant_images(session, base_url, product: dict, variant_image_ma
             medusa_request(session, base_url, "POST", endpoint, json={"add": image_ids})
         except Exception as e:
             frappe.log_error("Medusa Variant Images", f"Failed to associate images for variant {variant_id}: {e}")
+
+
+def _sync_sale_prices(session, base_url, product: dict, sale_prices: list):
+    """Add sale prices to a Medusa Price List for strikethrough display.
+
+    Creates or reuses a sale price list. The variant's base price becomes
+    the original_amount (UVP), the sale price becomes calculated_amount.
+    """
+    if not sale_prices:
+        return
+
+    product_id = product.get("id")
+    if not product_id:
+        return
+
+    # Map SKU -> Medusa variant ID
+    sku_to_variant_id = {}
+    for v in product.get("variants", []):
+        if v.get("sku") and v.get("id"):
+            sku_to_variant_id[v["sku"]] = v["id"]
+
+    price_entries = []
+    for sp in sale_prices:
+        variant_id = sku_to_variant_id.get(sp["sku"])
+        if variant_id:
+            price_entries.append({
+                "variant_id": variant_id,
+                "currency_code": sp["currency_code"],
+                "amount": sp["amount"],
+            })
+
+    if not price_entries:
+        return
+
+    # Get or create the ERPNext sale price list
+    price_list_id = _get_or_create_sale_price_list(session, base_url)
+    if not price_list_id:
+        return
+
+    try:
+        medusa_request(
+            session, base_url, "POST",
+            f"/admin/price-lists/{price_list_id}/prices/batch",
+            json={"create": price_entries},
+        )
+    except Exception as e:
+        frappe.log_error("Medusa Sale Prices", f"Failed to sync sale prices for {product_id}: {e}")
+
+
+def _get_or_create_sale_price_list(session, base_url) -> str:
+    """Get or create the ERPNext sale price list in Medusa."""
+    cache_key = "medusa_sale_price_list_id"
+    cached = frappe.cache.get_value(cache_key)
+    if cached:
+        return cached
+
+    # Search for existing
+    result = medusa_request_all(session, base_url, "/admin/price-lists", "price_lists")
+    for pl in result:
+        if pl.get("title") == "ERPNext Sale Prices" and pl.get("type") == "sale":
+            frappe.cache.set_value(cache_key, pl["id"], expires_in_sec=3600)
+            return pl["id"]
+
+    # Create new
+    try:
+        result = medusa_request(session, base_url, "POST", "/admin/price-lists", json={
+            "title": "ERPNext Sale Prices",
+            "description": "Sale prices synced from ERPNext selling price list",
+            "type": "sale",
+            "status": "active",
+        })
+        pl_id = result.get("price_list", {}).get("id")
+        if pl_id:
+            frappe.cache.set_value(cache_key, pl_id, expires_in_sec=3600)
+        return pl_id
+    except Exception as e:
+        frappe.log_error("Medusa Sale Prices", f"Failed to create sale price list: {e}")
+        return None
 
 
 def _find_variant_image_map(product: dict, variant_image_maps: dict) -> dict:

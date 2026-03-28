@@ -31,6 +31,7 @@
   "cash_bank_account",
   "price_handling_section",
   "default_selling_price_list",
+  "list_price_price_list",
   "price_list_includes_tax",
   "import_prices_as_net",
   "column_break_price",
@@ -228,6 +229,14 @@
    "fieldname": "default_selling_price_list",
    "fieldtype": "Link",
    "label": "Default Selling Price List",
+   "options": "Price List"
+  },
+  {
+   "depends_on": "default_selling_price_list",
+   "description": "If an item has a higher price in this list, it is sent as the original/strikethrough price to Medusa",
+   "fieldname": "list_price_price_list",
+   "fieldtype": "Link",
+   "label": "List Price / RRP Price List",
    "options": "Price List"
   },
   {
