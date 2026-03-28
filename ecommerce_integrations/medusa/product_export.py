@@ -143,15 +143,17 @@ class MedusaProductExporter:
             "ai_applications": "applications",
             "ai_delivery_scope": "delivery_scope",
         }
-        # Source for AI fields: item itself, or first variant for templates without AI data
+        # For templates without AI data, fall back to first variant that has it
+        ai_field_names = list(ai_fields.keys())
         source = self.item
-        if self.item.has_variants and not getattr(self.item, "ai_short_description", None):
+        if self.item.has_variants and not any(getattr(self.item, f, None) for f in ai_field_names):
             first_variant = frappe.db.get_value(
                 "Item", {"variant_of": self.item_code, "disabled": 0, "ai_short_description": ["is", "set"]},
-                "item_code",
+                ai_field_names + ["seo_title", "seo_meta_description", "seo_keywords"],
+                as_dict=True,
             )
             if first_variant:
-                source = frappe.get_doc("Item", first_variant)
+                source = first_variant
 
         for erpnext_field, meta_key in ai_fields.items():
             val = getattr(source, erpnext_field, None)
