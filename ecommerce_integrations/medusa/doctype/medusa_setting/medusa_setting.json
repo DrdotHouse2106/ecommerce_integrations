@@ -1,0 +1,372 @@
+{
+ "actions": [],
+ "creation": "2026-03-28 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "enable_medusa",
+  "column_break_enable",
+  "section_break_connection",
+  "medusa_url",
+  "column_break_connection",
+  "api_key",
+  "section_break_webhook",
+  "webhook_secret",
+  "customer_settings_section",
+  "default_customer",
+  "sync_customers",
+  "column_break_customer",
+  "customer_group",
+  "company_settings_section",
+  "company",
+  "cost_center",
+  "column_break_company",
+  "warehouse",
+  "cash_bank_account",
+  "price_handling_section",
+  "default_selling_price_list",
+  "price_list_includes_tax",
+  "import_prices_as_net",
+  "column_break_price",
+  "default_tax_rate",
+  "section_break_order",
+  "order_sync_frequency",
+  "last_order_sync",
+  "column_break_order",
+  "sales_order_series",
+  "section_break_tax",
+  "default_sales_tax_template",
+  "column_break_tax",
+  "default_shipping_charges_account",
+  "product_sync_section",
+  "upload_erpnext_items",
+  "sync_item_on_update",
+  "column_break_product_sync",
+  "category_sync_root",
+  "inventory_sync_section",
+  "sync_inventory",
+  "inventory_sync_frequency",
+  "last_inventory_sync",
+  "column_break_inventory",
+  "medusa_stock_location_id",
+  "shipping_section",
+  "add_shipping_as_item",
+  "shipping_item",
+  "column_break_shipping",
+  "discount_item"
+ ],
+ "fields": [
+  {
+   "default": "0",
+   "fieldname": "enable_medusa",
+   "fieldtype": "Check",
+   "label": "Enable Medusa"
+  },
+  {
+   "fieldname": "column_break_enable",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "section_break_connection",
+   "fieldtype": "Section Break",
+   "label": "Connection Settings"
+  },
+  {
+   "description": "Your Medusa backend URL, e.g. https://medusa.example.com",
+   "fieldname": "medusa_url",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Medusa URL",
+   "mandatory_depends_on": "eval:doc.enable_medusa"
+  },
+  {
+   "fieldname": "column_break_connection",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Admin API key from Medusa (Settings > API key management)",
+   "fieldname": "api_key",
+   "fieldtype": "Password",
+   "label": "API Key",
+   "mandatory_depends_on": "eval:doc.enable_medusa"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_webhook",
+   "fieldtype": "Section Break",
+   "label": "Webhook Settings"
+  },
+  {
+   "description": "Secret key to validate incoming Medusa webhooks",
+   "fieldname": "webhook_secret",
+   "fieldtype": "Password",
+   "label": "Webhook Secret"
+  },
+  {
+   "fieldname": "customer_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Customer Settings"
+  },
+  {
+   "description": "Fallback customer for orders where the Medusa customer cannot be found",
+   "fieldname": "default_customer",
+   "fieldtype": "Link",
+   "label": "Default Customer",
+   "options": "Customer"
+  },
+  {
+   "default": "0",
+   "fieldname": "sync_customers",
+   "fieldtype": "Check",
+   "label": "Sync Customers"
+  },
+  {
+   "fieldname": "column_break_customer",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "customer_group",
+   "fieldtype": "Link",
+   "label": "Customer Group",
+   "options": "Customer Group"
+  },
+  {
+   "fieldname": "company_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Company Settings"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "mandatory_depends_on": "eval:doc.enable_medusa",
+   "options": "Company"
+  },
+  {
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "column_break_company",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Default warehouse for incoming orders",
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Warehouse",
+   "mandatory_depends_on": "eval:doc.enable_medusa",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "cash_bank_account",
+   "fieldtype": "Link",
+   "label": "Cash / Bank Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "price_handling_section",
+   "fieldtype": "Section Break",
+   "label": "Price Handling"
+  },
+  {
+   "fieldname": "default_selling_price_list",
+   "fieldtype": "Link",
+   "label": "Default Selling Price List",
+   "options": "Price List"
+  },
+  {
+   "default": "0",
+   "fieldname": "price_list_includes_tax",
+   "fieldtype": "Check",
+   "label": "Price List Includes Tax"
+  },
+  {
+   "default": "0",
+   "fieldname": "import_prices_as_net",
+   "fieldtype": "Check",
+   "label": "Import Prices as Net"
+  },
+  {
+   "fieldname": "column_break_price",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Default tax rate percentage applied when no tax template is matched",
+   "fieldname": "default_tax_rate",
+   "fieldtype": "Float",
+   "label": "Default Tax Rate (%)"
+  },
+  {
+   "fieldname": "section_break_order",
+   "fieldtype": "Section Break",
+   "label": "Order Sync"
+  },
+  {
+   "default": "30",
+   "fieldname": "order_sync_frequency",
+   "fieldtype": "Select",
+   "label": "Order Sync Frequency (Minutes)",
+   "options": "5\n10\n15\n30\n60"
+  },
+  {
+   "fieldname": "last_order_sync",
+   "fieldtype": "Datetime",
+   "hidden": 1,
+   "label": "Last Order Sync",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_order",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sales_order_series",
+   "fieldtype": "Data",
+   "label": "Sales Order Series"
+  },
+  {
+   "fieldname": "section_break_tax",
+   "fieldtype": "Section Break",
+   "label": "Tax Settings"
+  },
+  {
+   "fieldname": "default_sales_tax_template",
+   "fieldtype": "Link",
+   "label": "Default Sales Tax Template",
+   "options": "Sales Taxes and Charges Template"
+  },
+  {
+   "fieldname": "column_break_tax",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "default_shipping_charges_account",
+   "fieldtype": "Link",
+   "label": "Default Shipping Charges Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "product_sync_section",
+   "fieldtype": "Section Break",
+   "label": "Product Sync"
+  },
+  {
+   "default": "0",
+   "fieldname": "upload_erpnext_items",
+   "fieldtype": "Check",
+   "label": "Upload ERPNext Items to Medusa"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.upload_erpnext_items",
+   "fieldname": "sync_item_on_update",
+   "fieldtype": "Check",
+   "label": "Sync Item on Update"
+  },
+  {
+   "fieldname": "column_break_product_sync",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.upload_erpnext_items",
+   "fieldname": "category_sync_root",
+   "fieldtype": "Link",
+   "label": "Category Sync Root",
+   "options": "Item Group"
+  },
+  {
+   "fieldname": "inventory_sync_section",
+   "fieldtype": "Section Break",
+   "label": "Inventory Sync"
+  },
+  {
+   "default": "0",
+   "fieldname": "sync_inventory",
+   "fieldtype": "Check",
+   "label": "Sync Inventory to Medusa"
+  },
+  {
+   "default": "60",
+   "depends_on": "eval:doc.sync_inventory",
+   "fieldname": "inventory_sync_frequency",
+   "fieldtype": "Select",
+   "label": "Inventory Sync Frequency (Minutes)",
+   "options": "5\n10\n15\n30\n60"
+  },
+  {
+   "fieldname": "last_inventory_sync",
+   "fieldtype": "Datetime",
+   "hidden": 1,
+   "label": "Last Inventory Sync",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_inventory",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Medusa Stock Location ID to sync inventory levels to",
+   "fieldname": "medusa_stock_location_id",
+   "fieldtype": "Data",
+   "label": "Medusa Stock Location ID"
+  },
+  {
+   "fieldname": "shipping_section",
+   "fieldtype": "Section Break",
+   "label": "Shipping & Discounts"
+  },
+  {
+   "default": "0",
+   "fieldname": "add_shipping_as_item",
+   "fieldtype": "Check",
+   "label": "Add Shipping as Line Item"
+  },
+  {
+   "depends_on": "eval:doc.add_shipping_as_item",
+   "fieldname": "shipping_item",
+   "fieldtype": "Link",
+   "label": "Shipping Item",
+   "options": "Item",
+   "description": "ERPNext item used to represent shipping costs on sales orders"
+  },
+  {
+   "fieldname": "column_break_shipping",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "discount_item",
+   "fieldtype": "Link",
+   "label": "Discount Item",
+   "options": "Item",
+   "description": "ERPNext item used to represent discounts on sales orders"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-03-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "medusa",
+ "name": "Medusa Setting",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

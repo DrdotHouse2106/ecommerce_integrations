@@ -121,6 +121,7 @@ doc_events = {
 			"ecommerce_integrations.shopware6.bulk_sync.queue_item_for_sync",
 			# RAG: Sync items to Vector Search
 			"ecommerce_integrations.rag.bulk_sync.queue_item_for_sync",
+			"ecommerce_integrations.medusa.product_export.upload_item_to_medusa",
 		],
 		"on_update": [
 			"ecommerce_integrations.shopify.product.upload_erpnext_item",
@@ -129,6 +130,7 @@ doc_events = {
 			"ecommerce_integrations.shopware6.bulk_sync.queue_properties_for_sync",
 			# RAG: Sync items to Vector Search
 			"ecommerce_integrations.rag.bulk_sync.queue_item_for_sync",
+			"ecommerce_integrations.medusa.product_export.upload_item_to_medusa",
 		],
 		"on_trash": [
 			# RAG: Delete items from Vector Search
@@ -153,10 +155,14 @@ doc_events = {
 		"on_cancel": [
 			"ecommerce_integrations.unicommerce.status_updater.ignore_pick_list_on_sales_order_cancel",
 			"ecommerce_integrations.shopware6.status_sync.on_sales_order_cancel",
+			"ecommerce_integrations.medusa.status_sync.on_sales_order_cancel",
 		],
 	},
 	"Delivery Note": {
-		"on_submit": "ecommerce_integrations.shopware6.status_sync.on_delivery_note_submit",
+		"on_submit": [
+			"ecommerce_integrations.shopware6.status_sync.on_delivery_note_submit",
+			"ecommerce_integrations.medusa.status_sync.on_delivery_note_submit",
+		],
 		"on_cancel": "ecommerce_integrations.shopware6.status_sync.on_delivery_note_cancel",
 	},
 	"Payment Entry": {
@@ -167,12 +173,16 @@ doc_events = {
 		"on_submit": [
 			"ecommerce_integrations.unicommerce.grn.upload_grn",
 			"ecommerce_integrations.shopware6.inventory.update_stock_on_stock_entry",
+			"ecommerce_integrations.medusa.inventory.update_stock_on_stock_entry",
 		],
 		"on_cancel": "ecommerce_integrations.unicommerce.grn.prevent_grn_cancel",
 	},
 	# Shopware6: Sync stock after Stock Reconciliation
 	"Stock Reconciliation": {
-		"on_submit": "ecommerce_integrations.shopware6.inventory.update_stock_on_stock_reconciliation",
+		"on_submit": [
+			"ecommerce_integrations.shopware6.inventory.update_stock_on_stock_reconciliation",
+			"ecommerce_integrations.medusa.inventory.update_stock_on_stock_reconciliation",
+		],
 	},
 	"Item Price": {
 		"on_change": [
@@ -202,6 +212,8 @@ scheduler_events = {
 		"ecommerce_integrations.shopware6.bulk_sync.check_and_process_queue",
 		# RAG: Check and process bulk sync queue
 		"ecommerce_integrations.rag.bulk_sync.check_and_process_queue",
+		"ecommerce_integrations.medusa.inventory.sync_inventory_to_medusa",
+		"ecommerce_integrations.medusa.order.scheduled_sync.sync_new_orders",
 	],
 	"daily": [],
 	"daily_long": ["ecommerce_integrations.zenoti.doctype.zenoti_settings.zenoti_settings.sync_stocks"],
