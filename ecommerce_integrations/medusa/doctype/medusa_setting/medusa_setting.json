@@ -16,6 +16,8 @@
   "customer_settings_section",
   "default_customer",
   "sync_customers",
+  "customer_sync_frequency",
+  "last_customer_sync",
   "column_break_customer",
   "customer_group",
   "company_settings_section",
@@ -120,6 +122,21 @@
    "fieldname": "sync_customers",
    "fieldtype": "Check",
    "label": "Sync Customers"
+  },
+  {
+   "default": "30",
+   "depends_on": "eval:doc.sync_customers",
+   "fieldname": "customer_sync_frequency",
+   "fieldtype": "Select",
+   "label": "Customer Sync Frequency (Minutes)",
+   "options": "5\n10\n15\n30\n60"
+  },
+  {
+   "fieldname": "last_customer_sync",
+   "fieldtype": "Datetime",
+   "hidden": 1,
+   "label": "Last Customer Sync",
+   "read_only": 1
   },
   {
    "fieldname": "column_break_customer",

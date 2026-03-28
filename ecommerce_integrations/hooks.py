@@ -214,6 +214,7 @@ scheduler_events = {
 		"ecommerce_integrations.rag.bulk_sync.check_and_process_queue",
 		"ecommerce_integrations.medusa.inventory.sync_inventory_to_medusa",
 		"ecommerce_integrations.medusa.order.scheduled_sync.sync_new_orders",
+		"ecommerce_integrations.medusa.scheduled_customer_sync.sync_new_customers",
 	],
 	"daily": [],
 	"daily_long": ["ecommerce_integrations.zenoti.doctype.zenoti_settings.zenoti_settings.sync_stocks"],
