@@ -18,6 +18,7 @@ class MedusaProductExporter:
         self.item = frappe.get_doc("Item", item_code)
         self.setting = frappe.get_cached_doc(SETTING_DOCTYPE)
         self._sale_prices = []
+        self._channel_prices = []
 
     def get_medusa_product_id(self):
         return self.item.get(PRODUCT_ID_FIELD)
@@ -42,6 +43,8 @@ class MedusaProductExporter:
                 _associate_variant_images(session, base_url, product, variant_image_map)
             if self._sale_prices:
                 _sync_sale_prices(session, base_url, product, self._sale_prices)
+            if self._channel_prices:
+                _sync_channel_prices(session, base_url, product, self._channel_prices)
             frappe.db.commit()
 
     @temp_medusa_session
@@ -326,12 +329,28 @@ class MedusaProductExporter:
 
         is_dropship = getattr(item_data, "delivered_by_supplier", False)
 
+        prices = [{"currency_code": currency, "amount": erpnext_price_to_medusa(variant_price)}]
+
+        # Per-channel prices from channel-specific price lists
+        for ch in (self.setting.sales_channels or []):
+            if not ch.active:
+                continue
+            ch_price = self._get_channel_price(ch, code, currency)
+            if ch_price is not None:
+                self._channel_prices.append({
+                    "sku": code,
+                    "channel_id": ch.sales_channel_id,
+                    "channel_name": ch.sales_channel_name or ch.short_code or ch.sales_channel_id,
+                    "amount": erpnext_price_to_medusa(ch_price),
+                    "currency_code": currency,
+                })
+
         variant = {
             "title": item_data.item_name if hasattr(item_data, 'item_name') else item_data.get('item_name', ''),
             "sku": code,
             "manage_inventory": not is_dropship,
             "allow_backorder": bool(is_dropship),
-            "prices": [{"currency_code": currency, "amount": erpnext_price_to_medusa(variant_price)}],
+            "prices": prices,
         }
         for dim, field in [("weight", "weight_per_unit"), ("height", "item_height"),
                            ("width", "item_width"), ("length", "item_length")]:
@@ -495,6 +514,26 @@ class MedusaProductExporter:
         code = item_code or self.item_code
         return frappe.db.get_value("Item Price", {"item_code": code, "price_list": price_list, "selling": 1}, "price_list_rate") or 0.0
 
+    def _get_channel_price(self, channel_row, item_code, currency):
+        """Get channel-specific price. Returns adjusted price or None if no difference."""
+        default_price = self._get_selling_price(item_code)
+
+        if channel_row.price_list:
+            ch_price = self._get_price(channel_row.price_list, item_code)
+            if not ch_price:
+                ch_price = default_price
+        else:
+            ch_price = default_price
+
+        adjustment = channel_row.price_adjustment_percent or 0
+        if adjustment:
+            ch_price = ch_price * (1 + adjustment / 100)
+
+        # Only return if different from default
+        if abs(ch_price - default_price) > 0.01:
+            return round(ch_price, 2)
+        return None
+
     def _get_selling_price(self, item_code=None) -> float:
         return self._get_price(self.setting.default_selling_price_list, item_code)
 
@@ -610,6 +649,85 @@ def _get_dfp_storage_config(storage_name):
     if storage and storage.endpoint:
         frappe.cache.set_value(cache_key, storage, expires_in_sec=3600)
     return storage
+
+
+def _sync_channel_prices(session, base_url, product: dict, channel_prices: list):
+    """Sync per-channel prices as Medusa Price Lists (type override).
+
+    Each sales channel gets its own Price List. Products with
+    channel-specific pricing get entries in that Price List.
+    """
+    if not channel_prices:
+        return
+
+    sku_to_variant_id = {v["sku"]: v["id"] for v in product.get("variants", []) if v.get("sku") and v.get("id")}
+
+    # Group by channel
+    by_channel = {}
+    for cp in channel_prices:
+        ch_id = cp["channel_id"]
+        by_channel.setdefault(ch_id, {"name": cp["channel_name"], "entries": []})
+        variant_id = sku_to_variant_id.get(cp["sku"])
+        if variant_id:
+            by_channel[ch_id]["entries"].append({
+                "variant_id": variant_id,
+                "currency_code": cp["currency_code"],
+                "amount": cp["amount"],
+            })
+
+    for ch_id, data in by_channel.items():
+        if not data["entries"]:
+            continue
+
+        pl_id = _get_or_create_channel_price_list(session, base_url, ch_id, data["name"])
+        if not pl_id:
+            continue
+
+        try:
+            # Delete existing entries for these variants
+            variant_ids = {e["variant_id"] for e in data["entries"]}
+            existing_pl = medusa_request(session, base_url, "GET", f"/admin/price-lists/{pl_id}", params={"fields": "+prices"})
+            existing_prices = existing_pl.get("price_list", {}).get("prices", [])
+            delete_ids = [p["id"] for p in existing_prices if p.get("variant_id") in variant_ids]
+
+            batch = {"create": data["entries"]}
+            if delete_ids:
+                batch["delete"] = delete_ids
+
+            medusa_request(session, base_url, "POST", f"/admin/price-lists/{pl_id}/prices/batch", json=batch)
+        except Exception as e:
+            frappe.log_error("Medusa Channel Prices", f"Failed for channel {ch_id}: {e}")
+
+
+def _get_or_create_channel_price_list(session, base_url, channel_id: str, channel_name: str) -> str:
+    """Get or create a Price List for a specific sales channel."""
+    cache_key = f"medusa_channel_pl:{channel_id}"
+    cached = frappe.cache.get_value(cache_key)
+    if cached:
+        return cached
+
+    title = f"Channel: {channel_name}"
+
+    result = medusa_request_all(session, base_url, "/admin/price-lists", "price_lists")
+    for pl in result:
+        if pl.get("title") == title:
+            frappe.cache.set_value(cache_key, pl["id"], expires_in_sec=3600)
+            return pl["id"]
+
+    try:
+        result = medusa_request(session, base_url, "POST", "/admin/price-lists", json={
+            "title": title,
+            "description": f"Channel-specific prices for {channel_name}",
+            "type": "override",
+            "status": "active",
+        })
+        pl_id = result.get("price_list", {}).get("id")
+        if pl_id:
+            frappe.cache.set_value(cache_key, pl_id, expires_in_sec=3600)
+        return pl_id
+    except Exception as e:
+        frappe.log_error("Medusa Channel Prices", f"Failed to create price list for {channel_name}: {e}")
+        return None
 
 
 def _save_medusa_ids(product: dict):
