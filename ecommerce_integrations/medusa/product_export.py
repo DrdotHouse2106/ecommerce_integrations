@@ -64,6 +64,8 @@ class MedusaProductExporter:
 
     def _build_product_payload(self, is_update=False) -> dict:
         price = self._get_selling_price()
+        currency = (frappe.db.get_default("currency") or "EUR").lower()
+
         payload = {
             "title": self.item.item_name,
             "description": self.item.description or self.item.item_name,
@@ -71,27 +73,96 @@ class MedusaProductExporter:
             "is_giftcard": False,
             "discountable": True,
         }
+
+        # Dimensions (in cm on ERPNext, stored as-is in Medusa)
+        if self.item.weight_per_unit:
+            payload["weight"] = float(self.item.weight_per_unit)
+        if self.item.item_height:
+            payload["height"] = float(self.item.item_height)
+        if self.item.item_width:
+            payload["width"] = float(self.item.item_width)
+        if self.item.item_length:
+            payload["length"] = float(self.item.item_length)
+
+        # Categories (map ERPNext Item Group to Medusa category ID)
+        category_id = self._get_medusa_category_id()
+        if category_id:
+            payload["categories"] = [{"id": category_id}]
+
         # Ecommerce properties -> Medusa metadata
         metadata = self._get_medusa_metadata()
         if metadata:
             payload["metadata"] = metadata
 
+        # Variant with price, HS code, origin country
+        variant_payload = {
+            "title": self.item.item_name,
+            "sku": self.item.item_code,
+            "manage_inventory": True,
+            "allow_backorder": False,
+            "prices": [{"currency_code": currency, "amount": erpnext_price_to_medusa(price)}],
+        }
+
+        if self.item.customs_tariff_number:
+            variant_payload["hs_code"] = self.item.customs_tariff_number
+        if self.item.country_of_origin:
+            variant_payload["origin_country"] = self._get_country_code(self.item.country_of_origin)
+        if self.item.weight_per_unit:
+            variant_payload["weight"] = float(self.item.weight_per_unit)
+        if self.item.item_height:
+            variant_payload["height"] = float(self.item.item_height)
+        if self.item.item_width:
+            variant_payload["width"] = float(self.item.item_width)
+        if self.item.item_length:
+            variant_payload["length"] = float(self.item.item_length)
+
         if not is_update:
             options = self._get_medusa_options()
             payload["options"] = options if options else [{"title": "Default", "values": ["Default"]}]
-            payload["variants"] = [{
-                "title": self.item.item_name,
-                "sku": self.item.item_code,
-                "manage_inventory": True,
-                "allow_backorder": False,
-                "prices": [{
-                    "currency_code": (frappe.db.get_default("currency") or "EUR").lower(),
-                    "amount": erpnext_price_to_medusa(price),
-                }],
-            }]
-        if self.item.weight_per_unit:
-            payload["weight"] = int(self.item.weight_per_unit * 1000)
+            payload["variants"] = [variant_payload]
+
         return payload
+
+    def _get_medusa_category_id(self) -> str:
+        """Look up the Medusa category ID for this item's Item Group."""
+        from ecommerce_integrations.medusa.constants import API_CATEGORIES
+
+        item_group = self.item.item_group
+        if not item_group:
+            return None
+
+        cache_key = f"medusa_category_id:{item_group}"
+        cached = frappe.cache.get_value(cache_key)
+        if cached:
+            return cached
+
+        # Batch-fetch all categories once and cache them
+        all_cats_key = "medusa_category_map"
+        cat_map = frappe.cache.get_value(all_cats_key)
+        if not cat_map:
+            from ecommerce_integrations.medusa.connection import get_medusa_session, medusa_request
+            session, base_url = get_medusa_session()
+            try:
+                result = medusa_request(session, base_url, "GET", API_CATEGORIES, params={"limit": 0})
+                cat_map = {c["name"]: c["id"] for c in result.get("product_categories", [])}
+                frappe.cache.set_value(all_cats_key, cat_map, expires_in_sec=300)
+            except Exception:
+                cat_map = {}
+            finally:
+                session.close()
+
+        cat_id = cat_map.get(item_group)
+        if cat_id:
+            frappe.cache.set_value(cache_key, cat_id, expires_in_sec=300)
+        return cat_id
+
+    @staticmethod
+    def _get_country_code(country_name: str) -> str:
+        """Convert ERPNext country name to ISO 2-letter code."""
+        if not country_name:
+            return ""
+        code = frappe.db.get_value("Country", country_name, "code")
+        return (code or "").upper()
 
     def _get_medusa_metadata(self) -> dict:
         """Get ecommerce_properties marked for Medusa sync as product metadata."""
