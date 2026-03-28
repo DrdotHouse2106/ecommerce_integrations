@@ -195,4 +195,9 @@ class MedusaSetting(Document):
 			if ch_id:
 				matched_channels.add(ch_id)
 
-		return list(matched_channels) if matched_channels else self.get_active_sales_channel_ids()
+		if matched_channels:
+			return list(matched_channels)
+
+		# No mapping matched — use default channel only (not all channels)
+		default = self.get_default_sales_channel_id()
+		return [default] if default else []
