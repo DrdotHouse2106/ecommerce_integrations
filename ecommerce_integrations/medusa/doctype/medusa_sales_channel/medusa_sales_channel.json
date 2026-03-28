@@ -7,9 +7,12 @@
  "field_order": [
   "sales_channel_id",
   "sales_channel_name",
+  "short_code",
   "column_break_1",
   "active",
-  "is_default"
+  "is_default",
+  "price_list",
+  "price_adjustment_percent"
  ],
  "fields": [
   {
@@ -28,6 +31,13 @@
    "read_only": 1
   },
   {
+   "fieldname": "short_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Short Code",
+   "description": "Short identifier for this channel (e.g. domain name)"
+  },
+  {
    "fieldname": "column_break_1",
    "fieldtype": "Column Break"
   },
@@ -44,6 +54,22 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Default"
+  },
+  {
+   "fieldname": "price_list",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Price List",
+   "options": "Price List",
+   "description": "Use a specific price list for this channel. If empty, the default selling price list is used."
+  },
+  {
+   "default": "0",
+   "fieldname": "price_adjustment_percent",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "Price Adjustment %",
+   "description": "Adjust prices by this percentage for this channel (e.g. 10 = 10% markup, -5 = 5% discount)"
   }
  ],
  "index_web_pages_for_search": 0,
