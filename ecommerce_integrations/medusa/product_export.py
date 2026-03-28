@@ -370,9 +370,11 @@ class MedusaProductExporter:
         return variant
 
     def _make_handle(self, title) -> str:
-        handle_base = re.sub(r'[^a-z0-9-]', '-', title.lower())
+        text = _transliterate(title.lower())
+        handle_base = re.sub(r'[^a-z0-9-]', '-', text)
         handle_base = re.sub(r'-+', '-', handle_base).strip('-')
-        sku_slug = re.sub(r'[^a-z0-9-]', '-', self.item.item_code.lower()).strip('-')
+        sku_slug = re.sub(r'[^a-z0-9-]', '-', _transliterate(self.item.item_code.lower()))
+        sku_slug = re.sub(r'-+', '-', sku_slug).strip('-')
         return f"{handle_base}-{sku_slug}"
 
     def _get_medusa_category_ids(self) -> list:
@@ -570,6 +572,19 @@ class MedusaProductExporter:
 
     def _get_list_price(self, item_code=None) -> float:
         return self._get_price(getattr(self.setting, "list_price_price_list", None), item_code)
+
+
+_UMLAUT_MAP = str.maketrans({
+    "ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss",
+    "Ä": "ae", "Ö": "oe", "Ü": "ue",
+    "é": "e", "è": "e", "ê": "e", "à": "a", "â": "a",
+    "ô": "o", "î": "i", "ç": "c", "ñ": "n",
+})
+
+
+def _transliterate(text: str) -> str:
+    """Replace umlauts and accented chars with ASCII equivalents."""
+    return text.translate(_UMLAUT_MAP)
 
 
 def _get_or_build_attribute_map() -> dict:
