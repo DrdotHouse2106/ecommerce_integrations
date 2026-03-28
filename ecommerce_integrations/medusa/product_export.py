@@ -600,16 +600,25 @@ def _sync_sale_prices(session, base_url, product: dict, sale_prices: list):
     if not price_entries:
         return
 
-    # Get or create the ERPNext sale price list
     price_list_id = _get_or_create_sale_price_list(session, base_url)
     if not price_list_id:
         return
 
     try:
+        # Delete existing sale prices for these variants to avoid duplicates
+        variant_ids_in_batch = {pe["variant_id"] for pe in price_entries}
+        existing_pl = medusa_request(session, base_url, "GET", f"/admin/price-lists/{price_list_id}", params={"fields": "+prices"})
+        existing_prices = existing_pl.get("price_list", {}).get("prices", [])
+        delete_ids = [p["id"] for p in existing_prices if p.get("variant_id") in variant_ids_in_batch]
+
+        batch = {"create": price_entries}
+        if delete_ids:
+            batch["delete"] = delete_ids
+
         medusa_request(
             session, base_url, "POST",
             f"/admin/price-lists/{price_list_id}/prices/batch",
-            json={"create": price_entries},
+            json=batch,
         )
     except Exception as e:
         frappe.log_error("Medusa Sale Prices", f"Failed to sync sale prices for {product_id}: {e}")
@@ -644,6 +653,18 @@ def _get_or_create_sale_price_list(session, base_url) -> str:
     except Exception as e:
         frappe.log_error("Medusa Sale Prices", f"Failed to create sale price list: {e}")
         return None
+
+
+def _find_sale_prices(product: dict, sale_price_maps: dict) -> list:
+    """Find the sale_prices list for a batch-created product."""
+    for variant in product.get("variants", []):
+        sku = variant.get("sku")
+        if sku:
+            template = frappe.db.get_value("Item", sku, "variant_of")
+            key = template or sku
+            if key in sale_price_maps:
+                return sale_price_maps[key]
+    return []
 
 
 def _find_variant_image_map(product: dict, variant_image_maps: dict) -> dict:
@@ -714,10 +735,12 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 					update_batch = []
 
 					variant_image_maps = {}
+					sale_price_maps = {}
 
 					for item_row in chunk:
 						try:
 							exporter = MedusaProductExporter(item_row.item_code)
+							exporter._sale_prices = []
 							payload, vim = exporter._build_product_payload(is_update=bool(item_row.get(PRODUCT_ID_FIELD)))
 
 							if item_row.get(PRODUCT_ID_FIELD):
@@ -727,6 +750,8 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 								create_batch.append(payload)
 								if vim:
 									variant_image_maps[item_row.item_code] = vim
+							if exporter._sale_prices:
+								sale_price_maps[item_row.item_code] = exporter._sale_prices
 						except Exception as e:
 							stats["errors"] += 1
 							frappe.log_error("Medusa Full Sync", f"Payload build failed for {item_row.item_code}: {e}")
@@ -744,10 +769,12 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 							for product in result.get("created", []):
 								_save_medusa_ids(product)
 								stats["created"] += 1
-								# Associate variant images for template products
 								vim = _find_variant_image_map(product, variant_image_maps)
 								if vim:
 									_associate_variant_images(session, base_url, product, vim)
+								sp = _find_sale_prices(product, sale_price_maps)
+								if sp:
+									_sync_sale_prices(session, base_url, product, sp)
 
 							stats["updated"] += len(result.get("updated", []))
 						except Exception as e:
