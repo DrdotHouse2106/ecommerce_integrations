@@ -1,5 +1,7 @@
 """Export ERPNext Items to Medusa v2 as Products."""
 import frappe
+from frappe.utils import cstr
+from ecommerce_integrations.property_utils import get_ecommerce_properties
 from ecommerce_integrations.medusa.connection import medusa_request, temp_medusa_session
 from ecommerce_integrations.medusa.constants import API_PRODUCTS, API_PRODUCT_VARIANTS, PRODUCT_ID_FIELD, SETTING_DOCTYPE, VARIANT_ID_FIELD
 from ecommerce_integrations.medusa.utils import create_medusa_log, erpnext_price_to_medusa, is_medusa_enabled, update_medusa_log
@@ -51,8 +53,14 @@ class MedusaProductExporter:
             "is_giftcard": False,
             "discountable": True,
         }
+        # Ecommerce properties -> Medusa metadata
+        metadata = self._get_medusa_metadata()
+        if metadata:
+            payload["metadata"] = metadata
+
         if not is_update:
-            payload["options"] = [{"title": "Default", "values": ["Default"]}]
+            options = self._get_medusa_options()
+            payload["options"] = options if options else [{"title": "Default", "values": ["Default"]}]
             payload["variants"] = [{
                 "title": self.item.item_name,
                 "sku": self.item.item_code,
@@ -66,6 +74,36 @@ class MedusaProductExporter:
         if self.item.weight_per_unit:
             payload["weight"] = int(self.item.weight_per_unit * 1000)
         return payload
+
+    def _get_medusa_metadata(self) -> dict:
+        """Get ecommerce_properties marked for Medusa sync as product metadata."""
+        metadata = {}
+        for row in get_ecommerce_properties(self.item, "sync_to_medusa"):
+            if row.property_value:
+                if row.property_type == 'Custom Field':
+                    metadata[f"custom_{row.property_name}"] = cstr(row.property_value).strip()
+                else:
+                    metadata[row.property_name] = cstr(row.property_value).strip()
+        return metadata
+
+    def _get_medusa_options(self) -> list:
+        """Get Item Attributes marked for Medusa sync as Product Options."""
+        if not self.item.has_variants:
+            return []
+
+        options = []
+        for attr_row in self.item.get("attributes", []):
+            attr_doc = frappe.get_cached_doc("Item Attribute", attr_row.attribute)
+            if not getattr(attr_doc, 'sync_to_medusa', 0):
+                continue
+            if getattr(attr_doc, 'medusa_property_type', '') != 'Option':
+                continue
+
+            values = [v.attribute_value for v in attr_doc.item_attribute_values]
+            if values:
+                options.append({"title": attr_row.attribute, "values": values})
+
+        return options
 
     def _get_selling_price(self) -> float:
         price_list = self.setting.default_selling_price_list

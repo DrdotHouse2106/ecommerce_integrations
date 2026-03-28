@@ -362,7 +362,7 @@ def compare_item_with_shopware(
     if erpnext_has_image != shopware_has_image:
         differences.append("image")
 
-    # Custom Fields (from PRODUCT_CUSTOM_FIELDS_MAP + shopware_properties child table)
+    # Custom Fields (from PRODUCT_CUSTOM_FIELDS_MAP + ecommerce_properties child table)
     cf_diffs = _compare_custom_fields(erpnext_item, shopware_data)
     if cf_diffs:
         differences.append("customFields")
@@ -379,7 +379,7 @@ def _compare_custom_fields(erpnext_item, shopware_data: Dict[str, Any]) -> Optio
     """Compare ERPNext custom fields with Shopware customFields.
 
     Builds the expected custom fields dict the same way the uploader does
-    (PRODUCT_CUSTOM_FIELDS_MAP + shopware_properties child table) and compares
+    (PRODUCT_CUSTOM_FIELDS_MAP + ecommerce_properties child table) and compares
     with what Shopware currently has.
 
     Returns:
@@ -387,27 +387,23 @@ def _compare_custom_fields(erpnext_item, shopware_data: Dict[str, Any]) -> Optio
     """
     from frappe.utils import cstr
     from ecommerce_integrations.shopware6.constants import PRODUCT_CUSTOM_FIELDS_MAP
+    from ecommerce_integrations.property_utils import (
+        get_ecommerce_properties,
+        shopware_custom_field_name,
+        coerce_custom_field_value,
+    )
 
-    # Build expected custom fields (same logic as BatchProductUploader._build_custom_fields)
     expected = {}
 
-    # Source 1: Hardcoded mappings (AI fields)
     for erpnext_field, shopware_field in PRODUCT_CUSTOM_FIELDS_MAP.items():
         value = getattr(erpnext_item, erpnext_field, None)
         if value:
             expected[shopware_field] = cstr(value).strip()
 
-    # Source 2: shopware_properties child table
-    for prop in (erpnext_item.get("shopware_properties") or []):
-        if prop.get("property_type") == "Custom Field" and prop.get("property_value"):
-            shopware_field_name = f"erpnext_{prop.property_name.lower().replace(' ', '_')}"
-            value = cstr(prop.property_value).strip()
-            if value.lower() in ('true', '1', 'yes'):
-                expected[shopware_field_name] = True
-            elif value.lower() in ('false', '0', 'no'):
-                expected[shopware_field_name] = False
-            else:
-                expected[shopware_field_name] = value
+    for prop in get_ecommerce_properties(erpnext_item):
+        if prop.property_type == "Custom Field" and prop.property_value:
+            field_name = shopware_custom_field_name(prop.property_name)
+            expected[field_name] = coerce_custom_field_value(cstr(prop.property_value).strip())
 
     if not expected:
         return None

@@ -17,7 +17,7 @@ MULTI_STOREFRONT_FIELDS = {
             "fieldname": "shopware_channels_section",
             "label": "Shopware Sales Channels",
             "fieldtype": "Section Break",
-            "insert_after": "shopware_properties",
+            "insert_after": "ecommerce_properties",
             "collapsible": 1,
             "description": "Override which Sales Channels this product is visible in",
         },

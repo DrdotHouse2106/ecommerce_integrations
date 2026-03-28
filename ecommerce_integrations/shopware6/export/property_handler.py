@@ -17,6 +17,11 @@ from ecommerce_integrations.shopware6.constants import (
     PRODUCT_CUSTOM_FIELDS_MAP,
     WEIGHT_TO_ERPNEXT_UOM_MAP,
 )
+from ecommerce_integrations.property_utils import (
+    get_ecommerce_properties,
+    shopware_custom_field_name,
+    coerce_custom_field_value,
+)
 from ecommerce_integrations.shopware6.base.cache_manager import get_cache
 from ecommerce_integrations.shopware6.export.utils import (
     generate_uuid,
@@ -125,7 +130,7 @@ def get_item_custom_fields(erpnext_item) -> Dict[str, Any]:
     Merges custom fields from all sources:
     1. PRODUCT_CUSTOM_FIELDS_MAP (hardcoded mappings including AI fields)
     2. Configurable field mappings from Shopware Setting
-    3. shopware_properties table (flexible key-value table)
+    3. ecommerce_properties table (universal key-value table, filtered by sync_to_shopware)
 
     Args:
         erpnext_item: ERPNext Item document
@@ -149,20 +154,10 @@ def get_item_custom_fields(erpnext_item) -> Dict[str, Any]:
             if value:
                 custom_fields[config['shopware_field']] = cstr(value).strip()
 
-    # Source 3: shopware_properties table
-    properties_table = getattr(erpnext_item, 'shopware_properties', None) or []
-    for row in properties_table:
+    for row in get_ecommerce_properties(erpnext_item):
         if row.property_type == 'Custom Field' and row.property_value:
-            shopware_field_name = f"erpnext_{row.property_name.lower().replace(' ', '_')}"
-            value = cstr(row.property_value).strip()
-
-            # Convert boolean strings to actual booleans for Shopware bool fields
-            if value.lower() in ('true', '1', 'yes'):
-                custom_fields[shopware_field_name] = True
-            elif value.lower() in ('false', '0', 'no'):
-                custom_fields[shopware_field_name] = False
-            else:
-                custom_fields[shopware_field_name] = value
+            field_name = shopware_custom_field_name(row.property_name)
+            custom_fields[field_name] = coerce_custom_field_value(cstr(row.property_value).strip())
 
     return custom_fields
 
@@ -475,7 +470,7 @@ def get_item_properties(erpnext_item) -> List[Dict[str, str]]:
     Get property values for Shopware from ERPNext Item.
 
     Priority:
-    1. Read from shopware_properties table (new flexible key-value table)
+    1. Read from ecommerce_properties table (universal, filtered by sync_to_shopware)
     2. Fallback to old configurable mappings (for backwards compatibility)
 
     Args:
@@ -486,13 +481,8 @@ def get_item_properties(erpnext_item) -> List[Dict[str, str]]:
     """
     properties = []
 
-    # Priority 1: Read from shopware_properties table
-    properties_table = getattr(erpnext_item, 'shopware_properties', None) or []
-    # Sort by idx to maintain property order from ERPNext
-    for row in sorted(properties_table, key=lambda x: getattr(x, 'idx', 0)):
-        # "Property" and "Text" types both become Shopware properties (Technische Daten)
+    for row in sorted(get_ecommerce_properties(erpnext_item), key=lambda x: getattr(x, 'idx', 0)):
         if row.property_type in ('Property', 'Text') and row.property_value:
-            # Use the filterable checkbox value directly (defaults to False if not set)
             properties.append({
                 "group_name": row.property_name,
                 "option_value": cstr(row.property_value).strip(),
@@ -633,16 +623,18 @@ def ensure_surcharge_property(item_code: str) -> bool:
             return True  # Not a Surcharge item, nothing to do
 
         # Check if is_surcharge property already exists
-        existing_props = getattr(item, 'shopware_properties', []) or []
+        existing_props = getattr(item, 'ecommerce_properties', []) or []
         for prop in existing_props:
             if prop.property_name == 'is_surcharge':
                 return True  # Already has the property
 
         # Add the is_surcharge property
-        item.append('shopware_properties', {
+        item.append('ecommerce_properties', {
             'property_name': 'is_surcharge',
             'property_type': 'Custom Field',
-            'property_value': 'true'
+            'property_value': 'true',
+            'sync_to_shopware': 1,
+            'sync_to_medusa': 0,
         })
         item.save(ignore_permissions=True)
 
@@ -694,7 +686,7 @@ def sync_surcharge_properties_batch(limit: int = 500) -> Dict[str, Any]:
             item_doc = frappe.get_doc("Item", item.name)
 
             # Check if property already exists
-            existing_props = getattr(item_doc, 'shopware_properties', []) or []
+            existing_props = getattr(item_doc, 'ecommerce_properties', []) or []
             has_surcharge = any(
                 prop.property_name == 'is_surcharge'
                 for prop in existing_props
@@ -705,10 +697,12 @@ def sync_surcharge_properties_batch(limit: int = 500) -> Dict[str, Any]:
                 continue
 
             # Add the property
-            item_doc.append('shopware_properties', {
+            item_doc.append('ecommerce_properties', {
                 'property_name': 'is_surcharge',
                 'property_type': 'Custom Field',
-                'property_value': 'true'
+                'property_value': 'true',
+                'sync_to_shopware': 1,
+                'sync_to_medusa': 0,
             })
             item_doc.save(ignore_permissions=True)
             stats["added"] += 1
@@ -777,11 +771,11 @@ def cleanup_orphaned_shopware_properties(client, dry_run: bool = True) -> Dict[s
         for attr in attrs:
             erpnext_attributes.add(attr.attribute_name)
 
-        # Also get attributes from shopware_properties tables
+        # Also get attributes from ecommerce_properties tables
         prop_names = frappe.db.sql("""
             SELECT DISTINCT property_name
-            FROM `tabItem Shopware Property`
-            WHERE property_type = 'Property'
+            FROM `tabItem Ecommerce Property`
+            WHERE property_type = 'Property' AND sync_to_shopware = 1
         """, as_list=True)
         for row in prop_names:
             if row and row[0]:
@@ -951,11 +945,11 @@ def cleanup_orphaned_properties_batch(client) -> Dict[str, Any]:
         for attr in attrs:
             erpnext_attributes.add(attr.attribute_name)
 
-        # Also get attributes from shopware_properties tables
+        # Also get attributes from ecommerce_properties tables
         prop_names = frappe.db.sql("""
             SELECT DISTINCT property_name
-            FROM `tabItem Shopware Property`
-            WHERE property_type = 'Property'
+            FROM `tabItem Ecommerce Property`
+            WHERE property_type = 'Property' AND sync_to_shopware = 1
         """, as_list=True)
         for row in prop_names:
             if row and row[0]:

@@ -640,9 +640,9 @@ class BatchProductUploader:
         if simple_items:
             self._batch_load_taxes(list(simple_items.keys()), simple_items)
 
-        # Batch fetch shopware_properties (custom fields from child table)
+        # Batch fetch ecommerce_properties (custom fields from child table)
         if simple_items:
-            self._batch_load_shopware_properties(list(simple_items.keys()), simple_items)
+            self._batch_load_ecommerce_properties(list(simple_items.keys()), simple_items)
 
         return simple_items
 
@@ -720,21 +720,23 @@ class BatchProductUploader:
             if tax.parent in items_dict and tax.item_tax_template in template_rates:
                 items_dict[tax.parent]["_tax_rate"] = template_rates[tax.item_tax_template]
 
-    def _batch_load_shopware_properties(self, item_codes: List[str], items_dict: Dict) -> None:
+    def _batch_load_ecommerce_properties(self, item_codes: List[str], items_dict: Dict) -> None:
         """
-        Load shopware_properties child table for multiple items.
+        Load ecommerce_properties child table for multiple items (Shopware-relevant only).
 
-        This loads the flexible key-value properties from the 'Item Shopware Property'
-        child table and stores them as '_shopware_properties' in each item dict.
+        Queries 'Item Ecommerce Property' with sync_to_shopware=1 and stores
+        them as '_shopware_properties' in each item dict.
         """
         if not item_codes:
             return
 
         try:
-            # Query the child table for all items
             properties = frappe.get_all(
-                "Item Shopware Property",
-                filters={"parent": ["in", item_codes]},
+                "Item Ecommerce Property",
+                filters={
+                    "parent": ["in", item_codes],
+                    "sync_to_shopware": 1,
+                },
                 fields=["parent", "property_name", "property_value", "property_type"]
             )
 
@@ -865,7 +867,7 @@ class BatchProductUploader:
         payload["_needs_visibility_update"] = True
         payload["_item_code"] = item_code
 
-        # Properties from shopware_properties table (type "Property" becomes filter properties)
+        # Properties from ecommerce_properties table (type "Property" becomes filter properties)
         from ecommerce_integrations.shopware6.export.property_handler import (
             get_or_create_property_group,
             get_or_create_property_option,
@@ -1292,7 +1294,7 @@ class BatchProductUploader:
 
         Maps ERPNext fields to Shopware custom field names using:
         1. PRODUCT_CUSTOM_FIELDS_MAP (hardcoded mappings)
-        2. shopware_properties child table (flexible key-value pairs)
+        2. ecommerce_properties child table (flexible key-value pairs, sync_to_shopware=1)
 
         Args:
             item_data: Item data dict from batch read
@@ -1310,21 +1312,12 @@ class BatchProductUploader:
             if value:
                 custom_fields[shopware_field] = cstr(value).strip()
 
-        # Source 2: shopware_properties child table (flexible key-value)
-        properties = item_data.get("_shopware_properties") or []
-        for prop in properties:
-            if prop.get("property_type") == "Custom Field" and prop.get("property_value"):
-                # Generate Shopware field name from property name
-                shopware_field_name = f"erpnext_{prop['property_name'].lower().replace(' ', '_')}"
-                value = cstr(prop["property_value"]).strip()
+        from ecommerce_integrations.property_utils import shopware_custom_field_name, coerce_custom_field_value
 
-                # Convert boolean strings to actual booleans
-                if value.lower() in ('true', '1', 'yes'):
-                    custom_fields[shopware_field_name] = True
-                elif value.lower() in ('false', '0', 'no'):
-                    custom_fields[shopware_field_name] = False
-                else:
-                    custom_fields[shopware_field_name] = value
+        for prop in (item_data.get("_shopware_properties") or []):
+            if prop.get("property_type") == "Custom Field" and prop.get("property_value"):
+                field_name = shopware_custom_field_name(prop["property_name"])
+                custom_fields[field_name] = coerce_custom_field_value(cstr(prop["property_value"]).strip())
 
         return custom_fields
 
@@ -1972,9 +1965,9 @@ class BatchProductUploader:
         if items_dict:
             self._batch_load_taxes(list(items_dict.keys()), items_dict)
 
-        # Batch fetch shopware_properties (custom fields from child table)
+        # Batch fetch ecommerce_properties (custom fields from child table)
         if items_dict:
-            self._batch_load_shopware_properties(list(items_dict.keys()), items_dict)
+            self._batch_load_ecommerce_properties(list(items_dict.keys()), items_dict)
 
         return items_dict
 
@@ -2522,9 +2515,9 @@ class BatchProductUploader:
         if items_dict:
             self._batch_load_taxes(list(items_dict.keys()), items_dict)
 
-        # Batch fetch shopware_properties (custom fields from child table)
+        # Batch fetch ecommerce_properties (custom fields from child table)
         if items_dict:
-            self._batch_load_shopware_properties(list(items_dict.keys()), items_dict)
+            self._batch_load_ecommerce_properties(list(items_dict.keys()), items_dict)
 
         return items_dict
 
@@ -2662,7 +2655,7 @@ class BatchProductUploader:
         if options:
             payload["options"] = options
 
-        # Properties from shopware_properties table (type "Property" becomes filter properties)
+        # Properties from ecommerce_properties table (type "Property" becomes filter properties)
         from ecommerce_integrations.shopware6.export.property_handler import (
             get_or_create_property_option,
         )
