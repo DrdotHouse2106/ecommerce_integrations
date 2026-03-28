@@ -19,6 +19,7 @@ class MedusaProductExporter:
         self.setting = frappe.get_cached_doc(SETTING_DOCTYPE)
         self._sale_prices = []
         self._channel_prices = []
+        self._attribute_values = []
 
     def get_medusa_product_id(self):
         return self.item.get(PRODUCT_ID_FIELD)
@@ -676,10 +677,11 @@ def _ensure_possible_value(attr_id: str, attr_name: str, value: str, attr_map: d
         own_session = True
 
     try:
+        next_rank = len(existing)
         result = medusa_request(
             session, base_url, "POST",
             f"/admin/plugin/attributes/{attr_id}/values",
-            json={"value": value},
+            json={"value": value, "rank": next_rank},
         )
         pv = result.get("possible_value", result.get("attribute_possible_value", {}))
         pv_id = pv.get("id")
