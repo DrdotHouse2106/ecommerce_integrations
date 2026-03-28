@@ -9,7 +9,9 @@ VARIANT_ID_FIELD = "medusa_variant_id"
 CATEGORY_ID_FIELD = "medusa_category_id"
 
 API_PRODUCTS = "/admin/products"
+API_PRODUCTS_BATCH = "/admin/products/batch"
 API_PRODUCT_VARIANTS = "/admin/products/{product_id}/variants"
+API_PRODUCT_VARIANTS_BATCH = "/admin/products/{product_id}/variants/batch"
 API_ORDERS = "/admin/orders"
 API_CUSTOMERS = "/admin/customers"
 API_STOCK_LOCATIONS = "/admin/stock-locations"
@@ -69,4 +71,6 @@ WEBHOOK_EVENTS = [
     "product.deleted",
 ]
 
-MEDUSA_PRICE_FACTOR = 100
+# Medusa v2 stores prices as decimal values (49.99 = EUR 49.99), not cents.
+# Set to 1 for v2. Legacy v1 used 100 (cents).
+MEDUSA_PRICE_FACTOR = 1

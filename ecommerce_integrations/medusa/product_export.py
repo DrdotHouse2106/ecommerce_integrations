@@ -3,7 +3,10 @@ import frappe
 from frappe.utils import cstr
 from ecommerce_integrations.property_utils import get_ecommerce_properties
 from ecommerce_integrations.medusa.connection import medusa_request, temp_medusa_session
-from ecommerce_integrations.medusa.constants import API_PRODUCTS, API_PRODUCT_VARIANTS, PRODUCT_ID_FIELD, SETTING_DOCTYPE, VARIANT_ID_FIELD
+from ecommerce_integrations.medusa.constants import (
+    API_PRODUCTS, API_PRODUCTS_BATCH, API_PRODUCT_VARIANTS,
+    PRODUCT_ID_FIELD, SETTING_DOCTYPE, VARIANT_ID_FIELD,
+)
 from ecommerce_integrations.medusa.utils import create_medusa_log, erpnext_price_to_medusa, is_medusa_enabled, update_medusa_log
 
 
@@ -42,7 +45,7 @@ class MedusaProductExporter:
     def _update_product(self, session, base_url):
         medusa_id = self.get_medusa_product_id()
         payload = self._build_product_payload(is_update=True)
-        medusa_request(session, base_url, "PUT", f"{API_PRODUCTS}/{medusa_id}", json=payload)
+        medusa_request(session, base_url, "POST", f"{API_PRODUCTS}/{medusa_id}", json=payload)
 
     @temp_medusa_session
     def update_price(self, session, base_url):
@@ -149,8 +152,10 @@ def enqueue_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_st
 
 
 def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=0, batch_size=50, dry_run=0):
-	"""Run a complete sync of all products from ERPNext to Medusa."""
-	stats = {"synced": 0, "errors": 0, "skipped": 0}
+	"""Run a complete sync of all products from ERPNext to Medusa using batch API."""
+	from ecommerce_integrations.medusa.connection import get_medusa_session
+
+	stats = {"created": 0, "updated": 0, "errors": 0, "skipped": 0}
 	batch_size = int(batch_size)
 
 	if sync_categories:
@@ -166,27 +171,54 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 		if setting.category_sync_root:
 			filters["item_group"] = ["descendants of (inclusive)", setting.category_sync_root]
 
-		items = frappe.get_all("Item", filters=filters, fields=["item_code"], limit=0)
+		items = frappe.get_all("Item", filters=filters, fields=["item_code", PRODUCT_ID_FIELD], limit=0)
 
-		for i, item in enumerate(items):
-			if dry_run:
-				stats["skipped"] += 1
-				continue
+		if dry_run:
+			stats["skipped"] = len(items)
+		else:
+			session, base_url = get_medusa_session()
 			try:
-				exporter = MedusaProductExporter(item.item_code)
-				if sync_products:
-					exporter.export()
-				if sync_prices and exporter.is_synced():
-					exporter.update_price()
-				stats["synced"] += 1
-			except Exception as e:
-				stats["errors"] += 1
-				frappe.log_error("Medusa Full Sync", f"Product sync failed for {item.item_code}: {e}")
+				for chunk_start in range(0, len(items), batch_size):
+					chunk = items[chunk_start:chunk_start + batch_size]
+					create_batch = []
+					update_batch = []
 
-			if (i + 1) % batch_size == 0:
-				frappe.db.commit()
+					for item_row in chunk:
+						try:
+							exporter = MedusaProductExporter(item_row.item_code)
+							payload = exporter._build_product_payload(is_update=bool(item_row.get(PRODUCT_ID_FIELD)))
 
-		frappe.db.commit()
+							if item_row.get(PRODUCT_ID_FIELD):
+								payload["id"] = item_row.get(PRODUCT_ID_FIELD)
+								update_batch.append(payload)
+							else:
+								create_batch.append(payload)
+						except Exception as e:
+							stats["errors"] += 1
+							frappe.log_error("Medusa Full Sync", f"Payload build failed for {item_row.item_code}: {e}")
+
+					if create_batch or update_batch:
+						try:
+							batch_payload = {}
+							if create_batch:
+								batch_payload["create"] = create_batch
+							if update_batch:
+								batch_payload["update"] = update_batch
+
+							result = medusa_request(session, base_url, "POST", API_PRODUCTS_BATCH, json=batch_payload)
+
+							for product in result.get("created", []):
+								_save_medusa_ids(product)
+								stats["created"] += 1
+
+							stats["updated"] += len(result.get("updated", []))
+						except Exception as e:
+							stats["errors"] += len(create_batch) + len(update_batch)
+							frappe.log_error("Medusa Full Sync", f"Batch sync failed: {e}")
+
+					frappe.db.commit()
+			finally:
+				session.close()
 
 	if sync_stock and not dry_run:
 		try:
@@ -197,6 +229,21 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 
 	frappe.logger("medusa").info(f"Full sync complete: {stats}")
 	return stats
+
+
+def _save_medusa_ids(product: dict):
+	"""Save Medusa product/variant IDs back to ERPNext Item."""
+	variants = product.get("variants", [])
+	if not variants:
+		return
+	sku = variants[0].get("sku")
+	if not sku:
+		return
+	if not frappe.db.exists("Item", sku):
+		return
+	frappe.db.set_value("Item", sku, PRODUCT_ID_FIELD, product.get("id"))
+	if variants[0].get("id"):
+		frappe.db.set_value("Item", sku, VARIANT_ID_FIELD, variants[0]["id"])
 
 
 @frappe.whitelist()
