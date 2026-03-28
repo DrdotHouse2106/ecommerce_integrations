@@ -65,120 +65,225 @@ class MedusaProductExporter:
         })
 
     def _build_product_payload(self, is_update=False) -> dict:
-        price = self._get_selling_price()
+        """Build Medusa product payload from ERPNext Item.
+
+        For template items (has_variants=1): creates product with options
+        and all child variants inline. For simple items: creates product
+        with a single default variant.
+        """
         currency = (frappe.db.get_default("currency") or "EUR").lower()
 
-        # AI fields (preferred) with fallback to standard fields
-        ai_title = getattr(self.item, "ai_seo_title", None)
-        ai_short = getattr(self.item, "ai_short_description", None)
-        ai_long = getattr(self.item, "ai_long_description", None)
-
+        # Direct ERPNext fields
         title = self.item.item_name
-        subtitle = ai_title if ai_title and ai_title != title else None
-        description = ai_long or self.item.description or self.item.item_name
-
-        handle_source = ai_title or title
-        handle_base = re.sub(r'[^a-z0-9-]', '-', handle_source.lower())
-        handle_base = re.sub(r'-+', '-', handle_base).strip('-')
-        sku_slug = re.sub(r'[^a-z0-9-]', '-', self.item.item_code.lower()).strip('-')
-        handle = f"{handle_base}-{sku_slug}"
+        description = self.item.description or self.item.item_name
+        handle = self._make_handle(title)
 
         payload = {
             "title": title,
             "handle": handle,
-            "subtitle": subtitle,
             "description": description,
             "status": "published" if not self.item.disabled else "draft",
             "is_giftcard": False,
             "discountable": True,
         }
 
-        # SEO + AI metadata for storefront consumption
-        meta = {}
-        ai_seo_desc = getattr(self.item, "ai_seo_description", None)
-        seo_title = getattr(self.item, "seo_title", None)
-        seo_description = getattr(self.item, "seo_meta_description", None)
-        seo_keywords = getattr(self.item, "seo_keywords", None)
-        ai_benefits = getattr(self.item, "ai_benefits", None)
-        ai_applications = getattr(self.item, "ai_applications", None)
-        ai_delivery_scope = getattr(self.item, "ai_delivery_scope", None)
+        # Dimensions
+        for dim, field in [("weight", "weight_per_unit"), ("height", "item_height"),
+                           ("width", "item_width"), ("length", "item_length")]:
+            val = getattr(self.item, field, None)
+            if val:
+                payload[dim] = float(val)
 
-        if ai_seo_desc:
-            meta["seo_description"] = ai_seo_desc
-        elif seo_description:
-            meta["seo_description"] = seo_description
-        if seo_title:
-            meta["seo_title"] = seo_title
-        if seo_keywords:
-            meta["seo_keywords"] = seo_keywords
-        if ai_short:
-            meta["short_description"] = ai_short
-        if ai_benefits:
-            meta["benefits"] = ai_benefits
-        if ai_applications:
-            meta["applications"] = ai_applications
-        if ai_delivery_scope:
-            meta["delivery_scope"] = ai_delivery_scope
-
-        if meta:
-            payload["metadata"] = meta
-
-        payload = {k: v for k, v in payload.items() if v is not None}
-
-        # Dimensions stored as-is (cm in ERPNext)
-        if self.item.weight_per_unit:
-            payload["weight"] = float(self.item.weight_per_unit)
-        if self.item.item_height:
-            payload["height"] = float(self.item.item_height)
-        if self.item.item_width:
-            payload["width"] = float(self.item.item_width)
-        if self.item.item_length:
-            payload["length"] = float(self.item.item_length)
-
+        # Category
         category_id = self._get_medusa_category_id()
         if category_id:
             payload["categories"] = [{"id": category_id}]
 
-        channel_ids = self.setting.get_active_sales_channel_ids() if hasattr(self.setting, 'get_active_sales_channel_ids') else []
-        if channel_ids and not is_update:
-            payload["sales_channels"] = [{"id": ch_id} for ch_id in channel_ids]
+        # Sales channels (on create only)
+        if not is_update:
+            channel_ids = self.setting.get_active_sales_channel_ids() if hasattr(self.setting, 'get_active_sales_channel_ids') else []
+            if channel_ids:
+                payload["sales_channels"] = [{"id": ch_id} for ch_id in channel_ids]
 
-        image_url = self._get_image_url()
-        if image_url:
-            payload["images"] = [{"url": image_url}]
-            payload["thumbnail"] = image_url
+        # All AI + SEO fields go into metadata for storefront consumption
+        meta = self._build_metadata()
+        if meta:
+            payload["metadata"] = meta
 
-        metadata = self._get_medusa_metadata()
-        if metadata:
-            payload.setdefault("metadata", {}).update(metadata)
+        # Images: collect all unique images (template + variants)
+        if self.item.has_variants:
+            image_urls = self._collect_template_images()
+        else:
+            image_urls = []
+            img = self._get_image_url()
+            if img:
+                image_urls.append(img)
 
-        variant_payload = {
-            "title": self.item.item_name,
-            "sku": self.item.item_code,
+        if image_urls:
+            payload["images"] = [{"url": url} for url in image_urls]
+            payload["thumbnail"] = image_urls[0]
+
+        # Variants
+        if not is_update:
+            if self.item.has_variants:
+                options, variants = self._build_template_variants(currency)
+                payload["options"] = options
+                payload["variants"] = variants
+            else:
+                payload["options"] = [{"title": "Default", "values": ["Default"]}]
+                payload["variants"] = [self._build_variant_payload(self.item, currency)]
+
+        return {k: v for k, v in payload.items() if v is not None}
+
+    def _build_metadata(self) -> dict:
+        """Build metadata dict from AI fields, SEO fields and ecommerce properties."""
+        meta = {}
+
+        ai_fields = {
+            "ai_seo_title": "seo_title",
+            "ai_seo_description": "seo_description",
+            "ai_short_description": "short_description",
+            "ai_long_description": "long_description",
+            "ai_benefits": "benefits",
+            "ai_applications": "applications",
+            "ai_delivery_scope": "delivery_scope",
+        }
+        for erpnext_field, meta_key in ai_fields.items():
+            val = getattr(self.item, erpnext_field, None)
+            if val:
+                meta[meta_key] = val
+
+        # Standard SEO fields as fallback (only if AI version not set)
+        if not meta.get("seo_title"):
+            seo_title = getattr(self.item, "seo_title", None)
+            if seo_title:
+                meta["seo_title"] = seo_title
+        if not meta.get("seo_description"):
+            seo_desc = getattr(self.item, "seo_meta_description", None)
+            if seo_desc:
+                meta["seo_description"] = seo_desc
+        seo_keywords = getattr(self.item, "seo_keywords", None)
+        if seo_keywords:
+            meta["seo_keywords"] = seo_keywords
+
+        # Ecommerce properties
+        prop_meta = self._get_medusa_metadata()
+        if prop_meta:
+            meta.update(prop_meta)
+
+        return meta
+
+    def _build_variant_payload(self, item_doc, currency, option_values=None) -> dict:
+        """Build a single variant payload from an ERPNext Item."""
+        price = self._get_selling_price(item_doc.item_code)
+        variant = {
+            "title": item_doc.item_name,
+            "sku": item_doc.item_code,
             "manage_inventory": True,
             "allow_backorder": False,
             "prices": [{"currency_code": currency, "amount": erpnext_price_to_medusa(price)}],
         }
 
-        if self.item.customs_tariff_number:
-            variant_payload["hs_code"] = self.item.customs_tariff_number
-        if self.item.country_of_origin:
-            variant_payload["origin_country"] = self._get_country_code(self.item.country_of_origin)
-        if self.item.weight_per_unit:
-            variant_payload["weight"] = float(self.item.weight_per_unit)
-        if self.item.item_height:
-            variant_payload["height"] = float(self.item.item_height)
-        if self.item.item_width:
-            variant_payload["width"] = float(self.item.item_width)
-        if self.item.item_length:
-            variant_payload["length"] = float(self.item.item_length)
+        if option_values:
+            variant["options"] = option_values
 
-        if not is_update:
-            options = self._get_medusa_options()
-            payload["options"] = options if options else [{"title": "Default", "values": ["Default"]}]
-            payload["variants"] = [variant_payload]
+        for dim, field in [("weight", "weight_per_unit"), ("height", "item_height"),
+                           ("width", "item_width"), ("length", "item_length")]:
+            val = getattr(item_doc, field, None)
+            if val:
+                variant[dim] = float(val)
 
-        return payload
+        if item_doc.customs_tariff_number:
+            variant["hs_code"] = item_doc.customs_tariff_number
+        if item_doc.country_of_origin:
+            variant["origin_country"] = self._get_country_code(item_doc.country_of_origin)
+
+        return variant
+
+    def _build_template_variants(self, currency) -> tuple:
+        """Build options and variants arrays for a template item.
+
+        Returns (options, variants) where options defines the attribute
+        axes and variants are the child items with their option values.
+        """
+        child_items = frappe.get_all(
+            "Item",
+            filters={"variant_of": self.item_code, "disabled": 0},
+            fields=["item_code"],
+        )
+
+        # Collect unique attributes from child items
+        attribute_names = []
+        for attr in self.item.get("attributes", []):
+            attribute_names.append(attr.attribute)
+
+        if not attribute_names:
+            attribute_names = ["Default"]
+
+        # Build option values per attribute from actual variants
+        all_values = {attr: set() for attr in attribute_names}
+        variant_payloads = []
+
+        for child in child_items:
+            child_doc = frappe.get_doc("Item", child.item_code)
+
+            # Get this variant's attribute values
+            option_values = {}
+            for va in child_doc.get("attributes", []):
+                if va.attribute in all_values:
+                    all_values[va.attribute].add(va.attribute_value)
+                    option_values[va.attribute] = va.attribute_value
+
+            if not option_values and attribute_names == ["Default"]:
+                option_values = {"Default": child_doc.item_name}
+                all_values["Default"].add(child_doc.item_name)
+
+            variant_payloads.append(
+                self._build_variant_payload(child_doc, currency, option_values)
+            )
+
+        options = []
+        for attr_name in attribute_names:
+            values = sorted(all_values.get(attr_name, set()))
+            if values:
+                options.append({"title": attr_name, "values": values})
+
+        if not options:
+            options = [{"title": "Default", "values": ["Default"]}]
+
+        return options, variant_payloads
+
+    def _collect_template_images(self) -> list:
+        """Collect all unique image URLs from template and its variants."""
+        urls = []
+        seen = set()
+
+        # Template image first
+        template_img = self._get_image_url()
+        if template_img:
+            urls.append(template_img)
+            seen.add(template_img)
+
+        # Variant images
+        child_items = frappe.get_all(
+            "Item",
+            filters={"variant_of": self.item_code, "disabled": 0, "image": ["is", "set"]},
+            fields=["image"],
+        )
+        for child in child_items:
+            url = self._resolve_image_url(child.image)
+            if url and url not in seen:
+                urls.append(url)
+                seen.add(url)
+
+        return urls
+
+    def _make_handle(self, title) -> str:
+        """Generate a URL-safe handle from title + item_code."""
+        handle_base = re.sub(r'[^a-z0-9-]', '-', title.lower())
+        handle_base = re.sub(r'-+', '-', handle_base).strip('-')
+        sku_slug = re.sub(r'[^a-z0-9-]', '-', self.item.item_code.lower()).strip('-')
+        return f"{handle_base}-{sku_slug}"
 
     def _get_medusa_category_id(self) -> str:
         """Look up the Medusa category ID for this item's Item Group."""
@@ -214,36 +319,36 @@ class MedusaProductExporter:
         return cat_id
 
     def _get_image_url(self):
-        """Get public CDN URL for this item's image.
+        """Get public URL for this item's image."""
+        return self._resolve_image_url(self.item.image)
 
-        Resolves S3-backed files (dfp_external_storage) to CDN URLs:
-        cdn_url = https://cdn.example.com/{bucket_name}/{s3_key}
+    @staticmethod
+    def _resolve_image_url(image_path):
+        """Resolve an ERPNext image path to a public URL.
 
-        Falls back to site_url + relative path for non-S3 files.
+        For S3-backed files (dfp_external_storage): builds CDN URL.
+        For relative paths: prepends site URL.
         """
-        image = self.item.image
-        if not image:
+        if not image_path:
             return None
-        if "/private/" in image:
+        if "/private/" in image_path:
             return None
-        if image.startswith("http"):
-            return image
+        if image_path.startswith("http"):
+            return image_path
 
         file_data = frappe.db.get_value(
-            "File", {"file_url": image},
+            "File", {"file_url": image_path},
             ["dfp_external_storage", "dfp_external_storage_s3_key"], as_dict=True
         )
         if file_data and file_data.dfp_external_storage_s3_key and file_data.dfp_external_storage:
-            s3_key = file_data.dfp_external_storage_s3_key
             storage = frappe.db.get_value(
                 "DFP External Storage", file_data.dfp_external_storage,
-                ["bucket_name", "endpoint", "secure"], as_dict=True
+                ["bucket_name", "endpoint"], as_dict=True
             )
             if storage and storage.endpoint:
-                scheme = "https" if storage.secure else "https"
-                return f"{scheme}://{storage.endpoint}/{storage.bucket_name}/{s3_key}"
+                return f"https://{storage.endpoint}/{storage.bucket_name}/{file_data.dfp_external_storage_s3_key}"
 
-        return f"{frappe.utils.get_url().rstrip('/')}{image}"
+        return f"{frappe.utils.get_url().rstrip('/')}{image_path}"
 
     @staticmethod
     def _get_country_code(country_name: str) -> str:
@@ -283,11 +388,12 @@ class MedusaProductExporter:
 
         return options
 
-    def _get_selling_price(self) -> float:
+    def _get_selling_price(self, item_code=None) -> float:
         price_list = self.setting.default_selling_price_list
         if not price_list:
             return 0.0
-        price = frappe.db.get_value("Item Price", {"item_code": self.item_code, "price_list": price_list, "selling": 1}, "price_list_rate")
+        code = item_code or self.item_code
+        price = frappe.db.get_value("Item Price", {"item_code": code, "price_list": price_list, "selling": 1}, "price_list_rate")
         return price or 0.0
 
 
