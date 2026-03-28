@@ -92,6 +92,11 @@ class MedusaProductExporter:
             if channel_ids:
                 payload["sales_channels"] = [{"id": ch_id} for ch_id in channel_ids]
 
+        # Filterable properties -> tags, non-filterable -> metadata
+        tag_ids = self._get_tag_ids()
+        if tag_ids:
+            payload["tags"] = [{"id": tid} for tid in tag_ids]
+
         meta = self._build_metadata()
         if meta:
             payload["metadata"] = meta
@@ -354,12 +359,78 @@ class MedusaProductExporter:
         return (code or "").upper()
 
     def _get_medusa_metadata(self) -> dict:
+        """Non-filterable ecommerce properties -> metadata."""
         metadata = {}
         for row in get_ecommerce_properties(self.item, "sync_to_medusa"):
-            if row.property_value:
-                key = f"custom_{row.property_name}" if row.property_type == 'Custom Field' else row.property_name
-                metadata[key] = cstr(row.property_value).strip()
+            if not row.property_value:
+                continue
+            # Filterable properties go to tags (handled by _get_tag_ids)
+            if row.property_type == "Property" and getattr(row, "filterable", 0):
+                continue
+            key = f"custom_{row.property_name}" if row.property_type == 'Custom Field' else row.property_name
+            metadata[key] = cstr(row.property_value).strip()
         return metadata
+
+    def _get_tag_ids(self) -> list:
+        """Filterable ecommerce properties -> Medusa product tags.
+
+        Creates tags in Medusa if they don't exist yet (cached).
+        Tag value format: "PropertyName: Value" for structured filtering.
+        """
+        filterable_props = [
+            row for row in get_ecommerce_properties(self.item, "sync_to_medusa")
+            if row.property_value and row.property_type == "Property" and getattr(row, "filterable", 0)
+        ]
+        if not filterable_props:
+            return []
+
+        tag_map = self._get_or_build_tag_map()
+        tag_ids = []
+
+        for row in filterable_props:
+            tag_value = f"{row.property_name}: {cstr(row.property_value).strip()}"
+            tag_id = tag_map.get(tag_value)
+            if not tag_id:
+                tag_id = self._create_medusa_tag(tag_value)
+                if tag_id:
+                    tag_map[tag_value] = tag_id
+            if tag_id:
+                tag_ids.append(tag_id)
+
+        return tag_ids
+
+    def _get_or_build_tag_map(self) -> dict:
+        """Get {tag_value: tag_id} map, cached."""
+        cache_key = "medusa_tag_map"
+        tag_map = frappe.cache.get_value(cache_key)
+        if tag_map is not None:
+            return tag_map
+
+        from ecommerce_integrations.medusa.connection import get_medusa_session
+        session, base_url = get_medusa_session()
+        try:
+            tags = medusa_request_all(session, base_url, "/admin/product-tags", "product_tags")
+            tag_map = {t["value"]: t["id"] for t in tags}
+            frappe.cache.set_value(cache_key, tag_map, expires_in_sec=300)
+        except Exception:
+            tag_map = {}
+        finally:
+            session.close()
+        return tag_map
+
+    @staticmethod
+    def _create_medusa_tag(value: str):
+        """Create a tag in Medusa and return its ID."""
+        from ecommerce_integrations.medusa.connection import get_medusa_session
+        session, base_url = get_medusa_session()
+        try:
+            result = medusa_request(session, base_url, "POST", "/admin/product-tags", json={"value": value})
+            tag = result.get("product_tag", {})
+            return tag.get("id")
+        except Exception:
+            return None
+        finally:
+            session.close()
 
     def _get_selling_price(self, item_code=None) -> float:
         price_list = self.setting.default_selling_price_list
