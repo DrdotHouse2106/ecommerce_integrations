@@ -393,14 +393,14 @@ class MedusaProductExporter:
             groups.add(self.item.item_group)
 
         # Additional groups from Website Item
-        extra_groups = frappe.get_all(
-            "Website Item Group",
-            filters={"parenttype": "Website Item", "parent": ["in",
-                frappe.get_all("Website Item", filters={"item_code": self.item_code}, pluck="name") or [""]
-            ]},
-            pluck="item_group",
-        )
-        groups.update(extra_groups)
+        wi_names = frappe.get_all("Website Item", filters={"item_code": self.item_code}, pluck="name")
+        if wi_names:
+            extra_groups = frappe.get_all(
+                "Website Item Group",
+                filters={"parenttype": "Website Item", "parent": ["in", wi_names]},
+                pluck="item_group",
+            )
+            groups.update(extra_groups)
 
         return [cat_map[g] for g in groups if g in cat_map]
 
