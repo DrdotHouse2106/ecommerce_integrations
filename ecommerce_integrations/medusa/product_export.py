@@ -17,6 +17,7 @@ class MedusaProductExporter:
         self.item_code = item_code
         self.item = frappe.get_doc("Item", item_code)
         self.setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+        self._sale_prices = []
 
     def get_medusa_product_id(self):
         return self.item.get(PRODUCT_ID_FIELD)
@@ -32,7 +33,6 @@ class MedusaProductExporter:
 
     @temp_medusa_session
     def _create_product(self, session, base_url):
-        self._sale_prices = []
         payload, variant_image_map = self._build_product_payload()
         result = medusa_request(session, base_url, "POST", API_PRODUCTS, json=payload)
         product = result.get("product", {})
@@ -302,15 +302,11 @@ class MedusaProductExporter:
         # The selling price goes into a sale price list (becomes calculated_amount)
         if list_price and list_price > selling_price:
             variant_price = list_price
-            if not hasattr(self, '_sale_prices'):
-                self._sale_prices = []
             self._sale_prices.append({"sku": code, "amount": erpnext_price_to_medusa(selling_price), "currency_code": currency})
         else:
             variant_price = selling_price
 
-        is_dropship = getattr(item_data, "delivered_by_supplier", None) or (
-            item_data.get("delivered_by_supplier") if hasattr(item_data, "get") else False
-        )
+        is_dropship = getattr(item_data, "delivered_by_supplier", False)
 
         variant = {
             "title": item_data.item_name if hasattr(item_data, 'item_name') else item_data.get('item_name', ''),
@@ -466,22 +462,17 @@ class MedusaProductExporter:
         finally:
             session.close()
 
-    def _get_selling_price(self, item_code=None) -> float:
-        price_list = self.setting.default_selling_price_list
+    def _get_price(self, price_list, item_code=None) -> float:
         if not price_list:
             return 0.0
         code = item_code or self.item_code
-        price = frappe.db.get_value("Item Price", {"item_code": code, "price_list": price_list, "selling": 1}, "price_list_rate")
-        return price or 0.0
+        return frappe.db.get_value("Item Price", {"item_code": code, "price_list": price_list, "selling": 1}, "price_list_rate") or 0.0
+
+    def _get_selling_price(self, item_code=None) -> float:
+        return self._get_price(self.setting.default_selling_price_list, item_code)
 
     def _get_list_price(self, item_code=None) -> float:
-        """Get list/RRP price from the configured list price price list."""
-        list_pl = getattr(self.setting, "list_price_price_list", None)
-        if not list_pl:
-            return 0.0
-        code = item_code or self.item_code
-        price = frappe.db.get_value("Item Price", {"item_code": code, "price_list": list_pl, "selling": 1}, "price_list_rate")
-        return price or 0.0
+        return self._get_price(getattr(self.setting, "list_price_price_list", None), item_code)
 
 
 def _get_dfp_storage_config(storage_name):
@@ -628,6 +619,39 @@ def _sync_sale_prices(session, base_url, product: dict, sale_prices: list):
         frappe.log_error("Medusa Sale Prices", f"Failed to sync sale prices for {product_id}: {e}")
 
 
+def _sync_sale_prices_batch(session, base_url, product_sale_prices: list):
+    """Batch sync sale prices for multiple products in one API call."""
+    all_entries = []
+    for product, sale_prices in product_sale_prices:
+        sku_to_variant_id = {v["sku"]: v["id"] for v in product.get("variants", []) if v.get("sku") and v.get("id")}
+        for sp in sale_prices:
+            variant_id = sku_to_variant_id.get(sp["sku"])
+            if variant_id:
+                all_entries.append({"variant_id": variant_id, "currency_code": sp["currency_code"], "amount": sp["amount"]})
+
+    if not all_entries:
+        return
+
+    price_list_id = _get_or_create_sale_price_list(session, base_url)
+    if not price_list_id:
+        return
+
+    try:
+        # Delete existing entries for these variants
+        variant_ids = {e["variant_id"] for e in all_entries}
+        existing_pl = medusa_request(session, base_url, "GET", f"/admin/price-lists/{price_list_id}", params={"fields": "+prices"})
+        existing_prices = existing_pl.get("price_list", {}).get("prices", [])
+        delete_ids = [p["id"] for p in existing_prices if p.get("variant_id") in variant_ids]
+
+        batch = {"create": all_entries}
+        if delete_ids:
+            batch["delete"] = delete_ids
+
+        medusa_request(session, base_url, "POST", f"/admin/price-lists/{price_list_id}/prices/batch", json=batch)
+    except Exception as e:
+        frappe.log_error("Medusa Sale Prices", f"Batch sale price sync failed: {e}")
+
+
 def _get_or_create_sale_price_list(session, base_url) -> str:
     """Get or create the ERPNext sale price list in Medusa."""
     cache_key = "medusa_sale_price_list_id"
@@ -659,27 +683,17 @@ def _get_or_create_sale_price_list(session, base_url) -> str:
         return None
 
 
-def _find_sale_prices(product: dict, sale_price_maps: dict) -> list:
-    """Find the sale_prices list for a batch-created product."""
+def _find_in_product_map(product: dict, lookup_map: dict, default=None):
+    """Find data in a map keyed by item_code, matching via variant SKU -> template lookup."""
     for variant in product.get("variants", []):
         sku = variant.get("sku")
-        if sku:
-            template = frappe.db.get_value("Item", sku, "variant_of")
-            key = template or sku
-            if key in sale_price_maps:
-                return sale_price_maps[key]
-    return []
-
-
-def _find_variant_image_map(product: dict, variant_image_maps: dict) -> dict:
-    """Find the variant_image_map for a batch-created product by matching variant SKUs."""
-    for variant in product.get("variants", []):
-        sku = variant.get("sku")
-        if sku:
-            template = frappe.db.get_value("Item", sku, "variant_of")
-            if template and template in variant_image_maps:
-                return variant_image_maps[template]
-    return {}
+        if not sku:
+            continue
+        template = frappe.db.get_value("Item", sku, "variant_of")
+        for key in [template, sku]:
+            if key and key in lookup_map:
+                return lookup_map[key]
+    return default if default is not None else type(next(iter(lookup_map.values()), []))()
 
 
 @frappe.whitelist()
@@ -744,7 +758,6 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 					for item_row in chunk:
 						try:
 							exporter = MedusaProductExporter(item_row.item_code)
-							exporter._sale_prices = []
 							payload, vim = exporter._build_product_payload(is_update=bool(item_row.get(PRODUCT_ID_FIELD)))
 
 							if item_row.get(PRODUCT_ID_FIELD):
@@ -770,15 +783,20 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 
 							result = medusa_request(session, base_url, "POST", API_PRODUCTS_BATCH, json=batch_payload)
 
+							chunk_sale_prices = []
 							for product in result.get("created", []):
 								_save_medusa_ids(product)
 								stats["created"] += 1
-								vim = _find_variant_image_map(product, variant_image_maps)
+								vim = _find_in_product_map(product, variant_image_maps, {})
 								if vim:
 									_associate_variant_images(session, base_url, product, vim)
-								sp = _find_sale_prices(product, sale_price_maps)
+								sp = _find_in_product_map(product, sale_price_maps, [])
 								if sp:
-									_sync_sale_prices(session, base_url, product, sp)
+									chunk_sale_prices.append((product, sp))
+
+							# Batch sale price sync once per chunk
+							if chunk_sale_prices:
+								_sync_sale_prices_batch(session, base_url, chunk_sale_prices)
 
 							stats["updated"] += len(result.get("updated", []))
 						except Exception as e:
