@@ -1081,7 +1081,7 @@ def run_full_sync(sync_generation=0, sync_categories=1, sync_products=1, sync_pr
 		return {"created": 0, "updated": 0, "errors": 0, "skipped": 0}
 
 	frappe.cache.set_value(SYNC_RUNNING_KEY, True, expires_in_sec=3600)
-	stats = {"created": 0, "updated": 0, "errors": 0, "skipped": 0}
+	stats = {"created": 0, "updated": 0, "errors": 0, "skipped": 0, "error_details": []}
 	batch_size = int(batch_size)
 
 	log_name = create_medusa_log(
@@ -1096,15 +1096,19 @@ def run_full_sync(sync_generation=0, sync_categories=1, sync_products=1, sync_pr
 	except Exception as e:
 		frappe.log_error("Medusa Full Sync", f"Sync crashed: {e}")
 		stats["errors"] += 1
+		stats["error_details"].append(f"CRASH: {e}")
 	finally:
 		frappe.cache.delete_value(SYNC_RUNNING_KEY)
+		error_details = stats.pop("error_details", [])
 		status = "Error" if stats["errors"] > 0 else "Success"
 		message = f"Created: {stats['created']}, Updated: {stats['updated']}, Errors: {stats['errors']}"
+		traceback_text = "\n".join(error_details[-50:]) if error_details else ""  # Last 50 errors
 		create_medusa_log(
 			request_type="Complete Sync",
 			status=status,
 			request_data={"stats": stats},
 			response_data=message,
+			error=traceback_text,
 		)
 	return stats
 
@@ -1199,7 +1203,9 @@ def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sy
 							chunk_attr_entries.extend(entries)
 						except Exception as e:
 							stats["errors"] += 1
-							frappe.log_error("Medusa Full Sync", f"Exporter init failed for {item_row.item_code}: {e}")
+							msg = f"Exporter init failed for {item_row.item_code}: {e}"
+							frappe.log_error("Medusa Full Sync", msg)
+							stats["error_details"].append(msg)
 
 					# Ensure all attributes/values for the chunk in one call
 					if chunk_attr_entries:
@@ -1224,7 +1230,9 @@ def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sy
 								sale_price_maps[item_row.item_code] = exporter._sale_prices
 						except Exception as e:
 							stats["errors"] += 1
-							frappe.log_error("Medusa Full Sync", f"Payload build failed for {item_row.item_code}: {e}")
+							msg = f"Payload build failed for {item_row.item_code}: {e}"
+							frappe.log_error("Medusa Full Sync", msg)
+							stats["error_details"].append(msg)
 
 					# Batch create/update ALL products
 					created_products = []
@@ -1262,13 +1270,19 @@ def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sy
 									created_products = result.get("created", [])
 								except Exception as retry_e:
 									stats["errors"] += len(retry_batch)
-									frappe.log_error("Medusa Full Sync", f"Retry batch failed: {retry_e}")
+									msg = f"Retry batch failed: {retry_e}"
+									frappe.log_error("Medusa Full Sync", msg)
+									stats["error_details"].append(msg)
 							else:
 								stats["errors"] += len(create_batch) + len(update_batch)
-								frappe.log_error("Medusa Full Sync", f"Batch sync failed ({e.response.status_code if e.response is not None else '?'}): {resp_body or e}")
+								msg = f"Batch sync failed ({e.response.status_code if e.response is not None else '?'}): {resp_body or e}"
+								frappe.log_error("Medusa Full Sync", msg)
+								stats["error_details"].append(msg)
 						except Exception as e:
 							stats["errors"] += len(create_batch) + len(update_batch)
-							frappe.log_error("Medusa Full Sync", f"Batch sync failed: {e}")
+							msg = f"Batch sync failed: {e}"
+							frappe.log_error("Medusa Full Sync", msg)
+							stats["error_details"].append(msg)
 
 					# Process created products (works for both normal and retry path)
 					if created_products:
@@ -1313,7 +1327,9 @@ def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sy
 								_batch_assign_attributes(session, base_url, all_products_for_attrs, attr_value_maps, variant_of_map)
 
 						except Exception as e:
-							frappe.log_error("Medusa Full Sync", f"Attribute assign failed: {e}")
+							msg = f"Attribute assign failed: {e}"
+							frappe.log_error("Medusa Full Sync", msg)
+							stats["error_details"].append(msg)
 
 					frappe.db.commit()
 
