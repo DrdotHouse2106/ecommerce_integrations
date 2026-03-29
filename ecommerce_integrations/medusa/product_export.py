@@ -2,6 +2,8 @@
 import re
 import time
 
+BATCH_DELAY_SECONDS = 2
+
 import frappe
 import requests
 from frappe.utils import cstr
@@ -1141,59 +1143,25 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 								batch_payload["update"] = update_batch
 
 							result = medusa_request(session, base_url, "POST", API_PRODUCTS_BATCH, json=batch_payload)
-
-							chunk_sale_prices = []
-							chunk_channel_prices = []
-							all_variant_images = []
 							created_products = result.get("created", [])
-							for product in created_products:
-								_save_medusa_ids(product, variant_of_map=variant_of_map)
-								stats["created"] += 1
-								vim = _find_in_product_map(product, variant_image_maps, {}, variant_of_map=variant_of_map)
-								if vim:
-									all_variant_images.append((product, vim))
-								sp = _find_in_product_map(product, sale_price_maps, [], variant_of_map=variant_of_map)
-								if sp:
-									chunk_sale_prices.append((product, sp))
-								cp = _find_in_product_map(product, channel_price_maps, [], variant_of_map=variant_of_map)
-								if cp:
-									chunk_channel_prices.append((product, cp))
-
-							time.sleep(2)
-
-							for product, vim in all_variant_images:
-								_associate_variant_images(session, base_url, product, vim)
-
-							if all_variant_images:
-								time.sleep(2)
-
-							if chunk_sale_prices:
-								_sync_sale_prices_batch(session, base_url, chunk_sale_prices)
-								time.sleep(2)
-
-							if chunk_channel_prices:
-								_sync_channel_prices_batch(session, base_url, chunk_channel_prices)
-								time.sleep(2)
-
 							stats["updated"] += len(result.get("updated", []))
 						except requests.exceptions.HTTPError as e:
 							if e.response is not None and e.response.status_code in (400, 404) and update_batch:
-								# Stale medusa_product_ids — clear them and retry as creates
+								# Stale medusa_product_ids — clear them and retry only those as creates
 								frappe.logger("medusa").warning(f"Batch failed ({e.response.status_code}), clearing stale IDs and retrying as create")
+								retry_batch = []
 								for payload in update_batch:
 									stale_id = payload.pop("id", None)
 									if stale_id:
-										frappe.db.sql(f"UPDATE tabItem SET {PRODUCT_ID_FIELD}=NULL, {VARIANT_ID_FIELD}=NULL WHERE {PRODUCT_ID_FIELD}=%s", stale_id)
-									create_batch.append(payload)
+										frappe.db.set_value("Item", {PRODUCT_ID_FIELD: stale_id}, {PRODUCT_ID_FIELD: None, VARIANT_ID_FIELD: None}, update_modified=False)
+									retry_batch.append(payload)
 								try:
-									time.sleep(2)
-									result = medusa_request(session, base_url, "POST", API_PRODUCTS_BATCH, json={"create": create_batch})
+									time.sleep(BATCH_DELAY_SECONDS)
+									# Retry: original creates + former updates (now creates)
+									result = medusa_request(session, base_url, "POST", API_PRODUCTS_BATCH, json={"create": create_batch + retry_batch})
 									created_products = result.get("created", [])
-									for product in created_products:
-										_save_medusa_ids(product, variant_of_map=variant_of_map)
-										stats["created"] += 1
 								except Exception as retry_e:
-									stats["errors"] += len(create_batch)
+									stats["errors"] += len(create_batch) + len(retry_batch)
 									frappe.log_error("Medusa Full Sync", f"Retry batch failed: {retry_e}")
 							else:
 								stats["errors"] += len(create_batch) + len(update_batch)
@@ -1201,6 +1169,39 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 						except Exception as e:
 							stats["errors"] += len(create_batch) + len(update_batch)
 							frappe.log_error("Medusa Full Sync", f"Batch sync failed: {e}")
+
+					# Process created products (works for both normal and retry path)
+					if created_products:
+						chunk_sale_prices = []
+						chunk_channel_prices = []
+						all_variant_images = []
+						for product in created_products:
+							_save_medusa_ids(product, variant_of_map=variant_of_map)
+							stats["created"] += 1
+							vim = _find_in_product_map(product, variant_image_maps, {}, variant_of_map=variant_of_map)
+							if vim:
+								all_variant_images.append((product, vim))
+							sp = _find_in_product_map(product, sale_price_maps, [], variant_of_map=variant_of_map)
+							if sp:
+								chunk_sale_prices.append((product, sp))
+							cp = _find_in_product_map(product, channel_price_maps, [], variant_of_map=variant_of_map)
+							if cp:
+								chunk_channel_prices.append((product, cp))
+
+						time.sleep(BATCH_DELAY_SECONDS)
+
+						for product, vim in all_variant_images:
+							_associate_variant_images(session, base_url, product, vim)
+						if all_variant_images:
+							time.sleep(BATCH_DELAY_SECONDS)
+
+						if chunk_sale_prices:
+							_sync_sale_prices_batch(session, base_url, chunk_sale_prices)
+							time.sleep(BATCH_DELAY_SECONDS)
+
+						if chunk_channel_prices:
+							_sync_channel_prices_batch(session, base_url, chunk_channel_prices)
+							time.sleep(BATCH_DELAY_SECONDS)
 
 					# Batch-assign attributes — runs independently of batch create/update
 					if attr_value_maps:
@@ -1215,13 +1216,15 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 										"id": medusa_id,
 										"variants": [{"sku": sku} for sku in child_skus],
 									})
-							_batch_assign_attributes(session, base_url, all_products_for_attrs, attr_value_maps, variant_of_map)
-							time.sleep(2)
+							if all_products_for_attrs:
+								_batch_assign_attributes(session, base_url, all_products_for_attrs, attr_value_maps, variant_of_map)
+								time.sleep(BATCH_DELAY_SECONDS)
 						except Exception as e:
 							frappe.log_error("Medusa Full Sync", f"Attribute assign failed: {e}")
 
 					frappe.db.commit()
-					time.sleep(2)
+					if create_batch or update_batch:
+						time.sleep(BATCH_DELAY_SECONDS)
 			finally:
 				session.close()
 
