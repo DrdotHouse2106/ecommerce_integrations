@@ -1201,9 +1201,16 @@ def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sy
 							created_products = result.get("created", [])
 							stats["updated"] += len(result.get("updated", []))
 						except requests.exceptions.HTTPError as e:
-							if e.response is not None and e.response.status_code in (400, 404) and update_batch:
-								# Stale medusa_product_ids — clear them and retry only those as creates
-								frappe.logger("medusa").warning(f"Batch failed ({e.response.status_code}), clearing stale IDs and retrying as create")
+							resp_body = ""
+							if e.response is not None:
+								try:
+									resp_body = e.response.text[:500]
+								except Exception:
+									pass
+							if e.response is not None and e.response.status_code in (400, 404) and update_batch and not create_batch:
+								# Only retry when the error is likely from stale update IDs
+								# (if create_batch was also present, the error could be from those)
+								frappe.logger("medusa").warning(f"Batch update failed ({e.response.status_code}), clearing stale IDs and retrying as create")
 								retry_batch = []
 								for payload in update_batch:
 									stale_id = payload.pop("id", None)
@@ -1212,15 +1219,14 @@ def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sy
 									retry_batch.append(payload)
 								try:
 									time.sleep(BATCH_DELAY_SECONDS)
-									# Retry: original creates + former updates (now creates)
-									result = medusa_request(session, base_url, "POST", API_PRODUCTS_BATCH, json={"create": create_batch + retry_batch})
+									result = medusa_request(session, base_url, "POST", API_PRODUCTS_BATCH, json={"create": retry_batch})
 									created_products = result.get("created", [])
 								except Exception as retry_e:
-									stats["errors"] += len(create_batch) + len(retry_batch)
+									stats["errors"] += len(retry_batch)
 									frappe.log_error("Medusa Full Sync", f"Retry batch failed: {retry_e}")
 							else:
 								stats["errors"] += len(create_batch) + len(update_batch)
-								frappe.log_error("Medusa Full Sync", f"Batch sync failed: {e}")
+								frappe.log_error("Medusa Full Sync", f"Batch sync failed ({e.response.status_code if e.response is not None else '?'}): {resp_body or e}")
 						except Exception as e:
 							stats["errors"] += len(create_batch) + len(update_batch)
 							frappe.log_error("Medusa Full Sync", f"Batch sync failed: {e}")
