@@ -1247,37 +1247,45 @@ def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sy
 							result = medusa_request(session, base_url, "POST", API_PRODUCTS_BATCH, json=batch_payload)
 							created_products = result.get("created", [])
 							stats["updated"] += len(result.get("updated", []))
-						except requests.exceptions.HTTPError as e:
-							resp_body = ""
-							if e.response is not None:
+						except (requests.exceptions.HTTPError, requests.exceptions.ConnectionError) as e:
+							# Batch failed — fall back to individual creates
+							frappe.logger("medusa").warning(f"Batch failed, falling back to individual creates: {e}")
+							all_payloads = []
+							for payload in create_batch:
+								all_payloads.append(payload)
+							for payload in update_batch:
+								stale_id = payload.pop("id", None)
+								if stale_id:
+									frappe.db.set_value("Item", {PRODUCT_ID_FIELD: stale_id}, {PRODUCT_ID_FIELD: None, VARIANT_ID_FIELD: None}, update_modified=False)
+								all_payloads.append(payload)
+							for payload in all_payloads:
 								try:
-									resp_body = e.response.text[:500]
-								except Exception:
-									pass
-							if e.response is not None and e.response.status_code in (400, 404) and update_batch and not create_batch:
-								# Only retry when the error is likely from stale update IDs
-								# (if create_batch was also present, the error could be from those)
-								frappe.logger("medusa").warning(f"Batch update failed ({e.response.status_code}), clearing stale IDs and retrying as create")
-								retry_batch = []
-								for payload in update_batch:
-									stale_id = payload.pop("id", None)
-									if stale_id:
-										frappe.db.set_value("Item", {PRODUCT_ID_FIELD: stale_id}, {PRODUCT_ID_FIELD: None, VARIANT_ID_FIELD: None}, update_modified=False)
-									retry_batch.append(payload)
-								try:
-	
-									result = medusa_request(session, base_url, "POST", API_PRODUCTS_BATCH, json={"create": retry_batch})
-									created_products = result.get("created", [])
-								except Exception as retry_e:
-									stats["errors"] += len(retry_batch)
-									msg = f"Retry batch failed: {retry_e}"
-									frappe.log_error("Medusa Full Sync", msg)
+									result = medusa_request(session, base_url, "POST", API_PRODUCTS, json=payload)
+									product = result.get("product", {})
+									if product.get("id"):
+										created_products.append(product)
+								except requests.exceptions.HTTPError as single_e:
+									# Handle "already exists" — look up existing product by handle
+									if single_e.response is not None and single_e.response.status_code == 400:
+										try:
+											resp = single_e.response.json()
+											if "already exists" in resp.get("message", ""):
+												handle = payload.get("handle", "")
+												if handle:
+													existing = medusa_request(session, base_url, "GET", API_PRODUCTS, params={"handle": handle, "fields": "id,variants"})
+													for p in existing.get("products", []):
+														_save_medusa_ids(p, variant_of_map=variant_of_map)
+														stats["updated"] += 1
+													continue
+										except Exception:
+											pass
+									stats["errors"] += 1
+									msg = f"Single create failed for {payload.get('handle', '?')}: {single_e}"
 									stats["error_details"].append(msg)
-							else:
-								stats["errors"] += len(create_batch) + len(update_batch)
-								msg = f"Batch sync failed ({e.response.status_code if e.response is not None else '?'}): {resp_body or e}"
-								frappe.log_error("Medusa Full Sync", msg)
-								stats["error_details"].append(msg)
+								except Exception as single_e:
+									stats["errors"] += 1
+									msg = f"Single create failed for {payload.get('handle', '?')}: {single_e}"
+									stats["error_details"].append(msg)
 						except Exception as e:
 							stats["errors"] += len(create_batch) + len(update_batch)
 							msg = f"Batch sync failed: {e}"
