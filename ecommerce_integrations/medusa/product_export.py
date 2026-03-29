@@ -935,11 +935,19 @@ def _associate_variant_images(session, base_url, product: dict, variant_image_ma
             image_to_variants.setdefault(image_id, []).append(variant_id)
 
     for image_id, variant_ids in image_to_variants.items():
-        try:
-            endpoint = f"{API_PRODUCTS}/{product_id}/images/{image_id}/variants/batch"
-            medusa_request(session, base_url, "POST", endpoint, json={"add": variant_ids})
-        except Exception as e:
-            frappe.log_error("Medusa Variant Images", f"Failed for image {image_id}: {e}")
+        endpoint = f"{API_PRODUCTS}/{product_id}/images/{image_id}/variants/batch"
+        for attempt in range(3):
+            try:
+                medusa_request(session, base_url, "POST", endpoint, json={"add": variant_ids})
+                break
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                if attempt < 2:
+                    time.sleep(BATCH_DELAY_SECONDS * (attempt + 1))
+                    continue
+                frappe.log_error("Medusa Variant Images", f"Failed for image {image_id} after 3 retries: {e}")
+            except Exception as e:
+                frappe.log_error("Medusa Variant Images", f"Failed for image {image_id}: {e}")
+                break
 
 
 def _sync_sale_prices(session, base_url, product: dict, sale_prices: list):
