@@ -647,7 +647,7 @@ def _ensure_attributes_exist(entries: list, session=None, base_url=None) -> dict
     """
     attr_map = _get_or_build_attribute_map(session=session, base_url=base_url)
 
-    # Collect attributes that need to be created or updated
+    # Collect attributes with missing values
     to_create = {}  # {name: set(values)}
     for name, value in entries:
         existing = attr_map.get(name)
@@ -659,69 +659,48 @@ def _ensure_attributes_exist(entries: list, session=None, base_url=None) -> dict
     if not to_create:
         return attr_map
 
-    # Split into new attributes vs existing that need new values
+    # Send everything as "create" — the endpoint auto-merges new values
+    # into existing attributes (no separate update path needed)
     create_payloads = []
-    update_payloads = []
-
     for name, values in to_create.items():
-        existing = attr_map.get(name)
-        if not existing:
-            # New attribute — create with all values
-            handle = _transliterate(name.lower())
-            handle = re.sub(r'[^a-z0-9-]', '-', handle)
-            handle = re.sub(r'-+', '-', handle).strip('-')
-            create_payloads.append({
-                "name": name,
-                "handle": handle,
-                "is_filterable": True,
-                "is_variant_defining": False,
-                "ui_component": "select",
-                "possible_values": [{"value": v, "rank": i} for i, v in enumerate(sorted(values))],
-            })
-        else:
-            # Existing attribute — add missing values
-            existing_values = existing.get("values", {})
-            new_values = [v for v in values if v not in existing_values]
-            if new_values:
-                rank_start = len(existing_values)
-                update_payloads.append({
-                    "id": existing["id"],
-                    "possible_values": [{"value": v, "rank": rank_start + i} for i, v in enumerate(sorted(new_values))],
-                })
+        handle = _transliterate(name.lower())
+        handle = re.sub(r'[^a-z0-9-]', '-', handle)
+        handle = re.sub(r'-+', '-', handle).strip('-')
+        create_payloads.append({
+            "name": name,
+            "handle": handle,
+            "is_filterable": True,
+            "is_variant_defining": False,
+            "ui_component": "select",
+            "possible_values": [{"value": v, "rank": i} for i, v in enumerate(sorted(values))],
+        })
 
-    if create_payloads or update_payloads:
-        with optional_session(session, base_url) as (s, url):
-            try:
-                batch = {}
-                if create_payloads:
-                    batch["create"] = create_payloads
-                if update_payloads:
-                    batch["update"] = update_payloads
+    with optional_session(session, base_url) as (s, url):
+        try:
+            result = medusa_request(s, url, "POST", "/admin/plugin/attributes/batch", json={"create": create_payloads})
 
-                result = medusa_request(s, url, "POST", "/admin/plugin/attributes/batch", json=batch)
+            # Update cache from created attributes (full possible_values in response)
+            for attr in result.get("created", []):
+                attr_map[attr["name"]] = {
+                    "id": attr["id"],
+                    "values": {pv["value"]: pv["id"] for pv in attr.get("possible_values", [])},
+                }
 
-                for attr in result.get("created", []) + result.get("updated", []) + result.get("skipped", []):
-                    attr_name = attr.get("name")
-                    if not attr_name:
-                        continue
-                    # Merge new values into existing map entry (don't overwrite)
-                    existing_entry = attr_map.get(attr_name, {"id": attr["id"], "values": {}})
-                    existing_entry["id"] = attr["id"]
-                    for pv in attr.get("possible_values", []):
-                        existing_entry["values"][pv["value"]] = pv["id"]
-                    attr_map[attr_name] = existing_entry
-
-                # Safety: mark values we sent as present in cache even if
-                # the API response didn't include them (prevents re-sending)
+            # For merged attributes, invalidate cache entry so it's re-fetched
+            # (merged response only has new_values strings, not full possible_values with IDs)
+            if result.get("merged"):
+                frappe.cache.delete_value("medusa_attribute_map")
+                attr_map = _get_or_build_attribute_map(session=s, base_url=url)
+            else:
+                # Mark sent values as present to prevent re-sending within same sync
                 for name, values in to_create.items():
                     entry = attr_map.get(name)
                     if entry:
                         for v in values:
                             entry["values"].setdefault(v, "pending")
-
                 frappe.cache.set_value("medusa_attribute_map", attr_map, expires_in_sec=300)
-            except Exception as e:
-                frappe.log_error("Medusa Attributes", f"Batch attribute sync failed: {e}")
+        except Exception as e:
+            frappe.log_error("Medusa Attributes", f"Batch attribute sync failed: {e}")
 
     return attr_map
 
