@@ -1012,11 +1012,26 @@ def _find_in_product_map(product: dict, lookup_map: dict, default=None, variant_
     return default
 
 
+SYNC_CANCEL_KEY = "medusa_full_sync_cancel"
+SYNC_RUNNING_KEY = "medusa_full_sync_running"
+
+
 @frappe.whitelist()
 def enqueue_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=0, batch_size=50, dry_run=0):
-	"""Enqueue a full product sync to Medusa as a background job."""
+	"""Enqueue a full product sync to Medusa as a background job.
+
+	If a sync is already running, it is cancelled (after its current chunk
+	finishes) and replaced by the new one.
+	"""
 	if not is_medusa_enabled():
 		return {"success": False, "message": "Medusa integration is not enabled"}
+
+	# Signal any running sync to stop after its current chunk
+	if frappe.cache.get_value(SYNC_RUNNING_KEY):
+		frappe.cache.set_value(SYNC_CANCEL_KEY, True, expires_in_sec=3600)
+		message = "Previous sync cancelled. New sync enqueued."
+	else:
+		message = "Full sync enqueued."
 
 	frappe.enqueue(
 		"ecommerce_integrations.medusa.product_export.run_full_sync",
@@ -1029,15 +1044,46 @@ def enqueue_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_st
 		batch_size=int(batch_size),
 		dry_run=int(dry_run),
 	)
-	return {"success": True, "message": "Full sync enqueued"}
+	return {"success": True, "message": message}
+
+
+def _is_sync_cancelled():
+	"""Check if the current sync has been cancelled by a newer enqueue."""
+	return bool(frappe.cache.get_value(SYNC_CANCEL_KEY))
 
 
 def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=0, batch_size=50, dry_run=0):
 	"""Run a complete sync of all products from ERPNext to Medusa using batch API."""
-	from ecommerce_integrations.medusa.connection import get_medusa_session
+	# If a cancel was requested (by a newer sync), consume the flag and exit
+	if _is_sync_cancelled():
+		frappe.cache.delete_value(SYNC_CANCEL_KEY)
+		frappe.logger("medusa").info("Sync skipped — cancelled by newer enqueue")
+		return {"created": 0, "updated": 0, "errors": 0, "skipped": 0}
+
+	# Mark this sync as running
+	frappe.cache.set_value(SYNC_RUNNING_KEY, True, expires_in_sec=3600)
 
 	stats = {"created": 0, "updated": 0, "errors": 0, "skipped": 0}
 	batch_size = int(batch_size)
+
+	try:
+		return _run_full_sync_inner(stats, batch_size, sync_categories, sync_products, sync_prices, sync_stock, dry_run)
+	except Exception as e:
+		frappe.log_error("Medusa Full Sync", f"Sync crashed: {e}")
+		stats["errors"] += 1
+		frappe.cache.delete_value(SYNC_RUNNING_KEY)
+		create_medusa_log(
+			request_type="Complete Sync",
+			status="Error",
+			request_data={"stats": stats},
+			response_data=f"Sync crashed: {e}",
+		)
+		return stats
+
+
+def _run_full_sync_inner(stats, batch_size, sync_categories, sync_products, sync_prices, sync_stock, dry_run):
+	"""Inner sync logic, wrapped by run_full_sync for error handling."""
+	from ecommerce_integrations.medusa.connection import get_medusa_session
 
 	if sync_categories:
 		try:
@@ -1083,6 +1129,12 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 				_get_or_build_attribute_map(session=session, base_url=base_url)
 
 				for chunk_start in range(0, len(items), batch_size):
+					# Check if a newer sync has cancelled us
+					if _is_sync_cancelled():
+						frappe.cache.delete_value(SYNC_CANCEL_KEY)
+						frappe.logger("medusa").info(f"Sync cancelled after {stats['created']} created, {stats['updated']} updated")
+						break
+
 					chunk = items[chunk_start:chunk_start + batch_size]
 					create_batch = []
 					update_batch = []
@@ -1235,6 +1287,16 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 		except Exception as e:
 			frappe.log_error("Medusa Full Sync", f"Inventory sync failed: {e}")
 
+	# Clear running flag and log result
+	frappe.cache.delete_value(SYNC_RUNNING_KEY)
+	status = "Error" if stats["errors"] > 0 else "Success"
+	message = f"Created: {stats['created']}, Updated: {stats['updated']}, Errors: {stats['errors']}"
+	create_medusa_log(
+		request_type="Complete Sync",
+		status=status,
+		request_data={"stats": stats},
+		response_data=message,
+	)
 	frappe.logger("medusa").info(f"Full sync complete: {stats}")
 	return stats
 
