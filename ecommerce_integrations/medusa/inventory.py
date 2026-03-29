@@ -1,6 +1,6 @@
 """Sync ERPNext stock levels to Medusa v2 inventory."""
 import frappe
-from ecommerce_integrations.medusa.connection import medusa_request, medusa_request_all, optional_session, temp_medusa_session
+from ecommerce_integrations.medusa.connection import medusa_request, medusa_request_all, temp_medusa_session
 from ecommerce_integrations.medusa.constants import (
     API_INVENTORY_ITEMS, API_INVENTORY_LEVELS_BATCH, SETTING_DOCTYPE, VARIANT_ID_FIELD,
 )
