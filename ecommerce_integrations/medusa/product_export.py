@@ -666,13 +666,16 @@ def _ensure_attributes_exist(entries: list, session=None, base_url=None) -> dict
         handle = _transliterate(name.lower())
         handle = re.sub(r'[^a-z0-9-]', '-', handle)
         handle = re.sub(r'-+', '-', handle).strip('-')
+        # Start rank after existing values so merged values get ascending ranks
+        existing = attr_map.get(name)
+        rank_start = len(existing.get("values", {})) if existing else 0
         create_payloads.append({
             "name": name,
             "handle": handle,
             "is_filterable": True,
             "is_variant_defining": False,
             "ui_component": "select",
-            "possible_values": [{"value": v, "rank": i} for i, v in enumerate(sorted(values))],
+            "possible_values": [{"value": v, "rank": rank_start + i} for i, v in enumerate(sorted(values))],
         })
 
     with optional_session(session, base_url) as (s, url):
