@@ -1,5 +1,6 @@
 """Export ERPNext Items to Medusa v2 as Products."""
 import re
+import time
 
 import frappe
 import requests
@@ -1158,27 +1159,53 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 								if cp:
 									chunk_channel_prices.append((product, cp))
 
+							time.sleep(2)
+
 							for product, vim in all_variant_images:
 								_associate_variant_images(session, base_url, product, vim)
 
+							if all_variant_images:
+								time.sleep(2)
+
 							if chunk_sale_prices:
 								_sync_sale_prices_batch(session, base_url, chunk_sale_prices)
+								time.sleep(2)
 
 							if chunk_channel_prices:
 								_sync_channel_prices_batch(session, base_url, chunk_channel_prices)
+								time.sleep(2)
 
 							stats["updated"] += len(result.get("updated", []))
+						except requests.exceptions.HTTPError as e:
+							if e.response is not None and e.response.status_code in (400, 404) and update_batch:
+								# Stale medusa_product_ids — clear them and retry as creates
+								frappe.logger("medusa").warning(f"Batch failed ({e.response.status_code}), clearing stale IDs and retrying as create")
+								for payload in update_batch:
+									stale_id = payload.pop("id", None)
+									if stale_id:
+										frappe.db.sql(f"UPDATE tabItem SET {PRODUCT_ID_FIELD}=NULL, {VARIANT_ID_FIELD}=NULL WHERE {PRODUCT_ID_FIELD}=%s", stale_id)
+									create_batch.append(payload)
+								try:
+									time.sleep(2)
+									result = medusa_request(session, base_url, "POST", API_PRODUCTS_BATCH, json={"create": create_batch})
+									created_products = result.get("created", [])
+									for product in created_products:
+										_save_medusa_ids(product, variant_of_map=variant_of_map)
+										stats["created"] += 1
+								except Exception as retry_e:
+									stats["errors"] += len(create_batch)
+									frappe.log_error("Medusa Full Sync", f"Retry batch failed: {retry_e}")
+							else:
+								stats["errors"] += len(create_batch) + len(update_batch)
+								frappe.log_error("Medusa Full Sync", f"Batch sync failed: {e}")
 						except Exception as e:
 							stats["errors"] += len(create_batch) + len(update_batch)
 							frappe.log_error("Medusa Full Sync", f"Batch sync failed: {e}")
 
 					# Batch-assign attributes — runs independently of batch create/update
-					# Also covers existing products that already have a medusa_product_id
 					if attr_value_maps:
 						try:
 							all_products_for_attrs = list(created_products)
-							# For existing products (updates), build minimal product dicts
-							# using variant_of_map instead of DB queries
 							for item_row, exporter in chunk_exporters:
 								medusa_id = item_row.get(PRODUCT_ID_FIELD)
 								if medusa_id and item_row.item_code in attr_value_maps:
@@ -1189,10 +1216,12 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 										"variants": [{"sku": sku} for sku in child_skus],
 									})
 							_batch_assign_attributes(session, base_url, all_products_for_attrs, attr_value_maps, variant_of_map)
+							time.sleep(2)
 						except Exception as e:
 							frappe.log_error("Medusa Full Sync", f"Attribute assign failed: {e}")
 
 					frappe.db.commit()
+					time.sleep(2)
 			finally:
 				session.close()
 
