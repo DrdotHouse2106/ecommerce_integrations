@@ -17,9 +17,9 @@ class AdaptiveThrottle:
     Thread-safe. Shared across all requests in the same process.
     """
 
-    MIN_DELAY = 0.0       # No delay when healthy
-    MAX_DELAY = 10.0      # Cap at 10s between requests
-    BACKOFF_FACTOR = 1.5  # Multiply delay on error
+    MIN_DELAY = 0.5       # Minimum delay between requests (backpressure floor)
+    MAX_DELAY = 15.0      # Cap at 15s between requests
+    BACKOFF_FACTOR = 2.0  # Multiply delay on error
     RECOVERY_FACTOR = 0.7 # Multiply delay on success
     RECOVERY_THRESHOLD = 3 # Consecutive successes before reducing delay
 
@@ -39,11 +39,9 @@ class AdaptiveThrottle:
         """Record a successful request — gradually reduce delay."""
         with self._lock:
             self._consecutive_successes += 1
-            if self._consecutive_successes >= self.RECOVERY_THRESHOLD and self._delay > 0:
+            if self._consecutive_successes >= self.RECOVERY_THRESHOLD and self._delay > self.MIN_DELAY:
                 self._delay = max(self.MIN_DELAY, self._delay * self.RECOVERY_FACTOR)
                 self._consecutive_successes = 0
-                if self._delay < 0.1:
-                    self._delay = self.MIN_DELAY
 
     def record_error(self, is_overload=False):
         """Record a failed request — increase delay."""

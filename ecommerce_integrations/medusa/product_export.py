@@ -1109,6 +1109,23 @@ def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sy
 					if i.item_code not in variant_of_map:
 						variant_of_map[i.item_code] = i.variant_of
 
+				# Validate existing medusa_product_ids against Medusa
+				# One paginated fetch to get all product IDs — clears stale mappings
+				items_with_ids = [i for i in items if i.get(PRODUCT_ID_FIELD)]
+				if items_with_ids:
+					existing_products = medusa_request_all(session, base_url, API_PRODUCTS, "products", params={"fields": "id", "limit": 200})
+					valid_ids = {p["id"] for p in existing_products}
+					stale_count = 0
+					for item in items:
+						mid = item.get(PRODUCT_ID_FIELD)
+						if mid and mid not in valid_ids:
+							frappe.db.set_value("Item", item.item_code, {PRODUCT_ID_FIELD: None, VARIANT_ID_FIELD: None}, update_modified=False)
+							item[PRODUCT_ID_FIELD] = None
+							stale_count += 1
+					if stale_count:
+						frappe.db.commit()
+						frappe.logger("medusa").info(f"Cleared {stale_count} stale medusa_product_ids")
+
 				# Pre-warm category and attribute caches once
 				_get_category_map(session=session, base_url=base_url)
 				_get_or_build_attribute_map(session=session, base_url=base_url)
