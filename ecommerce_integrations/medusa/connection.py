@@ -1,5 +1,6 @@
 """Medusa v2 API connection management."""
 
+import contextlib
 import functools
 import time
 
@@ -27,6 +28,24 @@ def get_medusa_session() -> tuple:
     session.timeout = 60
 
     return session, base_url
+
+
+@contextlib.contextmanager
+def optional_session(session=None, base_url=None):
+    """Context manager that reuses an existing session or creates a new one.
+
+    Usage:
+        with optional_session(session, base_url) as (s, url):
+            medusa_request(s, url, ...)
+    """
+    if session is not None:
+        yield session, base_url
+    else:
+        session, base_url = get_medusa_session()
+        try:
+            yield session, base_url
+        finally:
+            session.close()
 
 
 def temp_medusa_session(func):

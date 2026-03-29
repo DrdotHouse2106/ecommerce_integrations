@@ -5,7 +5,7 @@ import frappe
 import requests
 from frappe.utils import cstr
 from ecommerce_integrations.property_utils import get_ecommerce_properties
-from ecommerce_integrations.medusa.connection import medusa_request, medusa_request_all, temp_medusa_session
+from ecommerce_integrations.medusa.connection import medusa_request, medusa_request_all, optional_session, temp_medusa_session
 from ecommerce_integrations.medusa.constants import (
     API_PRODUCTS, API_PRODUCTS_BATCH, API_PRODUCT_VARIANTS,
     PRODUCT_ID_FIELD, SETTING_DOCTYPE, VARIANT_ID_FIELD,
@@ -37,6 +37,9 @@ class MedusaProductExporter:
     @temp_medusa_session
     def _create_product(self, session, base_url):
         payload, variant_image_map = self._build_product_payload()
+        # Single create supports additional_data via workflow hook
+        if self._attribute_values:
+            payload["additional_data"] = {"values": self._attribute_values}
         result = medusa_request(session, base_url, "POST", API_PRODUCTS, json=payload)
         product = result.get("product", {})
         if product.get("id"):
@@ -70,7 +73,7 @@ class MedusaProductExporter:
             "prices": [{"currency_code": currency, "amount": erpnext_price_to_medusa(price)}],
         })
 
-    def _build_product_payload(self, is_update=False) -> tuple:
+    def _build_product_payload(self, is_update=False, session=None, base_url=None) -> tuple:
         """Build Medusa product payload from ERPNext Item.
 
         Returns (payload_dict, variant_image_map) where variant_image_map
@@ -97,7 +100,7 @@ class MedusaProductExporter:
             if val:
                 payload[dim] = float(val)
 
-        category_ids = self._get_medusa_category_ids()
+        category_ids = self._get_medusa_category_ids(session=session, base_url=base_url)
         if category_ids:
             payload["categories"] = [{"id": cid} for cid in category_ids]
 
@@ -110,11 +113,8 @@ class MedusaProductExporter:
             if channel_ids:
                 payload["sales_channels"] = [{"id": ch_id} for ch_id in channel_ids]
 
-        # Filterable properties -> included inline via additional_data.values
-        # for single product create (batch API ignores additional_data)
-        self._attribute_values = self._get_attribute_values()
-        if self._attribute_values:
-            payload["additional_data"] = {"values": self._attribute_values}
+        # Collect attribute values (for post-create batch-assign)
+        self._attribute_values = self._get_attribute_values(session=session, base_url=base_url)
 
         meta = self._build_metadata()
         if meta:
@@ -292,7 +292,7 @@ class MedusaProductExporter:
             selling = price_map.get(code, 0) or 0
             list_p = list_price_map.get(code, 0) or 0
             variant = self._make_variant_dict(
-                child, (frappe.db.get_default("currency") or "EUR").lower(),
+                child, currency,
                 price_override=selling, list_price_override=list_p
             )
             variant["options"] = option_values
@@ -395,14 +395,14 @@ class MedusaProductExporter:
         sku_slug = re.sub(r'-+', '-', sku_slug).strip('-')
         return f"{handle_base}-{sku_slug}"
 
-    def _get_medusa_category_ids(self) -> list:
+    def _get_medusa_category_ids(self, session=None, base_url=None) -> list:
         """Get all Medusa category IDs for this item.
 
         Sources:
         1. Item's primary item_group
         2. Website Item's additional item groups (multi-category)
         """
-        cat_map = self._get_category_map()
+        cat_map = self._get_medusa_category_map(session=session, base_url=base_url)
         if not cat_map:
             return []
 
@@ -424,26 +424,9 @@ class MedusaProductExporter:
 
         return [cat_map[g] for g in groups if g in cat_map]
 
-    def _get_category_map(self) -> dict:
+    def _get_medusa_category_map(self, session=None, base_url=None) -> dict:
         """Get {item_group_name: medusa_category_id} map, cached."""
-        from ecommerce_integrations.medusa.constants import API_CATEGORIES
-
-        cache_key = "medusa_category_map"
-        cat_map = frappe.cache.get_value(cache_key)
-        if cat_map is not None:
-            return cat_map
-
-        from ecommerce_integrations.medusa.connection import get_medusa_session
-        session, base_url = get_medusa_session()
-        try:
-            categories = medusa_request_all(session, base_url, API_CATEGORIES, "product_categories")
-            cat_map = {c["name"]: c["id"] for c in categories}
-            frappe.cache.set_value(cache_key, cat_map, expires_in_sec=300)
-        except Exception:
-            cat_map = {}
-        finally:
-            session.close()
-        return cat_map
+        return _get_category_map(session=session, base_url=base_url)
 
     def _get_image_url(self):
         return self._resolve_image_url(self.item.image)
@@ -523,13 +506,8 @@ class MedusaProductExporter:
             metadata[key] = cstr(row.property_value).strip()
         return metadata
 
-    def _get_attribute_values(self) -> list:
-        """Filterable ecommerce properties + brand -> medusa-product-attributes plugin.
-
-        Ensures all needed attributes and possible values exist in Medusa
-        (via batch endpoint), then returns list of {attribute_id, value}
-        dicts for additional_data.values on the product payload.
-        """
+    def _collect_attribute_entries(self) -> list:
+        """Collect (attr_name, value) tuples for this item's filterable attributes."""
         entries = []
 
         brand = getattr(self.item, "brand", None)
@@ -540,18 +518,21 @@ class MedusaProductExporter:
             if row.property_value and row.property_type == "Property" and getattr(row, "filterable", 0):
                 entries.append((row.property_name, cstr(row.property_value).strip()))
 
+        return entries
+
+    def _get_attribute_values(self, session=None, base_url=None) -> list:
+        """Filterable ecommerce properties + brand -> medusa-product-attributes plugin.
+
+        Ensures all needed attributes and possible values exist in Medusa
+        (via batch endpoint), then returns list of {attribute_id, value}
+        dicts for additional_data.values on the product payload.
+        """
+        entries = self._collect_attribute_entries()
         if not entries:
             return []
 
-        attr_map = _ensure_attributes_exist(entries)
-        result = []
-
-        for prop_name, prop_value in entries:
-            attr_entry = attr_map.get(prop_name)
-            if attr_entry and attr_entry.get("id"):
-                result.append({"attribute_id": attr_entry["id"], "value": prop_value})
-
-        return result
+        attr_map = _ensure_attributes_exist(entries, session=session, base_url=base_url)
+        return _resolve_attribute_values(entries, attr_map)
 
     def _get_price(self, price_list, item_code=None) -> float:
         if not price_list:
@@ -599,32 +580,58 @@ def _transliterate(text: str) -> str:
     return text.translate(_UMLAUT_MAP)
 
 
-def _get_or_build_attribute_map() -> dict:
+def _resolve_attribute_values(entries: list, attr_map: dict) -> list:
+    """Resolve (attr_name, value) entries to [{attribute_id, value}] using attr_map."""
+    result = []
+    for prop_name, prop_value in entries:
+        attr_entry = attr_map.get(prop_name)
+        if attr_entry and attr_entry.get("id"):
+            result.append({"attribute_id": attr_entry["id"], "value": prop_value})
+    return result
+
+
+def _get_category_map(session=None, base_url=None) -> dict:
+    """Get {item_group_name: medusa_category_id} map, cached."""
+    from ecommerce_integrations.medusa.constants import API_CATEGORIES
+
+    cache_key = "medusa_category_map"
+    cat_map = frappe.cache.get_value(cache_key)
+    if cat_map is not None:
+        return cat_map
+
+    with optional_session(session, base_url) as (s, url):
+        try:
+            categories = medusa_request_all(s, url, API_CATEGORIES, "product_categories")
+            cat_map = {c["name"]: c["id"] for c in categories}
+            frappe.cache.set_value(cache_key, cat_map, expires_in_sec=300)
+        except Exception:
+            cat_map = {}
+    return cat_map
+
+
+def _get_or_build_attribute_map(session=None, base_url=None) -> dict:
     """Get {attr_name: {"id": attr_id, "values": {val: pv_id}}} map, cached."""
     cache_key = "medusa_attribute_map"
     attr_map = frappe.cache.get_value(cache_key)
     if attr_map is not None:
         return attr_map
 
-    from ecommerce_integrations.medusa.connection import get_medusa_session
-    session, base_url = get_medusa_session()
-    try:
-        attrs = medusa_request_all(session, base_url, "/admin/plugin/attributes", "attributes")
-        attr_map = {}
-        for a in attrs:
-            attr_map[a["name"]] = {
-                "id": a["id"],
-                "values": {pv["value"]: pv["id"] for pv in a.get("possible_values", [])},
-            }
-        frappe.cache.set_value(cache_key, attr_map, expires_in_sec=300)
-    except Exception:
-        attr_map = {}
-    finally:
-        session.close()
+    with optional_session(session, base_url) as (s, url):
+        try:
+            attrs = medusa_request_all(s, url, "/admin/plugin/attributes", "attributes")
+            attr_map = {}
+            for a in attrs:
+                attr_map[a["name"]] = {
+                    "id": a["id"],
+                    "values": {pv["value"]: pv["id"] for pv in a.get("possible_values", [])},
+                }
+            frappe.cache.set_value(cache_key, attr_map, expires_in_sec=300)
+        except Exception:
+            attr_map = {}
     return attr_map
 
 
-def _ensure_attributes_exist(entries: list) -> dict:
+def _ensure_attributes_exist(entries: list, session=None, base_url=None) -> dict:
     """Ensure all attributes and their possible values exist in Medusa.
 
     Uses the batch endpoint POST /admin/plugin/attributes/batch to create
@@ -632,11 +639,13 @@ def _ensure_attributes_exist(entries: list) -> dict:
 
     Args:
         entries: list of (attr_name, value) tuples
+        session: optional existing requests.Session to reuse
+        base_url: optional base URL (required if session is provided)
 
     Returns:
         attr_map: {attr_name: {"id": attr_id, "values": {val: pv_id}}}
     """
-    attr_map = _get_or_build_attribute_map()
+    attr_map = _get_or_build_attribute_map(session=session, base_url=base_url)
 
     # Collect attributes that need to be created or updated
     to_create = {}  # {name: set(values)}
@@ -681,40 +690,38 @@ def _ensure_attributes_exist(entries: list) -> dict:
                 })
 
     if create_payloads or update_payloads:
-        from ecommerce_integrations.medusa.connection import get_medusa_session
-        session, base_url = get_medusa_session()
-        try:
-            batch = {}
-            if create_payloads:
-                batch["create"] = create_payloads
-            if update_payloads:
-                batch["update"] = update_payloads
+        with optional_session(session, base_url) as (s, url):
+            try:
+                batch = {}
+                if create_payloads:
+                    batch["create"] = create_payloads
+                if update_payloads:
+                    batch["update"] = update_payloads
 
-            result = medusa_request(session, base_url, "POST", "/admin/plugin/attributes/batch", json=batch)
+                result = medusa_request(s, url, "POST", "/admin/plugin/attributes/batch", json=batch)
 
-            # Update attr_map from response
-            for attr in result.get("created", []):
-                attr_map[attr["name"]] = {
-                    "id": attr["id"],
-                    "values": {pv["value"]: pv["id"] for pv in attr.get("possible_values", [])},
-                }
-            for attr in result.get("updated", []):
-                attr_map[attr["name"]] = {
-                    "id": attr["id"],
-                    "values": {pv["value"]: pv["id"] for pv in attr.get("possible_values", [])},
-                }
-            for attr in result.get("skipped", []):
-                if attr.get("name") not in attr_map:
-                    attr_map[attr["name"]] = {
-                        "id": attr["id"],
-                        "values": {pv["value"]: pv["id"] for pv in attr.get("possible_values", [])},
-                    }
+                for attr in result.get("created", []) + result.get("updated", []) + result.get("skipped", []):
+                    attr_name = attr.get("name")
+                    if not attr_name:
+                        continue
+                    # Merge new values into existing map entry (don't overwrite)
+                    existing_entry = attr_map.get(attr_name, {"id": attr["id"], "values": {}})
+                    existing_entry["id"] = attr["id"]
+                    for pv in attr.get("possible_values", []):
+                        existing_entry["values"][pv["value"]] = pv["id"]
+                    attr_map[attr_name] = existing_entry
 
-            frappe.cache.set_value("medusa_attribute_map", attr_map, expires_in_sec=300)
-        except Exception as e:
-            frappe.log_error("Medusa Attributes", f"Batch attribute sync failed: {e}")
-        finally:
-            session.close()
+                # Safety: mark values we sent as present in cache even if
+                # the API response didn't include them (prevents re-sending)
+                for name, values in to_create.items():
+                    entry = attr_map.get(name)
+                    if entry:
+                        for v in values:
+                            entry["values"].setdefault(v, "pending")
+
+                frappe.cache.set_value("medusa_attribute_map", attr_map, expires_in_sec=300)
+            except Exception as e:
+                frappe.log_error("Medusa Attributes", f"Batch attribute sync failed: {e}")
 
     return attr_map
 
@@ -734,52 +741,99 @@ def _get_dfp_storage_config(storage_name):
     return storage
 
 
-def _sync_channel_prices(session, base_url, product: dict, channel_prices: list):
-    """Sync per-channel prices as Medusa Price Lists (type override).
+def _batch_assign_attributes(session, base_url, created_products: list, attr_value_maps: dict, variant_of_map: dict = None):
+    """Assign attribute values to newly created products via plugin batch-assign endpoint.
 
-    Each sales channel gets its own Price List. Products with
-    channel-specific pricing get entries in that Price List.
+    Uses POST /admin/plugin/attributes/batch-assign with the assignments format.
     """
-    if not channel_prices:
+    assignments = []
+    for product in created_products:
+        product_id = product.get("id")
+        if not product_id:
+            continue
+        # Find the item_code's attribute values via variant SKU -> template lookup
+        attr_values = _find_in_product_map(product, attr_value_maps, [], variant_of_map=variant_of_map)
+        if not attr_values:
+            continue
+        for av in attr_values:
+            assignments.append({
+                "product_id": product_id,
+                "attribute_id": av["attribute_id"],
+                "value": av["value"],
+            })
+
+    if not assignments:
         return
 
-    sku_to_variant_id = {v["sku"]: v["id"] for v in product.get("variants", []) if v.get("sku") and v.get("id")}
+    try:
+        medusa_request(session, base_url, "POST", "/admin/plugin/attributes/batch-assign", json={"assignments": assignments})
+    except Exception as e:
+        frappe.log_error("Medusa Attributes", f"Batch attribute assign failed: {e}")
 
-    # Group by channel
+
+def _sku_to_variant_id(product: dict) -> dict:
+    """Build {sku: variant_id} map from a Medusa product."""
+    return {v["sku"]: v["id"] for v in product.get("variants", []) if v.get("sku") and v.get("id")}
+
+
+def _upsert_price_list_entries(session, base_url, price_list_id: str, entries: list, log_label: str = "Medusa Prices"):
+    """Replace price entries for given variants in a Medusa price list.
+
+    Deletes existing entries for the affected variants, then creates new ones.
+    """
+    if not entries or not price_list_id:
+        return
+
+    try:
+        variant_ids = {e["variant_id"] for e in entries}
+        existing_pl = medusa_request(session, base_url, "GET", f"/admin/price-lists/{price_list_id}", params={"fields": "+prices"})
+        existing_prices = existing_pl.get("price_list", {}).get("prices", [])
+        delete_ids = [p["id"] for p in existing_prices if p.get("variant_id") in variant_ids]
+
+        batch = {"create": entries}
+        if delete_ids:
+            batch["delete"] = delete_ids
+
+        medusa_request(session, base_url, "POST", f"/admin/price-lists/{price_list_id}/prices/batch", json=batch)
+    except Exception as e:
+        frappe.log_error(log_label, f"Failed to upsert prices in {price_list_id}: {e}")
+
+
+def _sync_channel_prices(session, base_url, product: dict, channel_prices: list):
+    """Sync per-channel prices as Medusa Price Lists (type override)."""
+    if not channel_prices:
+        return
+    _sync_channel_prices_batch(session, base_url, [(product, channel_prices)])
+
+
+def _sync_channel_prices_batch(session, base_url, product_channel_prices: list):
+    """Batch sync channel prices for multiple products.
+
+    Groups all entries by channel, then syncs each channel's price list once.
+    """
+    if not product_channel_prices:
+        return
+
     by_channel = {}
-    for cp in channel_prices:
-        ch_id = cp["channel_id"]
-        by_channel.setdefault(ch_id, {"name": cp["channel_name"], "entries": []})
-        variant_id = sku_to_variant_id.get(cp["sku"])
-        if variant_id:
-            by_channel[ch_id]["entries"].append({
-                "variant_id": variant_id,
-                "currency_code": cp["currency_code"],
-                "amount": cp["amount"],
-            })
+    for product, channel_prices in product_channel_prices:
+        vid_map = _sku_to_variant_id(product)
+        for cp in channel_prices:
+            ch_id = cp["channel_id"]
+            by_channel.setdefault(ch_id, {"name": cp["channel_name"], "entries": []})
+            variant_id = vid_map.get(cp["sku"])
+            if variant_id:
+                by_channel[ch_id]["entries"].append({
+                    "variant_id": variant_id,
+                    "currency_code": cp["currency_code"],
+                    "amount": cp["amount"],
+                })
 
     for ch_id, data in by_channel.items():
         if not data["entries"]:
             continue
-
         pl_id = _get_or_create_channel_price_list(session, base_url, ch_id, data["name"])
-        if not pl_id:
-            continue
-
-        try:
-            # Delete existing entries for these variants
-            variant_ids = {e["variant_id"] for e in data["entries"]}
-            existing_pl = medusa_request(session, base_url, "GET", f"/admin/price-lists/{pl_id}", params={"fields": "+prices"})
-            existing_prices = existing_pl.get("price_list", {}).get("prices", [])
-            delete_ids = [p["id"] for p in existing_prices if p.get("variant_id") in variant_ids]
-
-            batch = {"create": data["entries"]}
-            if delete_ids:
-                batch["delete"] = delete_ids
-
-            medusa_request(session, base_url, "POST", f"/admin/price-lists/{pl_id}/prices/batch", json=batch)
-        except Exception as e:
-            frappe.log_error("Medusa Channel Prices", f"Failed for channel {ch_id}: {e}")
+        if pl_id:
+            _upsert_price_list_entries(session, base_url, pl_id, data["entries"], "Medusa Channel Prices")
 
 
 def _get_or_create_channel_price_list(session, base_url, channel_id: str, channel_name: str) -> str:
@@ -814,32 +868,47 @@ def _get_or_create_channel_price_list(session, base_url, channel_id: str, channe
 
 
 
-def _save_medusa_ids(product: dict):
+def _save_medusa_ids(product: dict, variant_of_map: dict = None):
     """Save Medusa product/variant IDs back to ERPNext Items.
 
     For template products: saves product ID to template, variant IDs to child items.
     For simple products: saves both to the same item.
+
+    Args:
+        product: Medusa product dict with id and variants
+        variant_of_map: optional {item_code: variant_of} lookup to avoid DB queries
     """
     product_id = product.get("id")
     if not product_id:
         return
 
     variants = product.get("variants", [])
+
+    # Collect all updates: {item_code: {field: value}}
+    updates = {}
     for variant in variants:
         sku = variant.get("sku")
         variant_id = variant.get("id")
-        if not sku or not frappe.db.exists("Item", sku):
+        if not sku:
             continue
 
-        variant_of = frappe.db.get_value("Item", sku, "variant_of")
-        if variant_of:
-            frappe.db.set_value("Item", variant_of, PRODUCT_ID_FIELD, product_id)
-            if variant_id:
-                frappe.db.set_value("Item", sku, VARIANT_ID_FIELD, variant_id)
+        if variant_of_map is not None:
+            variant_of = variant_of_map.get(sku)
+            if variant_of is None and sku not in variant_of_map:
+                continue  # SKU not in our items
         else:
-            frappe.db.set_value("Item", sku, PRODUCT_ID_FIELD, product_id)
-            if variant_id:
-                frappe.db.set_value("Item", sku, VARIANT_ID_FIELD, variant_id)
+            if not frappe.db.exists("Item", sku):
+                continue
+            variant_of = frappe.db.get_value("Item", sku, "variant_of")
+
+        template = variant_of or sku
+        updates.setdefault(template, {})[PRODUCT_ID_FIELD] = product_id
+        if variant_id:
+            updates.setdefault(sku, {})[VARIANT_ID_FIELD] = variant_id
+
+    # Bulk update: group by field values to minimize queries
+    for item_code, fields in updates.items():
+        frappe.db.set_value("Item", item_code, fields, update_modified=False)
 
 
 def _associate_variant_images(session, base_url, product: dict, variant_image_map: dict):
@@ -882,84 +951,24 @@ def _associate_variant_images(session, base_url, product: dict, variant_image_ma
         try:
             endpoint = f"{API_PRODUCTS}/{product_id}/variants/{variant_id}/images/batch"
             medusa_request(session, base_url, "POST", endpoint, json={"add": image_ids})
-        except requests.exceptions.HTTPError as e:
-            if e.response is not None and e.response.status_code == 401:
-                # Session expired — get fresh one and retry
-                from ecommerce_integrations.medusa.connection import get_medusa_session
-                session, base_url = get_medusa_session()
-                try:
-                    medusa_request(session, base_url, "POST", endpoint, json={"add": image_ids})
-                except Exception:
-                    frappe.log_error("Medusa Variant Images", f"Retry failed for variant {variant_id}")
-            else:
-                frappe.log_error("Medusa Variant Images", f"Failed for variant {variant_id}: {e}")
         except Exception as e:
             frappe.log_error("Medusa Variant Images", f"Failed for variant {variant_id}: {e}")
 
 
 def _sync_sale_prices(session, base_url, product: dict, sale_prices: list):
-    """Add sale prices to a Medusa Price List for strikethrough display.
-
-    Creates or reuses a sale price list. The variant's base price becomes
-    the original_amount (UVP), the sale price becomes calculated_amount.
-    """
+    """Add sale prices to a Medusa Price List for strikethrough display."""
     if not sale_prices:
         return
-
-    product_id = product.get("id")
-    if not product_id:
-        return
-
-    # Map SKU -> Medusa variant ID
-    sku_to_variant_id = {}
-    for v in product.get("variants", []):
-        if v.get("sku") and v.get("id"):
-            sku_to_variant_id[v["sku"]] = v["id"]
-
-    price_entries = []
-    for sp in sale_prices:
-        variant_id = sku_to_variant_id.get(sp["sku"])
-        if variant_id:
-            price_entries.append({
-                "variant_id": variant_id,
-                "currency_code": sp["currency_code"],
-                "amount": sp["amount"],
-            })
-
-    if not price_entries:
-        return
-
-    price_list_id = _get_or_create_sale_price_list(session, base_url)
-    if not price_list_id:
-        return
-
-    try:
-        # Delete existing sale prices for these variants to avoid duplicates
-        variant_ids_in_batch = {pe["variant_id"] for pe in price_entries}
-        existing_pl = medusa_request(session, base_url, "GET", f"/admin/price-lists/{price_list_id}", params={"fields": "+prices"})
-        existing_prices = existing_pl.get("price_list", {}).get("prices", [])
-        delete_ids = [p["id"] for p in existing_prices if p.get("variant_id") in variant_ids_in_batch]
-
-        batch = {"create": price_entries}
-        if delete_ids:
-            batch["delete"] = delete_ids
-
-        medusa_request(
-            session, base_url, "POST",
-            f"/admin/price-lists/{price_list_id}/prices/batch",
-            json=batch,
-        )
-    except Exception as e:
-        frappe.log_error("Medusa Sale Prices", f"Failed to sync sale prices for {product_id}: {e}")
+    _sync_sale_prices_batch(session, base_url, [(product, sale_prices)])
 
 
 def _sync_sale_prices_batch(session, base_url, product_sale_prices: list):
     """Batch sync sale prices for multiple products in one API call."""
     all_entries = []
     for product, sale_prices in product_sale_prices:
-        sku_to_variant_id = {v["sku"]: v["id"] for v in product.get("variants", []) if v.get("sku") and v.get("id")}
+        vid_map = _sku_to_variant_id(product)
         for sp in sale_prices:
-            variant_id = sku_to_variant_id.get(sp["sku"])
+            variant_id = vid_map.get(sp["sku"])
             if variant_id:
                 all_entries.append({"variant_id": variant_id, "currency_code": sp["currency_code"], "amount": sp["amount"]})
 
@@ -967,23 +976,8 @@ def _sync_sale_prices_batch(session, base_url, product_sale_prices: list):
         return
 
     price_list_id = _get_or_create_sale_price_list(session, base_url)
-    if not price_list_id:
-        return
-
-    try:
-        # Delete existing entries for these variants
-        variant_ids = {e["variant_id"] for e in all_entries}
-        existing_pl = medusa_request(session, base_url, "GET", f"/admin/price-lists/{price_list_id}", params={"fields": "+prices"})
-        existing_prices = existing_pl.get("price_list", {}).get("prices", [])
-        delete_ids = [p["id"] for p in existing_prices if p.get("variant_id") in variant_ids]
-
-        batch = {"create": all_entries}
-        if delete_ids:
-            batch["delete"] = delete_ids
-
-        medusa_request(session, base_url, "POST", f"/admin/price-lists/{price_list_id}/prices/batch", json=batch)
-    except Exception as e:
-        frappe.log_error("Medusa Sale Prices", f"Batch sale price sync failed: {e}")
+    if price_list_id:
+        _upsert_price_list_entries(session, base_url, price_list_id, all_entries, "Medusa Sale Prices")
 
 
 def _get_or_create_sale_price_list(session, base_url) -> str:
@@ -1017,17 +1011,20 @@ def _get_or_create_sale_price_list(session, base_url) -> str:
         return None
 
 
-def _find_in_product_map(product: dict, lookup_map: dict, default=None):
+def _find_in_product_map(product: dict, lookup_map: dict, default=None, variant_of_map: dict = None):
     """Find data in a map keyed by item_code, matching via variant SKU -> template lookup."""
     for variant in product.get("variants", []):
         sku = variant.get("sku")
         if not sku:
             continue
-        template = frappe.db.get_value("Item", sku, "variant_of")
+        if variant_of_map is not None:
+            template = variant_of_map.get(sku)
+        else:
+            template = frappe.db.get_value("Item", sku, "variant_of")
         for key in [template, sku]:
             if key and key in lookup_map:
                 return lookup_map[key]
-    return default if default is not None else type(next(iter(lookup_map.values()), []))()
+    return default
 
 
 @frappe.whitelist()
@@ -1061,6 +1058,8 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 		try:
 			cat_result = _sync_categories_to_medusa(dry_run=dry_run)
 			frappe.logger("medusa").info(f"Category sync: {cat_result}")
+			# Invalidate category cache so product sync picks up newly created categories
+			frappe.cache.delete_value("medusa_category_map")
 		except Exception as e:
 			frappe.log_error("Medusa Full Sync", f"Category sync failed: {e}")
 
@@ -1081,6 +1080,23 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 		else:
 			session, base_url = get_medusa_session()
 			try:
+				# Pre-build variant_of map to avoid per-SKU DB lookups
+				all_item_codes = [i.item_code for i in items]
+				all_child_variants = frappe.get_all(
+					"Item",
+					filters={"variant_of": ["in", all_item_codes], "disabled": 0},
+					fields=["item_code", "variant_of"],
+				)
+				variant_of_map = {v.item_code: v.variant_of for v in all_child_variants}
+				# Also add non-variant items (variant_of = None)
+				for i in items:
+					if i.item_code not in variant_of_map:
+						variant_of_map[i.item_code] = i.variant_of
+
+				# Pre-warm category and attribute caches once
+				_get_category_map(session=session, base_url=base_url)
+				_get_or_build_attribute_map(session=session, base_url=base_url)
+
 				for chunk_start in range(0, len(items), batch_size):
 					chunk = items[chunk_start:chunk_start + batch_size]
 					create_batch = []
@@ -1089,25 +1105,40 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 					variant_image_maps = {}
 					sale_price_maps = {}
 					channel_price_maps = {}
-					# Split: products with attributes -> single create, without -> batch
-					batch_items = []  # (payload, vim, item_code) for batch API
-					single_items = []  # (payload, vim, item_code) for single create with attributes
+					# {item_code: [{"attribute_id": ..., "value": ...}]} for batch-assign after create
+					attr_value_maps = {}
 
+					# Pre-collect all attribute entries for this chunk and ensure
+					# they exist in Medusa ONCE, to avoid duplicate possible_values
+					chunk_attr_entries = []
+					chunk_exporters = []
 					for item_row in chunk:
 						try:
 							exporter = MedusaProductExporter(item_row.item_code)
-							payload, vim = exporter._build_product_payload(is_update=bool(item_row.get(PRODUCT_ID_FIELD)))
+							chunk_exporters.append((item_row, exporter))
+							entries = exporter._collect_attribute_entries()
+							chunk_attr_entries.extend(entries)
+						except Exception as e:
+							stats["errors"] += 1
+							frappe.log_error("Medusa Full Sync", f"Exporter init failed for {item_row.item_code}: {e}")
+
+					# Ensure all attributes/values for the chunk in one call
+					if chunk_attr_entries:
+						_ensure_attributes_exist(chunk_attr_entries, session=session, base_url=base_url)
+
+					for item_row, exporter in chunk_exporters:
+						try:
+							payload, vim = exporter._build_product_payload(is_update=bool(item_row.get(PRODUCT_ID_FIELD)), session=session, base_url=base_url)
 
 							if item_row.get(PRODUCT_ID_FIELD):
 								payload["id"] = item_row.get(PRODUCT_ID_FIELD)
 								update_batch.append(payload)
-							elif exporter._attribute_values:
-								# Has attributes -> must use single create (batch ignores additional_data)
-								single_items.append((payload, vim, item_row.item_code))
 							else:
 								create_batch.append(payload)
 								if vim:
 									variant_image_maps[item_row.item_code] = vim
+							if exporter._attribute_values:
+								attr_value_maps[item_row.item_code] = exporter._attribute_values
 							if exporter._channel_prices:
 								channel_price_maps[item_row.item_code] = exporter._channel_prices
 							if exporter._sale_prices:
@@ -1116,7 +1147,8 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 							stats["errors"] += 1
 							frappe.log_error("Medusa Full Sync", f"Payload build failed for {item_row.item_code}: {e}")
 
-					# Batch create for products WITHOUT attributes
+					# Batch create/update ALL products
+					created_products = []
 					if create_batch or update_batch:
 						try:
 							batch_payload = {}
@@ -1128,48 +1160,55 @@ def run_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=
 							result = medusa_request(session, base_url, "POST", API_PRODUCTS_BATCH, json=batch_payload)
 
 							chunk_sale_prices = []
-							for product in result.get("created", []):
-								_save_medusa_ids(product)
+							chunk_channel_prices = []
+							all_variant_images = []
+							created_products = result.get("created", [])
+							for product in created_products:
+								_save_medusa_ids(product, variant_of_map=variant_of_map)
 								stats["created"] += 1
-								vim = _find_in_product_map(product, variant_image_maps, {})
+								vim = _find_in_product_map(product, variant_image_maps, {}, variant_of_map=variant_of_map)
 								if vim:
-									_associate_variant_images(session, base_url, product, vim)
-								sp = _find_in_product_map(product, sale_price_maps, [])
+									all_variant_images.append((product, vim))
+								sp = _find_in_product_map(product, sale_price_maps, [], variant_of_map=variant_of_map)
 								if sp:
 									chunk_sale_prices.append((product, sp))
+								cp = _find_in_product_map(product, channel_price_maps, [], variant_of_map=variant_of_map)
+								if cp:
+									chunk_channel_prices.append((product, cp))
+
+							for product, vim in all_variant_images:
+								_associate_variant_images(session, base_url, product, vim)
 
 							if chunk_sale_prices:
 								_sync_sale_prices_batch(session, base_url, chunk_sale_prices)
 
-							for product in result.get("created", []):
-								cp = _find_in_product_map(product, channel_price_maps, [])
-								if cp:
-									_sync_channel_prices(session, base_url, product, cp)
+							if chunk_channel_prices:
+								_sync_channel_prices_batch(session, base_url, chunk_channel_prices)
 
 							stats["updated"] += len(result.get("updated", []))
 						except Exception as e:
 							stats["errors"] += len(create_batch) + len(update_batch)
 							frappe.log_error("Medusa Full Sync", f"Batch sync failed: {e}")
 
-					# Single create for products WITH attributes
-					for payload, vim, item_code in single_items:
+					# Batch-assign attributes — runs independently of batch create/update
+					# Also covers existing products that already have a medusa_product_id
+					if attr_value_maps:
 						try:
-							result = medusa_request(session, base_url, "POST", API_PRODUCTS, json=payload)
-							product = result.get("product", {})
-							if product.get("id"):
-								_save_medusa_ids(product)
-								stats["created"] += 1
-								if vim:
-									_associate_variant_images(session, base_url, product, vim)
-								cp = channel_price_maps.get(item_code, [])
-								if cp:
-									_sync_channel_prices(session, base_url, product, cp)
-								sp = sale_price_maps.get(item_code, [])
-								if sp:
-									_sync_sale_prices(session, base_url, product, sp)
+							all_products_for_attrs = list(created_products)
+							# For existing products (updates), build minimal product dicts
+							# using variant_of_map instead of DB queries
+							for item_row, exporter in chunk_exporters:
+								medusa_id = item_row.get(PRODUCT_ID_FIELD)
+								if medusa_id and item_row.item_code in attr_value_maps:
+									child_skus = [sku for sku, parent in variant_of_map.items()
+									              if parent == item_row.item_code] if exporter.item.has_variants else [item_row.item_code]
+									all_products_for_attrs.append({
+										"id": medusa_id,
+										"variants": [{"sku": sku} for sku in child_skus],
+									})
+							_batch_assign_attributes(session, base_url, all_products_for_attrs, attr_value_maps, variant_of_map)
 						except Exception as e:
-							stats["errors"] += 1
-							frappe.log_error("Medusa Full Sync", f"Single create failed for {item_code}: {e}")
+							frappe.log_error("Medusa Full Sync", f"Attribute assign failed: {e}")
 
 					frappe.db.commit()
 			finally:
