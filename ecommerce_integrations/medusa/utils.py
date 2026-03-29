@@ -42,12 +42,12 @@ def create_medusa_log(request_type, status="Queued", medusa_id=None, request_dat
     log = frappe.get_doc({
         "doctype": LOG_DOCTYPE,
         "integration": MODULE_NAME,
-        "request_type": request_type,
+        "method": request_type,
         "status": status,
-        "integration_item_code": medusa_id or "",
+        "message": medusa_id or "",
         "request_data": frappe.as_json(request_data) if request_data else "",
         "response_data": frappe.as_json(response_data) if response_data else "",
-        "error": error or "",
+        "traceback": error or "",
     })
     log.insert(ignore_permissions=True)
     frappe.db.commit()
@@ -56,6 +56,9 @@ def create_medusa_log(request_type, status="Queued", medusa_id=None, request_dat
 
 def update_medusa_log(log_name, **kwargs):
     """Update an existing Medusa log entry."""
+    # Map caller-friendly names to actual doctype field names
+    if "error" in kwargs:
+        kwargs["traceback"] = kwargs.pop("error")
     log = frappe.get_doc(LOG_DOCTYPE, log_name)
     for key, value in kwargs.items():
         if key in ("response_data", "request_data") and isinstance(value, dict):
