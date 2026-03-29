@@ -1,8 +1,5 @@
 """Export ERPNext Items to Medusa v2 as Products."""
 import re
-import time
-
-BATCH_DELAY_SECONDS = 2
 
 import frappe
 import requests
@@ -14,7 +11,6 @@ from ecommerce_integrations.medusa.constants import (
     PRODUCT_ID_FIELD, SETTING_DOCTYPE, VARIANT_ID_FIELD,
 )
 from ecommerce_integrations.medusa.utils import create_medusa_log, erpnext_price_to_medusa, is_medusa_enabled, update_medusa_log
-
 
 class MedusaProductExporter:
     def __init__(self, item_code: str):
@@ -569,7 +565,6 @@ class MedusaProductExporter:
     def _get_list_price(self, item_code=None) -> float:
         return self._get_price(getattr(self.setting, "list_price_price_list", None), item_code)
 
-
 _UMLAUT_MAP = str.maketrans({
     "ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss",
     "Ä": "ae", "Ö": "oe", "Ü": "ue",
@@ -577,11 +572,9 @@ _UMLAUT_MAP = str.maketrans({
     "ô": "o", "î": "i", "ç": "c", "ñ": "n",
 })
 
-
 def _transliterate(text: str) -> str:
     """Replace umlauts and accented chars with ASCII equivalents."""
     return text.translate(_UMLAUT_MAP)
-
 
 def _resolve_attribute_values(entries: list, attr_map: dict) -> list:
     """Resolve (attr_name, value) entries to [{attribute_id, value}] using attr_map."""
@@ -591,7 +584,6 @@ def _resolve_attribute_values(entries: list, attr_map: dict) -> list:
         if attr_entry and attr_entry.get("id"):
             result.append({"attribute_id": attr_entry["id"], "value": prop_value})
     return result
-
 
 def _get_category_map(session=None, base_url=None) -> dict:
     """Get {item_group_name: medusa_category_id} map, cached."""
@@ -610,7 +602,6 @@ def _get_category_map(session=None, base_url=None) -> dict:
         except Exception:
             cat_map = {}
     return cat_map
-
 
 def _get_or_build_attribute_map(session=None, base_url=None) -> dict:
     """Get {attr_name: {"id": attr_id, "values": {val: pv_id}}} map, cached."""
@@ -632,7 +623,6 @@ def _get_or_build_attribute_map(session=None, base_url=None) -> dict:
         except Exception:
             attr_map = {}
     return attr_map
-
 
 def _ensure_attributes_exist(entries: list, session=None, base_url=None) -> dict:
     """Ensure all attributes and their possible values exist in Medusa.
@@ -710,7 +700,6 @@ def _ensure_attributes_exist(entries: list, session=None, base_url=None) -> dict
 
     return attr_map
 
-
 def _get_dfp_storage_config(storage_name):
     """Get DFP External Storage config (cached)."""
     cache_key = f"dfp_storage:{storage_name}"
@@ -724,7 +713,6 @@ def _get_dfp_storage_config(storage_name):
     if storage and storage.endpoint:
         frappe.cache.set_value(cache_key, storage, expires_in_sec=3600)
     return storage
-
 
 def _batch_assign_attributes(session, base_url, created_products: list, attr_value_maps: dict, variant_of_map: dict = None):
     """Assign attribute values to newly created products via plugin batch-assign endpoint.
@@ -755,11 +743,9 @@ def _batch_assign_attributes(session, base_url, created_products: list, attr_val
     except Exception as e:
         frappe.log_error("Medusa Attributes", f"Batch attribute assign failed: {e}")
 
-
 def _sku_to_variant_id(product: dict) -> dict:
     """Build {sku: variant_id} map from a Medusa product."""
     return {v["sku"]: v["id"] for v in product.get("variants", []) if v.get("sku") and v.get("id")}
-
 
 def _upsert_price_list_entries(session, base_url, price_list_id: str, entries: list, log_label: str = "Medusa Prices"):
     """Replace price entries for given variants in a Medusa price list.
@@ -783,13 +769,11 @@ def _upsert_price_list_entries(session, base_url, price_list_id: str, entries: l
     except Exception as e:
         frappe.log_error(log_label, f"Failed to upsert prices in {price_list_id}: {e}")
 
-
 def _sync_channel_prices(session, base_url, product: dict, channel_prices: list):
     """Sync per-channel prices as Medusa Price Lists (type override)."""
     if not channel_prices:
         return
     _sync_channel_prices_batch(session, base_url, [(product, channel_prices)])
-
 
 def _sync_channel_prices_batch(session, base_url, product_channel_prices: list):
     """Batch sync channel prices for multiple products.
@@ -820,7 +804,6 @@ def _sync_channel_prices_batch(session, base_url, product_channel_prices: list):
         if pl_id:
             _upsert_price_list_entries(session, base_url, pl_id, data["entries"], "Medusa Channel Prices")
 
-
 def _get_or_create_channel_price_list(session, base_url, channel_id: str, channel_name: str) -> str:
     """Get or create a Price List for a specific sales channel."""
     cache_key = f"medusa_channel_pl:{channel_id}"
@@ -850,8 +833,6 @@ def _get_or_create_channel_price_list(session, base_url, channel_id: str, channe
     except Exception as e:
         frappe.log_error("Medusa Channel Prices", f"Failed to create price list for {channel_name}: {e}")
         return None
-
-
 
 def _save_medusa_ids(product: dict, variant_of_map: dict = None):
     """Save Medusa product/variant IDs back to ERPNext Items.
@@ -895,7 +876,6 @@ def _save_medusa_ids(product: dict, variant_of_map: dict = None):
     for item_code, fields in updates.items():
         frappe.db.set_value("Item", item_code, fields, update_modified=False)
 
-
 def _associate_variant_images(session, base_url, product: dict, variant_image_map: dict):
     """Associate product images with their specific variants in Medusa.
 
@@ -935,27 +915,17 @@ def _associate_variant_images(session, base_url, product: dict, variant_image_ma
             image_to_variants.setdefault(image_id, []).append(variant_id)
 
     for image_id, variant_ids in image_to_variants.items():
-        endpoint = f"{API_PRODUCTS}/{product_id}/images/{image_id}/variants/batch"
-        for attempt in range(3):
-            try:
-                medusa_request(session, base_url, "POST", endpoint, json={"add": variant_ids})
-                break
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-                if attempt < 2:
-                    time.sleep(BATCH_DELAY_SECONDS * (attempt + 1))
-                    continue
-                frappe.log_error("Medusa Variant Images", f"Failed for image {image_id} after 3 retries: {e}")
-            except Exception as e:
-                frappe.log_error("Medusa Variant Images", f"Failed for image {image_id}: {e}")
-                break
-
+        try:
+            endpoint = f"{API_PRODUCTS}/{product_id}/images/{image_id}/variants/batch"
+            medusa_request(session, base_url, "POST", endpoint, json={"add": variant_ids})
+        except Exception as e:
+            frappe.log_error("Medusa Variant Images", f"Failed for image {image_id}: {e}")
 
 def _sync_sale_prices(session, base_url, product: dict, sale_prices: list):
     """Add sale prices to a Medusa Price List for strikethrough display."""
     if not sale_prices:
         return
     _sync_sale_prices_batch(session, base_url, [(product, sale_prices)])
-
 
 def _sync_sale_prices_batch(session, base_url, product_sale_prices: list):
     """Batch sync sale prices for multiple products in one API call."""
@@ -973,7 +943,6 @@ def _sync_sale_prices_batch(session, base_url, product_sale_prices: list):
     price_list_id = _get_or_create_sale_price_list(session, base_url)
     if price_list_id:
         _upsert_price_list_entries(session, base_url, price_list_id, all_entries, "Medusa Sale Prices")
-
 
 def _get_or_create_sale_price_list(session, base_url) -> str:
     """Get or create the ERPNext sale price list in Medusa."""
@@ -1005,7 +974,6 @@ def _get_or_create_sale_price_list(session, base_url) -> str:
         frappe.log_error("Medusa Sale Prices", f"Failed to create sale price list: {e}")
         return None
 
-
 def _find_in_product_map(product: dict, lookup_map: dict, default=None, variant_of_map: dict = None):
     """Find data in a map keyed by item_code, matching via variant SKU -> template lookup."""
     for variant in product.get("variants", []):
@@ -1021,10 +989,8 @@ def _find_in_product_map(product: dict, lookup_map: dict, default=None, variant_
                 return lookup_map[key]
     return default
 
-
 SYNC_GENERATION_KEY = "medusa_full_sync_generation"
 SYNC_RUNNING_KEY = "medusa_full_sync_running"
-
 
 @frappe.whitelist()
 def enqueue_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=0, batch_size=50, dry_run=0):
@@ -1058,12 +1024,10 @@ def enqueue_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_st
 	)
 	return {"success": True, "message": message}
 
-
 def _is_sync_outdated(my_generation: int) -> bool:
 	"""Check if a newer sync has been enqueued since this one started."""
 	current = frappe.cache.get_value(SYNC_GENERATION_KEY) or 0
 	return current > my_generation
-
 
 def run_full_sync(sync_generation=0, sync_categories=1, sync_products=1, sync_prices=1, sync_stock=0, batch_size=50, dry_run=0):
 	"""Run a complete sync of all products from ERPNext to Medusa using batch API."""
@@ -1094,7 +1058,6 @@ def run_full_sync(sync_generation=0, sync_categories=1, sync_products=1, sync_pr
 			response_data=message,
 		)
 	return stats
-
 
 def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sync_products, sync_prices, sync_stock, dry_run):
 	"""Inner sync logic, wrapped by run_full_sync for error handling."""
@@ -1228,7 +1191,7 @@ def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sy
 										frappe.db.set_value("Item", {PRODUCT_ID_FIELD: stale_id}, {PRODUCT_ID_FIELD: None, VARIANT_ID_FIELD: None}, update_modified=False)
 									retry_batch.append(payload)
 								try:
-									time.sleep(BATCH_DELAY_SECONDS)
+	
 									result = medusa_request(session, base_url, "POST", API_PRODUCTS_BATCH, json={"create": retry_batch})
 									created_products = result.get("created", [])
 								except Exception as retry_e:
@@ -1259,21 +1222,14 @@ def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sy
 							if cp:
 								chunk_channel_prices.append((product, cp))
 
-						time.sleep(BATCH_DELAY_SECONDS)
-
 						for product, vim in all_variant_images:
 							_associate_variant_images(session, base_url, product, vim)
-						if all_variant_images:
-							time.sleep(BATCH_DELAY_SECONDS)
-
 						if chunk_sale_prices:
 							_sync_sale_prices_batch(session, base_url, chunk_sale_prices)
-							time.sleep(BATCH_DELAY_SECONDS)
-
+		
 						if chunk_channel_prices:
 							_sync_channel_prices_batch(session, base_url, chunk_channel_prices)
-							time.sleep(BATCH_DELAY_SECONDS)
-
+		
 					# Batch-assign attributes — runs independently of batch create/update
 					if attr_value_maps:
 						try:
@@ -1289,13 +1245,12 @@ def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sy
 									})
 							if all_products_for_attrs:
 								_batch_assign_attributes(session, base_url, all_products_for_attrs, attr_value_maps, variant_of_map)
-								time.sleep(BATCH_DELAY_SECONDS)
+
 						except Exception as e:
 							frappe.log_error("Medusa Full Sync", f"Attribute assign failed: {e}")
 
 					frappe.db.commit()
-					if create_batch or update_batch:
-						time.sleep(BATCH_DELAY_SECONDS)
+
 			finally:
 				session.close()
 
@@ -1308,14 +1263,12 @@ def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sy
 
 	frappe.logger("medusa").info(f"Full sync complete: {stats}")
 
-
 @frappe.whitelist()
 def sync_categories(category_root=None, dry_run=0):
 	"""Sync ERPNext Item Groups as Medusa product categories."""
 	if not is_medusa_enabled():
 		return {"total": 0, "synced": 0, "errors": 0}
 	return _sync_categories_to_medusa(category_root=category_root, dry_run=int(dry_run))
-
 
 @temp_medusa_session
 def _sync_categories_to_medusa(session, base_url, category_root=None, dry_run=0):
@@ -1360,7 +1313,6 @@ def _sync_categories_to_medusa(session, base_url, category_root=None, dry_run=0)
 
 	return stats
 
-
 @frappe.whitelist()
 def enqueue_force_price_sync():
 	"""Enqueue re-push of all prices to Medusa."""
@@ -1373,7 +1325,6 @@ def enqueue_force_price_sync():
 		timeout=1800,
 	)
 	return {"success": True, "message": "Price sync enqueued"}
-
 
 def _run_force_price_sync():
 	"""Re-push all prices for synced products via variant price update."""
@@ -1396,7 +1347,6 @@ def _run_force_price_sync():
 
 	frappe.db.commit()
 	frappe.logger("medusa").info(f"Force price sync complete: {synced}/{len(items)} updated")
-
 
 def upload_item_to_medusa(doc, method=None):
     if not is_medusa_enabled():
