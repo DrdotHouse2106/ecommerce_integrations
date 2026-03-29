@@ -919,8 +919,10 @@ def _associate_variant_images(session, base_url, product: dict, variant_image_ma
     if not url_to_image_id:
         return
 
-    # Build {variant_id: [image_id]} from SKU matching
-    variant_to_images = {}
+    # Group by image: {image_id: [variant_ids]} — allows one API call per
+    # unique image instead of one per variant (more efficient when variants
+    # share images). Uses the image-based endpoint: POST /products/{id}/images/{image_id}/variants/batch
+    image_to_variants = {}
     for variant in product.get("variants", []):
         sku = variant.get("sku")
         variant_id = variant.get("id")
@@ -930,14 +932,14 @@ def _associate_variant_images(session, base_url, product: dict, variant_image_ma
         image_url = variant_image_map[sku]
         image_id = url_to_image_id.get(image_url)
         if image_id:
-            variant_to_images[variant_id] = [image_id]
+            image_to_variants.setdefault(image_id, []).append(variant_id)
 
-    for variant_id, image_ids in variant_to_images.items():
+    for image_id, variant_ids in image_to_variants.items():
         try:
-            endpoint = f"{API_PRODUCTS}/{product_id}/variants/{variant_id}/images/batch"
-            medusa_request(session, base_url, "POST", endpoint, json={"add": image_ids})
+            endpoint = f"{API_PRODUCTS}/{product_id}/images/{image_id}/variants/batch"
+            medusa_request(session, base_url, "POST", endpoint, json={"add": variant_ids})
         except Exception as e:
-            frappe.log_error("Medusa Variant Images", f"Failed for variant {variant_id}: {e}")
+            frappe.log_error("Medusa Variant Images", f"Failed for image {image_id}: {e}")
 
 
 def _sync_sale_prices(session, base_url, product: dict, sale_prices: list):
