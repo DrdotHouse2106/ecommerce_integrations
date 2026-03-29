@@ -1042,6 +1042,13 @@ def run_full_sync(sync_generation=0, sync_categories=1, sync_products=1, sync_pr
 	stats = {"created": 0, "updated": 0, "errors": 0, "skipped": 0}
 	batch_size = int(batch_size)
 
+	log_name = create_medusa_log(
+		request_type="Complete Sync",
+		status="Queued",
+		request_data={"batch_size": batch_size, "generation": sync_generation},
+		response_data="Sync started",
+	)
+
 	try:
 		_run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sync_products, sync_prices, sync_stock, dry_run)
 	except Exception as e:
