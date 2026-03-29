@@ -234,6 +234,16 @@ class MedusaProductExporter:
         child_codes = [r.item_code for r in child_codes_rows]
         child_map = {r.item_code: r for r in child_codes_rows}
 
+        # Batch fetch ecommerce properties for all variants
+        variant_ecom_props = frappe.get_all(
+            "Item Ecommerce Property",
+            filters={"parent": ["in", child_codes], "parenttype": "Item", "sync_to_medusa": 1},
+            fields=["parent", "property_name", "property_value", "property_type", "filterable"],
+        )
+        ecom_props_by_item = {}
+        for prop in variant_ecom_props:
+            ecom_props_by_item.setdefault(prop.parent, []).append(prop)
+
         # Batch fetch variant attributes
         variant_attrs = frappe.get_all(
             "Item Variant Attribute",
@@ -296,7 +306,7 @@ class MedusaProductExporter:
             )
             variant["options"] = option_values
 
-            # Variant-level metadata (AI descriptions specific to this variant)
+            # Variant-level metadata (AI descriptions + ecommerce properties)
             v_meta = {}
             if child.get("ai_short_description"):
                 v_meta["short_description"] = child.ai_short_description
@@ -304,6 +314,15 @@ class MedusaProductExporter:
                 v_meta["seo_title"] = child.ai_seo_title
             if child.get("ai_seo_description"):
                 v_meta["seo_description"] = child.ai_seo_description
+            # Add ecommerce properties as variant metadata
+            for prop in ecom_props_by_item.get(code, []):
+                if not prop.property_value:
+                    continue
+                # Filterable Properties go to product-level attributes, not variant metadata
+                if prop.property_type == "Property" and prop.filterable:
+                    continue
+                key = f"custom_{prop.property_name}" if prop.property_type == "Custom Field" else prop.property_name
+                v_meta[key] = cstr(prop.property_value).strip()
             if v_meta:
                 variant["metadata"] = v_meta
 
@@ -494,9 +513,20 @@ class MedusaProductExporter:
         return (code or "").upper()
 
     def _get_medusa_metadata(self) -> dict:
-        """Non-filterable ecommerce properties -> metadata."""
+        """Non-filterable ecommerce properties -> product metadata.
+
+        Falls back to first variant's properties if template has none.
+        """
+        props = get_ecommerce_properties(self.item, "sync_to_medusa")
+        if not props and self.item.has_variants:
+            first_variant_name = frappe.db.get_value(
+                "Item", {"variant_of": self.item_code, "disabled": 0}, "name")
+            if first_variant_name:
+                first_variant = frappe.get_doc("Item", first_variant_name)
+                props = get_ecommerce_properties(first_variant, "sync_to_medusa")
+
         metadata = {}
-        for row in get_ecommerce_properties(self.item, "sync_to_medusa"):
+        for row in props:
             if not row.property_value:
                 continue
             if row.property_type == "Property" and getattr(row, "filterable", 0):
@@ -506,14 +536,26 @@ class MedusaProductExporter:
         return metadata
 
     def _collect_attribute_entries(self) -> list:
-        """Collect (attr_name, value) tuples for this item's filterable attributes."""
+        """Collect (attr_name, value) tuples for this item's filterable attributes.
+
+        Falls back to first variant's properties if template has none.
+        """
         entries = []
 
         brand = getattr(self.item, "brand", None)
         if brand:
             entries.append(("Brand", cstr(brand).strip()))
 
-        for row in get_ecommerce_properties(self.item, "sync_to_medusa"):
+        props = get_ecommerce_properties(self.item, "sync_to_medusa")
+        # Fallback to first variant if template has no properties
+        if not props and self.item.has_variants:
+            first_variant_name = frappe.db.get_value(
+                "Item", {"variant_of": self.item_code, "disabled": 0}, "name")
+            if first_variant_name:
+                first_variant = frappe.get_doc("Item", first_variant_name)
+                props = get_ecommerce_properties(first_variant, "sync_to_medusa")
+
+        for row in props:
             if row.property_value and row.property_type == "Property" and getattr(row, "filterable", 0):
                 entries.append((row.property_name, cstr(row.property_value).strip()))
 
