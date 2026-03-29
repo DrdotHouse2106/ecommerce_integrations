@@ -512,11 +512,8 @@ class MedusaProductExporter:
         code = frappe.db.get_value("Country", country_name, "code")
         return (code or "").upper()
 
-    def _get_medusa_metadata(self) -> dict:
-        """Non-filterable ecommerce properties -> product metadata.
-
-        Falls back to first variant's properties if template has none.
-        """
+    def _get_ecommerce_properties(self) -> list:
+        """Get ecommerce_properties with sync_to_medusa, falling back to first variant."""
         props = get_ecommerce_properties(self.item, "sync_to_medusa")
         if not props and self.item.has_variants:
             first_variant_name = frappe.db.get_value(
@@ -524,9 +521,12 @@ class MedusaProductExporter:
             if first_variant_name:
                 first_variant = frappe.get_doc("Item", first_variant_name)
                 props = get_ecommerce_properties(first_variant, "sync_to_medusa")
+        return props
 
+    def _get_medusa_metadata(self) -> dict:
+        """Non-filterable ecommerce properties -> product metadata."""
         metadata = {}
-        for row in props:
+        for row in self._get_ecommerce_properties():
             if not row.property_value:
                 continue
             if row.property_type == "Property" and getattr(row, "filterable", 0):
@@ -536,26 +536,14 @@ class MedusaProductExporter:
         return metadata
 
     def _collect_attribute_entries(self) -> list:
-        """Collect (attr_name, value) tuples for this item's filterable attributes.
-
-        Falls back to first variant's properties if template has none.
-        """
+        """Collect (attr_name, value) tuples for this item's filterable attributes."""
         entries = []
 
         brand = getattr(self.item, "brand", None)
         if brand:
             entries.append(("Brand", cstr(brand).strip()))
 
-        props = get_ecommerce_properties(self.item, "sync_to_medusa")
-        # Fallback to first variant if template has no properties
-        if not props and self.item.has_variants:
-            first_variant_name = frappe.db.get_value(
-                "Item", {"variant_of": self.item_code, "disabled": 0}, "name")
-            if first_variant_name:
-                first_variant = frappe.get_doc("Item", first_variant_name)
-                props = get_ecommerce_properties(first_variant, "sync_to_medusa")
-
-        for row in props:
+        for row in self._get_ecommerce_properties():
             if row.property_value and row.property_type == "Property" and getattr(row, "filterable", 0):
                 entries.append((row.property_name, cstr(row.property_value).strip()))
 
@@ -755,6 +743,43 @@ def _get_dfp_storage_config(storage_name):
     if storage and storage.endpoint:
         frappe.cache.set_value(cache_key, storage, expires_in_sec=3600)
     return storage
+
+def _recover_existing_product(session, base_url, error, payload, variant_of_map, stats) -> bool:
+    """Try to recover from 'already exists' error by looking up the product.
+
+    Returns True if recovery succeeded (caller should continue), False otherwise.
+    """
+    if error.response is None or error.response.status_code != 400:
+        return False
+    try:
+        resp = error.response.json()
+        if "already exists" not in resp.get("message", ""):
+            return False
+        handle = payload.get("handle", "")
+        if not handle:
+            return False
+        existing = medusa_request(session, base_url, "GET", API_PRODUCTS, params={"handle": handle, "fields": "id,variants"})
+        for p in existing.get("products", []):
+            _save_medusa_ids(p, variant_of_map=variant_of_map)
+            stats["updated"] += 1
+        return True
+    except Exception:
+        return False
+
+
+def _find_item_code_by_handle(handle: str, variant_of_map: dict) -> str:
+    """Find ERPNext item_code from a Medusa product handle (best-effort reverse lookup)."""
+    if not handle:
+        return ""
+    # The handle ends with the slugified item_code — try to match
+    for item_code in variant_of_map:
+        if not variant_of_map.get(item_code):  # Only templates/simple items
+            slug = re.sub(r'[^a-z0-9-]', '-', item_code.lower())
+            slug = re.sub(r'-+', '-', slug).strip('-')
+            if handle.endswith(slug):
+                return item_code
+    return ""
+
 
 def _batch_assign_attributes(session, base_url, created_products: list, attr_value_maps: dict, variant_of_map: dict = None):
     """Assign attribute values to newly created products via plugin batch-assign endpoint.
@@ -1247,38 +1272,29 @@ def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sy
 							result = medusa_request(session, base_url, "POST", API_PRODUCTS_BATCH, json=batch_payload)
 							created_products = result.get("created", [])
 							stats["updated"] += len(result.get("updated", []))
-						except (requests.exceptions.HTTPError, requests.exceptions.ConnectionError) as e:
-							# Batch failed — fall back to individual creates
-							frappe.logger("medusa").warning(f"Batch failed, falling back to individual creates: {e}")
-							all_payloads = []
-							for payload in create_batch:
-								all_payloads.append(payload)
+						except requests.exceptions.HTTPError as e:
+							# Batch validation error — fall back to individual creates
+							frappe.logger("medusa").warning(f"Batch failed ({e.response.status_code if e.response else '?'}), falling back to individual creates")
+							all_payloads = list(create_batch)
 							for payload in update_batch:
-								stale_id = payload.pop("id", None)
+								payload_copy = {k: v for k, v in payload.items() if k != "id"}
+								stale_id = payload.get("id")
 								if stale_id:
 									frappe.db.set_value("Item", {PRODUCT_ID_FIELD: stale_id}, {PRODUCT_ID_FIELD: None, VARIANT_ID_FIELD: None}, update_modified=False)
-								all_payloads.append(payload)
+								all_payloads.append(payload_copy)
 							for payload in all_payloads:
+								# Add attribute data for single-create workflow hook
+								item_code = _find_item_code_by_handle(payload.get("handle", ""), variant_of_map)
+								if item_code and item_code in attr_value_maps:
+									payload["additional_data"] = {"values": attr_value_maps[item_code]}
 								try:
 									result = medusa_request(session, base_url, "POST", API_PRODUCTS, json=payload)
 									product = result.get("product", {})
 									if product.get("id"):
 										created_products.append(product)
 								except requests.exceptions.HTTPError as single_e:
-									# Handle "already exists" — look up existing product by handle
-									if single_e.response is not None and single_e.response.status_code == 400:
-										try:
-											resp = single_e.response.json()
-											if "already exists" in resp.get("message", ""):
-												handle = payload.get("handle", "")
-												if handle:
-													existing = medusa_request(session, base_url, "GET", API_PRODUCTS, params={"handle": handle, "fields": "id,variants"})
-													for p in existing.get("products", []):
-														_save_medusa_ids(p, variant_of_map=variant_of_map)
-														stats["updated"] += 1
-													continue
-										except Exception:
-											pass
+									if _recover_existing_product(session, base_url, single_e, payload, variant_of_map, stats):
+										continue
 									stats["errors"] += 1
 									msg = f"Single create failed for {payload.get('handle', '?')}: {single_e}"
 									stats["error_details"].append(msg)
@@ -1286,6 +1302,7 @@ def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sy
 									stats["errors"] += 1
 									msg = f"Single create failed for {payload.get('handle', '?')}: {single_e}"
 									stats["error_details"].append(msg)
+							frappe.db.commit()
 						except Exception as e:
 							stats["errors"] += len(create_batch) + len(update_batch)
 							msg = f"Batch sync failed: {e}"
