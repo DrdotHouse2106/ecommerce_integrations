@@ -355,16 +355,17 @@ class MedusaProductExporter:
                     # SKU exists in a different Medusa product — mark for move
                     self._variants_to_move.append(sku_map_cache[code])
 
-            variant_payloads.append(variant)
-
-            # Collect variant image and track SKU→URL mapping
+            # Set variant thumbnail directly in payload (no separate API call needed)
             if child.image:
                 url = self._resolve_image_url(child.image)
                 if url:
+                    variant["thumbnail"] = url
                     variant_image_map[code] = url
                     if url not in seen_images:
                         image_urls.append(url)
                         seen_images.add(url)
+
+            variant_payloads.append(variant)
 
         options = []
         for attr_name in attribute_names:
@@ -1001,13 +1002,12 @@ def _update_sync_progress(log_name, processed, total, stats):
 
 def _sync_product_extras(session, base_url, products, variant_image_maps, sale_price_maps, channel_price_maps, variant_of_map):
 	"""Sync variant images, sale prices, and channel prices for a list of products."""
-	variant_images = []
 	sale_prices = []
 	channel_prices = []
 	for product in products:
 		vim = _find_in_product_map(product, variant_image_maps, {}, variant_of_map=variant_of_map)
 		if vim:
-			variant_images.append((product, vim))
+			_associate_variant_images(session, base_url, product, vim)
 		sp = _find_in_product_map(product, sale_price_maps, [], variant_of_map=variant_of_map)
 		if sp:
 			sale_prices.append((product, sp))
@@ -1015,8 +1015,6 @@ def _sync_product_extras(session, base_url, products, variant_image_maps, sale_p
 		if cp:
 			channel_prices.append((product, cp))
 
-	for product, vim in variant_images:
-		_associate_variant_images(session, base_url, product, vim)
 	if sale_prices:
 		_sync_sale_prices_batch(session, base_url, sale_prices)
 	if channel_prices:
