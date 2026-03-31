@@ -17,8 +17,8 @@ class AdaptiveThrottle:
     Thread-safe. Shared across all requests in the same process.
     """
 
-    MIN_DELAY = 0.5       # Minimum delay between requests (backpressure floor)
-    MAX_DELAY = 15.0      # Cap at 15s between requests
+    MIN_DELAY = 0.05      # Minimum delay between requests (50ms — low for local/LAN Medusa)
+    MAX_DELAY = 10.0      # Cap at 10s between requests
     BACKOFF_FACTOR = 2.0  # Multiply delay on error
     RECOVERY_FACTOR = 0.7 # Multiply delay on success
     RECOVERY_THRESHOLD = 3 # Consecutive successes before reducing delay
@@ -166,7 +166,9 @@ def medusa_request(session, base_url, method, path, **kwargs):
         return response.json()
     except requests.exceptions.HTTPError as e:
         is_overload = e.response is not None and e.response.status_code in _OVERLOAD_STATUS_CODES
-        _throttle.record_error(is_overload=is_overload)
+        if is_overload:
+            _throttle.record_error(is_overload=True)
+        # Don't throttle on 4xx client errors (validation, auth) — only on server overload
         raise
     except _OVERLOAD_EXCEPTIONS:
         _throttle.record_error(is_overload=True)
