@@ -57,10 +57,10 @@ quote-style = "double"
 indent-style = "tab"
 docstring-code-format = true
 
-[tool.ruff.lint.isort.sections]
-"frappe" = ["frappe"]
-"erpnext" = ["erpnext"]
-"ecommerce_integrations" = ["ecommerce_integrations"]
+[tool.bench.frappe-dependencies]
+frappe = ">=16.0.0,<17.0.0"
+erpnext = ">=16.0.0,<17.0.0"
+
 
 [tool.ruff.lint.isort]
 section-order = [

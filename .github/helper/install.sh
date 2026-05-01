@@ -40,8 +40,8 @@ sed -i 's/schedule:/# schedule:/g' Procfile
 sed -i 's/socketio:/# socketio:/g' Procfile
 sed -i 's/redis_socketio:/# redis_socketio:/g' Procfile
 
-bench get-app payments --branch develop
-bench get-app erpnext --branch version-15
+bench get-app "https://github.com/${frappeuser}/payments" --branch "develop"
+bench get-app "https://github.com/${frappeuser}/erpnext" --branch "$erpnextbranch" --resolve-deps
 bench get-app ecommerce_integrations "${GITHUB_WORKSPACE}"
 
 bench start &>> ~/frappe-bench/bench_start.log &
