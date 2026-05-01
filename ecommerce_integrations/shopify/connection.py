@@ -4,10 +4,11 @@ import hashlib
 import hmac
 import json
 
-import frappe
-from frappe import _
 from shopify.resources import Webhook
 from shopify.session import Session
+
+import frappe
+from frappe import _
 
 from ecommerce_integrations.shopify.constants import (
 	API_VERSION,

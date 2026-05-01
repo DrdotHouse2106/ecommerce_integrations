@@ -2,9 +2,10 @@ import base64
 import json
 from unittest.mock import patch
 
-import frappe
 import responses
 from responses.matchers import query_param_matcher
+
+import frappe
 
 from ecommerce_integrations.unicommerce.api_client import UnicommerceAPIClient
 from ecommerce_integrations.unicommerce.tests.utils import TestCase

@@ -2,12 +2,13 @@ import os
 import sys
 from unittest.mock import patch
 
-import frappe
 import shopify
-from erpnext import get_default_cost_center
-from frappe.tests import IntegrationTestCase
 from pyactiveresource.activeresource import ActiveResource
 from pyactiveresource.testing import http_fake
+
+import frappe
+
+from erpnext import get_default_cost_center
 
 from ecommerce_integrations.shopify.constants import API_VERSION, SETTING_DOCTYPE
 
@@ -110,7 +111,7 @@ class TestCase(IntegrationTestCase):
 		if "extension" in kwargs and not kwargs["extension"]:
 			extension = ""
 		else:
-			extension = ".{}".format(kwargs.pop("extension", "json"))
+			extension = f".{kwargs.pop('extension', 'json')}"
 
 		url = f"https://frappetest.myshopify.com{prefix}/{endpoint}{extension}"
 		try:
@@ -120,7 +121,7 @@ class TestCase(IntegrationTestCase):
 
 		headers = {}
 		if kwargs.pop("has_user_agent", True):
-			userAgent = "ShopifyPythonAPI/{} Python/{}".format(shopify.VERSION, sys.version.split(" ", 1)[0])
+			userAgent = f"ShopifyPythonAPI/{shopify.VERSION} Python/{sys.version.split(' ', 1)[0]}"
 			headers["User-agent"] = userAgent
 
 		try:

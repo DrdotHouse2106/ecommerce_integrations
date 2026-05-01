@@ -1,8 +1,10 @@
 import base64
 import unittest
 
-import frappe
 import responses
+
+import frappe
+
 from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
 
 from ecommerce_integrations.unicommerce.constants import (
@@ -111,4 +113,4 @@ class TestUnicommerceInvoice(TestCaseApiClient):
 		attachments = frappe.get_all(
 			"File", fields=["name", "file_name"], filters={"attached_to_name": si.name}
 		)
-		self.assertGreaterEqual(len(attachments), 1, msg=f"Expected 1 attachments, found: {attachments!s}")
+		self.assertGreaterEqual(len(attachments), 2, msg=f"Expected 2 attachments, found: {attachments!s}")

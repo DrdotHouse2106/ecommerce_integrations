@@ -1,6 +1,5 @@
 import frappe
 from frappe import _dict
-from frappe.query_builder import DocType
 from frappe.query_builder.functions import Max, Sum
 from frappe.utils import now
 from frappe.utils.nestedset import get_descendants_of
@@ -16,30 +15,26 @@ def get_inventory_levels(warehouses: tuple[str], integration: str) -> list[_dict
 
 	returns: list of _dict containing ecom_item, item_code, integration_item_code, variant_id, actual_qty, warehouse, reserved_qty
 	"""
-	EcommerceItem = DocType("Ecommerce Item")
-	Bin = DocType("Bin")
+	bin = frappe.qb.DocType("Bin")
+	ecommerce_item = frappe.qb.DocType("Ecommerce Item")
 
-	query = (
-		frappe.qb.from_(EcommerceItem)
-		.join(Bin)
-		.on(EcommerceItem.erpnext_item_code == Bin.item_code)
+	return (
+		frappe.qb.from_(ecommerce_item)
+		.join(bin)
+		.on(ecommerce_item.erpnext_item_code == bin.item_code)
 		.select(
-			EcommerceItem.name.as_("ecom_item"),
-			Bin.item_code.as_("item_code"),
-			EcommerceItem.integration_item_code,
-			EcommerceItem.variant_id,
-			Bin.actual_qty,
-			Bin.warehouse,
-			Bin.reserved_qty,
+			ecommerce_item.name.as_("ecom_item"),
+			bin.item_code,
+			ecommerce_item.integration_item_code,
+			ecommerce_item.variant_id,
+			bin.actual_qty,
+			bin.warehouse,
+			bin.reserved_qty,
 		)
-		.where(
-			(Bin.warehouse.isin(warehouses))
-			& (Bin.modified > EcommerceItem.inventory_synced_on)
-			& (EcommerceItem.integration == integration)
-		)
-	)
-
-	return query.run(as_dict=1)
+		.where(bin.warehouse.isin(warehouses))
+		.where(bin.modified > ecommerce_item.inventory_synced_on)
+		.where(ecommerce_item.integration == integration)
+	).run(as_dict=True)
 
 
 def get_inventory_levels_of_group_warehouse(warehouse: str, integration: str):
@@ -51,27 +46,28 @@ def get_inventory_levels_of_group_warehouse(warehouse: str, integration: str):
 	child_warehouse = get_descendants_of("Warehouse", warehouse)
 	all_warehouses = (*tuple(child_warehouse), warehouse)
 
-	EcommerceItem = DocType("Ecommerce Item")
-	Bin = DocType("Bin")
+	bin = frappe.qb.DocType("Bin")
+	ecommerce_item = frappe.qb.DocType("Ecommerce Item")
 
-	query = (
-		frappe.qb.from_(EcommerceItem)
-		.join(Bin)
-		.on(EcommerceItem.erpnext_item_code == Bin.item_code)
+	data = (
+		frappe.qb.from_(ecommerce_item)
+		.join(bin)
+		.on(ecommerce_item.erpnext_item_code == bin.item_code)
 		.select(
-			EcommerceItem.name.as_("ecom_item"),
-			Bin.item_code.as_("item_code"),
-			EcommerceItem.integration_item_code,
-			EcommerceItem.variant_id,
-			Sum(Bin.actual_qty).as_("actual_qty"),
-			Sum(Bin.reserved_qty).as_("reserved_qty"),
-			Max(Bin.modified).as_("last_updated"),
-			Max(EcommerceItem.inventory_synced_on).as_("last_synced"),
+			ecommerce_item.name.as_("ecom_item"),
+			bin.item_code,
+			ecommerce_item.integration_item_code,
+			ecommerce_item.variant_id,
+			Sum(bin.actual_qty).as_("actual_qty"),
+			Sum(bin.reserved_qty).as_("reserved_qty"),
+			Max(bin.modified).as_("last_updated"),
+			Max(ecommerce_item.inventory_synced_on).as_("last_synced"),
 		)
-		.where((Bin.warehouse.isin(all_warehouses)) & (EcommerceItem.integration == integration))
-		.groupby(EcommerceItem.erpnext_item_code)
-		.having(Max(Bin.modified) > Max(EcommerceItem.inventory_synced_on))
-	)
+		.where(bin.warehouse.isin(all_warehouses))
+		.where(ecommerce_item.integration == integration)
+		.groupby(ecommerce_item.erpnext_item_code)
+		.having(Max(bin.modified) > Max(ecommerce_item.inventory_synced_on))
+	).run(as_dict=True)
 
 	data = query.run(as_dict=1)
 

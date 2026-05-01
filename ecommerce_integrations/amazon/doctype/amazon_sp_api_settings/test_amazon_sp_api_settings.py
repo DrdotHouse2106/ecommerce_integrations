@@ -5,14 +5,15 @@
 import json
 import os
 import time
-from typing import ClassVar
+import unittest
+from typing import Any, ClassVar
 
-import frappe
 import responses
-from frappe.exceptions import ValidationError
-from frappe.tests import IntegrationTestCase
 from requests import request
 from requests.exceptions import HTTPError
+
+import frappe
+from frappe.exceptions import ValidationError
 
 from ecommerce_integrations.amazon.doctype.amazon_sp_api_settings.amazon_repository import (
 	AmazonRepository,
@@ -40,7 +41,7 @@ with open(file_path) as json_file:
 
 class TestSPAPI(SPAPI):
 	# Expected response after hitting the URL.
-	expected_response: ClassVar = {}
+	expected_response: ClassVar[dict[str, Any]] = {}
 
 	@responses.activate
 	def make_request(
@@ -224,7 +225,7 @@ class TestAmazonSettings:
 		self.warehouse = get_warehouse()
 		self.parent_item_group = get_item_group()
 		self.price_list = "Standard Selling"
-		self.customer_group = "All Customer Groups"
+		self.customer_group = "Individual"
 		self.territory = "All Territories"
 		self.customer_type = "Individual"
 		self.market_place_account_group = "Accounts Receivable - ATC"
@@ -254,7 +255,7 @@ class TestAmazonRepository(AmazonRepository):
 	def call_sp_api_method(self, sp_api_method, **kwargs):
 		max_retries = self.amz_setting.max_retry_limit
 
-		for _x in range(max_retries):
+		for _ in range(max_retries):
 			try:
 				result = sp_api_method(**kwargs)
 				return result.get("payload")

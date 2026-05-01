@@ -76,12 +76,6 @@ class EcommerceCustomer:
 				LIMIT 1
 			""", (customer, address_type), as_dict=True)
 
-			if addresses:
-				return frappe.get_doc("Address", addresses[0].name)
-		except frappe.DoesNotExistError:
-			pass
-		return None
-
 	def create_customer_address(self, address: dict[str, str]) -> None:
 		"""Create address from dictionary containing fields used in Address doctype of ERPNext."""
 
@@ -97,17 +91,6 @@ class EcommerceCustomer:
 				**address,
 				"links": [{"link_doctype": "Customer", "link_name": customer_doc.name}],
 			}
-		)
-
-		log(
-			f"Address.insert start: integration={self.integration}, customer={customer_doc.name}, "
-			f"type={address_type}, external_address_id={address_id or 'n/a'}"
-		)
-		started_at = perf_counter()
-		doc.insert(ignore_mandatory=True, ignore_permissions=True)
-		log(
-			f"Address.insert done in {perf_counter() - started_at:.2f}s: integration={self.integration}, "
-			f"customer={customer_doc.name}, type={address_type}, external_address_id={address_id or 'n/a'}"
 		)
 
 	def create_customer_contact(self, contact: dict[str, str]) -> None:

@@ -3,10 +3,10 @@
 
 import unittest
 
-import frappe
-from frappe.tests import IntegrationTestCase
 from shopify.resources import Webhook
 from shopify.session import Session
+
+import frappe
 
 from ecommerce_integrations.shopify import connection
 from ecommerce_integrations.shopify.constants import API_VERSION, SETTING_DOCTYPE

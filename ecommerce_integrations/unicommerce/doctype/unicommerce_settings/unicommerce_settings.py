@@ -1,9 +1,9 @@
 # Copyright (c) 2021, Frappe and contributors
 # For license information, please see LICENSE
 
+import requests
 
 import frappe
-import requests
 from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.utils import add_to_date, get_datetime, now_datetime

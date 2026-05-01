@@ -1,12 +1,13 @@
 # Copyright (c) 2021, Frappe and contributors
 # For license information, please see LICENSE
 
+from shopify.collection import PaginatedIterator
+from shopify.resources import Location
+
 import frappe
 from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.utils import get_datetime
-from shopify.collection import PaginatedIterator
-from shopify.resources import Location
 
 from ecommerce_integrations.controllers.setting import (
 	ERPNextWarehouse,

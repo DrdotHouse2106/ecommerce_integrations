@@ -236,25 +236,7 @@ doc_events = {
 # ---------------
 
 scheduler_events = {
-	"all": [
-		"ecommerce_integrations.shopify.inventory.update_inventory_on_shopify",
-		"ecommerce_integrations.shopware6.inventory.sync_inventory_to_shopware",
-		"ecommerce_integrations.shopware6.order.scheduled_order_sync",
-		# Shopware6: Check and process bulk sync queue
-		"ecommerce_integrations.shopware6.bulk_sync.check_and_process_queue",
-		# RAG: Check and process bulk sync queue
-		"ecommerce_integrations.rag.bulk_sync.check_and_process_queue",
-		# Medusa: Check and process bulk sync queue
-		"ecommerce_integrations.medusa.bulk_sync.check_and_process_queue",
-		"ecommerce_integrations.medusa.order.scheduled_sync.sync_new_orders",
-		"ecommerce_integrations.medusa.scheduled_customer_sync.sync_new_customers",
-		"ecommerce_integrations.medusa.payment_sync.sync_payment_status",
-	],
-	"cron": {
-		"*/5 * * * *": [
-			"ecommerce_integrations.medusa.inventory.sync_inventory_to_medusa",
-		],
-	},
+	"all": ["ecommerce_integrations.shopify.inventory.update_inventory_on_shopify"],
 	"daily": [],
 	"daily_long": ["ecommerce_integrations.zenoti.doctype.zenoti_settings.zenoti_settings.sync_stocks"],
 	"hourly": [

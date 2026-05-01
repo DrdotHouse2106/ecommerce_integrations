@@ -1,10 +1,9 @@
-from typing import Optional
+from shopify.resources import Product, Variant
 
 import frappe
 from frappe import _, msgprint
 from frappe.utils import cint, cstr
 from frappe.utils.nestedset import get_root_of
-from shopify.resources import Product, Variant
 
 from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_item import ecommerce_item
 from ecommerce_integrations.shopify.connection import temp_shopify_session

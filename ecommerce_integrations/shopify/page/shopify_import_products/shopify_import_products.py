@@ -1,8 +1,9 @@
 from time import process_time
 
+from shopify.resources import Product
+
 import frappe
 from frappe.exceptions import UniqueValidationError
-from shopify.resources import Product
 
 from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_item import ecommerce_item
 from ecommerce_integrations.shopify.connection import temp_shopify_session

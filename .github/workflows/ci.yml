@@ -1,7 +1,14 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - main
+      - version-15
   pull_request:
+    branches:
+      - main
+      - version-15
     paths-ignore:
       - "**.css"
       - "**.js"
@@ -9,19 +16,21 @@ on:
       - "**.html"
       - "**.csv"
   schedule:
-    # Run everday at midnight UTC / 5:30 IST
+    # Run everyday at midnight UTC / 5:30 IST
     - cron: "0 0 * * *"
 
+env:
+  ECOMMERCE_BRANCH: ${{ github.base_ref || github.ref_name }}
+
 concurrency:
-  group: develop-${{ github.event.number }}
+  group: ci-${{ github.event.number || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 20
     env:
-      NODE_ENV: "production"
       WITH_COVERAGE: ${{ github.event_name != 'pull_request' }}
 
     strategy:
@@ -43,10 +52,10 @@ jobs:
 
     steps:
       - name: Clone
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: '3.14'
 
@@ -104,11 +113,11 @@ jobs:
         run: |
           bash ${GITHUB_WORKSPACE}/.github/helper/install.sh
         env:
-          FRAPPE_USER: ${{ github.event.inputs.user }}
-          FRAPPE_BRANCH: ${{ github.event.inputs.branch }}
+          BRANCH_TO_CLONE: ${{ env.ECOMMERCE_BRANCH }}
+
 
       - name: Run Tests
-        run: cd ~/frappe-bench/ && bench --site test_site run-parallel-tests --app ecommerce_integrations --total-builds ${{ strategy.job-total }} --build-number ${{ matrix.container }}
+        run: cd ~/frappe-bench/ && bench --site test_site run-tests --app ecommerce_integrations ${{ env.WITH_COVERAGE == 'true' && '--coverage' || '' }}
         env:
           TYPE: server
           CAPTURE_COVERAGE: ${{ github.event_name != 'pull_request' }}
@@ -116,6 +125,24 @@ jobs:
       - name: Upload coverage data
         uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request'
+        with:
+          name: coverage
+          path: /home/runner/frappe-bench/sites/coverage.xml
+
+  coverage:
+    name: Coverage Wrap Up
+    needs: tests
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' }}
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Upload coverage data
+        uses: codecov/codecov-action@v2
         with:
           name: coverage-${{ matrix.container }}
           path: /home/runner/frappe-bench/sites/coverage.xml

@@ -1,16 +1,15 @@
 import base64
 from typing import Any
 
-import frappe
 import requests
-from frappe import _
-from frappe.utils import cint, cstr, get_datetime
 from pytz import timezone
+
+import frappe
+from frappe import _, _dict
+from frappe.utils import cint, cstr, get_datetime
 
 from ecommerce_integrations.unicommerce.constants import SETTINGS_DOCTYPE
 from ecommerce_integrations.unicommerce.utils import create_unicommerce_log
-
-JsonDict = dict[str, Any]
 
 
 class UnicommerceAPIClient:
@@ -41,12 +40,12 @@ class UnicommerceAPIClient:
 		self,
 		endpoint: str,
 		method: str = "POST",
-		headers: JsonDict | None = None,
-		body: JsonDict | None = None,
-		params: JsonDict | None = None,
-		files: JsonDict | None = None,
+		headers: dict[str, Any] | None = None,
+		body: dict[str, Any] | None = None,
+		params: dict[str, Any] | None = None,
+		files: dict[str, Any] | None = None,
 		log_error=True,
-	) -> tuple[JsonDict, bool]:
+	) -> tuple[_dict | bytes | None, bool]:
 		if headers is None:
 			headers = {}
 
@@ -84,7 +83,7 @@ class UnicommerceAPIClient:
 
 		return data, status
 
-	def get_unicommerce_item(self, sku: str, log_error=True) -> JsonDict | None:
+	def get_unicommerce_item(self, sku: str, log_error=True) -> _dict | None:
 		"""Get Unicommerce item data for specified SKU code.
 
 		ref: https://documentation.unicommerce.com/docs/itemtype-get.html
@@ -95,7 +94,9 @@ class UnicommerceAPIClient:
 		if status:
 			return item
 
-	def create_update_item(self, item_dict: JsonDict, update=False) -> tuple[JsonDict, bool]:
+	def create_update_item(
+		self, item_dict: dict[str, Any], update=False
+	) -> tuple[_dict | bytes | None, bool]:
 		"""Create/update item on unicommerce.
 
 		ref: https://documentation.unicommerce.com/docs/createoredit-itemtype.html
@@ -107,7 +108,7 @@ class UnicommerceAPIClient:
 			endpoint = "/services/rest/v1/catalog/itemType/edit"
 		return self.request(endpoint=endpoint, body={"itemType": item_dict})
 
-	def get_sales_order(self, order_code: str) -> JsonDict | None:
+	def get_sales_order(self, order_code: str) -> _dict | None:
 		"""Get details for a sales order.
 
 		ref: https://documentation.unicommerce.com/docs/saleorder-get.html
@@ -127,7 +128,7 @@ class UnicommerceAPIClient:
 		channel: str | None = None,
 		facility_codes: list[str] | None = None,
 		updated_since: int | None = None,
-	) -> list[JsonDict] | None:
+	) -> list[dict[str, Any]] | None:
 		"""Search sales order using specified parameters and return search results.
 
 		ref: https://documentation.unicommerce.com/docs/saleorder-search.html
@@ -151,7 +152,7 @@ class UnicommerceAPIClient:
 
 	def get_inventory_snapshot(
 		self, sku_codes: list[str], facility_code: str, updated_since: int = 1430
-	) -> JsonDict | None:
+	) -> _dict | None:
 		"""Get current inventory snapshot.
 
 		ref: https://documentation.unicommerce.com/docs/inventory-snapshot.html
@@ -221,7 +222,7 @@ class UnicommerceAPIClient:
 
 	def create_sales_invoice(
 		self, so_code: str, so_item_codes: list[str], facility_code: str
-	) -> JsonDict | None:
+	) -> _dict | None:
 		body = {"saleOrderCode": so_code, "saleOrderItemCodes": so_item_codes}
 		extra_headers = {"Facility": facility_code}
 
@@ -281,7 +282,7 @@ class UnicommerceAPIClient:
 
 	def get_sales_invoice(
 		self, shipping_package_code: str, facility_code: str, is_return: bool = False
-	) -> JsonDict | None:
+	) -> _dict | None:
 		"""Get invoice details
 
 		ref: https://documentation.unicommerce.com/docs/invoice-getdetails.html
@@ -335,7 +336,7 @@ class UnicommerceAPIClient:
 			headers=extra_headers,
 		)
 
-	def get_invoice_label(self, shipping_package_code: str, facility_code: str) -> str | None:
+	def get_invoice_label(self, shipping_package_code: str, facility_code: str) -> bytes | None:
 		"""Get the generated label for a given shipping package.
 
 		ref: undocumented.

@@ -1,7 +1,8 @@
 import copy
 import json
 import os
-from typing import ClassVar
+import typing
+import unittest
 
 import frappe
 from frappe.tests import IntegrationTestCase
@@ -12,8 +13,8 @@ from ecommerce_integrations.unicommerce.doctype.unicommerce_settings.unicommerce
 )
 
 
-class TestCase(IntegrationTestCase):
-	config: ClassVar = {
+class TestCase(unittest.TestCase):
+	config: typing.ClassVar[dict] = {
 		"is_enabled": 1,
 		"enable_inventory_sync": 1,
 		"use_stock_entry_for_grn": 1,
@@ -75,9 +76,8 @@ class TestCase(IntegrationTestCase):
 		frappe.db.set_value("Stock Settings", None, "allow_negative_stock", 0)
 
 	def load_fixture(self, name):
-		with open(os.path.dirname(__file__) + f"/fixtures/{name}.json", "rb") as f:
-			data = f.read()
-		return json.loads(data)
+		fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", f"{name}.json")
+		return frappe.get_file_json(fixture_path)
 
 
 def _setup_test_item_categories():

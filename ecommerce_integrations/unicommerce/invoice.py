@@ -3,12 +3,14 @@ import json
 from collections import defaultdict
 from typing import Any, NewType
 
-import frappe
 import requests
-from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
-from frappe import _
+
+import frappe
+from frappe import _, _dict
 from frappe.utils import cint, flt, nowdate
 from frappe.utils.file_manager import save_file
+
+from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
 
 from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_item import ecommerce_item
 from ecommerce_integrations.unicommerce.api_client import UnicommerceAPIClient
@@ -34,7 +36,6 @@ from ecommerce_integrations.unicommerce.utils import (
 	remove_non_alphanumeric_chars,
 )
 
-JsonDict = dict[str, Any]
 SOCode = NewType("SOCode", str)
 
 # TypedDict
@@ -301,14 +302,14 @@ def _fetch_and_sync_invoice(
 
 
 def create_sales_invoice(
-	si_data: JsonDict,
+	si_data: _dict,
 	so_code: str,
 	update_stock=0,
 	submit=True,
 	shipping_label=None,
 	warehouse_allocations=None,
 	invoice_response=None,
-	so_data: JsonDict | None = None,
+	so_data: _dict | None = None,
 ):
 	"""Create ERPNext Sales Invcoice using Unicommerce sales invoice data and related Sales order.
 
@@ -489,7 +490,7 @@ def _assign_wh_and_so_row(line_items, warehouse_allocation: list[ItemWHAlloc], s
 	line_items.sort(key=sort_key)
 
 	# update references
-	for item, wh_alloc in zip(line_items, warehouse_allocation, strict=False):
+	for item, wh_alloc in zip(line_items, warehouse_allocation, strict=True):
 		item["so_detail"] = wh_alloc["sales_order_row"]
 		item["warehouse"] = wh_alloc["warehouse"]
 		item["batch_no"] = wh_alloc.get("batch_no")

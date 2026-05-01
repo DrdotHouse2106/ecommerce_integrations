@@ -1,8 +1,9 @@
 import json
 import os
 
-import frappe
 import shopify
+
+import frappe
 
 from ecommerce_integrations.shopify.product import ShopifyProduct
 

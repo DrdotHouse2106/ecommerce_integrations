@@ -1,11 +1,12 @@
 import json
-from typing import Literal, Optional
+from typing import Literal
+
+from shopify.collection import PaginatedIterator
+from shopify.resources import Order
 
 import frappe
 from frappe import _
 from frappe.utils import cint, cstr, flt, get_datetime, getdate, nowdate
-from shopify.collection import PaginatedIterator
-from shopify.resources import Order
 
 from ecommerce_integrations.shopify.connection import temp_shopify_session
 from ecommerce_integrations.shopify.constants import (
