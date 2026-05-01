@@ -301,23 +301,9 @@ def get_item_group_hierarchy(item_group):
         current = parent
         max_depth -= 1
 
-    # Top-level categories we care about for filtering
-    TOP_LEVEL_CATEGORIES = [
-        "Transportgeräte",
-        "Regalsysteme",
-        "Betriebseinrichtungen",
-        "Lagerzubehör",
-        "Service",
-        "Themenwelten",
-        "Sicherheit und Umwelt"
-    ]
-
-    # Find the root category (highest level that's in our list)
-    root_group = ""
-    for group in hierarchy:
-        if group in TOP_LEVEL_CATEGORIES:
-            root_group = group
-            break
+    # Root category = the topmost real Item Group (the walk-up above
+    # already stopped before "All Item Groups", so hierarchy[-1] is it).
+    root_group = hierarchy[-1] if hierarchy else ""
 
     return {
         "item_group": item_group,
