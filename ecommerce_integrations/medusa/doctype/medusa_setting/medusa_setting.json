@@ -25,6 +25,7 @@
   "last_customer_sync",
   "column_break_customer",
   "customer_group",
+  "default_country",
   "company_settings_section",
   "company",
   "cost_center",
@@ -50,6 +51,11 @@
   "column_break_order_automation",
   "sync_sales_invoice",
   "auto_send_invoice_email",
+  "section_break_payment_sync",
+  "sync_payment_status",
+  "payment_sync_frequency",
+  "last_payment_sync",
+  "column_break_payment_sync",
   "section_break_tax",
   "default_sales_tax_template",
   "column_break_tax",
@@ -74,7 +80,9 @@
   "add_shipping_as_item",
   "shipping_item",
   "column_break_shipping",
-  "discount_item"
+  "discount_item",
+  "checkout_fields_section",
+  "checkout_fields"
  ],
  "fields": [
   {
@@ -199,6 +207,13 @@
    "fieldtype": "Link",
    "label": "Customer Group",
    "options": "Customer Group"
+  },
+  {
+   "fieldname": "default_country",
+   "fieldtype": "Link",
+   "label": "Default Country",
+   "options": "Country",
+   "description": "Fallback country for addresses without a country code"
   },
   {
    "fieldname": "company_settings_section",
@@ -347,6 +362,37 @@
    "fieldtype": "Check",
    "label": "Auto-send Invoice Email",
    "description": "Sends the invoice via email to the customer after creation"
+  },
+  {
+   "fieldname": "section_break_payment_sync",
+   "fieldtype": "Section Break",
+   "label": "Payment Sync"
+  },
+  {
+   "default": "0",
+   "fieldname": "sync_payment_status",
+   "fieldtype": "Check",
+   "label": "Sync Payment Status",
+   "description": "Creates Payment Entries when Medusa payment status changes to captured"
+  },
+  {
+   "default": "30",
+   "depends_on": "eval:doc.sync_payment_status",
+   "fieldname": "payment_sync_frequency",
+   "fieldtype": "Select",
+   "label": "Payment Sync Frequency (Minutes)",
+   "options": "5\n10\n15\n30\n60"
+  },
+  {
+   "fieldname": "last_payment_sync",
+   "fieldtype": "Datetime",
+   "hidden": 1,
+   "label": "Last Payment Sync",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_payment_sync",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "section_break_tax",
@@ -498,6 +544,20 @@
    "label": "Discount Item",
    "options": "Item",
    "description": "ERPNext item used to represent discounts on sales orders"
+  },
+  {
+   "fieldname": "checkout_fields_section",
+   "fieldtype": "Section Break",
+   "label": "Checkout Custom Fields",
+   "description": "Map Medusa order metadata keys to ERPNext fields or service items. Add rows for each metadata field you want to process during order sync.",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "checkout_fields",
+   "fieldtype": "Table",
+   "label": "Checkout Field Mappings",
+   "options": "Ecommerce Checkout Field",
+   "description": "Configure which checkout custom fields to process and how to map them"
   }
  ],
  "index_web_pages_for_search": 1,

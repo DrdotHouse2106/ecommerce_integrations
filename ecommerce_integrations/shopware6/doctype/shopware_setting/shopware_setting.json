@@ -828,8 +828,8 @@
    "fieldname": "checkout_fields",
    "fieldtype": "Table",
    "label": "Checkout Field Mappings",
-   "options": "Shopware Checkout Field",
-   "description": "Configure which Shopware checkout custom fields to process and how to map them"
+   "options": "Ecommerce Checkout Field",
+   "description": "Configure which checkout custom fields to process and how to map them"
   }
  ],
  "index_web_pages_for_search": 1,

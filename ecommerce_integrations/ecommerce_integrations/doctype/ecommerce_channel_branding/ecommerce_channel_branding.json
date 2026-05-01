@@ -1,0 +1,378 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:channel_name",
+ "creation": "2026-04-21 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "channel_name",
+  "display_name",
+  "column_break_1",
+  "shop_url",
+  "support_email",
+  "section_break_colors",
+  "primary_color",
+  "column_break_2",
+  "dark_color",
+  "section_break_logo",
+  "logo",
+  "logo_data_uri",
+  "section_break_email",
+  "outgoing_email_account",
+  "outgoing_email_account_invoice",
+  "sender_name",
+  "language",
+  "column_break_email",
+  "reply_to_email",
+  "bcc_email",
+  "section_break_einvoice",
+  "enable_einvoice",
+  "section_break_texts_order",
+  "order_ack_title",
+  "order_ack_intro",
+  "column_break_texts_order",
+  "order_confirmation_title",
+  "order_confirmation_intro",
+  "section_break_texts_delivery",
+  "delivery_note_title",
+  "delivery_note_intro",
+  "section_break_texts_email",
+  "email_acknowledgment_subject",
+  "email_acknowledgment_greeting",
+  "email_acknowledgment_body",
+  "column_break_email_texts",
+  "email_confirmation_subject",
+  "email_confirmation_greeting",
+  "email_confirmation_body",
+  "email_invoice_subject",
+  "email_invoice_greeting",
+  "email_invoice_body",
+  "section_break_footer",
+  "signature_html",
+  "imprint_html",
+  "column_break_legal",
+  "privacy_policy_url",
+  "terms_url"
+ ],
+ "fields": [
+  {
+   "description": "Matches doc.ecommerce_sales_channel_name. Suggestions are pulled from Medusa Sales Channels and existing Sales Orders.",
+   "fieldname": "channel_name",
+   "fieldtype": "Autocomplete",
+   "in_list_view": 1,
+   "label": "Channel Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "description": "Human-readable shop/company name shown on documents and emails",
+   "fieldname": "display_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Display Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "e.g., yourshop.com (shown in document header)",
+   "fieldname": "shop_url",
+   "fieldtype": "Data",
+   "label": "Shop URL"
+  },
+  {
+   "fieldname": "support_email",
+   "fieldtype": "Data",
+   "label": "Support Email",
+   "options": "Email"
+  },
+  {
+   "fieldname": "section_break_colors",
+   "fieldtype": "Section Break",
+   "label": "Branding Colors"
+  },
+  {
+   "description": "Main brand color (e.g., #C41E3A)",
+   "fieldname": "primary_color",
+   "fieldtype": "Color",
+   "label": "Primary Color"
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Darker shade for hover/borders (optional)",
+   "fieldname": "dark_color",
+   "fieldtype": "Color",
+   "label": "Dark Color"
+  },
+  {
+   "fieldname": "section_break_logo",
+   "fieldtype": "Section Break",
+   "label": "Logo"
+  },
+  {
+   "description": "Uploaded image file (preferred)",
+   "fieldname": "logo",
+   "fieldtype": "Attach Image",
+   "label": "Logo"
+  },
+  {
+   "description": "Inline data URI fallback (used when Logo file is unavailable in PDFs)",
+   "fieldname": "logo_data_uri",
+   "fieldtype": "Code",
+   "label": "Logo Data URI"
+  },
+  {
+   "fieldname": "section_break_email",
+   "fieldtype": "Section Break",
+   "label": "Email Sending"
+  },
+  {
+   "description": "Email Account used for order-related notifications (acknowledgment, order confirmation, delivery note, …). Falls back to the default outgoing account if empty.",
+   "fieldname": "outgoing_email_account",
+   "fieldtype": "Link",
+   "label": "Outgoing Email Account (Orders)",
+   "options": "Email Account"
+  },
+  {
+   "description": "Email Account used for invoice-related notifications (Sales Invoice, Payment Entry, Payment Request). Falls back to the Orders account, then the system default.",
+   "fieldname": "outgoing_email_account_invoice",
+   "fieldtype": "Link",
+   "label": "Outgoing Email Account (Invoices)",
+   "options": "Email Account"
+  },
+  {
+   "description": "Display name in the From header (e.g., 'My Shop')",
+   "fieldname": "sender_name",
+   "fieldtype": "Data",
+   "label": "Sender Name"
+  },
+  {
+   "description": "Language used to render emails and PDFs sent to customers via this channel. Falls back to the customer's language or the system default if empty.",
+   "fieldname": "language",
+   "fieldtype": "Link",
+   "label": "Language",
+   "options": "Language"
+  },
+  {
+   "fieldname": "column_break_email",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reply_to_email",
+   "fieldtype": "Data",
+   "label": "Reply-To Email",
+   "options": "Email"
+  },
+  {
+   "description": "Internal BCC for every outgoing notification (optional)",
+   "fieldname": "bcc_email",
+   "fieldtype": "Data",
+   "label": "BCC Email",
+   "options": "Email"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_einvoice",
+   "fieldtype": "Section Break",
+   "label": "E-Invoice"
+  },
+  {
+   "default": "0",
+   "description": "When enabled, Sales Invoice emails sent through this channel get an XRechnung/ZUGFeRD XML attached as a separate file AND embedded into the PDF (Factur-X). Requires the eu_einvoice app and a configured E-Invoice Profile on the customer/company.",
+   "fieldname": "enable_einvoice",
+   "fieldtype": "Check",
+   "label": "Attach E-Invoice (XML + ZUGFeRD)"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_texts_order",
+   "fieldtype": "Section Break",
+   "label": "Texts: Order Acknowledgment & Confirmation"
+  },
+  {
+   "default": "Bestellbestätigung",
+   "description": "Titel auf der Bestellbestätigungs-PDF (wird dem Kunden sofort nach Bestelleingang geschickt)",
+   "fieldname": "order_ack_title",
+   "fieldtype": "Data",
+   "label": "Order Acknowledgment Title"
+  },
+  {
+   "default": "Wir haben Ihre Bestellung erhalten und prüfen sie:",
+   "description": "Einleitungssatz auf der Bestellbestätigungs-PDF",
+   "fieldname": "order_ack_intro",
+   "fieldtype": "Small Text",
+   "label": "Order Acknowledgment Intro"
+  },
+  {
+   "fieldname": "column_break_texts_order",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Auftragsbestätigung",
+   "description": "Titel auf der Auftragsbestätigungs-PDF (nach Freigabe durch das Büro)",
+   "fieldname": "order_confirmation_title",
+   "fieldtype": "Data",
+   "label": "Order Confirmation Title"
+  },
+  {
+   "default": "Hiermit bestätigen wir Ihre Bestellung:",
+   "description": "Einleitungssatz auf der Auftragsbestätigungs-PDF",
+   "fieldname": "order_confirmation_intro",
+   "fieldtype": "Small Text",
+   "label": "Order Confirmation Intro"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_texts_delivery",
+   "fieldtype": "Section Break",
+   "label": "Texts: Delivery Note"
+  },
+  {
+   "default": "Lieferschein",
+   "description": "Titel auf der Lieferschein-PDF",
+   "fieldname": "delivery_note_title",
+   "fieldtype": "Data",
+   "label": "Delivery Note Title"
+  },
+  {
+   "default": "Anbei erhalten Sie Ihre Lieferung:",
+   "fieldname": "delivery_note_intro",
+   "fieldtype": "Small Text",
+   "label": "Delivery Note Intro"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_texts_email",
+   "fieldtype": "Section Break",
+   "label": "Texts: Email Bodies"
+  },
+  {
+   "description": "Betreffzeile der Bestellbestätigungs-E-Mail. Jinja unterstützt.",
+   "fieldname": "email_acknowledgment_subject",
+   "fieldtype": "Data",
+   "label": "Acknowledgment Email Subject"
+  },
+  {
+   "default": "{{ auto_greeting }},",
+   "description": "Anrede am Anfang der Bestellbestätigungs-E-Mail. Jinja-Platzhalter erlaubt: {{ first_name }}, {{ last_name }}, {{ salutation }}, {{ gender }}, {{ customer_name }}, {{ auto_greeting }} (sprachabhängige Auto-Anrede mit Fallback auf 'Sehr geehrte Damen und Herren').",
+   "fieldname": "email_acknowledgment_greeting",
+   "fieldtype": "Small Text",
+   "label": "Acknowledgment Email Greeting"
+  },
+  {
+   "default": "<p>vielen Dank für Ihre Bestellung. Wir haben Ihren Auftrag erhalten und werden ihn schnellstmöglich bearbeiten.</p><p>Nachfolgend finden Sie eine Übersicht Ihrer bestellten Artikel.</p>",
+   "description": "Hauptinhalt der Bestellbestätigungs-E-Mail (HTML, Jinja-Platzhalter unterstützt: {{ doc.name }}, {{ doc.grand_total }}, sowie {{ first_name }}, {{ last_name }}, {{ salutation }}, {{ gender }}, {{ auto_greeting }}).",
+   "fieldname": "email_acknowledgment_body",
+   "fieldtype": "Text Editor",
+   "label": "Acknowledgment Email Body"
+  },
+  {
+   "fieldname": "column_break_email_texts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Betreffzeile der Auftragsbestätigungs-E-Mail",
+   "fieldname": "email_confirmation_subject",
+   "fieldtype": "Data",
+   "label": "Confirmation Email Subject"
+  },
+  {
+   "default": "{{ auto_greeting }},",
+   "description": "Anrede am Anfang der Auftragsbestätigungs-E-Mail. Jinja-Platzhalter erlaubt: {{ first_name }}, {{ last_name }}, {{ salutation }}, {{ gender }}, {{ customer_name }}, {{ auto_greeting }} (sprachabhängige Auto-Anrede mit Fallback auf 'Sehr geehrte Damen und Herren').",
+   "fieldname": "email_confirmation_greeting",
+   "fieldtype": "Small Text",
+   "label": "Confirmation Email Greeting"
+  },
+  {
+   "default": "<p>hiermit bestätigen wir verbindlich Ihre Bestellung. Details entnehmen Sie bitte der angehängten Auftragsbestätigung.</p>",
+   "fieldname": "email_confirmation_body",
+   "fieldtype": "Text Editor",
+   "label": "Confirmation Email Body"
+  },
+  {
+   "default": "Ihre Rechnung {{ doc.name }}",
+   "description": "Betreffzeile der Rechnungs-E-Mail. Jinja unterstützt.",
+   "fieldname": "email_invoice_subject",
+   "fieldtype": "Data",
+   "label": "Invoice Email Subject"
+  },
+  {
+   "default": "{{ auto_greeting }},",
+   "description": "Anrede am Anfang der Rechnungs-E-Mail. Jinja-Platzhalter erlaubt: {{ first_name }}, {{ last_name }}, {{ salutation }}, {{ gender }}, {{ customer_name }}, {{ auto_greeting }}.",
+   "fieldname": "email_invoice_greeting",
+   "fieldtype": "Small Text",
+   "label": "Invoice Email Greeting"
+  },
+  {
+   "default": "<p>anbei erhalten Sie Ihre Rechnung im PDF-Format. Falls aktiviert, ist eine elektronische Rechnung (XRechnung/ZUGFeRD) sowohl als XML-Datei als auch eingebettet im PDF beigefügt.</p><p>Zahlungsdetails entnehmen Sie bitte der Rechnung.</p>",
+   "description": "Hauptinhalt der Rechnungs-E-Mail (HTML, Jinja-Platzhalter unterstützt).",
+   "fieldname": "email_invoice_body",
+   "fieldtype": "Text Editor",
+   "label": "Invoice Email Body"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_footer",
+   "fieldtype": "Section Break",
+   "label": "Texts: Signature & Imprint"
+  },
+  {
+   "description": "Email signature HTML appended to all emails",
+   "fieldname": "signature_html",
+   "fieldtype": "Text Editor",
+   "label": "Email Signature HTML"
+  },
+  {
+   "description": "Imprint / Impressum HTML — shown in email and PDF footers (e.g., company address, CEO, commercial register, VAT ID)",
+   "fieldname": "imprint_html",
+   "fieldtype": "Text Editor",
+   "label": "Imprint HTML"
+  },
+  {
+   "fieldname": "column_break_legal",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Full URL to your privacy policy page (e.g., https://shop.example.com/datenschutz)",
+   "fieldname": "privacy_policy_url",
+   "fieldtype": "Data",
+   "label": "Privacy Policy URL"
+  },
+  {
+   "description": "Full URL to your terms and conditions page",
+   "fieldname": "terms_url",
+   "fieldtype": "Data",
+   "label": "Terms URL"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-04-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ecommerce_integrations",
+ "name": "Ecommerce Channel Branding",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

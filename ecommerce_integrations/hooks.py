@@ -105,9 +105,29 @@ before_uninstall = "ecommerce_integrations.uninstall.before_uninstall"
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+override_doctype_class = {
+	"Notification": "ecommerce_integrations.ecommerce_integrations.channel_aware_notification.ChannelAwareNotification",
+}
+
+# Jinja — expose channel branding to templates (Notifications, Print Formats)
+# Templates run in Frappe's Jinja sandbox; only methods listed here are callable.
+jinja = {
+	"methods": [
+		"ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_channel_branding.ecommerce_channel_branding.get_branding",
+		"ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_channel_branding.ecommerce_channel_branding.build_greeting_context",
+		"ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_channel_branding.ecommerce_channel_branding.render_branding_text",
+		"ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_channel_branding.ecommerce_channel_branding.get_invoice_payment_context",
+		"ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_channel_branding.ecommerce_channel_branding.get_default_bank_info",
+	]
+}
+
+# Fixtures — shipped with the plugin and synced on `bench migrate`
+fixtures = [
+	{
+		"dt": "Notification",
+		"filters": [["module", "=", "ecommerce_integrations"]],
+	},
+]
 
 # Document Events
 # ---------------
@@ -121,7 +141,7 @@ doc_events = {
 			"ecommerce_integrations.shopware6.bulk_sync.queue_item_for_sync",
 			# RAG: Sync items to Vector Search
 			"ecommerce_integrations.rag.bulk_sync.queue_item_for_sync",
-			"ecommerce_integrations.medusa.product_export.upload_item_to_medusa",
+			"ecommerce_integrations.medusa.bulk_sync.queue_item_for_sync",
 		],
 		"on_update": [
 			"ecommerce_integrations.shopify.product.upload_erpnext_item",
@@ -130,13 +150,15 @@ doc_events = {
 			"ecommerce_integrations.shopware6.bulk_sync.queue_properties_for_sync",
 			# RAG: Sync items to Vector Search
 			"ecommerce_integrations.rag.bulk_sync.queue_item_for_sync",
-			"ecommerce_integrations.medusa.product_export.upload_item_to_medusa",
+			"ecommerce_integrations.medusa.bulk_sync.queue_item_for_sync",
 		],
 		"on_trash": [
 			# RAG: Delete items from Vector Search
 			"ecommerce_integrations.rag.product_export.delete_item_from_rag",
 			# Shopware6: Deactivate product in Shopware and cleanup Ecommerce Item
 			"ecommerce_integrations.shopware6.bulk_sync.queue_item_delete_for_sync",
+			# Medusa: set product status=draft (keep due to order refs)
+			"ecommerce_integrations.medusa.product_export.deactivate_item_in_medusa",
 		],
 		"validate": [
 			"ecommerce_integrations.utils.taxation.validate_tax_template",
@@ -145,7 +167,10 @@ doc_events = {
 	},
 	# Shopware6: Sync Item Group changes (description, shopware_active, SEO) to Shopware categories
 	"Item Group": {
-		"on_update": "ecommerce_integrations.shopware6.bulk_sync.queue_item_group_for_sync",
+		"on_update": [
+			"ecommerce_integrations.shopware6.bulk_sync.queue_item_group_for_sync",
+			"ecommerce_integrations.medusa.product_export.sync_item_group_to_medusa",
+		],
 		"after_rename": "ecommerce_integrations.shopware6.bulk_sync.queue_item_group_rename_for_sync",
 		"on_trash": "ecommerce_integrations.shopware6.bulk_sync.queue_item_group_delete_for_sync",
 	},
@@ -159,6 +184,8 @@ doc_events = {
 		],
 	},
 	"Delivery Note": {
+		"before_insert": "ecommerce_integrations.ecommerce_integrations.channel_propagation.propagate_to_delivery_note",
+		"validate": "ecommerce_integrations.ecommerce_integrations.channel_propagation.propagate_to_delivery_note",
 		"on_submit": [
 			"ecommerce_integrations.shopware6.status_sync.on_delivery_note_submit",
 			"ecommerce_integrations.medusa.status_sync.on_delivery_note_submit",
@@ -166,6 +193,8 @@ doc_events = {
 		"on_cancel": "ecommerce_integrations.shopware6.status_sync.on_delivery_note_cancel",
 	},
 	"Payment Entry": {
+		"before_insert": "ecommerce_integrations.ecommerce_integrations.channel_propagation.propagate_to_payment_entry",
+		"validate": "ecommerce_integrations.ecommerce_integrations.channel_propagation.propagate_to_payment_entry",
 		"on_submit": "ecommerce_integrations.shopware6.status_sync.on_payment_entry_submit",
 	},
 	"Stock Entry": {
@@ -188,10 +217,13 @@ doc_events = {
 		"on_change": [
 			"ecommerce_integrations.utils.price_list.discard_item_prices",
 			"ecommerce_integrations.shopware6.bulk_sync.queue_price_for_sync",
+			"ecommerce_integrations.medusa.bulk_sync.queue_price_for_sync",
 		],
 	},
 	"Pick List": {"validate": "ecommerce_integrations.unicommerce.pick_list.validate"},
 	"Sales Invoice": {
+		"before_insert": "ecommerce_integrations.ecommerce_integrations.channel_propagation.propagate_to_sales_invoice",
+		"validate": "ecommerce_integrations.ecommerce_integrations.channel_propagation.propagate_to_sales_invoice",
 		"on_submit": [
 			"ecommerce_integrations.unicommerce.invoice.on_submit",
 			"ecommerce_integrations.shopware6.status_sync.on_sales_invoice_submit",
@@ -212,8 +244,11 @@ scheduler_events = {
 		"ecommerce_integrations.shopware6.bulk_sync.check_and_process_queue",
 		# RAG: Check and process bulk sync queue
 		"ecommerce_integrations.rag.bulk_sync.check_and_process_queue",
+		# Medusa: Check and process bulk sync queue
+		"ecommerce_integrations.medusa.bulk_sync.check_and_process_queue",
 		"ecommerce_integrations.medusa.order.scheduled_sync.sync_new_orders",
 		"ecommerce_integrations.medusa.scheduled_customer_sync.sync_new_customers",
+		"ecommerce_integrations.medusa.payment_sync.sync_payment_status",
 	],
 	"cron": {
 		"*/5 * * * *": [
@@ -227,6 +262,8 @@ scheduler_events = {
 		"ecommerce_integrations.amazon.doctype.amazon_sp_api_settings.amazon_sp_api_settings.schedule_get_order_details",
 		# AI Description: Scheduled batch processing
 		"ecommerce_integrations.ai_description.scheduler.process_batch_descriptions",
+		# Medusa: safety-net index-sync if last_synced_at is stale
+		"ecommerce_integrations.medusa.product_export.ensure_index_fresh",
 	],
 	"hourly_long": [
 		"ecommerce_integrations.zenoti.doctype.zenoti_settings.zenoti_settings.sync_invoices",

@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 
 from ecommerce_integrations.shopware6.order.order_mapper import (
-    get_checkout_custom_field,
+    extract_checkout_field_value,
     get_payment_method_info,
     calculate_delivery_date,
     extract_order_currency,
@@ -20,40 +20,42 @@ from ecommerce_integrations.shopware6.tests.utils import (
 class TestOrderMapper(ShopwareTestCase):
     """Test cases for order mapper functions."""
 
-    def test_get_checkout_custom_field_from_order(self):
-        """Test extracting custom field from order customFields."""
+    def test_extract_checkout_field_from_order(self):
+        """customFields on the order itself is the first lookup location."""
         order_data = {
-            "customFields": {
-                "custom_po_number": "PO-12345"
-            },
-            "orderCustomer": {}
+            "customFields": {"custom_po_number": "PO-12345"},
+            "orderCustomer": {},
         }
-
-        result = get_checkout_custom_field(order_data, "po_number")
+        result = extract_checkout_field_value(order_data, ["custom_po_number"])
         self.assertEqual(result, "PO-12345")
 
-    def test_get_checkout_custom_field_from_customer(self):
-        """Test extracting custom field from orderCustomer customFields."""
+    def test_extract_checkout_field_from_customer(self):
+        """Falls back to orderCustomer.customFields when not on the order."""
         order_data = {
             "customFields": {},
-            "orderCustomer": {
-                "customFields": {
-                    "custom_tel_avis": True
-                }
-            }
+            "orderCustomer": {"customFields": {"custom_tel_avis": True}},
         }
-
-        result = get_checkout_custom_field(order_data, "tel_avis")
+        result = extract_checkout_field_value(order_data, ["custom_tel_avis"])
         self.assertEqual(result, True)
 
-    def test_get_checkout_custom_field_not_found(self):
-        """Test extracting non-existent custom field returns None."""
-        order_data = {
-            "customFields": {},
-            "orderCustomer": {}
-        }
+    def test_extract_checkout_field_from_top_level(self):
+        """Webhook payloads may put fields directly on the order dict."""
+        order_data = {"customFields": {}, "orderCustomer": {}, "po_number": "PO-9"}
+        result = extract_checkout_field_value(order_data, ["po_number"])
+        self.assertEqual(result, "PO-9")
 
-        result = get_checkout_custom_field(order_data, "po_number")
+    def test_extract_checkout_field_order_source_beats_customer(self):
+        """Order.customFields is consulted before orderCustomer.customFields."""
+        order_data = {
+            "customFields": {"custom_alt": "from_order"},
+            "orderCustomer": {"customFields": {"custom_primary": "from_customer"}},
+        }
+        result = extract_checkout_field_value(order_data, ["custom_primary", "custom_alt"])
+        self.assertEqual(result, "from_order")
+
+    def test_extract_checkout_field_not_found(self):
+        order_data = {"customFields": {}, "orderCustomer": {}}
+        result = extract_checkout_field_value(order_data, ["po_number"])
         self.assertIsNone(result)
 
     def test_get_payment_method_info_with_transaction(self):

@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe.utils import cstr
 
+from ecommerce_integrations.ecommerce_integrations.ecommerce_custom_fields import PROP_IS_SURCHARGE
 from ecommerce_integrations.shopware6.connection import temp_shopware_session
 from ecommerce_integrations.shopware6.constants import (
     SETTING_DOCTYPE,
@@ -625,16 +626,16 @@ def ensure_surcharge_property(item_code: str) -> bool:
         # Check if is_surcharge property already exists
         existing_props = getattr(item, 'ecommerce_properties', []) or []
         for prop in existing_props:
-            if prop.property_name == 'is_surcharge':
+            if prop.property_name == PROP_IS_SURCHARGE:
                 return True  # Already has the property
 
-        # Add the is_surcharge property
+        # Add the is_surcharge property (synced to all ecommerce backends)
         item.append('ecommerce_properties', {
-            'property_name': 'is_surcharge',
+            'property_name': PROP_IS_SURCHARGE,
             'property_type': 'Custom Field',
             'property_value': 'true',
             'sync_to_shopware': 1,
-            'sync_to_medusa': 0,
+            'sync_to_medusa': 1,
         })
         item.save(ignore_permissions=True)
 
@@ -668,15 +669,13 @@ def sync_surcharge_properties_batch(limit: int = 500) -> Dict[str, Any]:
         "errors": 0
     }
 
-    # Find all items where is_sales_item = 0 (including disabled - they sync as active=false)
+    # Surcharge detection: is_sales_item=0 OR item_name starts with "Mehrpreis"
     items = frappe.get_all(
         "Item",
-        filters={
-            "is_sales_item": 0,
-            "has_variants": 0  # Skip template items
-        },
+        filters={"has_variants": 0},
+        or_filters={"is_sales_item": 0, "item_name": ["like", "Mehrpreis%"]},
         fields=["name"],
-        limit=limit
+        limit=limit,
     )
 
     for item in items:
@@ -688,7 +687,7 @@ def sync_surcharge_properties_batch(limit: int = 500) -> Dict[str, Any]:
             # Check if property already exists
             existing_props = getattr(item_doc, 'ecommerce_properties', []) or []
             has_surcharge = any(
-                prop.property_name == 'is_surcharge'
+                prop.property_name == PROP_IS_SURCHARGE
                 for prop in existing_props
             )
 
@@ -696,13 +695,13 @@ def sync_surcharge_properties_batch(limit: int = 500) -> Dict[str, Any]:
                 stats["already_set"] += 1
                 continue
 
-            # Add the property
+            # Add the property (synced to all ecommerce backends)
             item_doc.append('ecommerce_properties', {
-                'property_name': 'is_surcharge',
+                'property_name': PROP_IS_SURCHARGE,
                 'property_type': 'Custom Field',
                 'property_value': 'true',
                 'sync_to_shopware': 1,
-                'sync_to_medusa': 0,
+                'sync_to_medusa': 1,
             })
             item_doc.save(ignore_permissions=True)
             stats["added"] += 1

@@ -23,18 +23,18 @@ def get_medusa_setting():
     return frappe.get_cached_doc(SETTING_DOCTYPE)
 
 
-def medusa_price_to_erpnext(amount_in_cents: int) -> float:
-    """Convert Medusa price (cents) to ERPNext (standard unit). 4999 → 49.99"""
-    if amount_in_cents is None:
-        return 0.0
-    return round(amount_in_cents / MEDUSA_PRICE_FACTOR, 2)
-
-
-def erpnext_price_to_medusa(amount: float) -> int:
-    """Convert ERPNext price to Medusa (cents). 49.99 → 4999"""
+def medusa_price_to_erpnext(amount: float) -> float:
+    """Convert Medusa price to ERPNext. With PRICE_FACTOR=1 this is a no-op."""
     if amount is None:
-        return 0
-    return int(round(amount * MEDUSA_PRICE_FACTOR))
+        return 0.0
+    return round(amount / MEDUSA_PRICE_FACTOR, 2)
+
+
+def erpnext_price_to_medusa(amount: float) -> float:
+    """Convert ERPNext price to Medusa decimal amount. 49.99 → 49.99"""
+    if amount is None:
+        return 0.0
+    return round(amount * MEDUSA_PRICE_FACTOR, 2)
 
 
 def create_medusa_log(request_type, status="Queued", medusa_id=None, request_data=None, response_data=None, error=None):

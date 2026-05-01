@@ -22,6 +22,9 @@ API_CATEGORIES = "/admin/product-categories"
 API_COLLECTIONS = "/admin/collections"
 API_FULFILLMENTS = "/admin/orders/{order_id}/fulfillments"
 API_AUTH = "/auth/user/emailpass"
+API_FEATURE_FLAGS = "/admin/feature-flags"
+API_INDEX_SYNC = "/admin/index/sync"
+API_INDEX_DETAILS = "/admin/index/details"
 
 ORDER_STATUS_MAP = {
     "pending": "Draft",

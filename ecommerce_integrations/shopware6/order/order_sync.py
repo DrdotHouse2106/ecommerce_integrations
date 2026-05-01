@@ -30,7 +30,6 @@ from ecommerce_integrations.shopware6.customer import (
 from ecommerce_integrations.shopware6.product import create_items_if_not_exist
 
 from ecommerce_integrations.shopware6.order.order_mapper import (
-    get_checkout_custom_field,
     get_payment_method_info,
     calculate_delivery_date,
     extract_order_currency,
@@ -38,6 +37,7 @@ from ecommerce_integrations.shopware6.order.order_mapper import (
 )
 from ecommerce_integrations.shopware6.order.line_item_handler import add_order_item, add_shipping_costs
 from ecommerce_integrations.shopware6.order.tax_handler import add_order_taxes
+from ecommerce_integrations.ecommerce_integrations.ecommerce_custom_fields import STOREFRONT_SHOPWARE
 from ecommerce_integrations.shopware6.order.service_items import process_checkout_fields
 from ecommerce_integrations.shopware6.order.delivery_handler import create_delivery_note
 from ecommerce_integrations.shopware6.order.payment_handler import (
@@ -240,8 +240,9 @@ def create_sales_order(order_data: Dict[str, Any]) -> str:
                 if sc.sales_channel_id == sales_channel_id:
                     sales_channel_name = sc.sales_channel_name
                     break
-    so.shopware_sales_channel_id = sales_channel_id
-    so.shopware_sales_channel_name = sales_channel_name
+    so.ecommerce_source = STOREFRONT_SHOPWARE
+    so.ecommerce_sales_channel_id = sales_channel_id
+    so.ecommerce_sales_channel_name = sales_channel_name
 
     # Extract and set payment method info
     payment_method_name, erpnext_mode, payment_status = get_payment_method_info(order_data)
@@ -526,12 +527,13 @@ def update_order_custom_fields(
 
         updates_made = []
         so_meta = frappe.get_meta("Sales Order")
+        customer_meta = frappe.get_meta("Customer") if so.customer else None
 
         for row in (setting.get("checkout_fields") or []):
             if not row.enabled:
                 continue
 
-            field_names = [n.strip() for n in (row.shopware_field_names or "").split(",") if n.strip()]
+            field_names = [n.strip() for n in (row.source_field_names or "").split(",") if n.strip()]
             value = None
             for name in field_names:
                 if name in webhook_custom_fields:
@@ -546,7 +548,7 @@ def update_order_custom_fields(
                     frappe.db.set_value("Sales Order", sales_order_name, row.target_field, value)
                     updates_made.append(f"{row.target_field}={value}")
             elif row.mapping_type == "Customer Update" and row.target_field and so.customer:
-                if frappe.db.has_column("Customer", row.target_field):
+                if customer_meta and customer_meta.has_field(row.target_field):
                     frappe.db.set_value("Customer", so.customer, row.target_field, value, update_modified=False)
                     updates_made.append(f"customer.{row.target_field}={value}")
 

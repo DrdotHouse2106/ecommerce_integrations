@@ -245,6 +245,9 @@ def _get_public_image_url(file_url: str) -> Optional[Tuple[str, str]]:
     """
     Convert ERPNext file URL to a publicly accessible URL for Shopware to fetch.
 
+    For S3-backed files (dfp_external_storage), generates a presigned S3 URL
+    so Shopware can fetch the image directly from object storage.
+
     Args:
         file_url: ERPNext file URL (/files/..., /file/..., etc.)
 
@@ -259,20 +262,53 @@ def _get_public_image_url(file_url: str) -> Optional[Tuple[str, str]]:
         ext = os.path.splitext(file_url)[1].lstrip('.') or 'jpg'
         return file_url, ext
 
-    # Private files - not publicly accessible
+    # Private files - not publicly accessible via URL
     if file_url.startswith('/private/'):
         return None
 
-    # Get site URL
-    site_url = frappe.utils.get_url().rstrip('/')
+    # S3-backed files via dfp_external_storage: generate presigned URL
+    if file_url.startswith('/file/'):
+        s3_url = _get_s3_direct_url(file_url)
+        if s3_url:
+            ext = os.path.splitext(file_url)[1].lstrip('.') or 'jpg'
+            return s3_url, ext
+        # S3 URL generation failed — fall through to site URL fallback
 
-    # Public files: /files/... or /file/... (dfp_external_storage)
+    # Fallback: build URL from site_url (works when Shopware can reach ERPNext)
+    site_url = frappe.utils.get_url().rstrip('/')
     if file_url.startswith('/files/') or file_url.startswith('/file/'):
         public_url = f"{site_url}{file_url}"
         ext = os.path.splitext(file_url)[1].lstrip('.') or 'jpg'
         return public_url, ext
 
     return None
+
+
+def _get_s3_direct_url(file_url: str) -> Optional[str]:
+    """Build a direct S3 object URL for a dfp_external_storage file.
+
+    Same approach as Medusa integration: looks up the S3 key and storage
+    config from the File document, then builds a direct URL.
+
+    Returns None if the file is not on S3.
+    """
+    try:
+        file_data = frappe.db.get_value(
+            "File", {"file_url": file_url},
+            ["dfp_external_storage", "dfp_external_storage_s3_key"], as_dict=True
+        )
+        if not file_data or not file_data.dfp_external_storage_s3_key or not file_data.dfp_external_storage:
+            return None
+
+        storage = frappe.get_cached_doc("DFP External Storage", file_data.dfp_external_storage)
+        if not storage:
+            return None
+
+        protocol = "https" if storage.secure else "http"
+        return f"{protocol}://{storage.endpoint}/{storage.bucket_name}/{file_data.dfp_external_storage_s3_key}"
+    except Exception as e:
+        get_logger().debug(f"Could not build S3 URL for {file_url}: {e}")
+        return None
 
 
 def _upload_media_via_url(client, media_id: str, public_url: str, extension: str, filename: str) -> bool:
@@ -311,7 +347,7 @@ def _upload_media_via_url(client, media_id: str, public_url: str, extension: str
         return False
 
 
-def upload_media_to_shopware(client, file_url: str, item_code: str, position: int = 0) -> Optional[str]:
+def upload_media_to_shopware(client, file_url: str, item_code: str, position: int = 0, force: bool = False) -> Optional[str]:
     """
     Upload a media file to Shopware and return the media ID.
 
@@ -323,24 +359,40 @@ def upload_media_to_shopware(client, file_url: str, item_code: str, position: in
         file_url: ERPNext file URL
         item_code: Item code for naming
         position: Image position
+        force: If True, re-upload even if media already exists (for image replacement)
 
     Returns:
         Media ID if successful, None otherwise
     """
     file_content = None  # Initialize for cleanup in finally block
-    
+
     try:
         folder_id = get_product_media_folder_id(client)
-        media_id = generate_uuid(f"media_{item_code}_{position}")
         filename = sanitize_filename(f"{item_code}_{position}")
 
-        # Check if media already exists with content
-        try:
-            media_check = client.request_get(f"media/{media_id}")
-            if media_check.get("data", {}).get("fileName"):
-                return media_id  # Already uploaded
-        except BaseException:
-            pass  # Media doesn't exist yet
+        if force:
+            # Force mode: include file hash in media_id so changed images get a new ID
+            # (Shopware caches media by ID — reusing the old ID serves stale content)
+            file_hash = get_file_hash(file_url) or ""
+            new_media_id = generate_uuid(f"media_{item_code}_{position}_{file_hash}")
+            old_media_id = generate_uuid(f"media_{item_code}_{position}")
+
+            # Delete old media if it differs from new
+            if old_media_id != new_media_id:
+                try:
+                    client.request_delete(f"media/{old_media_id}")
+                except BaseException:
+                    pass
+            media_id = new_media_id
+        else:
+            media_id = generate_uuid(f"media_{item_code}_{position}")
+            # Check if media already exists with content
+            try:
+                media_check = client.request_get(f"media/{media_id}")
+                if media_check.get("data", {}).get("fileName"):
+                    return media_id  # Already uploaded
+            except BaseException:
+                pass  # Media doesn't exist yet
 
         # Create media entity first
         media_payload = {"id": media_id}
@@ -682,7 +734,7 @@ def _verify_shopware_media_health(client, item_code: str, shopware_product_id: s
         return MediaHealthResult(is_healthy=False, existing_media=[])
 
 
-def sync_product_images_to_shopware(client, item, shopware_product_id: str, cache=None) -> bool:
+def sync_product_images_to_shopware(client, item, shopware_product_id: str, cache=None) -> "bool | str":
     """
     Sync all images from ERPNext Item to Shopware product.
 
@@ -699,7 +751,7 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str, cach
                If not provided, uses global get_cache().
 
     Returns:
-        True if successful
+        True if successful, or error string if failed
     """
     if cache is None:
         cache = get_cache()
@@ -779,14 +831,15 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str, cach
         for position, image_url in enumerate(images):
             current_hash = image_hashes[position]  # Use pre-calculated hash
 
-            # Upload the image
-            media_id = upload_media_to_shopware(client, image_url, item.item_code, position)
+            # Upload the image (force=True since we're in re-sync path — hashes didn't match)
+            media_id = upload_media_to_shopware(client, image_url, item.item_code, position, force=True)
             if media_id:
                 if current_hash:
                     cache.set_image_hash(item.item_code, position, current_hash)
                 images_uploaded += 1
 
-                product_media_id = generate_uuid(f"product_media_{item.item_code}_{position}")
+                hash_suffix = f"_{current_hash}" if current_hash else ""
+                product_media_id = generate_uuid(f"product_media_{item.item_code}_{position}{hash_suffix}")
                 product_media_list.append({
                     "id": product_media_id,
                     "mediaId": media_id,
@@ -794,6 +847,10 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str, cach
                 })
                 if position == 0:
                     cover_id = product_media_id
+
+        if not product_media_list:
+            failed_count = len(images)
+            return f"All {failed_count} image uploads failed"
 
         if product_media_list:
             update_payload = {"media": product_media_list}
@@ -805,15 +862,19 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str, cach
             cache.set_image_hash(item.item_code, IMAGE_COUNT_CACHE_KEY, str(len(images)))
 
             frappe.logger().info(
-                f"Image sync for {item.item_code}: {images_uploaded} uploaded"
+                f"Image sync for {item.item_code}: {images_uploaded}/{len(images)} uploaded"
             )
+
+        if images_uploaded < len(images):
+            return f"{images_uploaded}/{len(images)} images uploaded, {len(images) - images_uploaded} failed"
 
         return True
 
     except BaseException as e:
         # NOTE: Must catch BaseException because ShopwareAPIError inherits from BaseException, not Exception!
-        get_logger().error(f"Failed to sync images for {item.name}: {str(e)}", persist=False)
-        return False
+        error_msg = str(e)[:200]
+        get_logger().error(f"Failed to sync images for {item.name}: {error_msg}", persist=False)
+        return error_msg
 
 
 def batch_sync_images(item_codes: list) -> dict:

@@ -5,7 +5,7 @@ Only updates customFields (FAQ + priority) on existing categories - does NOT
 create new categories or touch any other fields.
 
 Usage:
-    bench --site erp.example.com execute \
+    bench --site <your-site> execute \
         ecommerce_integrations.shopware6.scripts.resync_faq_fields.resync_faq_fields
 """
 

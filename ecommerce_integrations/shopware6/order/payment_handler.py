@@ -275,6 +275,7 @@ def _mark_order_ready(sales_order_name: str):
             return  # Already marked as ready
 
         so.shopware_order_ready = 1
+        so.ecommerce_order_confirmed = 1
         so.flags.ignore_validate_update_after_submit = True
         so.save(ignore_permissions=True)
         frappe.db.commit()

@@ -2,12 +2,19 @@
 
 Endpoint: /api/method/ecommerce_integrations.medusa.webhook_handler.handle_medusa_event
 
-Expected payload:
+Expected payload (enriched form, sent by the Medusa subscriber):
 {
     "event": "order.placed",
-    "data": {"id": "order_01ABC..."},
+    "data": {
+        "id": "order_01ABC...",
+        "order": { ...full order with customer, items, addresses, sales_channel... }
+    },
     "timestamp": "2026-03-28T12:00:00Z"
 }
+
+Customer events use the same shape with a "customer" key instead of "order".
+The legacy form ({"id": "..."} only) is still accepted; handlers fall back to
+fetching the entity via the Medusa Admin API when no embedded object is present.
 """
 
 import hashlib
@@ -71,6 +78,7 @@ def _route_event(event_type: str, data: dict):
         "order.completed": "ecommerce_integrations.medusa.order.order_sync.sync_order",
         "customer.created": "ecommerce_integrations.medusa.customer.sync_customer_by_id",
         "customer.updated": "ecommerce_integrations.medusa.customer.sync_customer_by_id",
+        "customer.deleted": "ecommerce_integrations.medusa.customer.handle_customer_deleted",
     }
 
     handler = handler_map.get(event_type)
@@ -79,6 +87,19 @@ def _route_event(event_type: str, data: dict):
             handler,
             queue="default",
             entity_id=data.get("id"),
+            payload=data,
+            event_type=event_type,
+            is_async=True,
+        )
+
+    # Trigger payment sync for events that may indicate payment changes
+    # Only for updates/completions — order.placed won't have captured payments yet
+    if event_type in ("order.updated", "order.completed"):
+        frappe.enqueue(
+            "ecommerce_integrations.medusa.payment_sync.sync_payment_for_order",
+            queue="default",
+            entity_id=data.get("id"),
+            payload=data,
             event_type=event_type,
             is_async=True,
         )

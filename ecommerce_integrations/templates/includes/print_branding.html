@@ -1,0 +1,409 @@
+{#
+    Shared branding & layout macros for all ecommerce Print Formats.
+
+    Branding data (colors, logos, shop names, email account) is loaded from
+    the "Ecommerce Channel Branding" DocType — configurable via ERPNext UI,
+    not hardcoded.
+
+    Usage in a Print Format:
+        {%- from "ecommerce_integrations/templates/includes/print_branding.html"
+            import translate_country, common_styles, render_order_document with context -%}
+        {%- set brand = frappe.call("ecommerce_integrations...get_branding",
+            channel_name=(doc.get("ecommerce_sales_channel_name") or "")) -%}
+#}
+
+{#-- Translate English country names to German. --#}
+{%- macro translate_country(text) -%}
+{%- set _t = text or "" -%}
+{%- set _countries = [
+  ("GERMANY", "Deutschland"), ("AUSTRIA", "Österreich"), ("SWITZERLAND", "Schweiz"),
+  ("BELGIUM", "Belgien"), ("NETHERLANDS", "Niederlande"), ("LUXEMBOURG", "Luxemburg"),
+  ("FRANCE", "Frankreich"), ("ITALY", "Italien"), ("SPAIN", "Spanien"),
+  ("POLAND", "Polen"), ("DENMARK", "Dänemark"), ("SWEDEN", "Schweden"),
+  ("NORWAY", "Norwegen"), ("UNITED KINGDOM", "Vereinigtes Königreich"),
+  ("Germany", "Deutschland"), ("Austria", "Österreich"), ("Switzerland", "Schweiz"),
+  ("Belgium", "Belgien"), ("Netherlands", "Niederlande"), ("Luxembourg", "Luxemburg"),
+  ("France", "Frankreich"), ("Italy", "Italien"), ("Spain", "Spanien"),
+  ("Poland", "Polen"), ("Denmark", "Dänemark"), ("Sweden", "Schweden"),
+  ("Norway", "Norwegen"), ("United Kingdom", "Vereinigtes Königreich")
+] -%}
+{%- for _en, _de in _countries -%}{%- set _t = _t.replace(_en, _de) -%}{%- endfor -%}
+{{ _t }}
+{%- endmacro -%}
+
+{#-- Common CSS shared across all ecommerce print formats. Driven by brand colors. --#}
+{%- macro common_styles(brand) -%}
+<style>
+/* Frappe v16 Chrome PDF generator parses these from a ".print-format" selector
+   and uses them as Chrome page-margins. Without this, Frappe falls back to a
+   hardcoded 15mm side margin (see frappe/utils/pdf_generator/browser.py). */
+.print-format { margin-top: 0; margin-bottom: 0; margin-left: 0; margin-right: 0; }
+@page { size: A4; margin: 0; }
+@media print { html, body { margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+html, body { margin: 0; padding: 0; height: 100%; }
+.print-format-container { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #1A1A1A; font-size: 9pt; line-height: 1.5; padding: 8mm 15mm 36mm 15mm; box-sizing: border-box; min-height: 100%; }
+.document-header { display: table; width: 100%; border-bottom: 3px solid {{ brand.primary_color }}; margin-bottom: 20px; padding-bottom: 12px; }
+.header-left, .header-right { display: table-cell; vertical-align: middle; }
+.header-left { width: 35%; }
+.header-right { width: 65%; text-align: right; }
+.header-logo { height: 40px; }
+.doc-title { font-size: 16pt; font-weight: 700; color: {{ brand.primary_color }}; margin: 0; }
+.doc-number { font-size: 10pt; color: #666; margin-top: 2px; }
+.price-info { font-size: 7.5pt; color: #888; margin-top: 4px; font-style: italic; }
+.paid-badge { display: inline-block; background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%); color: white; padding: 4px 10px; font-size: 8pt; font-weight: 700; margin-top: 6px; text-transform: uppercase; }
+.address-section { display: table; width: 100%; margin-bottom: 20px; }
+.address-block { display: table-cell; width: 50%; vertical-align: top; padding-right: 15px; }
+.address-block:last-child { padding-right: 0; padding-left: 15px; }
+.address-block h4 { color: {{ brand.primary_color }}; font-size: 8pt; margin: 0 0 8px 0; border-bottom: 1px solid {{ brand.primary_color }}; padding-bottom: 4px; text-transform: uppercase; font-weight: 700; }
+.info-table td { padding: 3px 8px; font-size: 8.5pt; }
+.info-table td:first-child { font-weight: 600; color: #555; width: 140px; }
+.items-table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 8.5pt; }
+.items-table th { background-color: #F8F9FA; border-bottom: 2px solid {{ brand.primary_color }}; padding: 10px 8px; text-align: left; font-weight: 700; font-size: 7.5pt; text-transform: uppercase; }
+.items-table td { padding: 8px; border-bottom: 1px solid #E5E7EB; }
+.items-table tbody tr:nth-child(even) { background-color: #FAFAFA; }
+.text-right { text-align: right; }
+.text-center { text-align: center; }
+.totals-section { display: table; width: 100%; margin-top: 20px; }
+.totals-left { display: table-cell; width: 55%; vertical-align: top; }
+.totals-right { display: table-cell; width: 45%; vertical-align: top; }
+.totals-table { page-break-inside: avoid; width: 100%; margin-left: auto; }
+.totals-table td { padding: 5px 8px; font-size: 9pt; }
+.totals-table td:first-child { text-align: right; color: #555; }
+.totals-table td:last-child { text-align: right; }
+.total-row { border-top: 2px solid {{ brand.primary_color }}; }
+.total-row td { font-weight: 700; font-size: 11pt; color: {{ brand.primary_color }}; padding-top: 10px; }
+.tax-notice { margin: 15px 0; padding: 10px 12px; background-color: #F0F9FF; border-left: 3px solid #3B82F6; font-size: 8.5pt; page-break-inside: avoid; }
+.origin-declaration { margin: 15px 0; padding: 10px 12px; background-color: #FEF3C7; border-left: 3px solid #F59E0B; font-size: 8.5pt; page-break-inside: avoid; }
+.payment-box { background-color: #F8F9FA; border: 1px solid #E5E7EB; padding: 15px; margin: 25px 0; page-break-inside: avoid; }
+.payment-box h4 { margin: 0 0 12px 0; font-size: 10pt; font-weight: 700; }
+.payment-box.paid { background-color: #ECFDF5; border-color: #10B981; }
+.payment-box.paid h4 { color: #059669; }
+.payment-box.pending { background-color: #FFFBEB; border-color: #F59E0B; }
+.payment-box.pending h4 { color: #D97706; }
+.payment-box.invoice { background-color: #FFF7ED; border-color: #EA580C; }
+.payment-box.invoice h4 { color: #C2410C; }
+.payment-content { display: table; width: 100%; }
+.payment-details { display: table-cell; vertical-align: top; }
+.payment-qr { display: table-cell; width: 130px; vertical-align: top; text-align: center; padding-left: 15px; }
+.payment-qr img { max-width: 110px; height: auto; }
+.payment-qr p { font-size: 7pt; color: #666; margin: 5px 0 0 0; }
+.bank-grid { display: table; width: 100%; font-size: 9pt; }
+.bank-row { display: table-row; }
+.bank-label, .bank-value { display: table-cell; padding: 3px 0; }
+.bank-label { font-weight: 600; color: #555; width: 130px; }
+.bank-value.highlight { color: {{ brand.primary_color }}; font-weight: 700; }
+.due-date-highlight { background-color: #FEF3C7; padding: 8px 12px; margin-top: 12px; border-radius: 4px; font-weight: 600; }
+</style>
+{%- endmacro -%}
+
+{#-- Header section: logo + document title + paid badge. --#}
+{%- macro document_header(doc, brand, title, is_paid, payment_mode, is_tax_exempt, is_private) -%}
+<div class="document-header">
+  <div class="header-left">
+    {% if brand.logo %}<img src="{{ brand.logo }}" class="header-logo" alt="{{ brand.display_name }}">{% endif %}
+  </div>
+  <div class="header-right">
+    <h1 class="doc-title">{{ title | upper }}</h1>
+    <p class="doc-number">{{ doc.name }}</p>
+    <p class="price-info">{% if is_tax_exempt %}{{ _("All prices excl. VAT (tax-exempt delivery)") }}{% elif is_private %}{{ _("All prices incl. VAT") }}{% else %}{{ _("All prices excl. VAT") }}{% endif %}</p>
+    {% if is_paid %}<div class="paid-badge">✓ {{ _("Paid") }}{% if payment_mode %} {{ _("via") }} {{ payment_mode }}{% endif %}</div>{% endif %}
+  </div>
+</div>
+{%- endmacro -%}
+
+{#-- Payment box: paid / prepayment (with EPC QR) / invoice. --#}
+{%- macro payment_box(doc, brand, is_paid, payment_mode, is_invoice, company_doc, default_bank, bic) -%}
+{% if is_paid %}
+<div class="payment-box paid"><h4>✓ {{ _("Payment Received") }}</h4><p style="margin: 0;">{{ _("Thank you! The payment of {0} via {1} has been processed successfully.").format(doc.get_formatted("grand_total"), payment_mode) }}</p></div>
+{% elif payment_mode == "Vorkasse" %}
+{% set epc_data = "BCD\n002\n1\nSCT\n" ~ bic ~ "\n" ~ company_doc.company_name ~ "\n" ~ default_bank.iban ~ "\nEUR" ~ ("%.2f"|format(doc.grand_total)) ~ "\n\n\n" ~ doc.name %}
+<div class="payment-box pending"><h4>{{ _("Payment Method") }}: {{ _("Prepayment") }}</h4><div class="payment-content"><div class="payment-details"><p style="margin-bottom: 10px;">{{ _("Please transfer the amount to the following account") }}:</p><div class="bank-grid"><div class="bank-row"><span class="bank-label">{{ _("Account Holder") }}:</span><span class="bank-value">{{ company_doc.company_name }}</span></div><div class="bank-row"><span class="bank-label">IBAN:</span><span class="bank-value highlight">{{ default_bank.iban }}</span></div><div class="bank-row"><span class="bank-label">BIC:</span><span class="bank-value">{{ bic }}</span></div><div class="bank-row"><span class="bank-label">{{ _("Purpose") }}:</span><span class="bank-value highlight">{{ doc.name }}</span></div></div></div>{% if default_bank.iban %}<div class="payment-qr"><img src="{{ get_qr_code(epc_data) }}" alt="EPC QR-Code"><p>{{ _("Scan QR code to pay") }}</p></div>{% endif %}</div></div>
+{% elif is_invoice %}
+<div class="payment-box invoice"><h4>{{ _("Payment Method") }}: {{ _("Purchase on Account") }}</h4><p style="margin: 0;">{{ _("You have selected purchase on account. You will receive the invoice with payment information after shipment of your order.") }}</p></div>
+{% endif %}
+{%- endmacro -%}
+
+{#-- Totals block: handles private/business/tax-exempt variants. --#}
+{%- macro totals_block(doc, is_private, is_tax_exempt, tax_rate) -%}
+<div class="totals-section"><div class="totals-left"></div><div class="totals-right"><table class="totals-table">
+{% if is_private and not is_tax_exempt %}
+<tr><td>{{ _("Subtotal") }}:</td><td>{{ doc.get_formatted("grand_total") }}</td></tr>
+<tr><td style="font-size: 8pt;">{{ _("incl. VAT") }} ({{ "%.0f"|format(tax_rate) }}%):</td><td style="font-size: 8pt;">{{ doc.get_formatted("total_taxes_and_charges") }}</td></tr>
+<tr class="total-row"><td>{{ _("Grand Total") }}:</td><td>{{ doc.get_formatted("grand_total") }}</td></tr>
+{% elif is_tax_exempt %}
+<tr><td>{{ _("Net Total") }}:</td><td>{{ doc.get_formatted("net_total") }}</td></tr>
+<tr class="total-row"><td>{{ _("Grand Total") }}:</td><td>{{ doc.get_formatted("grand_total") }}</td></tr>
+{% else %}
+<tr><td>{{ _("Net Total") }}:</td><td>{{ doc.get_formatted("net_total") }}</td></tr>
+{% for tax in doc.taxes %}{% set tax_desc = tax.description|replace("VAT", _("VAT")) %}<tr><td>{{ tax_desc }}:</td><td>{{ tax.get_formatted("tax_amount") }}</td></tr>{% endfor %}
+<tr class="total-row"><td>{{ _("Grand Total") }}:</td><td>{{ doc.get_formatted("grand_total") }}</td></tr>
+{% endif %}
+</table></div></div>
+{%- endmacro -%}
+
+{#-- Items table for Sales Order / Sales Invoice (with prices). --#}
+{%- macro items_table_with_prices(doc, is_private, is_tax_exempt, tax_rate, tax_included) -%}
+<table class="items-table">
+<thead><tr>
+  <th style="width: 12%;">{{ _("Item No.") }}</th>
+  <th style="width: 40%;">{{ _("Description") }}</th>
+  <th style="width: 10%;" class="text-center">{{ _("Qty") }}</th>
+  <th style="width: 14%;" class="text-right">{{ _("Unit Price") }}</th>
+  <th style="width: 8%;" class="text-right">{{ _("VAT") }}</th>
+  <th style="width: 16%;" class="text-right">{{ _("Total") }}</th>
+</tr></thead>
+<tbody>
+{% for item in doc.items %}
+{% if is_private %}{% if tax_included %}{% set display_rate = item.rate %}{% set display_amount = item.amount %}{% else %}{% set display_rate = item.rate * (1 + tax_rate / 100) %}{% set display_amount = item.amount * (1 + tax_rate / 100) %}{% endif %}{% else %}{% set display_rate = item.net_rate if item.net_rate else item.rate %}{% set display_amount = item.net_amount if item.net_amount else item.amount %}{% endif %}
+<tr>
+  <td>{{ item.item_code }}</td>
+  <td><strong>{{ item.item_name }}</strong></td>
+  <td class="text-center">{{ "%.0f"|format(item.qty) }} {{ _(item.uom) }}</td>
+  <td class="text-right">{{ frappe.format_value(display_rate, {"fieldtype": "Currency", "options": doc.currency}) }}</td>
+  <td class="text-right">{% if is_tax_exempt %}0%{% else %}{{ "%.0f"|format(tax_rate) }}%{% endif %}</td>
+  <td class="text-right"><strong>{{ frappe.format_value(display_amount, {"fieldtype": "Currency", "options": doc.currency}) }}</strong></td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{%- endmacro -%}
+
+{#-- Invoice details block (Sales Invoice equivalent of the Order Details info table). --#}
+{%- macro invoice_details_block(doc, brand, is_paid) -%}
+<div class="address-block">
+  <h4>{{ _("Invoice Details") }}</h4>
+  <table class="info-table">
+    <tr><td>{{ _("Customer No.") }}:</td><td>{{ doc.customer }}</td></tr>
+    <tr><td>{{ _("Invoice No.") }}:</td><td><strong>{{ doc.name }}</strong></td></tr>
+    <tr><td>{{ _("Invoice Date") }}:</td><td>{{ frappe.utils.formatdate(doc.posting_date, "long") }}</td></tr>
+    {% if not is_paid and doc.due_date %}
+    <tr class="highlight"><td>{{ _("Due Date") }}:</td><td><strong style="color: {{ brand.primary_color }};">{{ frappe.utils.formatdate(doc.due_date, "long") }}</strong></td></tr>
+    {% endif %}
+    {% if doc.get("shopware_order_number") %}<tr><td>{{ _("Shop Order No.") }}:</td><td><strong>{{ doc.shopware_order_number }}</strong></td></tr>{% endif %}
+    {% if doc.po_no %}<tr><td>{{ _("Your Order No.") }}:</td><td><strong>{{ doc.po_no }}</strong></td></tr>{% endif %}
+  </table>
+</div>
+{%- endmacro -%}
+
+
+{#-- Outstanding amount rows for invoices that have been partially paid. --#}
+{%- macro outstanding_rows(doc, brand) -%}
+{% if doc.outstanding_amount and doc.outstanding_amount > 0 and doc.outstanding_amount != doc.grand_total %}
+<tr><td style="color: #666; font-size: 8pt;">{{ _("Already paid") }}:</td><td style="color: #666; font-size: 8pt;">{{ frappe.format_value(doc.grand_total - doc.outstanding_amount, {"fieldtype": "Currency", "options": doc.currency}) }}</td></tr>
+<tr><td><strong>{{ _("Outstanding Amount") }}:</strong></td><td><strong style="color: {{ brand.primary_color }};">{{ doc.get_formatted("outstanding_amount") }}</strong></td></tr>
+{% endif %}
+{%- endmacro -%}
+
+
+{#-- Invoice payment box: paid / prepayment / invoice (Auf Rechnung) with due date.
+     Differs slightly from the order payment_box: invoice variant always shows
+     bank info + due date, even when the customer wasn't on Vorkasse. --#}
+{%- macro invoice_payment_box(doc, brand, payment_mode, is_paid, company_doc, default_bank, bic) -%}
+{% if is_paid %}
+<div class="payment-box paid"><h4>✓ {{ _("Payment Received") }}</h4><p style="margin: 0;">{{ _("Thank you! The payment of {0} via {1} has been processed successfully.").format(doc.get_formatted("grand_total"), payment_mode) }}</p></div>
+{% elif payment_mode == "Vorkasse" %}
+<div class="payment-box pending"><h4>{{ _("Payment Method") }}: {{ _("Prepayment") }}</h4><p style="margin-bottom: 10px;">{{ _("Please transfer the amount to the following account") }}:</p><div class="bank-grid"><div class="bank-row"><span class="bank-label">{{ _("Account Holder") }}:</span><span class="bank-value">{{ company_doc.company_name }}</span></div><div class="bank-row"><span class="bank-label">IBAN:</span><span class="bank-value highlight">{{ default_bank.iban }}</span></div><div class="bank-row"><span class="bank-label">BIC:</span><span class="bank-value">{{ bic }}</span></div><div class="bank-row"><span class="bank-label">{{ _("Purpose") }}:</span><span class="bank-value highlight">{{ doc.name }}</span></div></div></div>
+{% else %}
+<div class="payment-box invoice"><h4>{{ _("Payment Information") }}</h4><p style="margin-bottom: 10px;">{% if doc.due_date %}{{ _("Please transfer the amount by") }} <strong style="color: {{ brand.primary_color }};">{{ frappe.utils.formatdate(doc.due_date, "long") }}</strong>{% else %}{{ _("Please transfer the amount to the following account") }}{% endif %}:</p><div class="bank-grid"><div class="bank-row"><span class="bank-label">{{ _("Account Holder") }}:</span><span class="bank-value">{{ company_doc.company_name }}</span></div><div class="bank-row"><span class="bank-label">IBAN:</span><span class="bank-value highlight">{{ default_bank.iban }}</span></div><div class="bank-row"><span class="bank-label">BIC:</span><span class="bank-value">{{ bic }}</span></div><div class="bank-row"><span class="bank-label">{{ _("Purpose") }}:</span><span class="bank-value highlight">{{ doc.name }}</span></div></div></div>
+{% endif %}
+{%- endmacro -%}
+
+
+{#-- Full Sales Invoice document body. Pulls payment context from the linked
+     Sales Order (for online-paid orders the badge shows; for invoice/Vorkasse
+     the bottom box shows bank info). All channel-specific texts/colors/logo
+     come from the Ecommerce Channel Branding doctype. --#}
+{%- macro render_invoice_document(doc, brand) -%}
+{% set company_doc = frappe.get_doc("Company", doc.company) %}
+{% set default_bank = get_default_bank_info(doc.company) %}
+{% set bic = default_bank.bic %}
+{% set pay_ctx = get_invoice_payment_context(doc) %}
+{% set payment_mode = pay_ctx.payment_mode %}
+{% set is_paid = pay_ctx.is_paid %}
+{% set customer_doc = frappe.get_doc("Customer", doc.customer) %}
+{% set is_private = customer_doc.customer_type == "Individual" %}
+{% set is_tax_exempt = (not doc.taxes or doc.taxes|length == 0) and doc.total_taxes_and_charges == 0 %}
+{% set tax_rate = 0 if is_tax_exempt else (doc.taxes[0].rate if doc.taxes else 19) %}
+{% set tax_included = doc.taxes and doc.taxes|length > 0 and doc.taxes[0].included_in_print_rate %}
+{% set has_different_shipping = doc.shipping_address_name and doc.shipping_address_name != doc.customer_address %}
+{% set shipping_addr_doc = frappe.get_doc("Address", doc.shipping_address_name) if has_different_shipping else None %}
+{% set billing_addr = frappe.get_doc("Address", doc.customer_address) if doc.customer_address else None %}
+{% set is_switzerland = shipping_addr_doc.country == "Switzerland" if shipping_addr_doc else (billing_addr.country == "Switzerland" if billing_addr else False) %}
+
+<div class="print-format-container">
+
+{{ document_header(doc, brand, _("Invoice"), is_paid, payment_mode, is_tax_exempt, is_private) }}
+
+<div class="address-section">
+  <div class="address-block">
+    <h4>{{ _("Bill To") }}</h4>
+    <p style="line-height: 1.6;">
+      <strong>{{ doc.customer_name }}</strong><br>
+      {% if doc.customer_address %}{{ translate_country(doc.address_display.replace('\n', '<br>'))|safe }}{% endif %}
+      {% if billing_addr and billing_addr.phone %}<br>{{ _("Phone") }}: {{ billing_addr.phone }}{% endif %}
+      {% if billing_addr and billing_addr.email_id %}<br>{{ _("Email") }}: {{ billing_addr.email_id }}{% elif doc.get("contact_email") %}<br>{{ _("Email") }}: {{ doc.contact_email }}{% endif %}
+      {% if doc.tax_id %}<br><strong>{{ _("VAT ID") }}:</strong> {{ doc.tax_id }}{% endif %}
+    </p>
+  </div>
+  {{ invoice_details_block(doc, brand, is_paid) }}
+</div>
+
+{% if has_different_shipping and shipping_addr_doc %}
+<div style="margin-bottom: 20px;">
+  <h4 style="color: {{ brand.primary_color }}; font-size: 8pt; margin: 0 0 8px 0; border-bottom: 1px solid {{ brand.primary_color }}; padding-bottom: 4px; text-transform: uppercase; font-weight: 700; display: inline-block;">{{ _("Shipping Address") }}</h4>
+  <p style="line-height: 1.6;">
+    {% if shipping_addr_doc.address_title %}<strong>{{ shipping_addr_doc.address_title }}</strong><br>{% endif %}
+    {% if shipping_addr_doc.address_line1 %}{{ shipping_addr_doc.address_line1 }}<br>{% endif %}
+    {% if shipping_addr_doc.address_line2 %}{{ shipping_addr_doc.address_line2 }}<br>{% endif %}
+    {{ shipping_addr_doc.pincode }} {{ shipping_addr_doc.city }}<br>
+    {{ translate_country(shipping_addr_doc.country) }}
+    {% if shipping_addr_doc.phone %}<br>{{ _("Phone") }}: {{ shipping_addr_doc.phone }}{% endif %}
+  </p>
+</div>
+{% endif %}
+
+{{ items_table_with_prices(doc, is_private, is_tax_exempt, tax_rate, tax_included) }}
+
+<div class="totals-section"><div class="totals-left"></div><div class="totals-right"><table class="totals-table">
+{% if is_private and not is_tax_exempt %}
+<tr><td>{{ _("Subtotal") }}:</td><td>{{ doc.get_formatted("grand_total") }}</td></tr>
+<tr><td style="font-size: 8pt;">{{ _("incl. VAT") }} ({{ "%.0f"|format(tax_rate) }}%):</td><td style="font-size: 8pt;">{{ doc.get_formatted("total_taxes_and_charges") }}</td></tr>
+<tr class="total-row"><td>{{ _("Grand Total") }}:</td><td>{{ doc.get_formatted("grand_total") }}</td></tr>
+{% elif is_tax_exempt %}
+<tr><td>{{ _("Net Total") }}:</td><td>{{ doc.get_formatted("net_total") }}</td></tr>
+<tr class="total-row"><td>{{ _("Grand Total") }}:</td><td>{{ doc.get_formatted("grand_total") }}</td></tr>
+{% else %}
+<tr><td>{{ _("Net Total") }}:</td><td>{{ doc.get_formatted("net_total") }}</td></tr>
+{% for tax in doc.taxes %}{% set tax_desc = tax.description|replace("VAT", _("VAT"))|replace("MwSt", _("VAT"))|replace("USt", _("VAT")) %}<tr><td>{{ tax_desc }}:</td><td>{{ tax.get_formatted("tax_amount") }}</td></tr>{% endfor %}
+<tr class="total-row"><td>{{ _("Grand Total") }}:</td><td>{{ doc.get_formatted("grand_total") }}</td></tr>
+{% endif %}
+{{ outstanding_rows(doc, brand) }}
+</table></div></div>
+
+{% if doc.get("tax_exemption_reason") %}<div class="tax-notice"><strong>{{ _("Note") }}:</strong> {{ _(doc.tax_exemption_reason) }}</div>{% endif %}
+{% if is_switzerland %}<div class="origin-declaration"><strong>{{ _("Origin Declaration") }}:</strong><br>{{ _("The exporter of the products covered by this document declares that, except where otherwise clearly indicated, these products are of EEC preferential origin.") }}</div>{% endif %}
+
+{{ invoice_payment_box(doc, brand, payment_mode, is_paid, company_doc, default_bank, bic) }}
+
+{#-- Legal footer: imprint + privacy/terms links --#}
+{% if brand.imprint_html or brand.privacy_policy_url or brand.terms_url %}
+<div style="margin-top:30px;padding-top:10px;border-top:1px solid #ccc;font-size:7.5pt;color:#666;line-height:1.5;">
+  {% if brand.imprint_html %}<div style="margin-bottom:6px;">{{ brand.imprint_html | safe }}</div>{% endif %}
+  {% if brand.privacy_policy_url or brand.terms_url %}
+  <div>
+    {% if brand.privacy_policy_url %}<a href="{{ brand.privacy_policy_url }}" style="color:{{ brand.primary_color }};text-decoration:none;">{{ _("Privacy Policy") }}</a>{% endif %}
+    {% if brand.privacy_policy_url and brand.terms_url %} · {% endif %}
+    {% if brand.terms_url %}<a href="{{ brand.terms_url }}" style="color:{{ brand.primary_color }};text-decoration:none;">{{ _("Terms and Conditions") }}</a>{% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+</div>
+
+{{ footer }}
+{%- endmacro -%}
+
+
+{#-- Full order document body (used by Bestellbestätigung + Auftragsbestätigung).
+     Title + intro text are taken from the brand dict (channel-specific, DB-configured).
+     `doc_kind` selects which title/intro to use: "acknowledgment" or "confirmation". --#}
+{%- macro render_order_document(doc, brand, doc_kind) -%}
+{% if doc_kind == "confirmation" %}
+  {% set title = brand.order_confirmation_title %}
+  {% set intro_text = brand.order_confirmation_intro %}
+{% else %}
+  {% set title = brand.order_ack_title %}
+  {% set intro_text = brand.order_ack_intro %}
+{% endif %}
+{% set company_doc = frappe.get_doc("Company", doc.company) %}
+{% set bank_accounts = frappe.get_all("Bank Account", filters={"company": doc.company, "is_company_account": 1}, fields=["iban", "bank", "branch_code"], order_by="is_default desc", limit=1) %}
+{% set default_bank = bank_accounts[0] if bank_accounts else {} %}
+{% set bank_doc = frappe.get_doc("Bank", default_bank.bank) if default_bank.bank else None %}
+{% set bic = bank_doc.swift_number if bank_doc else (default_bank.branch_code or "") %}
+{% set payment_mode = doc.get("shopware_erpnext_mode_of_payment") or "" %}
+{% set payment_status = doc.get("shopware_payment_status") or "" %}
+{% set online_payment_modes = ["PayPal", "Kreditkarte", "Stripe", "Klarna", "Sofort", "Apple Pay", "Google Pay", "SEPA Lastschrift"] %}
+{% set is_paid = payment_mode in online_payment_modes or payment_status == "Paid" %}
+{% set invoice_payment_modes = ["Auf Rechnung", "Invoice", "Kauf auf Rechnung", "Purchase on Account"] %}
+{% set is_invoice = payment_mode in invoice_payment_modes %}
+{% set customer_doc = frappe.get_doc("Customer", doc.customer) %}
+{% set is_private = customer_doc.customer_type == "Individual" %}
+{% set is_tax_exempt = (not doc.taxes or doc.taxes|length == 0) and doc.total_taxes_and_charges == 0 %}
+{% set tax_rate = 0 if is_tax_exempt else (doc.taxes[0].rate if doc.taxes else 19) %}
+{% set tax_included = doc.taxes and doc.taxes|length > 0 and doc.taxes[0].included_in_print_rate %}
+{% set has_different_shipping = doc.shipping_address_name and doc.shipping_address_name != doc.customer_address %}
+{% set shipping_addr_doc = frappe.get_doc("Address", doc.shipping_address_name) if has_different_shipping else None %}
+{% set billing_addr = frappe.get_doc("Address", doc.customer_address) if doc.customer_address else None %}
+{% set is_switzerland = shipping_addr_doc.country == "Switzerland" if shipping_addr_doc else (billing_addr.country == "Switzerland" if billing_addr else False) %}
+
+<div class="print-format-container">
+
+{{ document_header(doc, brand, title, is_paid, payment_mode, is_tax_exempt, is_private) }}
+
+<p style="margin-bottom: 15px;"><strong>{{ intro_text }}</strong></p>
+
+<div class="address-section">
+  <div class="address-block">
+    <h4>{{ _("Billing Address") }}</h4>
+    <p style="line-height: 1.6;">
+      <strong>{{ doc.customer_name }}</strong><br>
+      {% if doc.customer_address %}{{ translate_country(doc.address_display.replace('\n', '<br>'))|safe }}{% endif %}
+      {% if billing_addr and billing_addr.phone %}<br>{{ _("Phone") }}: {{ billing_addr.phone }}{% endif %}
+      {% if billing_addr and billing_addr.email_id %}<br>{{ _("Email") }}: {{ billing_addr.email_id }}{% elif doc.get("contact_email") %}<br>{{ _("Email") }}: {{ doc.contact_email }}{% endif %}
+      {% if doc.tax_id %}<br><strong>{{ _("VAT ID") }}:</strong> {{ doc.tax_id }}{% endif %}
+    </p>
+  </div>
+  <div class="address-block">
+    <h4>{{ _("Order Details") }}</h4>
+    <table class="info-table">
+      <tr><td>{{ _("Order Number") }}:</td><td><strong>{{ doc.name }}</strong></td></tr>
+      <tr><td>{{ _("Order Date") }}:</td><td>{{ frappe.utils.formatdate(doc.transaction_date, "long") }}</td></tr>
+      {% if doc.get("shopware_order_number") %}<tr><td>{{ _("Shop Order No.") }}:</td><td><strong>{{ doc.shopware_order_number }}</strong></td></tr>{% endif %}
+      {% if doc.po_no %}<tr><td>{{ _("Your Order No.") }}:</td><td>{{ doc.po_no }}</td></tr>{% endif %}
+      {% if doc.get("delivery_date") %}<tr><td>{{ _("Delivery Date") }}:</td><td>{{ frappe.utils.formatdate(doc.delivery_date, "long") }}</td></tr>{% endif %}
+    </table>
+  </div>
+</div>
+
+{% if has_different_shipping and shipping_addr_doc %}
+<div style="margin-bottom: 20px;">
+  <h4 style="color: {{ brand.primary_color }}; font-size: 8pt; margin: 0 0 8px 0; border-bottom: 1px solid {{ brand.primary_color }}; padding-bottom: 4px; text-transform: uppercase; font-weight: 700; display: inline-block;">{{ _("Shipping Address") }}</h4>
+  <p style="line-height: 1.6;">
+    {% if shipping_addr_doc.address_title %}<strong>{{ shipping_addr_doc.address_title }}</strong><br>{% endif %}
+    {% if shipping_addr_doc.address_line1 %}{{ shipping_addr_doc.address_line1 }}<br>{% endif %}
+    {% if shipping_addr_doc.address_line2 %}{{ shipping_addr_doc.address_line2 }}<br>{% endif %}
+    {{ shipping_addr_doc.pincode }} {{ shipping_addr_doc.city }}<br>
+    {{ translate_country(shipping_addr_doc.country) }}
+    {% if shipping_addr_doc.phone %}<br>{{ _("Phone") }}: {{ shipping_addr_doc.phone }}{% endif %}
+  </p>
+</div>
+{% endif %}
+
+{{ items_table_with_prices(doc, is_private, is_tax_exempt, tax_rate, tax_included) }}
+
+{{ totals_block(doc, is_private, is_tax_exempt, tax_rate) }}
+
+{% if doc.get("tax_exemption_reason") %}<div class="tax-notice"><strong>{{ _("Note") }}:</strong> {{ _(doc.tax_exemption_reason) }}</div>{% endif %}
+{% if is_switzerland %}<div class="origin-declaration"><strong>{{ _("Origin Declaration") }}:</strong><br>{{ _("The exporter of the products covered by this document declares that, except where otherwise clearly indicated, these products are of EEC preferential origin.") }}</div>{% endif %}
+
+{{ payment_box(doc, brand, is_paid, payment_mode, is_invoice, company_doc, default_bank, bic) }}
+
+{#-- Legal footer: imprint + privacy policy link --#}
+{% if brand.imprint_html or brand.privacy_policy_url or brand.terms_url %}
+<div style="margin-top:30px;padding-top:10px;border-top:1px solid #ccc;font-size:7.5pt;color:#666;line-height:1.5;">
+  {% if brand.imprint_html %}<div style="margin-bottom:6px;">{{ brand.imprint_html | safe }}</div>{% endif %}
+  {% if brand.privacy_policy_url or brand.terms_url %}
+  <div>
+    {% if brand.privacy_policy_url %}<a href="{{ brand.privacy_policy_url }}" style="color:{{ brand.primary_color }};text-decoration:none;">{{ _("Privacy Policy") }}</a>{% endif %}
+    {% if brand.privacy_policy_url and brand.terms_url %} · {% endif %}
+    {% if brand.terms_url %}<a href="{{ brand.terms_url }}" style="color:{{ brand.primary_color }};text-decoration:none;">{{ _("Terms and Conditions") }}</a>{% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+</div>
+
+{{ footer }}
+{%- endmacro -%}

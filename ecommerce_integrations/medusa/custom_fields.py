@@ -2,6 +2,11 @@
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
+from ecommerce_integrations.ecommerce_integrations.ecommerce_custom_fields import (
+    ECOMMERCE_DOWNSTREAM_FIELDS,
+    ECOMMERCE_SALES_ORDER_FIELDS,
+)
+
 MEDUSA_CUSTOM_FIELDS = {
     "Item Attribute": [
         {
@@ -30,6 +35,7 @@ MEDUSA_CUSTOM_FIELDS = {
             "fieldtype": "Data",
             "read_only": 1,
             "insert_after": "customer_name",
+            "unique": 1,
             "no_copy": 1,
             "print_hide": 1,
         },
@@ -44,7 +50,11 @@ MEDUSA_CUSTOM_FIELDS = {
             "no_copy": 1,
             "print_hide": 1,
         },
+        *ECOMMERCE_SALES_ORDER_FIELDS,
     ],
+    "Sales Invoice": [*ECOMMERCE_DOWNSTREAM_FIELDS],
+    "Delivery Note": [*ECOMMERCE_DOWNSTREAM_FIELDS],
+    "Payment Entry": [*ECOMMERCE_DOWNSTREAM_FIELDS],
     "Item": [
         {
             "fieldname": "medusa_product_id",

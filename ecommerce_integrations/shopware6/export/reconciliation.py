@@ -37,7 +37,7 @@ from ecommerce_integrations.shopware6.constants import (
     SETTING_DOCTYPE,
     ITEM_SELLING_RATE_FIELD,
 )
-from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
+from ecommerce_integrations.shopware6.utils import create_shopware_log, update_shopware_log, get_logger
 
 # Module-level logger for generic logging
 _logger = get_logger("reconciliation")
@@ -1783,11 +1783,12 @@ def _run_parallel_image_sync(
     # Sentinel to signal workers to stop
     STOP_SENTINEL = None
 
-    create_shopware_log(
+    log_doc = create_shopware_log(
         status="Queued",
         method="parallel_image_sync",
-        message=f"Starting OPTIMIZED parallel image sync for {total} products ({workers} workers, {num_batches} batches){start_info}",
+        message=f"Starting parallel image sync for {total} products ({workers} workers, {num_batches} batches){start_info}",
     )
+    log_name = log_doc.name
 
     def worker_thread(worker_id: int) -> None:
         """
@@ -1817,6 +1818,11 @@ def _run_parallel_image_sync(
             # Get thread-local cache ONCE
             thread_cache = get_cache()
 
+            # Track token age for periodic refresh (Shopware tokens expire after ~10min)
+            import time as _time
+            _token_created_at = _time.time()
+            _TOKEN_REFRESH_INTERVAL = 480  # Refresh every 8 minutes (token expires at 10)
+
             _logger.info(f"[Worker {worker_id}] Initialized - ready to process items")
 
             # Process items from queue until we get the stop sentinel
@@ -1842,14 +1848,31 @@ def _run_parallel_image_sync(
                 error_msg = None
 
                 try:
+                    # Refresh Shopware token before it expires
+                    if _time.time() - _token_created_at > _TOKEN_REFRESH_INTERVAL:
+                        try:
+                            thread_client.token = None
+                            thread_client._get_session()
+                            _token_created_at = _time.time()
+                            _logger.info(f"[Worker {worker_id}] Token refreshed")
+                        except Exception as token_err:
+                            _logger.error(f"[Worker {worker_id}] Token refresh failed: {token_err}")
+
                     item = frappe.get_doc("Item", item_code)
                     # FIX: Removed premature cache.clear_image_hashes() -
                     # sync_product_images_to_shopware handles cache internally
                     # This was breaking delta-sync by clearing hashes before check
 
-                    success = sync_product_images_to_shopware(
+                    result = sync_product_images_to_shopware(
                         thread_client, item, shopware_id, cache=thread_cache
                     )
+
+                    if result is True:
+                        success = True
+                    else:
+                        # result is an error string
+                        success = False
+                        error_msg = str(result)[:200] if result else "Unknown error"
 
                     del item
                     items_processed += 1
@@ -1875,8 +1898,8 @@ def _run_parallel_image_sync(
                         stats["synced"] += 1
                     else:
                         stats["failed"] += 1
-                        if error_msg and len(stats["errors"]) < 20:
-                            stats["errors"].append(f"{item_code}: {error_msg}")
+                        if error_msg and len(stats["errors"]) < 50:
+                            stats["errors"].append({"item_code": item_code, "error": error_msg})
 
                 work_queue.task_done()
 
@@ -1934,9 +1957,9 @@ def _run_parallel_image_sync(
             _logger.info(f"[parallel_image_sync] Batch {batch_num + 1}: Queuing {len(items)} items")
         except Exception as e:
             _logger.error(f"[parallel_image_sync] SQL error in batch {batch_num + 1}: {e}")
-            create_shopware_log(
+            update_shopware_log(
+                log_name,
                 status="Error",
-                method="parallel_image_sync",
                 message=f"SQL error in batch {batch_num + 1}: {str(e)[:200]}",
             )
             break
@@ -1955,15 +1978,22 @@ def _run_parallel_image_sync(
         # Memory cleanup after each batch
         gc.collect()
 
-        # Progress log
+        # Update progress on single log entry
         with stats_lock:
             pct = round(stats["processed"] / total * 100, 1) if total > 0 else 0
             synced = stats["synced"]
             failed = stats["failed"]
-        create_shopware_log(
+            current_errors = list(stats["errors"])
+        update_shopware_log(
+            log_name,
             status="Success",
-            method="parallel_image_sync",
             message=f"Batch {batch_num + 1}/{num_batches} ({pct}%) - Synced: {synced}, Failed: {failed}",
+            response_data={
+                "progress": f"{pct}%",
+                "synced": synced,
+                "failed": failed,
+                "errors": current_errors,
+            } if current_errors else {"progress": f"{pct}%", "synced": synced, "failed": failed},
         )
 
     # Signal workers to stop
@@ -1978,13 +2008,19 @@ def _run_parallel_image_sync(
             _logger.error(f"[parallel_image_sync] Worker {t.name} did not terminate within timeout")
 
     with stats_lock:
-        error_summary = f" - Errors: {'; '.join(stats['errors'][:5])}" if stats["errors"] else ""
         final_synced = stats["synced"]
         final_failed = stats["failed"]
-    create_shopware_log(
-        status="Success",
-        method="parallel_image_sync",
-        message=f"COMPLETED - Total synced: {final_synced}, Failed: {final_failed}{error_summary}",
+        final_errors = list(stats["errors"])
+    final_status = "Success" if final_failed == 0 else "Error"
+    update_shopware_log(
+        log_name,
+        status=final_status,
+        message=f"COMPLETED - Synced: {final_synced}, Failed: {final_failed}",
+        response_data={
+            "synced": final_synced,
+            "failed": final_failed,
+            "errors": final_errors,
+        },
     )
 
 

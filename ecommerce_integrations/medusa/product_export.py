@@ -1,5 +1,6 @@
 """Export ERPNext Items to Medusa v2 as Products."""
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import frappe
 import requests
@@ -7,8 +8,8 @@ from frappe.utils import cstr
 from ecommerce_integrations.property_utils import get_ecommerce_properties
 from ecommerce_integrations.medusa.connection import medusa_request, medusa_request_all, optional_session, temp_medusa_session
 from ecommerce_integrations.medusa.constants import (
-    API_PRODUCTS, API_PRODUCTS_BATCH, API_PRODUCT_VARIANTS,
-    PRODUCT_ID_FIELD, SETTING_DOCTYPE, VARIANT_ID_FIELD,
+    API_FEATURE_FLAGS, API_INDEX_SYNC, API_INDEX_DETAILS, API_PRODUCTS, API_PRODUCTS_BATCH,
+    API_PRODUCT_VARIANTS, PRODUCT_ID_FIELD, SETTING_DOCTYPE, VARIANT_ID_FIELD,
 )
 from ecommerce_integrations.medusa.utils import create_medusa_log, erpnext_price_to_medusa, is_medusa_enabled, update_medusa_log
 
@@ -20,6 +21,7 @@ class MedusaProductExporter:
         self._sale_prices = []
         self._channel_prices = []
         self._variants_to_move = []
+        self._variants_to_delete = []
         self._attribute_values = []
 
     def get_medusa_product_id(self):
@@ -57,6 +59,8 @@ class MedusaProductExporter:
         medusa_id = self.get_medusa_product_id()
         payload, _ = self._build_product_payload(is_update=True)
         medusa_request(session, base_url, "POST", f"{API_PRODUCTS}/{medusa_id}", json=payload)
+        if self._variants_to_delete:
+            _delete_variants(session, base_url, medusa_id, self._variants_to_delete)
 
     @temp_medusa_session
     def update_price(self, session, base_url):
@@ -109,8 +113,15 @@ class MedusaProductExporter:
             channel_ids = self.setting.get_channels_for_item(self.item.item_group, brand)
         else:
             channel_ids = self.setting.get_active_sales_channel_ids() if hasattr(self.setting, 'get_active_sales_channel_ids') else []
-        if channel_ids:
-            payload["sales_channels"] = [{"id": ch_id} for ch_id in channel_ids]
+        if not channel_ids:
+            frappe.throw(
+                f"No Medusa Sales Channel could be determined for Item {self.item_code} "
+                f"(Item Group: {self.item.item_group}). "
+                "Please check Medusa Settings: ensure at least one Sales Channel is active "
+                "or configure Item Group Channel Mappings.",
+                title="Medusa Sales Channel Missing",
+            )
+        payload["sales_channels"] = [{"id": ch_id} for ch_id in channel_ids]
 
         # Collect attribute values (for post-create batch-assign)
         self._attribute_values = self._get_attribute_values(session=session, base_url=base_url)
@@ -193,6 +204,11 @@ class MedusaProductExporter:
         if prop_meta:
             meta.update(prop_meta)
 
+        # Delivery time
+        delivery_time = self.item.get("delivery_time")
+        if delivery_time:
+            meta["delivery_time"] = delivery_time.strip()
+
         # Return sorted: AI fields first, then SEO, then properties (alphabetical)
         ai_keys = {"short_description", "long_description", "benefits", "applications", "delivery_scope"}
         seo_keys = {"seo_title", "seo_description", "seo_keywords"}
@@ -230,13 +246,26 @@ class MedusaProductExporter:
         # Batch fetch all child data in 3 queries instead of N * get_doc
         child_codes_rows = frappe.get_all(
             "Item",
-            filters={"variant_of": self.item_code, "disabled": 0},
+            filters={"variant_of": self.item_code},
             fields=["item_code", "item_name", "weight_per_unit", "item_height",
                      "item_width", "item_length", "customs_tariff_number",
                      "country_of_origin", "delivered_by_supplier", "image",
-                     "ai_short_description", "ai_seo_title", "ai_seo_description",
+                     "ai_short_description", "ai_long_description",
+                     "ai_benefits", "ai_applications", "ai_delivery_scope",
+                     "ai_seo_title", "ai_seo_description", "seo_keywords",
+                     "delivery_time", "disabled",
                      VARIANT_ID_FIELD],
         )
+        if not child_codes_rows:
+            return [{"title": "Default", "values": ["Default"]}], [], []
+
+        # Split disabled variants out: they will be deleted from Medusa post-update
+        disabled_rows = [r for r in child_codes_rows if r.disabled]
+        for r in disabled_rows:
+            vid = r.get(VARIANT_ID_FIELD)
+            if vid:
+                self._variants_to_delete.append({"sku": r.item_code, "variant_id": vid})
+        child_codes_rows = [r for r in child_codes_rows if not r.disabled]
         if not child_codes_rows:
             return [{"title": "Default", "values": ["Default"]}], [], []
 
@@ -327,14 +356,28 @@ class MedusaProductExporter:
             )
             variant["options"] = option_values
 
-            # Variant-level metadata (AI descriptions + ecommerce properties)
+            # Variant-level metadata: same AI/SEO fields as product-level,
+            # plus non-filterable ecommerce properties.
             v_meta = {}
-            if child.get("ai_short_description"):
-                v_meta["short_description"] = child.ai_short_description
-            if child.get("ai_seo_title"):
-                v_meta["seo_title"] = child.ai_seo_title
-            if child.get("ai_seo_description"):
-                v_meta["seo_description"] = child.ai_seo_description
+            variant_ai_fields = {
+                "ai_short_description": "short_description",
+                "ai_long_description": "long_description",
+                "ai_benefits": "benefits",
+                "ai_applications": "applications",
+                "ai_delivery_scope": "delivery_scope",
+                "ai_seo_title": "seo_title",
+                "ai_seo_description": "seo_description",
+            }
+            for erpnext_field, meta_key in variant_ai_fields.items():
+                val = child.get(erpnext_field)
+                if val:
+                    v_meta[meta_key] = val
+            seo_kw = child.get("seo_keywords")
+            if seo_kw:
+                v_meta["seo_keywords"] = seo_kw
+            delivery_time = child.get("delivery_time")
+            if delivery_time:
+                v_meta["delivery_time"] = cstr(delivery_time).strip()
             # Add ecommerce properties as variant metadata
             for prop in ecom_props_by_item.get(code, []):
                 if not prop.property_value:
@@ -636,6 +679,29 @@ def _transliterate(text: str) -> str:
     """Replace umlauts and accented chars with ASCII equivalents."""
     return text.translate(_UMLAUT_MAP)
 
+
+def _rank_for_value(v: str) -> int:
+    """Derive a stable, order-preserving rank for an attribute value.
+
+    Numeric strings use their numeric value ("150" → 150).
+    Non-numeric strings derive rank from first 4 character codes,
+    preserving alphabetical order ("A" < "AA" < "B" < "Blau").
+    """
+    try:
+        return int(float(v))
+    except (ValueError, TypeError):
+        pass
+    if v:
+        # Pad to 4 chars so single-char values sort correctly vs multi-char
+        # e.g. "B" (padded "B\0\0\0") > "AA" (padded "AA\0\0") — correct
+        chars = v[:4].lower().ljust(4, '\0')
+        rank = 0
+        for ch in chars:
+            rank = rank * 256 + ord(ch)
+        return rank
+    return 0
+
+
 def _resolve_attribute_values(entries: list, attr_map: dict) -> list:
     """Resolve (attr_name, value) entries to [{attribute_id, value}] using attr_map."""
     result = []
@@ -719,16 +785,20 @@ def _ensure_attributes_exist(entries: list, session=None, base_url=None) -> dict
         handle = _transliterate(name.lower())
         handle = re.sub(r'[^a-z0-9-]', '-', handle)
         handle = re.sub(r'-+', '-', handle).strip('-')
-        # Start rank after existing values so merged values get ascending ranks
-        existing = attr_map.get(name)
-        rank_start = len(existing.get("values", {})) if existing else 0
+        # Derive a stable rank for each value so Medusa sorts them correctly:
+        # - Numeric values ("150", "5.00") → use the numeric value as rank
+        # - Non-numeric values ("A", "Blau") → derive from character codes to
+        #   preserve alphabetical order across sync batches
+        possible_values = []
+        for v in sorted(values):
+            possible_values.append({"value": v, "rank": _rank_for_value(v)})
         create_payloads.append({
             "name": name,
             "handle": handle,
             "is_filterable": True,
             "is_variant_defining": False,
             "ui_component": "select",
-            "possible_values": [{"value": v, "rank": rank_start + i} for i, v in enumerate(sorted(values))],
+            "possible_values": possible_values,
         })
 
     with optional_session(session, base_url) as (s, url):
@@ -965,6 +1035,25 @@ def _sync_channel_prices(session, base_url, product: dict, channel_prices: list)
         return
     _sync_channel_prices_batch(session, base_url, [(product, channel_prices)])
 
+def _delete_variants(session, base_url, product_id: str, variants: list):
+	"""Delete given variants from a Medusa product. Tolerates 4xx (e.g., order refs)."""
+	if not variants:
+		return
+	deleted = 0
+	for entry in variants:
+		vid = entry["variant_id"]
+		try:
+			medusa_request(session, base_url, "DELETE",
+				f"/admin/products/{product_id}/variants/{vid}")
+			deleted += 1
+		except Exception as e:
+			frappe.logger("medusa").warning(
+				f"Failed to delete disabled variant {entry.get('sku')} ({vid}): {e}"
+			)
+	if deleted:
+		frappe.logger("medusa").info(f"Deleted {deleted} disabled variants from {product_id}")
+
+
 def _delete_misplaced_variants(session, base_url, variants_to_move):
 	"""Delete variants from wrong Medusa products so they can be re-created in the correct one."""
 	if not variants_to_move:
@@ -1002,12 +1091,13 @@ def _update_sync_progress(log_name, processed, total, stats):
 
 def _sync_product_extras(session, base_url, products, variant_image_maps, sale_price_maps, channel_price_maps, variant_of_map):
 	"""Sync variant images, sale prices, and channel prices for a list of products."""
+	image_jobs = []
 	sale_prices = []
 	channel_prices = []
 	for product in products:
 		vim = _find_in_product_map(product, variant_image_maps, {}, variant_of_map=variant_of_map)
 		if vim:
-			_associate_variant_images(session, base_url, product, vim)
+			image_jobs.extend(_collect_variant_image_jobs(product, vim))
 		sp = _find_in_product_map(product, sale_price_maps, [], variant_of_map=variant_of_map)
 		if sp:
 			sale_prices.append((product, sp))
@@ -1015,6 +1105,8 @@ def _sync_product_extras(session, base_url, products, variant_image_maps, sale_p
 		if cp:
 			channel_prices.append((product, cp))
 
+	if image_jobs:
+		_run_variant_image_jobs(session, base_url, image_jobs)
 	if sale_prices:
 		_sync_sale_prices_batch(session, base_url, sale_prices)
 	if channel_prices:
@@ -1122,50 +1214,75 @@ def _save_medusa_ids(product: dict, variant_of_map: dict = None):
     for item_code, fields in updates.items():
         frappe.db.set_value("Item", item_code, fields, update_modified=False)
 
-def _associate_variant_images(session, base_url, product: dict, variant_image_map: dict):
-    """Associate product images with their specific variants in Medusa.
+def _collect_variant_image_jobs(product: dict, variant_image_map: dict) -> list:
+    """Collect (product_id, image_id, variant_ids) tuples for parallel execution.
 
-    After product creation, all images are on the product level. This
-    function maps each variant's image URL to its Medusa image ID and
-    calls the variant-image batch endpoint to associate them.
-
-    Args:
-        variant_image_map: {sku: image_url} from _build_template_variants
+    Groups by image so each tuple becomes one API call via
+    POST /products/{id}/images/{image_id}/variants/batch.
     """
     product_id = product.get("id")
     if not product_id:
-        return
+        return []
 
-    # Build {url: image_id} from created product
     url_to_image_id = {}
     for img in product.get("images", []):
         if img.get("url") and img.get("id"):
             url_to_image_id[img["url"]] = img["id"]
 
     if not url_to_image_id:
-        return
+        return []
 
-    # Group by image: {image_id: [variant_ids]} — allows one API call per
-    # unique image instead of one per variant (more efficient when variants
-    # share images). Uses the image-based endpoint: POST /products/{id}/images/{image_id}/variants/batch
     image_to_variants = {}
     for variant in product.get("variants", []):
         sku = variant.get("sku")
         variant_id = variant.get("id")
         if not sku or not variant_id or sku not in variant_image_map:
             continue
-
         image_url = variant_image_map[sku]
         image_id = url_to_image_id.get(image_url)
         if image_id:
             image_to_variants.setdefault(image_id, []).append(variant_id)
 
-    for image_id, variant_ids in image_to_variants.items():
+    return [(product_id, image_id, vids) for image_id, vids in image_to_variants.items()]
+
+
+def _associate_variant_images(session, base_url, product: dict, variant_image_map: dict):
+    """Associate product images with their specific variants (single-product, sequential).
+
+    Used by single-product export. For bulk sync, use _run_variant_image_jobs.
+    """
+    for product_id, image_id, variant_ids in _collect_variant_image_jobs(product, variant_image_map):
         try:
             endpoint = f"{API_PRODUCTS}/{product_id}/images/{image_id}/variants/batch"
             medusa_request(session, base_url, "POST", endpoint, json={"add": variant_ids})
         except Exception as e:
             frappe.log_error("Medusa Variant Images", f"Failed for image {image_id}: {e}")
+
+
+def _run_variant_image_jobs(session, base_url, jobs: list, max_workers=5):
+    """Execute variant-image association jobs in parallel.
+
+    Each job is a (product_id, image_id, variant_ids) tuple.
+    Uses threads to overlap network I/O — the AdaptiveThrottle is thread-safe.
+    """
+    if not jobs:
+        return
+
+    def _do_one(product_id, image_id, variant_ids):
+        endpoint = f"{API_PRODUCTS}/{product_id}/images/{image_id}/variants/batch"
+        medusa_request(session, base_url, "POST", endpoint, json={"add": variant_ids})
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {
+            pool.submit(_do_one, pid, iid, vids): (pid, iid)
+            for pid, iid, vids in jobs
+        }
+        for future in as_completed(futures):
+            pid, iid = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                frappe.log_error("Medusa Variant Images", f"Failed for product {pid} image {iid}: {e}")
 
 def _sync_sale_prices(session, base_url, product: dict, sale_prices: list):
     """Add sale prices to a Medusa Price List for strikethrough display."""
@@ -1239,7 +1356,7 @@ SYNC_GENERATION_KEY = "medusa_full_sync_generation"
 SYNC_RUNNING_KEY = "medusa_full_sync_running"
 
 @frappe.whitelist()
-def enqueue_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=0, batch_size=50, dry_run=0, validate_ids=0):
+def enqueue_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_stock=0, batch_size=50, dry_run=0, validate_ids=0, index_strategy="full"):
 	"""Enqueue a full product sync to Medusa as a background job.
 
 	If a sync is already running, it is cancelled (after its current chunk
@@ -1268,6 +1385,7 @@ def enqueue_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_st
 		batch_size=int(batch_size),
 		dry_run=int(dry_run),
 		validate_ids=int(validate_ids),
+		index_strategy=index_strategy,
 	)
 	return {"success": True, "message": message}
 
@@ -1276,7 +1394,7 @@ def _is_sync_outdated(my_generation: int) -> bool:
 	current = frappe.cache.get_value(SYNC_GENERATION_KEY) or 0
 	return current > my_generation
 
-def run_full_sync(sync_generation=0, sync_categories=1, sync_products=1, sync_prices=1, sync_stock=0, batch_size=50, dry_run=0, validate_ids=0):
+def run_full_sync(sync_generation=0, sync_categories=1, sync_products=1, sync_prices=1, sync_stock=0, batch_size=50, dry_run=0, validate_ids=0, index_strategy="full"):
 	"""Run a complete sync of all products from ERPNext to Medusa using batch API."""
 	sync_generation = int(sync_generation) if sync_generation else 0
 
@@ -1297,13 +1415,19 @@ def run_full_sync(sync_generation=0, sync_categories=1, sync_products=1, sync_pr
 	)
 
 	try:
-		_run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sync_products, sync_prices, sync_stock, dry_run, log_name=log_name, validate_ids=int(validate_ids))
+		_run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sync_products, sync_prices, sync_stock, dry_run, log_name=log_name, validate_ids=int(validate_ids), index_strategy=index_strategy)
 	except Exception as e:
 		frappe.log_error("Medusa Full Sync", f"Sync crashed: {e}")
 		stats["errors"] += 1
 		stats["error_details"].append(f"CRASH: {e}")
 	finally:
 		frappe.cache.delete_value(SYNC_RUNNING_KEY)
+		# In finally so crashes mid-sync still re-index what was committed.
+		if not dry_run and (stats["created"] + stats["updated"]) > 0:
+			try:
+				_trigger_index_sync_if_enabled(strategy=index_strategy)
+			except Exception as e:
+				frappe.log_error("Medusa Index Sync", f"Post-sync index trigger failed: {e}")
 		error_details = stats.pop("error_details", [])
 		status = "Error" if stats["errors"] > 0 else "Success"
 		message = f"Created: {stats['created']}, Updated: {stats['updated']}, Errors: {stats['errors']}"
@@ -1317,10 +1441,18 @@ def run_full_sync(sync_generation=0, sync_categories=1, sync_products=1, sync_pr
 		)
 	return stats
 
-def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sync_products, sync_prices, sync_stock, dry_run, log_name=None, validate_ids=0):
+def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sync_products, sync_prices, sync_stock, dry_run, log_name=None, validate_ids=0, index_strategy="full"):
 	"""Inner sync logic, wrapped by run_full_sync for error handling."""
 	from ecommerce_integrations.medusa.connection import get_medusa_session, _throttle
 	_throttle.reset()
+
+	if sync_products and not dry_run:
+		try:
+			from ecommerce_integrations.shopware6.export.property_handler import sync_surcharge_properties_batch
+			surcharge_stats = sync_surcharge_properties_batch()
+			frappe.logger("medusa").info(f"Surcharge property seed: {surcharge_stats}")
+		except Exception as e:
+			frappe.log_error("Medusa Full Sync", f"Surcharge property seed failed: {e}")
 
 	if sync_categories:
 		if log_name:
@@ -1336,7 +1468,8 @@ def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sy
 
 	if sync_products or sync_prices:
 		setting = frappe.get_cached_doc(SETTING_DOCTYPE)
-		filters = {"disabled": 0}
+		# Include disabled items so they get status=draft in Medusa (mirror ERPNext state)
+		filters = {}
 		if setting.category_sync_root:
 			filters["item_group"] = ["descendants of (inclusive)", setting.category_sync_root]
 
@@ -1358,7 +1491,7 @@ def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sy
 				all_item_codes = [i.item_code for i in items]
 				all_child_variants = frappe.get_all(
 					"Item",
-					filters={"variant_of": ["in", all_item_codes], "disabled": 0},
+					filters={"variant_of": ["in", all_item_codes]},
 					fields=["item_code", "variant_of"],
 				)
 				variant_of_map = {v.item_code: v.variant_of for v in all_child_variants}
@@ -1564,6 +1697,137 @@ def _run_full_sync_inner(stats, batch_size, sync_generation, sync_categories, sy
 
 	frappe.logger("medusa").info(f"Full sync complete: {stats}")
 
+
+def _trigger_index_sync_if_enabled(strategy: str = "full"):
+	"""Trigger a Medusa index sync when the index engine feature flag is active.
+
+	Bulk imports via the batch API don't emit the link events that the Medusa
+	index engine needs.  Without a re-sync, newly created products may return
+	404 on the storefront.
+
+	Auto-detects the flag via GET /admin/feature-flags — no manual setting required.
+
+	strategy:
+	    "continue" — verarbeitet vorhandene PENDING-Entities
+	    "full"     — markiert DONE/ERROR/PROCESSING als PENDING und re-syncht (default)
+	    "reset"    — truncate + rebuild alles von vorne (worst case)
+	"""
+	if strategy not in ("continue", "full", "reset"):
+		frappe.log_error("Medusa Index Sync", f"Invalid strategy: {strategy}")
+		return
+	try:
+		_do_index_sync(strategy=strategy)
+	except Exception as e:
+		frappe.log_error("Medusa Index Sync", f"Index sync failed: {e}")
+
+
+def _is_index_engine_enabled(session, base_url) -> bool:
+	flags = medusa_request(session, base_url, "GET", API_FEATURE_FLAGS, timeout=10)
+	return bool(flags.get("feature_flags", {}).get("index_engine"))
+
+
+@temp_medusa_session
+def _do_index_sync(session, base_url, strategy: str = "full"):
+	if not _is_index_engine_enabled(session, base_url):
+		return
+
+	# TEMPORARY: built-in /admin/index/sync has a server-side bug
+	# (Update-Transaction crashes with "already exists"). Use the custom
+	# /admin/index-resync route which emits the index event cleanly.
+	# Revert to the commented line once the upstream bug is fixed.
+	medusa_request(session, base_url, "POST", "/admin/index-resync", params={"strategy": strategy}, timeout=120)
+	# medusa_request(session, base_url, "POST", API_INDEX_SYNC, json={"strategy": strategy}, timeout=120)
+	logger = frappe.logger("medusa")
+	logger.info(f"Medusa index sync triggered (strategy={strategy})")
+
+	try:
+		details = medusa_request(session, base_url, "GET", API_INDEX_DETAILS, timeout=10)
+		summary = _summarize_index_details(details)
+		logger.info(f"Medusa index details: {summary}")
+	except Exception as e:
+		logger.warning(f"Could not fetch /admin/index/details: {e}")
+
+
+def _summarize_index_details(details: dict) -> dict:
+	"""Aggregate per-entity status into {counts, oldest_updated_at}."""
+	from collections import Counter
+	meta = details.get("metadata") or []
+	counts = Counter(m.get("status") for m in meta)
+	updated_ats = [m.get("updated_at") for m in meta if m.get("updated_at")]
+	return {
+		"entities": len(meta),
+		"status_counts": dict(counts),
+		"oldest_updated_at": min(updated_ats) if updated_ats else None,
+	}
+
+
+@frappe.whitelist()
+def ensure_index_fresh(max_age_minutes: int = 60):
+	"""Safety-net: trigger an index sync if last_synced_at is older than
+	max_age_minutes. Covers worker-crash cases where the finally-block
+	trigger in run_full_sync couldn't fire."""
+	if not is_medusa_enabled():
+		return
+	try:
+		_check_and_refresh_index(max_age_minutes=int(max_age_minutes))
+	except Exception as e:
+		frappe.log_error("Medusa Index Sync", f"Safety-net check failed: {e}")
+
+
+@temp_medusa_session
+def _check_and_refresh_index(session, base_url, max_age_minutes: int = 60):
+	from datetime import datetime, timezone
+	if not _is_index_engine_enabled(session, base_url):
+		return
+	details = medusa_request(session, base_url, "GET", API_INDEX_DETAILS, timeout=10)
+	meta = details.get("metadata") or []
+
+	# Any entity pending or running → never synced or currently syncing → trigger if pending
+	pending = [m for m in meta if m.get("status") == "pending"]
+	running = any(m.get("status") == "running" for m in meta)
+	if running:
+		return
+	if pending:
+		frappe.logger("medusa").info(f"Index has {len(pending)} pending entities, triggering sync")
+		_trigger_index_sync_if_enabled(strategy="full")
+		return
+
+	# All entities done → check oldest updated_at as staleness signal
+	updated_ats = [m.get("updated_at") for m in meta if m.get("updated_at")]
+	if not updated_ats:
+		return
+	try:
+		oldest = min(datetime.fromisoformat(u.replace("Z", "+00:00")) for u in updated_ats)
+	except (ValueError, AttributeError):
+		return
+	age_minutes = (datetime.now(timezone.utc) - oldest).total_seconds() / 60
+	if age_minutes > max_age_minutes:
+		frappe.logger("medusa").info(
+			f"Index stale (oldest {age_minutes:.0f}min > {max_age_minutes}min), triggering sync"
+		)
+		_trigger_index_sync_if_enabled(strategy="full")
+
+
+def _enqueue_index_sync_debounced(strategy: str = "full", delay_seconds: int = 60):
+	"""Debounced trigger for single-item sync path. deduplicate=True coalesces
+	bursts of item updates — a second enqueue while the first job is still
+	pending/running is dropped by RQ."""
+	frappe.enqueue(
+		"ecommerce_integrations.medusa.product_export._run_debounced_index_sync",
+		queue="short",
+		enqueue_after_commit=True,
+		job_id=f"medusa_index_sync:{strategy}",
+		deduplicate=True,
+		strategy=strategy,
+		delay_seconds=delay_seconds,
+	)
+
+
+def _run_debounced_index_sync(strategy: str = "full", delay_seconds: int = 60):
+	import time
+	time.sleep(max(0, int(delay_seconds)))
+	_trigger_index_sync_if_enabled(strategy=strategy)
+
 @frappe.whitelist()
 def sync_categories(category_root=None, dry_run=0):
 	"""Sync ERPNext Item Groups as Medusa product categories."""
@@ -1649,6 +1913,24 @@ def _run_force_price_sync():
 	frappe.db.commit()
 	frappe.logger("medusa").info(f"Force price sync complete: {synced}/{len(items)} updated")
 
+def deactivate_item_in_medusa(doc, method=None):
+    """on_trash hook: set Medusa product status to draft (keep due to order refs)."""
+    if not is_medusa_enabled():
+        return
+    medusa_id = doc.get(PRODUCT_ID_FIELD)
+    if not medusa_id:
+        return
+    try:
+        _set_product_draft(medusa_id)
+    except Exception as e:
+        frappe.log_error(f"Medusa deactivate failed: {doc.name}", str(e))
+
+
+@temp_medusa_session
+def _set_product_draft(session, base_url, medusa_id: str):
+    medusa_request(session, base_url, "POST", f"{API_PRODUCTS}/{medusa_id}", json={"status": "draft"})
+
+
 def upload_item_to_medusa(doc, method=None):
     if not is_medusa_enabled():
         return
@@ -1660,5 +1942,25 @@ def upload_item_to_medusa(doc, method=None):
     try:
         exporter = MedusaProductExporter(doc.name)
         exporter.export()
+        _enqueue_index_sync_debounced(strategy="full")
     except Exception as e:
         frappe.log_error(f"Medusa product export failed: {doc.name}", str(e))
+
+
+def sync_item_group_to_medusa(doc, method=None):
+    """Sync a single Item Group change to Medusa categories (async)."""
+    if not is_medusa_enabled():
+        return
+    frappe.cache.delete_value("medusa_category_map")
+    frappe.enqueue(
+        "ecommerce_integrations.medusa.product_export._enqueued_category_sync",
+        queue="short",
+        enqueue_after_commit=True,
+    )
+
+
+def _enqueued_category_sync():
+    try:
+        _sync_categories_to_medusa()
+    except Exception as e:
+        frappe.log_error(f"Medusa category sync failed", str(e))

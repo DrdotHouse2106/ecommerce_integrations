@@ -117,18 +117,29 @@ def optional_session(session=None, base_url=None):
 
 
 def temp_medusa_session(func):
-    """Decorator that injects (session, base_url) as first two args.
+    """Decorator that injects (session, base_url) after self (for methods) or
+    as first two args (for plain functions).
     Handles retry with exponential backoff on overload errors."""
+    import inspect
+    _params = list(inspect.signature(func).parameters.keys())
+    _is_method = _params and _params[0] == "self"
+
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         session, base_url = get_medusa_session()
         max_retries = 3
         delay = 2.0
 
+        if _is_method:
+            # Insert session, base_url after self
+            call_args = (args[0], session, base_url) + args[1:]
+        else:
+            call_args = (session, base_url) + args
+
         try:
             for attempt in range(max_retries + 1):
                 try:
-                    return func(session, base_url, *args, **kwargs)
+                    return func(*call_args, **kwargs)
                 except requests.exceptions.HTTPError as e:
                     if e.response is not None and e.response.status_code in _OVERLOAD_STATUS_CODES and attempt < max_retries:
                         _throttle.record_error(is_overload=True)
@@ -161,8 +172,10 @@ def medusa_request(session, base_url, method, path, **kwargs):
         response = session.request(method, url, **kwargs)
         response.raise_for_status()
         _throttle.record_success()
-        if response.status_code == 204:
+        if response.status_code == 204 or not response.content:
             return {}
+        if "application/json" not in response.headers.get("content-type", ""):
+            return {"_body": response.text}
         return response.json()
     except requests.exceptions.HTTPError as e:
         is_overload = e.response is not None and e.response.status_code in _OVERLOAD_STATUS_CODES

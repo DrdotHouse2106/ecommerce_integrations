@@ -6,6 +6,8 @@ Defines custom fields added to standard ERPNext doctypes.
 
 import frappe
 
+from ecommerce_integrations.ecommerce_integrations.ecommerce_custom_fields import ECOMMERCE_SALES_ORDER_FIELDS
+
 CUSTOM_FIELDS = {
     "Item Group": [
         {
@@ -177,30 +179,11 @@ CUSTOM_FIELDS = {
             "read_only": 1,
             "translatable": 0,
         },
-        # Multi-Storefront: Track which Sales Channel the order came from
-        {
-            "fieldname": "shopware_sales_channel_id",
-            "label": "Sales Channel ID",
-            "fieldtype": "Data",
-            "insert_after": "shopware_order_number",
-            "read_only": 1,
-            "translatable": 0,
-            "hidden": 1,
-        },
-        {
-            "fieldname": "shopware_sales_channel_name",
-            "label": "Sales Channel",
-            "fieldtype": "Data",
-            "insert_after": "shopware_sales_channel_id",
-            "read_only": 1,
-            "translatable": 0,
-            "description": "Which shop this order came from",
-        },
         {
             "fieldname": "shopware_column_break",
             "label": "",
             "fieldtype": "Column Break",
-            "insert_after": "shopware_sales_channel_name",
+            "insert_after": "shopware_order_number",
         },
         {
             "fieldname": "shopware_payment_method",
@@ -230,22 +213,7 @@ CUSTOM_FIELDS = {
             "translatable": 0,
             "description": "ERPNext Mode of Payment mapped from Shopware payment method",
         },
-        {
-            "fieldname": "shopware_custom_section",
-            "label": "Shopware Custom Fields",
-            "fieldtype": "Section Break",
-            "insert_after": "shopware_erpnext_mode_of_payment",
-            "collapsible": 1,
-        },
-        {
-            "fieldname": "customer_po_no",
-            "label": "Customer PO Number",
-            "fieldtype": "Data",
-            "insert_after": "shopware_custom_section",
-            "read_only": 0,
-            "translatable": 0,
-            "description": "Customer's internal order reference / commission number",
-        },
+        *ECOMMERCE_SALES_ORDER_FIELDS,
     ],
     "Delivery Note": [
         {

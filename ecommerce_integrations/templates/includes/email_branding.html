@@ -1,0 +1,135 @@
+{#
+    Email-specific branding macros. Use table-based layout + inline CSS
+    (required for broad email client compatibility).
+
+    All user-facing text (titles, greetings, body, legal notices) comes from
+    the Ecommerce Channel Branding DocType — nothing brand-specific in this file.
+#}
+
+{#-- Render a full branded email for an order event.
+     kind: "acknowledgment" (received) or "confirmation" (approved) --#}
+{%- macro render_email(doc, brand, kind) -%}
+{% if kind == "confirmation" %}
+  {% set title = brand.order_confirmation_title %}
+  {% set greeting = brand.email_confirmation_greeting %}
+  {% set body = brand.email_confirmation_body %}
+{% elif kind == "invoice" %}
+  {% set title = _("Invoice") %}
+  {% set greeting = brand.email_invoice_greeting %}
+  {% set body = brand.email_invoice_body %}
+{% else %}
+  {% set title = brand.order_ack_title %}
+  {% set greeting = brand.email_acknowledgment_greeting %}
+  {% set body = brand.email_acknowledgment_body %}
+{% endif %}
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ title }}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#1A1A1A;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f5f5f5;">
+<tr><td align="center" style="padding:20px 10px;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="background-color:#ffffff;max-width:600px;">
+
+    {#-- Header --#}
+    <tr><td style="padding:24px 32px;border-bottom:3px solid {{ brand.primary_color }};">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+        <tr>
+          <td style="vertical-align:middle;">
+            {% if brand.logo %}<img src="{{ brand.logo }}" alt="{{ brand.display_name }}" style="max-height:40px;display:block;">{% else %}<strong style="font-size:16pt;color:{{ brand.primary_color }};">{{ brand.display_name }}</strong>{% endif %}
+          </td>
+          <td style="vertical-align:middle;text-align:right;font-size:9pt;color:#666;">
+            {% if brand.shop_url %}<div>{{ brand.shop_url }}</div>{% endif %}
+            {% if brand.support_email %}<div>{{ brand.support_email }}</div>{% endif %}
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+
+    {#-- Body --#}
+    <tr><td style="padding:32px;">
+      <h1 style="color:{{ brand.primary_color }};margin:0 0 20px 0;font-size:20pt;font-weight:700;">{{ title }}</h1>
+      <p style="margin:0 0 16px 0;font-size:10pt;line-height:1.6;">{{ render_branding_text(greeting, doc) }}</p>
+
+      {% if body %}
+        <div style="font-size:10pt;line-height:1.6;">{{ render_branding_text(body, doc) | safe }}</div>
+      {% endif %}
+
+      {#-- Order summary table --#}
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:24px 0;border:1px solid #e5e7eb;">
+        <tr style="background-color:#f8f9fa;">
+          <td colspan="2" style="padding:12px 16px;font-weight:700;font-size:10pt;color:{{ brand.primary_color }};border-bottom:1px solid #e5e7eb;">{{ _("Order Details") }}</td>
+        </tr>
+        <tr><td style="padding:8px 16px;font-size:9pt;color:#555;width:40%;">{{ _("Order Number") }}:</td><td style="padding:8px 16px;font-size:9pt;"><strong>{{ doc.name }}</strong></td></tr>
+        <tr><td style="padding:8px 16px;font-size:9pt;color:#555;">{{ _("Date") }}:</td><td style="padding:8px 16px;font-size:9pt;">{{ frappe.utils.formatdate(doc.transaction_date, "long") }}</td></tr>
+        {% if doc.po_no %}<tr><td style="padding:8px 16px;font-size:9pt;color:#555;">{{ _("Your Order No.") }}:</td><td style="padding:8px 16px;font-size:9pt;">{{ doc.po_no }}</td></tr>{% endif %}
+      </table>
+
+      {#-- Ordered items --#}
+      {% if doc.items %}
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:24px 0;border:1px solid #e5e7eb;border-collapse:collapse;">
+        <tr style="background-color:{{ brand.primary_color }};color:#ffffff;">
+          <th style="padding:10px 12px;text-align:left;font-size:9pt;font-weight:700;">{{ _("Item") }}</th>
+          <th style="padding:10px 12px;text-align:center;font-size:9pt;font-weight:700;width:60px;">{{ _("Qty") }}</th>
+          <th style="padding:10px 12px;text-align:right;font-size:9pt;font-weight:700;width:90px;">{{ _("Unit Price") }}</th>
+          <th style="padding:10px 12px;text-align:right;font-size:9pt;font-weight:700;width:90px;">{{ _("Total") }}</th>
+        </tr>
+        {% for item in doc.items %}
+        <tr style="{% if loop.index0 % 2 == 1 %}background-color:#fafafa;{% endif %}">
+          <td style="padding:8px 12px;font-size:9pt;border-top:1px solid #eee;">
+            <strong>{{ item.item_name }}</strong>
+            {% if item.item_code %}<br><span style="color:#888;font-size:8pt;">{{ item.item_code }}</span>{% endif %}
+          </td>
+          <td style="padding:8px 12px;font-size:9pt;text-align:center;border-top:1px solid #eee;">{{ "%.0f"|format(item.qty) }}</td>
+          <td style="padding:8px 12px;font-size:9pt;text-align:right;border-top:1px solid #eee;">{{ frappe.format_value(item.rate, {"fieldtype": "Currency", "options": doc.currency}) }}</td>
+          <td style="padding:8px 12px;font-size:9pt;text-align:right;border-top:1px solid #eee;"><strong>{{ frappe.format_value(item.amount, {"fieldtype": "Currency", "options": doc.currency}) }}</strong></td>
+        </tr>
+        {% endfor %}
+        <tr style="background-color:#f8f9fa;">
+          <td colspan="3" style="padding:12px;text-align:right;font-size:10pt;font-weight:700;border-top:2px solid {{ brand.primary_color }};">{{ _("Grand Total") }}:</td>
+          <td style="padding:12px;text-align:right;font-size:11pt;font-weight:700;color:{{ brand.primary_color }};border-top:2px solid {{ brand.primary_color }};">{{ doc.get_formatted("grand_total") }}</td>
+        </tr>
+      </table>
+      {% endif %}
+
+      {#-- Signature --#}
+      {% if brand.signature_html %}
+        <div style="margin-top:24px;font-size:9pt;line-height:1.5;">{{ brand.signature_html | safe }}</div>
+      {% else %}
+        <p style="margin:24px 0 0 0;font-size:9pt;line-height:1.5;color:#666;">
+          {{ _("Best regards") }},<br>
+          <strong>{{ brand.sender_name or brand.display_name }}</strong>
+        </p>
+      {% endif %}
+    </td></tr>
+
+    {#-- Footer: shop info + legal links --#}
+    <tr><td style="padding:16px 32px;background-color:#f8f9fa;border-top:1px solid #e5e7eb;font-size:8pt;color:#888;text-align:center;line-height:1.6;">
+      <div>
+        {% if brand.shop_url %}<a href="https://{{ brand.shop_url }}" style="color:{{ brand.primary_color }};text-decoration:none;">{{ brand.shop_url }}</a>{% endif %}
+        {% if brand.support_email %} · <a href="mailto:{{ brand.support_email }}" style="color:{{ brand.primary_color }};text-decoration:none;">{{ brand.support_email }}</a>{% endif %}
+      </div>
+      {% if brand.privacy_policy_url or brand.terms_url %}
+      <div style="margin-top:6px;">
+        {% if brand.privacy_policy_url %}<a href="{{ brand.privacy_policy_url }}" style="color:#888;text-decoration:underline;">{{ _("Privacy Policy") }}</a>{% endif %}
+        {% if brand.privacy_policy_url and brand.terms_url %} · {% endif %}
+        {% if brand.terms_url %}<a href="{{ brand.terms_url }}" style="color:#888;text-decoration:underline;">{{ _("Terms and Conditions") }}</a>{% endif %}
+      </div>
+      {% endif %}
+      {% if brand.imprint_html %}
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid #e5e7eb;text-align:left;font-size:7.5pt;color:#999;line-height:1.5;">
+        <strong>{{ _("Imprint") }}</strong><br>
+        {{ brand.imprint_html | safe }}
+      </div>
+      {% endif %}
+    </td></tr>
+
+  </table>
+</td></tr>
+</table>
+</body>
+</html>
+{%- endmacro -%}

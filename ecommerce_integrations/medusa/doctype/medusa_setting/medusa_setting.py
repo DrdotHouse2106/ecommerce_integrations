@@ -15,6 +15,13 @@ class MedusaSetting(Document):
 			if not self.api_key:
 				frappe.throw(_("API Key is required when integration is enabled"))
 
+			from ecommerce_integrations.medusa.custom_fields import setup_custom_fields
+			setup_custom_fields()
+
+			# New scheduler_events in hooks.py stay dormant until sync_jobs runs.
+			from frappe.core.doctype.scheduled_job_type.scheduled_job_type import sync_jobs
+			sync_jobs()
+
 	def load_series_options(self):
 		series_fields = {
 			"sales_order_series": "Sales Order",
@@ -195,9 +202,13 @@ class MedusaSetting(Document):
 			if ch_id:
 				matched_channels.add(ch_id)
 
+		# Always include the default sales channel in addition to matched channels
+		default = self.get_default_sales_channel_id()
+		if default:
+			matched_channels.add(default)
+
 		if matched_channels:
 			return list(matched_channels)
 
-		# No mapping matched — use default channel only (not all channels)
-		default = self.get_default_sales_channel_id()
-		return [default] if default else []
+		# Last resort: return all active channels so products never end up without a channel
+		return self.get_active_sales_channel_ids()
