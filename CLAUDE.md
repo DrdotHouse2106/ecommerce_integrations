@@ -2,13 +2,17 @@
 
 This is a public Frappe app — a fork of `frappe/ecommerce_integrations` that adds first-class Shopware 6, Medusa v2, RAG (vector search) and AI description integrations alongside the upstream Shopify, Amazon, Unicommerce and Zenoti modules.
 
+**Target platform: Frappe / ERPNext v16.** Older versions are not supported; the plugin uses v16-only features (in-process Chrome PDF generator, `frappe.types.DF` typing module, current `frappe.tests.IntegrationTestCase`). The dependency pin in `pyproject.toml` (`frappe = ">=16.0.0,<17.0.0"`, `erpnext = ">=16.0.0,<17.0.0"`) is load-bearing — don't widen it without a real reason.
+
 The fork is consumed by other operators. Anything that lands here ships to every install. Treat this as a library, not as one operator's customisation layer.
 
 ## Branch model
 
-- `main` — tracks `frappe/ecommerce_integrations:main` 1:1. Do not commit work here directly.
-- `feat/multi-channel-integrations` — the active integration branch, ahead of upstream with the Shopware 6 / Medusa / RAG / AI work. Production fork users install from this branch.
+- `main` — tracks `frappe/ecommerce_integrations:main` 1:1 (upstream's v15 maintenance line). Kept for parity with upstream; **do not target this branch for v16 work**.
+- `feat/multi-channel-integrations` — the active v16 integration branch. Carries the Shopware 6 / Medusa / RAG / AI work on top of upstream's v16 line. **Production fork users install from this branch.**
 - Day-to-day development happens on short-lived feature branches off `feat/multi-channel-integrations`. Merge back via PR.
+
+When syncing from upstream, the relevant upstream refs are `upstream/version-16` (v16 stable maintenance) and `upstream/develop` (v16 next). Both currently track Frappe v16. `upstream/main` is upstream's v15 line and should not be merged into the integration branch — it would silently downgrade the dependency pin.
 
 Local-only work (operator-specific scripts, debugging snippets, one-off migrations) belongs in your own working tree or a private branch — never on the integration branch.
 
@@ -71,15 +75,16 @@ If a patch only applies to one operator's installation, keep it in your own priv
 
 ## Working with upstream
 
-Upstream is fast-moving on `develop` and stable on `main`. To stay in sync:
+The integration branch tracks upstream's v16 line. `upstream/version-16` is stable v16 maintenance; `upstream/develop` is v16 next. Use whichever matches the cadence of changes you want to pick up.
 
-- Merge with `git merge upstream/develop -X theirs` (or `upstream/main`). Conflicts in upstream-owned files (Shopify, Amazon, Unicommerce, Zenoti, controllers, hooks) resolve to the upstream version because we don't intentionally fork those modules — only extend `hooks.py` to add our channels.
+- Merge with `git merge upstream/version-16 -X theirs` (or `upstream/develop`). Conflicts in upstream-owned files (Shopify, Amazon, Unicommerce, Zenoti, controllers, `hooks.py` upstream sections) resolve to the upstream version because we don't intentionally fork those modules — only extend `hooks.py` to add our channels.
+- **Do not merge `upstream/main`** — it's the v15 maintenance line. Pulling it in flips the `pyproject.toml` dependency pin back to v15 and breaks the install on a v16 site. If a `-X theirs` merge ever puts `frappe = ">=15.0.0,<16.0.0"` back into `pyproject.toml`, fix it before pushing.
 - Don't run formatters across upstream files. Style drift is the main source of merge conflicts.
 - New cross-channel logic should land in `controllers/` or `ecommerce_integrations/ecommerce_integrations/`, not be sprinkled into `shopify/` or `amazon/`.
 
 ## Code conventions
 
-- Python ≥ 3.10, Frappe v15+ idioms. Use `X | None` not `Optional[X]`.
+- Python ≥ 3.10, Frappe / ERPNext v16 idioms. Use `X | None` not `Optional[X]`. Use `frappe.types.DF` for type annotations on doctype controllers. Use `frappe.tests.IntegrationTestCase` for tests.
 - Match existing style of the file you're editing. The integration modules (`shopware6/`, `medusa/`, `rag/`, `ai_description/`) use 4-space indent and PEP 8 line lengths. Upstream files use tabs — leave them tabbed.
 - Class-based integration objects (`ShopwareProduct`, `MedusaCustomer`, …) follow the upstream `ShopifyProduct` pattern: constructor takes the integration ID, `is_synced()` / `get_erpnext_item()` / `sync_*` methods on the instance.
 - Bulk syncs go through a queue. Every doc event handler calls `<channel>.bulk_sync.queue_*_for_sync(doc, …)`, which dedups and enqueues. Don't call sync methods directly from hooks — that blocks the request.
@@ -112,7 +117,7 @@ Upstream is fast-moving on `develop` and stable on `main`. To stay in sync:
 
 - **Ships German print formats.** `Auftragsbestätigung`, `Bestellbestätigung`, `Rechnung`, `Versandbestätigung` — these are the four standard German order-flow document names. They render generically; customers in other locales can disable them or override.
 - **Defaults email/print copy to German.** Field defaults like "Sehr geehrte Damen und Herren" come pre-filled on `Ecommerce Channel Branding` because the primary user base is German Shopware 6 / Medusa shops. Defaults are user-editable.
-- **Uses Chrome PDF generator for ecommerce print formats.** wkhtmltopdf fails inside containers that can't resolve their own hostname; the patch `set_chrome_pdf_generator` switches the four shipped formats to Chrome on `bench migrate`.
+- **Uses Chrome PDF generator for ecommerce print formats.** wkhtmltopdf fails inside containers that can't resolve their own hostname; Frappe v16 ships an in-process Chrome generator. The patch `set_chrome_pdf_generator` switches the four shipped formats to Chrome on `bench migrate`. This is one of the v16-only features the plugin relies on.
 - **Routes invoices through `Ecommerce Sales Invoice` notification.** Fires only when `doc.ecommerce_source` is set, so non-ecommerce invoices aren't affected.
 
 ## Things this plugin deliberately does not do

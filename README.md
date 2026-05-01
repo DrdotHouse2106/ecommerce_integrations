@@ -6,7 +6,7 @@
 
 </div>
 
-> **Note:** This is an extended fork with Shopware 6, Medusa v2, RAG (AI-powered product search) and German E-Invoice support.
+> **Note:** This is an extended fork with Shopware 6, Medusa v2, RAG (AI-powered product search) and German E-Invoice support. Targets **Frappe / ERPNext v16**.
 
 ### Supported Integrations
 

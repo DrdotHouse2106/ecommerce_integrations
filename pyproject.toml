@@ -18,8 +18,8 @@ Repository = "https://github.com/frappe/ecommerce_integrations.git"
 "Bug Reports" = "https://github.com/frappe/ecommerce_integrations/issues"
 
 [tool.bench.frappe-dependencies]
-frappe = ">=15.0.0,<16.0.0"
-erpnext = ">=15.0.0,<16.0.0"
+frappe = ">=16.0.0,<17.0.0"
+erpnext = ">=16.0.0,<17.0.0"
 
 [project.license]
 file = "./LICENSE"
@@ -56,11 +56,6 @@ typing-modules = ["frappe.types.DF"]
 quote-style = "double"
 indent-style = "tab"
 docstring-code-format = true
-
-[tool.bench.frappe-dependencies]
-frappe = ">=16.0.0,<17.0.0"
-erpnext = ">=16.0.0,<17.0.0"
-
 
 [tool.ruff.lint.isort]
 section-order = [
