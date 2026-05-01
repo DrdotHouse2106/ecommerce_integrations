@@ -72,11 +72,11 @@ AI-powered product search and FAQ generation for shop assistants:
 
 ### Installation
 
-**For Shopware6/RAG users (this fork):**
+**For Shopware6 / Medusa / RAG users (this fork):**
 
 ```bash
 # Install from this fork
-$ bench get-app ecommerce_integrations https://github.com/TubaApollo/ecommerce_integrations --branch shopware6-clean
+$ bench get-app ecommerce_integrations https://github.com/TubaApollo/ecommerce_integrations --branch feat/multi-channel-integrations
 
 # Install on site
 $ bench --site sitename install-app ecommerce_integrations
@@ -100,7 +100,7 @@ After installation, follow the documentation for each integration.
 
 ### Contributing
 
-- For Shopware6/Medusa/RAG: PRs to `shopware6-clean` branch
+- For Shopware6/Medusa/RAG: PRs to `feat/multi-channel-integrations` branch
 - For upstream integrations: Follow [ERPNext contribution guidelines](https://github.com/frappe/erpnext/wiki/Contribution-Guidelines)
 
 

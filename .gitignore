@@ -4,7 +4,8 @@
 *.swp
 tags
 ecommerce_integrations/docs/current
-docs/
 
 .aider*
 .helix
+.claude/
+docs/superpowers/
