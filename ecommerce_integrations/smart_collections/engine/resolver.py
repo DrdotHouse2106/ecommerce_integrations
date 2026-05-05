@@ -240,12 +240,12 @@ def _combine_groups(rules: list[dict], combinator: str) -> str:
     return joiner.join(group_clauses)
 
 
-def resolve(collection) -> set[str]:
+def resolve(collection, *, persist_stats: bool = True) -> set[str]:
     """Return the set of ``Item.name`` matching this collection.
 
-    Caches ``last_resolved_count`` and ``last_resolved_at`` on the collection
-    when it has a name. Unsaved collections (preview/dry-run) skip the cache
-    write but still return the resolved set.
+    Caches ``last_resolved_count`` / ``last_resolved_at`` on the collection
+    when it has a name and ``persist_stats`` is true. ``dry_run`` sets
+    ``persist_stats=False`` so previews don't side-effect the cache.
     """
     rules = [_normalize_rule(r) for r in (collection.rules or [])]
     rule_sql = _combine_groups(rules, getattr(collection, "rule_combinator", "AND"))
@@ -260,16 +260,62 @@ def resolve(collection) -> set[str]:
     rows = frappe.db.sql(sql, as_dict=False)
     items = {row[0] for row in rows}
 
-    collection.last_resolved_count = len(items)
-    collection.last_resolved_at = now_datetime()
-    if getattr(collection, "name", None):
-        frappe.db.set_value(
-            "Ecommerce Smart Collection",
-            collection.name,
-            {
-                "last_resolved_count": collection.last_resolved_count,
-                "last_resolved_at": collection.last_resolved_at,
-            },
-            update_modified=False,
-        )
+    if persist_stats:
+        collection.last_resolved_count = len(items)
+        collection.last_resolved_at = now_datetime()
+        if getattr(collection, "name", None):
+            frappe.db.set_value(
+                "Ecommerce Smart Collection",
+                collection.name,
+                {
+                    "last_resolved_count": collection.last_resolved_count,
+                    "last_resolved_at": collection.last_resolved_at,
+                },
+                update_modified=False,
+            )
     return items
+
+
+def dry_run(collection) -> dict:
+    """Preview a collection's resolution without touching its cache.
+
+    Returns:
+        ``count`` — total matching items.
+        ``sample_items`` — up to 50 items as ``[{name, item_name, item_group}]``.
+        ``breakdown_by_rule`` — for each rule, how many items it would match
+            on its own. Useful to spot the rule that's wiping out the result.
+    """
+    matched = resolve(collection, persist_stats=False)
+    sample_names = sorted(matched)[:50]
+    sample_rows: list[dict] = []
+    if sample_names:
+        sample_rows = frappe.db.sql(
+            "SELECT name, item_name, item_group FROM `tabItem` "
+            f"WHERE name IN ({_quote_list(sample_names)})",
+            as_dict=True,
+        )
+
+    breakdown: list[dict] = []
+    for idx, raw_rule in enumerate(collection.rules or []):
+        r = _normalize_rule(raw_rule)
+        single = frappe.new_doc("Ecommerce Smart Collection")
+        single.title = "_dry_run_per_rule"
+        single.rule_combinator = "AND"
+        single.append("rules", r)
+        per_rule_count = len(resolve(single, persist_stats=False))
+        breakdown.append(
+            {
+                "rule_index": idx,
+                "rule_type": r["rule_type"],
+                "field_key": r["field_key"],
+                "operator": r["operator"],
+                "value": r["value"],
+                "matching_count": per_rule_count,
+            }
+        )
+
+    return {
+        "count": len(matched),
+        "sample_items": sample_rows,
+        "breakdown_by_rule": breakdown,
+    }
