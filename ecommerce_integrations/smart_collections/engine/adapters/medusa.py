@@ -1,0 +1,156 @@
+"""Medusa CategoryAdapter — Smart Collection ↔ Medusa product category.
+
+Uses the Medusa Admin API:
+- ``POST /admin/product-categories`` to create
+- ``POST /admin/product-categories/{id}`` to update
+- ``POST /admin/product-categories/{id}/products`` to link/unlink items
+  (Medusa v2 batch endpoint accepts ``add`` and ``remove`` arrays)
+
+Item code → Medusa product id is resolved via the existing
+``tabEcommerce Item`` mapping ``ecommerce=Medusa`` (set up by the
+Medusa product-export pipeline). Items not yet synced to Medusa are
+skipped and returned as the unresolved set so the orchestrator can log
+them but continue.
+"""
+
+import frappe
+
+from ecommerce_integrations.medusa.connection import (
+    medusa_request,
+    optional_session,
+)
+from ecommerce_integrations.medusa.constants import API_CATEGORIES
+from ecommerce_integrations.smart_collections.engine.adapters.base import (
+    AdapterError,
+    CategoryAdapter,
+    register,
+)
+
+
+_LINK_BATCH_SIZE = 50
+
+
+@register("Medusa")
+class MedusaCategoryAdapter(CategoryAdapter):
+    def upsert_category(self, collection, target) -> str:
+        payload = {
+            "name": collection.title,
+            "handle": collection.slug,
+            "is_active": bool(collection.is_active),
+        }
+        if collection.description:
+            payload["description"] = collection.description
+
+        with optional_session() as (session, base_url):
+            if target.external_id:
+                try:
+                    medusa_request(
+                        session, base_url, "POST",
+                        f"{API_CATEGORIES}/{target.external_id}",
+                        json=payload,
+                    )
+                    return target.external_id
+                except Exception as e:
+                    # If Medusa returned 404 the cached external_id is stale
+                    # — fall through to a create.
+                    if "404" not in str(e):
+                        raise AdapterError(f"Medusa category update failed: {e}") from e
+
+            try:
+                resp = medusa_request(
+                    session, base_url, "POST", API_CATEGORIES, json=payload,
+                )
+            except Exception as e:
+                raise AdapterError(f"Medusa category create failed: {e}") from e
+
+        category = (resp or {}).get("product_category") or {}
+        external_id = category.get("id")
+        if not external_id:
+            raise AdapterError(
+                f"Medusa category create returned no id: {resp!r}"
+            )
+        return external_id
+
+    def link_items(self, target, item_codes: list[str]) -> list[str]:
+        return self._mutate_links(target, add=item_codes, remove=())
+
+    def unlink_items(self, target, item_codes: list[str]) -> None:
+        self._mutate_links(target, add=(), remove=item_codes)
+
+    def delete_category(self, target) -> None:
+        if not target.external_id:
+            return
+        with optional_session() as (session, base_url):
+            try:
+                medusa_request(
+                    session, base_url, "DELETE",
+                    f"{API_CATEGORIES}/{target.external_id}",
+                )
+            except Exception as e:
+                raise AdapterError(f"Medusa category delete failed: {e}") from e
+
+    def _mutate_links(
+        self, target, *, add: list[str] | tuple[str, ...], remove: list[str] | tuple[str, ...]
+    ) -> list[str]:
+        if not target.external_id:
+            raise AdapterError(
+                "link/unlink called before upsert_category — external_id is empty"
+            )
+
+        product_ids_add, missing = _items_to_medusa_product_ids(add)
+        product_ids_remove, _ = _items_to_medusa_product_ids(remove)
+
+        url = f"{API_CATEGORIES}/{target.external_id}/products"
+
+        with optional_session() as (session, base_url):
+            for batch in _chunked(product_ids_add, _LINK_BATCH_SIZE):
+                try:
+                    medusa_request(
+                        session, base_url, "POST", url,
+                        json={"product_ids": batch},
+                    )
+                except Exception as e:
+                    raise AdapterError(f"Medusa link batch failed: {e}") from e
+
+            for batch in _chunked(product_ids_remove, _LINK_BATCH_SIZE):
+                try:
+                    medusa_request(
+                        session, base_url, "DELETE", url,
+                        json={"product_ids": batch},
+                    )
+                except Exception as e:
+                    raise AdapterError(f"Medusa unlink batch failed: {e}") from e
+
+        return missing
+
+
+def _items_to_medusa_product_ids(item_codes) -> tuple[list[str], list[str]]:
+    """Map ERPNext item codes to Medusa product ids via ``Item.medusa_product_id``.
+
+    Returns ``(resolved_product_ids, missing_item_codes)``.
+    """
+    if not item_codes:
+        return [], []
+    rows = frappe.db.sql(
+        """
+        SELECT name, medusa_product_id
+        FROM `tabItem`
+        WHERE name IN ({placeholders})
+        """.format(placeholders=", ".join(["%s"] * len(item_codes))),
+        tuple(item_codes),
+        as_dict=True,
+    )
+    resolved: list[str] = []
+    have: set[str] = set()
+    for r in rows:
+        if r.medusa_product_id:
+            resolved.append(r.medusa_product_id)
+            have.add(r.name)
+    missing = [c for c in item_codes if c not in have]
+    return resolved, missing
+
+
+def _chunked(seq, n: int):
+    seq = list(seq)
+    for i in range(0, len(seq), n):
+        yield seq[i:i + n]
