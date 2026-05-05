@@ -52,6 +52,8 @@ doctype_js = {
 	],
 	"Stock Entry": "public/js/unicommerce/stock_entry.js",
 	"Pick List": "public/js/unicommerce/pick_list.js",
+	"Medusa Setting": "public/js/smart_collections/setting_widget.js",
+	"Shopware Setting": "public/js/smart_collections/setting_widget.js",
 }
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
