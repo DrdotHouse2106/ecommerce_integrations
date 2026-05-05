@@ -105,7 +105,17 @@ def _create_payment_entry(so_name: str, order_data: dict, setting) -> str:
 	"""Create a Payment Entry for a captured Medusa order."""
 	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
+	from ecommerce_integrations.medusa.payment_method_mapping import (
+		extract_provider_id,
+		resolve_mode_of_payment,
+	)
+
 	pe = get_payment_entry("Sales Order", so_name, bank_account=setting.cash_bank_account)
+
+	so_mode = frappe.db.get_value("Sales Order", so_name, "mode_of_payment")
+	mode_of_payment = so_mode or resolve_mode_of_payment(extract_provider_id(order_data), setting)
+	if mode_of_payment:
+		pe.mode_of_payment = mode_of_payment
 
 	# Extract payment reference from Stripe/payment provider data
 	payment_reference = ""
