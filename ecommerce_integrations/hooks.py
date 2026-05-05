@@ -252,6 +252,8 @@ scheduler_events = {
 		"ecommerce_integrations.unicommerce.product.upload_new_items",
 		"ecommerce_integrations.unicommerce.status_updater.update_sales_order_status",
 		"ecommerce_integrations.unicommerce.status_updater.update_shipping_package_status",
+		# Smart Collections: re-resolve and push category memberships to backends.
+		"ecommerce_integrations.smart_collections.tasks.sync_due_collections",
 	],
 	"weekly": [],
 	"monthly": [],

@@ -50,6 +50,20 @@ def list_for_backend(backend: str) -> list[dict]:
 
 
 @frappe.whitelist()
+def preview(collection: str) -> dict:
+    """Return the resolver's dry-run output for a saved collection.
+
+    Used by the form's *Preview Matches* button — does not persist any
+    state on the collection.
+    """
+    from ecommerce_integrations.smart_collections.engine.resolver import dry_run
+
+    if not frappe.has_permission("Ecommerce Smart Collection", "read", doc=collection):
+        frappe.throw("Not permitted to preview this collection")
+    return dry_run(frappe.get_doc("Ecommerce Smart Collection", collection))
+
+
+@frappe.whitelist()
 def toggle_target(target_id: str, enabled: int) -> None:
     """Toggle ``enabled`` on a single target row from the Setting widget.
 
