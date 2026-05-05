@@ -102,7 +102,7 @@ def _build_property_clause(rule: dict) -> str:
     if op == "is_set":
         return base + set_predicate + ")"
     if op == "is_empty":
-        return f"NOT ({base}{set_predicate})"
+        return f"NOT ({base}{set_predicate}))"
 
     if op == "in":
         vals = _split_csv(raw)
@@ -205,10 +205,45 @@ def _build_stock_clause(rule: dict) -> str:
     )
 
 
+def _build_manufacturer_clause(rule: dict) -> str:
+    """Manufacturer is stored in the ``tabItem Manufacturer`` child table —
+    one item can be linked to multiple manufacturers, so we query EXISTS
+    against the child rows and keep strict-NULL semantics for negation."""
+    op = rule["operator"]
+    raw = rule["value"] or ""
+    base = (
+        "EXISTS (SELECT 1 FROM `tabItem Manufacturer` im "
+        "WHERE im.item_code = item.name"
+    )
+    if op == "is_set":
+        return base + ")"
+    if op == "is_empty":
+        return f"NOT ({base})"
+    if op == "in":
+        vals = _split_csv(raw)
+        if not vals:
+            return "1=0"
+        return base + f" AND im.manufacturer IN ({_quote_list(vals)}))"
+    if op == "not_in":
+        vals = _split_csv(raw)
+        if not vals:
+            return "1=0"
+        return base + f" AND im.manufacturer NOT IN ({_quote_list(vals)}))"
+    if op == "equals":
+        return base + f" AND im.manufacturer = {frappe.db.escape(raw)})"
+    if op == "not_equals":
+        return base + f" AND im.manufacturer != {frappe.db.escape(raw)})"
+    if op == "contains":
+        return base + f" AND im.manufacturer LIKE {frappe.db.escape(f'%{raw}%')})"
+    if op == "regex":
+        return base + f" AND im.manufacturer REGEXP {frappe.db.escape(raw)})"
+    raise ValueError(f"Unsupported Manufacturer operator: {op}")
+
+
 _BUILDERS: dict = {
     "Item Group": _build_item_group_clause,
     "Ecommerce Property": _build_property_clause,
-    "Manufacturer": lambda r: _build_direct_column_clause(r, "manufacturer"),
+    "Manufacturer": _build_manufacturer_clause,
     "Brand": lambda r: _build_direct_column_clause(r, "brand"),
     "Item Field": _build_item_field_clause,
     "Stock": _build_stock_clause,
@@ -228,14 +263,30 @@ def _build_rule_clause(rule: dict) -> str:
 
 
 def _combine_groups(rules: list[dict], combinator: str) -> str:
-    """Group rules by ``group_id`` (OR within group), then join groups with
-    ``combinator``."""
+    """Combine rule clauses using the spec §4.2 grouping semantics.
+
+    ``group_id=0`` (the default) means *independent* — each such rule forms
+    its own implicit group and combines with the others via ``combinator``.
+    A non-zero ``group_id`` puts the rule into a shared OR-group with its
+    siblings; the resulting OR-clause then combines with other groups via
+    ``combinator``.
+
+    Without this, three default rules in the form (Item Group=X, System=Y,
+    Material=Z) would be OR'd into a union — but the design intent for the
+    default case is AND (intersection).
+    """
     if not rules:
         return "1=1"
-    groups: dict[int, list[str]] = defaultdict(list)
+    independents: list[list[str]] = []
+    explicit: dict[int, list[str]] = defaultdict(list)
     for r in rules:
-        groups[r["group_id"]].append(_build_rule_clause(r))
-    group_clauses = [f"({' OR '.join(parts)})" for parts in groups.values()]
+        clause = _build_rule_clause(r)
+        if r["group_id"]:
+            explicit[r["group_id"]].append(clause)
+        else:
+            independents.append([clause])
+    all_groups = independents + list(explicit.values())
+    group_clauses = [f"({' OR '.join(parts)})" for parts in all_groups]
     joiner = " AND " if (combinator or "AND") == "AND" else " OR "
     return joiner.join(group_clauses)
 
