@@ -78,8 +78,56 @@ def _build_item_group_clause(rule: dict) -> str:
     raise ValueError(f"Unsupported Item Group operator: {op}")
 
 
+def _build_property_clause(rule: dict) -> str:
+    """Strict-NULL Ecommerce Property clause (spec §4.4).
+
+    Items without the property never match, regardless of operator —
+    including ``not_in`` / ``not_equals``. To pull in items lacking a
+    property, combine ``not_in`` with ``is_empty`` via the same
+    ``group_id`` (OR within group).
+    """
+    op = rule["operator"]
+    name = rule.get("field_key")
+    if not name:
+        raise ValueError("Ecommerce Property rule requires field_key")
+    name_q = frappe.db.escape(name)
+    raw = rule["value"] or ""
+
+    base = (
+        "EXISTS (SELECT 1 FROM `tabItem Ecommerce Property` p "
+        f"WHERE p.parent = item.name AND p.property_name = {name_q}"
+    )
+    set_predicate = " AND p.property_value IS NOT NULL AND p.property_value != ''"
+
+    if op == "is_set":
+        return base + set_predicate + ")"
+    if op == "is_empty":
+        return f"NOT ({base}{set_predicate})"
+
+    if op == "in":
+        vals = _split_csv(raw)
+        if not vals:
+            return "1=0"
+        return base + f" AND p.property_value IN ({_quote_list(vals)}))"
+    if op == "not_in":
+        vals = _split_csv(raw)
+        if not vals:
+            return "1=0"
+        return base + f" AND p.property_value NOT IN ({_quote_list(vals)}))"
+    if op == "equals":
+        return base + f" AND p.property_value = {frappe.db.escape(raw)})"
+    if op == "not_equals":
+        return base + f" AND p.property_value != {frappe.db.escape(raw)})"
+    if op == "contains":
+        return base + f" AND p.property_value LIKE {frappe.db.escape(f'%{raw}%')})"
+    if op == "regex":
+        return base + f" AND p.property_value REGEXP {frappe.db.escape(raw)})"
+    raise ValueError(f"Unsupported Ecommerce Property operator: {op}")
+
+
 _BUILDERS: dict = {
     "Item Group": _build_item_group_clause,
+    "Ecommerce Property": _build_property_clause,
 }
 
 
