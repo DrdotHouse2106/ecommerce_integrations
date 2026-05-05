@@ -108,9 +108,11 @@ class MedusaProductExporter:
         if category_ids:
             payload["categories"] = [{"id": cid} for cid in category_ids]
 
-        brand = getattr(self.item, "brand", None)
         if hasattr(self.setting, 'get_channels_for_item'):
-            channel_ids = self.setting.get_channels_for_item(self.item.item_group, brand)
+            # Smart-Collections-driven (replaces the legacy Item Group
+            # Channel Mappings — see the Smart Collections section on the
+            # Medusa Setting form).
+            channel_ids = self.setting.get_channels_for_item(self.item_code)
         else:
             channel_ids = self.setting.get_active_sales_channel_ids() if hasattr(self.setting, 'get_active_sales_channel_ids') else []
         if not channel_ids:

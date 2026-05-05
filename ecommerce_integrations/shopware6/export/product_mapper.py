@@ -512,16 +512,23 @@ def get_product_visibilities(item, setting) -> Optional[List[Dict[str, Any]]]:
             for sc_id, sc in all_channels.items() if sc.active
         ]
 
-    # Priority 2: Use Item Group channels (default behavior)
+    # Priority 2: Smart Collections (replacement for the legacy Item Group
+    # Channel Mappings — see ecommerce_integrations/smart_collections/).
     if getattr(item, 'shopware_use_item_group_channels', True):
-        # Get item's brand/manufacturer for filtering
-        item_brand = (
-            getattr(item, 'brand', None) or
-            getattr(item, 'default_item_manufacturer', None)
+        from ecommerce_integrations.smart_collections.channel_visibility import (
+            channels_for_item,
         )
-        channel_mappings = _get_channels_from_item_group(item.item_group, setting, item_brand)
-        if channel_mappings:
-            return channel_mappings
+        sc_entries = channels_for_item(item.name, "Shopware")
+        if sc_entries:
+            return [
+                {
+                    "salesChannelId": e["sales_channel"],
+                    "visibility": _parse_visibility(e["visibility"]),
+                }
+                for e in sc_entries
+                if e["sales_channel"] in all_channels
+                and _parse_visibility(e["visibility"]) > 0
+            ]
 
     # Priority 3: Per-item overrides
     overrides = getattr(item, 'shopware_channel_overrides', [])

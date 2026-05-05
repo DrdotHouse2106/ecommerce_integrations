@@ -156,59 +156,46 @@ class MedusaSetting(Document):
 	def get_active_sales_channel_ids(self):
 		return [row.sales_channel_id for row in (self.sales_channels or []) if row.active]
 
-	def get_channels_for_item(self, item_group, brand=None) -> list:
-		"""Get sales channel IDs for an item based on Item Group mappings.
+	def get_channels_for_item(self, item_code: str, _legacy_brand=None) -> list:
+		"""Sales channel ids for an item, derived from Smart Collections.
 
-		If no mappings are configured, returns all active channels.
-		If mappings exist, returns only channels matching the item's group
-		(with optional manufacturer/brand filter).
+		Replaces the legacy ``item_group_channel_mappings`` lookup. The
+		``_legacy_brand`` argument is accepted for backwards compatibility
+		with old call sites that passed ``(item_group, brand)``; it is
+		ignored because Smart Collection rules express manufacturer /
+		brand filters declaratively.
 		"""
-		mappings = self.item_group_channel_mappings or []
-		if not mappings:
-			return self.get_active_sales_channel_ids()
+		from ecommerce_integrations.smart_collections.channel_visibility import (
+			channels_for_item,
+			unique_channel_ids,
+		)
 
-		# Build channel name -> ID lookup
+		# Resolve sales-channel names from Smart Collections to Medusa
+		# sales-channel ids via the Setting's own channel table.
 		ch_lookup = {}
 		for ch in (self.sales_channels or []):
 			ch_lookup[ch.sales_channel_name] = ch.sales_channel_id
-			if ch.short_code:
+			if getattr(ch, "short_code", None):
 				ch_lookup[ch.short_code] = ch.sales_channel_id
 
-		# Get item group ancestry for subcategory matching
-		item_groups = {item_group}
-		if item_group:
-			lft_rgt = frappe.db.get_value("Item Group", item_group, ["lft", "rgt"])
-			if lft_rgt:
-				ancestors = frappe.get_all(
-					"Item Group",
-					filters={"lft": ["<=", lft_rgt[0]], "rgt": [">=", lft_rgt[1]]},
-					fields=["name"],
-				)
-				item_groups.update(a.name for a in ancestors)
-
-		matched_channels = set()
-		for m in mappings:
-			if m.include_subcategories:
-				if m.item_group not in item_groups:
-					continue
-			else:
-				if m.item_group != item_group:
-					continue
-
-			if m.manufacturer_filter and brand and m.manufacturer_filter != brand:
-				continue
-
-			ch_id = ch_lookup.get(m.sales_channel)
+		entries = channels_for_item(item_code, "Medusa")
+		matched: set[str] = set()
+		for ch_name in unique_channel_ids(entries):
+			ch_id = ch_lookup.get(ch_name)
 			if ch_id:
-				matched_channels.add(ch_id)
+				matched.add(ch_id)
 
-		# Always include the default sales channel in addition to matched channels
+		# No Smart Collection touches this item → fall back to all active
+		# channels so newly-pushed items never end up without a channel
+		# during the rollout. Tighten this once every relevant item is
+		# covered by a collection.
+		if not matched:
+			return self.get_active_sales_channel_ids()
+
+		# Always keep the default channel alongside the matched ones —
+		# preserves the previous behaviour where the default channel
+		# acted as a catch-all.
 		default = self.get_default_sales_channel_id()
 		if default:
-			matched_channels.add(default)
-
-		if matched_channels:
-			return list(matched_channels)
-
-		# Last resort: return all active channels so products never end up without a channel
-		return self.get_active_sales_channel_ids()
+			matched.add(default)
+		return list(matched)
