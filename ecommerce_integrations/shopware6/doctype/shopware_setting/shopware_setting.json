@@ -14,6 +14,9 @@
   "item_group_channel_mappings",
   "all_channels_item_groups",
   "channel_mapping_info_html",
+  "smart_collections_section",
+  "smart_collections_intro_html",
+  "smart_collections_html",
   "reconciliation_section",
   "skip_category_sync_on_full_reconciliation",
   "bulk_sync_section",
@@ -176,6 +179,21 @@
    "fieldtype": "HTML",
    "label": "Channel Mapping Info",
    "options": "<div class=\"alert alert-info\"><h5>Multi-Storefront Configuration</h5><p><strong>How it works:</strong></p><ul><li>Map Item Groups to specific Sales Channels above</li><li>Products inherit channel visibility from their Item Group</li><li>Add Item Groups to 'ALL Channels' list to make products visible everywhere</li><li>Override per-item via the Item form (Shopware Sales Channels section)</li><li><strong>NEW: Manufacturer Filter</strong> - Optionally filter by Brand/Manufacturer per mapping</li></ul><p><strong>Priority:</strong> Item Override > Item Group Mapping (with Brand Filter) > Default Channel</p><p><strong>Tip:</strong> Use Manufacturer Filter to create brand-specific storefronts from a shared product catalog.</p></div>"
+  },
+  {
+   "fieldname": "smart_collections_section",
+   "fieldtype": "Section Break",
+   "label": "Smart Collections",
+   "depends_on": "eval:doc.enable_shopware"
+  },
+  {
+   "fieldname": "smart_collections_intro_html",
+   "fieldtype": "HTML",
+   "options": "<div class=\"alert alert-info\"><p><strong>Smart Collections drive Shopware channel visibility and category membership.</strong> Each collection's rules resolve to an item set per Sales Channel; the resulting Shopware category, its <code>salesChannels</code> association and the items it contains are managed by the sync. Visibility level (10/20/30) is configurable per target.</p><p>Manage collections under <a href=\"/app/ecommerce-smart-collection?targets.backend=Shopware\"><strong>Smart Collections</strong></a>. The list below summarises the current state for this backend. Item Group Channel Mappings above are deprecated and migrated automatically.</p></div>"
+  },
+  {
+   "fieldname": "smart_collections_html",
+   "fieldtype": "HTML"
   },
   {
    "collapsible": 1,

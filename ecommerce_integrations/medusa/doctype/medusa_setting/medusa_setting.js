@@ -1,3 +1,66 @@
+function render_smart_collections_widget(frm, backend) {
+	const wrap = frm.fields_dict.smart_collections_html;
+	if (!wrap || !wrap.$wrapper) return;
+	wrap.$wrapper.html('<div class="text-muted">Loading Smart Collections…</div>');
+	frappe.call({
+		method: 'ecommerce_integrations.smart_collections.api.list_for_backend',
+		args: { backend },
+		callback: function(r) {
+			const rows = r.message || [];
+			if (!rows.length) {
+				wrap.$wrapper.html(
+					'<div class="text-muted small">No Smart Collections target this backend yet. ' +
+					'Run the migration patch <code>migrate_item_group_channel_to_smart_collections</code> ' +
+					'or create one from the Smart Collections list.</div>'
+				);
+				return;
+			}
+			const groups = {};
+			rows.forEach(function(row) {
+				(groups[row.sales_channel] = groups[row.sales_channel] || []).push(row);
+			});
+			const status_badge = function(row) {
+				const map = {ok: 'green', error: 'red', pending: 'orange'};
+				const colour = map[row.sync_status] || 'gray';
+				return `<span class="indicator-pill ${colour}">${row.sync_status || 'pending'}</span>`;
+			};
+			const active_badge = function(row) {
+				if (!row.is_active) return '<span class="text-muted">inactive</span>';
+				if (!row.enabled) return '<span class="text-warning">disabled</span>';
+				return '<span class="text-success">on</span>';
+			};
+			let html = '<div class="smart-collections-summary">';
+			Object.keys(groups).sort().forEach(function(channel) {
+				html += `<h5 style="margin-top:1em">${frappe.utils.escape_html(channel)}</h5>`;
+				html += '<table class="table table-sm" style="margin-bottom:0">';
+				html += '<thead><tr>'
+				    + '<th>Collection</th>'
+				    + '<th style="width:90px">State</th>'
+				    + '<th style="width:90px">Items</th>'
+				    + '<th style="width:120px">Status</th>'
+				    + '<th style="width:160px">Last Synced</th>'
+				    + '<th style="width:60px">Open</th>'
+				    + '</tr></thead><tbody>';
+				groups[channel].forEach(function(row) {
+					const link = `/app/ecommerce-smart-collection/${encodeURIComponent(row.collection)}`;
+					html += '<tr>';
+					html += `<td>${frappe.utils.escape_html(row.title)}</td>`;
+					html += `<td>${active_badge(row)}</td>`;
+					html += `<td>${row.last_resolved_count || 0}</td>`;
+					html += `<td>${status_badge(row)}</td>`;
+					html += `<td class="text-muted small">${row.last_synced_at ? frappe.datetime.str_to_user(row.last_synced_at) : '—'}</td>`;
+					html += `<td><a href="${link}">→</a></td>`;
+					html += '</tr>';
+				});
+				html += '</tbody></table>';
+			});
+			html += '</div>';
+			wrap.$wrapper.html(html);
+		}
+	});
+}
+
+
 frappe.ui.form.on('Medusa Setting', {
 	onload: function(frm) {
 		if (frm.doc.__onload) {
@@ -11,6 +74,7 @@ frappe.ui.form.on('Medusa Setting', {
 	},
 
 	refresh: function(frm) {
+		render_smart_collections_widget(frm, 'Medusa');
 		if (frm.fields_dict.fetch_sales_channels_btn && frm.fields_dict.fetch_sales_channels_btn.$input) {
 			frm.fields_dict.fetch_sales_channels_btn.$input.off('click').on('click', function() {
 				frm.call({

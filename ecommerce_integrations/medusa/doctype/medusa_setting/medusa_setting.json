@@ -18,6 +18,9 @@
   "fetch_sales_channels_btn",
   "item_group_channel_section",
   "item_group_channel_mappings",
+  "smart_collections_section",
+  "smart_collections_intro_html",
+  "smart_collections_html",
   "customer_settings_section",
   "default_customer",
   "sync_customers",
@@ -163,7 +166,23 @@
    "fieldname": "item_group_channel_mappings",
    "fieldtype": "Table",
    "label": "Category Channel Mappings",
-   "options": "Medusa Item Group Channel"
+   "options": "Medusa Item Group Channel",
+   "description": "Legacy mapping. New installs should use Smart Collections (next section) instead."
+  },
+  {
+   "fieldname": "smart_collections_section",
+   "fieldtype": "Section Break",
+   "label": "Smart Collections",
+   "depends_on": "eval:doc.enable_medusa"
+  },
+  {
+   "fieldname": "smart_collections_intro_html",
+   "fieldtype": "HTML",
+   "options": "<div class=\"alert alert-info\"><p><strong>Smart Collections drive Medusa channel visibility and product-category membership.</strong> Each collection's rules resolve to an item set per Sales Channel; the resulting Medusa category and the items it contains are managed by the sync.</p><p>Manage collections under <a href=\"/app/ecommerce-smart-collection?targets.backend=Medusa\"><strong>Smart Collections</strong></a>. The list below summarises the current state for this backend. Item Group Channel Mappings above are deprecated and migrated automatically.</p></div>"
+  },
+  {
+   "fieldname": "smart_collections_html",
+   "fieldtype": "HTML"
   },
   {
    "fieldname": "customer_settings_section",
