@@ -156,15 +156,8 @@ class MedusaSetting(Document):
 	def get_active_sales_channel_ids(self):
 		return [row.sales_channel_id for row in (self.sales_channels or []) if row.active]
 
-	def get_channels_for_item(self, item_code: str, _legacy_brand=None) -> list:
-		"""Sales channel ids for an item, derived from Smart Collections.
-
-		Replaces the legacy ``item_group_channel_mappings`` lookup. The
-		``_legacy_brand`` argument is accepted for backwards compatibility
-		with old call sites that passed ``(item_group, brand)``; it is
-		ignored because Smart Collection rules express manufacturer /
-		brand filters declaratively.
-		"""
+	def get_channels_for_item(self, item_code: str) -> list:
+		"""Sales channel ids for an item, resolved through Smart Collections."""
 		from ecommerce_integrations.smart_collections.channel_visibility import (
 			channels_for_item,
 			unique_channel_ids,
