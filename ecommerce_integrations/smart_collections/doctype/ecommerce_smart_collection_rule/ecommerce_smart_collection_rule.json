@@ -1,0 +1,80 @@
+{
+ "actions": [],
+ "creation": "2026-05-05 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "rule_type",
+  "field_key",
+  "operator",
+  "value",
+  "group_id",
+  "negate"
+ ],
+ "fields": [
+  {
+   "fieldname": "rule_type",
+   "label": "Rule Type",
+   "fieldtype": "Select",
+   "options": "Item Group\nEcommerce Property\nManufacturer\nItem Field\nStock\nBrand",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "field_key",
+   "label": "Field Key",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "columns": 2,
+   "description": "Property name (Ecommerce Property) or Item field (Item Field). Empty for Item Group / Manufacturer / Brand / Stock."
+  },
+  {
+   "fieldname": "operator",
+   "label": "Operator",
+   "fieldtype": "Select",
+   "options": "equals\nnot_equals\nin\nnot_in\ndescends_from\ncontains\nregex\nis_set\nis_empty",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "value",
+   "label": "Value",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "columns": 3,
+   "description": "Single value or comma-separated for in/not_in. Ignored for is_set/is_empty."
+  },
+  {
+   "fieldname": "group_id",
+   "label": "OR Group",
+   "fieldtype": "Int",
+   "default": "0",
+   "columns": 1,
+   "description": "Rules sharing the same OR Group are combined with OR. Different OR Groups combine via the parent's rule_combinator."
+  },
+  {
+   "fieldname": "negate",
+   "label": "Negate",
+   "fieldtype": "Check",
+   "default": "0",
+   "columns": 1,
+   "description": "Inverts this rule's match. Note: NULL handling is strict — a NULL value never matches, so NOT(rule) is not the same as the operator's negation when the property is unset."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-05-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Smart Collections",
+ "name": "Ecommerce Smart Collection Rule",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 0
+}
