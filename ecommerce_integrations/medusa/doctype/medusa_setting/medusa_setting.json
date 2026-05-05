@@ -57,6 +57,11 @@
   "payment_sync_frequency",
   "last_payment_sync",
   "column_break_payment_sync",
+  "payment_method_mapping_section",
+  "payment_method_mapping_info_html",
+  "payment_method_mappings",
+  "column_break_payment_method_mapping",
+  "default_mode_of_payment",
   "section_break_tax",
   "default_sales_tax_template",
   "column_break_tax",
@@ -395,6 +400,33 @@
   {
    "fieldname": "column_break_payment_sync",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "payment_method_mapping_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Method Mapping"
+  },
+  {
+   "fieldname": "payment_method_mapping_info_html",
+   "fieldtype": "HTML",
+   "options": "<div class=\"alert alert-info\"><p>Map Medusa payment provider ids (e.g. <code>pp_stripe_stripe</code>, <code>pp_paypal_paypal</code>, <code>pp_system_default</code>) to ERPNext <strong>Modes of Payment</strong>. Lookup order:</p><ol><li>Exact match in this table (case-insensitive).</li><li>Partial match in this table (e.g. <code>pp_stripe</code> matches <code>pp_stripe_card</code>).</li><li>Built-in defaults shipped with the plugin.</li><li>The <em>Default Mode of Payment</em> below.</li></ol><p>If none resolves to an existing Mode of Payment, the order is created without a Mode of Payment and the Payment Entry uses ERPNext's default.</p></div>"
+  },
+  {
+   "fieldname": "payment_method_mappings",
+   "fieldtype": "Table",
+   "label": "Payment Method Mappings",
+   "options": "Medusa Payment Method Mapping"
+  },
+  {
+   "fieldname": "column_break_payment_method_mapping",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Used when no mapping above resolves to a valid Mode of Payment.",
+   "fieldname": "default_mode_of_payment",
+   "fieldtype": "Link",
+   "label": "Default Mode of Payment",
+   "options": "Mode of Payment"
   },
   {
    "fieldname": "section_break_tax",

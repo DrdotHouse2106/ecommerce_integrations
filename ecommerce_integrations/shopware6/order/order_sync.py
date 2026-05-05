@@ -245,16 +245,14 @@ def create_sales_order(order_data: Dict[str, Any]) -> str:
     so.ecommerce_sales_channel_name = sales_channel_name
 
     # Extract and set payment method info
-    payment_method_name, erpnext_mode, payment_status = get_payment_method_info(order_data)
+    payment_method_name, erpnext_mode, payment_status = get_payment_method_info(order_data, setting)
     so.shopware_payment_method = payment_method_name
     so.shopware_payment_status = payment_status
 
-    # Set the standard ERPNext mode_of_payment field
-    so.mode_of_payment = erpnext_mode
-
-    # Also store in custom field for Payment Entry creation
-    if hasattr(so, 'shopware_erpnext_mode_of_payment'):
-        so.shopware_erpnext_mode_of_payment = erpnext_mode
+    if erpnext_mode:
+        so.mode_of_payment = erpnext_mode
+        if hasattr(so, 'shopware_erpnext_mode_of_payment'):
+            so.shopware_erpnext_mode_of_payment = erpnext_mode
 
     # Process all configured checkout custom fields from Shopware Settings
     process_checkout_fields(so, setting, order_data, customer)
@@ -415,7 +413,7 @@ def _create_invoice_if_paid(
             break
     else:
         # Create invoice for unpaid methods that require an invoice up-front
-        _, erpnext_mode, _ = get_payment_method_info(order_data)
+        _, erpnext_mode, _ = get_payment_method_info(order_data, setting)
         unpaid_invoice_modes = {"Vorkasse", "Rechnung", "Nachnahme", "Bargeld"}
         if erpnext_mode in unpaid_invoice_modes:
             transaction = transactions[0] if transactions else {}

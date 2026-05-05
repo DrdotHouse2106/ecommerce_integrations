@@ -69,6 +69,11 @@
   "auto_send_invoice_email",
   "invoice_print_format",
   "invoice_email_template",
+  "payment_method_mapping_section",
+  "payment_method_mapping_info_html",
+  "payment_method_mappings",
+  "column_break_payment_method_mapping",
+  "default_mode_of_payment",
   "section_break_tax",
   "html_tax_info",
   "taxes",
@@ -528,6 +533,33 @@
    "label": "Invoice Email Template",
    "options": "Email Template",
    "description": "Optional email template. If not set, a default German message is used."
+  },
+  {
+   "fieldname": "payment_method_mapping_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Method Mapping"
+  },
+  {
+   "fieldname": "payment_method_mapping_info_html",
+   "fieldtype": "HTML",
+   "options": "<div class=\"alert alert-info\"><p>Map Shopware payment methods (technical short names) to ERPNext <strong>Modes of Payment</strong>. Lookup order:</p><ol><li>Exact match in this table (case-insensitive).</li><li>Partial match in this table.</li><li>Built-in defaults shipped with the plugin.</li><li>The <em>Default Mode of Payment</em> below.</li></ol><p>If none of the above resolves to an existing Mode of Payment, the order is created without a Mode of Payment.</p></div>"
+  },
+  {
+   "fieldname": "payment_method_mappings",
+   "fieldtype": "Table",
+   "label": "Payment Method Mappings",
+   "options": "Shopware Payment Method Mapping"
+  },
+  {
+   "fieldname": "column_break_payment_method_mapping",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Used when no mapping above resolves to a valid Mode of Payment.",
+   "fieldname": "default_mode_of_payment",
+   "fieldtype": "Link",
+   "label": "Default Mode of Payment",
+   "options": "Mode of Payment"
   },
   {
    "fieldname": "section_break_tax",
