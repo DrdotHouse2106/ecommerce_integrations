@@ -144,12 +144,67 @@ def extract_checkout_field_value(order_data: dict, field_names: list) -> Any:
     return None
 
 
-def get_payment_method_info(order_data: dict) -> tuple:
+def _normalize_payment_method(name: str) -> str:
+    return (name or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _resolve_default_mode_of_payment(setting=None):
+    if setting is not None:
+        configured = getattr(setting, "default_mode_of_payment", None)
+        if configured and frappe.db.exists("Mode of Payment", configured):
+            return configured
+    if frappe.db.exists("Mode of Payment", DEFAULT_MODE_OF_PAYMENT):
+        return DEFAULT_MODE_OF_PAYMENT
+    return None
+
+
+def _resolve_mode_of_payment(payment_method_name: str, setting=None):
+    """Resolve a Shopware payment method to a valid ERPNext Mode of Payment.
+
+    Lookup: Setting table (exact, then partial) → hardcoded ``PAYMENT_METHOD_MAP``
+    (exact, then partial) → ``Setting.default_mode_of_payment`` →
+    ``DEFAULT_MODE_OF_PAYMENT``. The resolved value is only returned if it
+    exists on the site; otherwise ``None`` so we don't write a broken Link.
+    """
+    normalized = _normalize_payment_method(payment_method_name)
+    candidate = None
+
+    rows = list(getattr(setting, "payment_method_mappings", None) or []) if setting else []
+
+    if normalized:
+        for row in rows:
+            if _normalize_payment_method(row.shopware_method) == normalized:
+                candidate = row.mode_of_payment
+                break
+        if not candidate:
+            for row in rows:
+                row_key = _normalize_payment_method(row.shopware_method)
+                if row_key and (row_key in normalized or normalized in row_key):
+                    candidate = row.mode_of_payment
+                    break
+        if not candidate and normalized in PAYMENT_METHOD_MAP:
+            candidate = PAYMENT_METHOD_MAP[normalized]
+        if not candidate:
+            for key, value in PAYMENT_METHOD_MAP.items():
+                if key in normalized:
+                    candidate = value
+                    break
+
+    if candidate and frappe.db.exists("Mode of Payment", candidate):
+        return candidate
+
+    return _resolve_default_mode_of_payment(setting)
+
+
+def get_payment_method_info(order_data: dict, setting=None) -> tuple:
     """
     Extract payment method and status from Shopware order.
 
     Args:
         order_data: Shopware order object
+        setting: Loaded ``Shopware Setting`` doc (for the configurable mapping
+            and default Mode of Payment). Optional — falls back to hardcoded
+            defaults when not provided.
 
     Returns:
         tuple: (payment_method_name, erpnext_mode_of_payment, payment_status)
@@ -157,7 +212,7 @@ def get_payment_method_info(order_data: dict) -> tuple:
     transactions = order_data.get("transactions", []) or []
 
     if not transactions:
-        return None, DEFAULT_MODE_OF_PAYMENT, "Unpaid"
+        return None, _resolve_default_mode_of_payment(setting), "Unpaid"
 
     # Prefer newest transaction because older transactions can remain in history
     # with obsolete states (e.g. failed/cancelled before retry).
@@ -176,25 +231,11 @@ def get_payment_method_info(order_data: dict) -> tuple:
             transaction,
         )
 
-    # Get payment method
     payment_method = transaction.get("paymentMethod", {}) or {}
     payment_method_name = payment_method.get("shortName", "") or payment_method.get("name", "")
 
-    # Map to ERPNext mode of payment
-    erpnext_mode = DEFAULT_MODE_OF_PAYMENT
-    payment_method_lower = payment_method_name.lower().replace("-", "_").replace(" ", "_")
+    erpnext_mode = _resolve_mode_of_payment(payment_method_name, setting)
 
-    # Try direct mapping
-    if payment_method_lower in PAYMENT_METHOD_MAP:
-        erpnext_mode = PAYMENT_METHOD_MAP[payment_method_lower]
-    else:
-        # Try partial matching for known payment providers
-        for key, value in PAYMENT_METHOD_MAP.items():
-            if key in payment_method_lower:
-                erpnext_mode = value
-                break
-
-    # Get payment status
     state = transaction.get("stateMachineState", {}) or {}
     state_name = state.get("technicalName", "open")
     payment_status = PAYMENT_STATE_MAP.get(state_name, "Unpaid")
