@@ -1,0 +1,75 @@
+{
+ "actions": [],
+ "autoname": "format:{collection}-{target_idx}",
+ "creation": "2026-05-05 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "naming_rule": "Expression",
+ "field_order": [
+  "collection",
+  "target_idx",
+  "item_count",
+  "snapshotted_at",
+  "item_codes_gz"
+ ],
+ "fields": [
+  {
+   "fieldname": "collection",
+   "label": "Collection",
+   "fieldtype": "Link",
+   "options": "Ecommerce Smart Collection",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "target_idx",
+   "label": "Target Index",
+   "fieldtype": "Int",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "1-based idx of the target child row in the parent collection."
+  },
+  {
+   "fieldname": "item_count",
+   "label": "Item Count",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "snapshotted_at",
+   "label": "Snapshotted At",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "item_codes_gz",
+   "label": "Item Codes (gzipped JSON, base64)",
+   "fieldtype": "Long Text",
+   "read_only": 1,
+   "description": "Base64-encoded gzip of the JSON-serialised, sorted list of item codes."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-05-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Smart Collections",
+ "name": "Ecommerce Smart Collection Snapshot",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}
