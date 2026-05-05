@@ -125,9 +125,93 @@ def _build_property_clause(rule: dict) -> str:
     raise ValueError(f"Unsupported Ecommerce Property operator: {op}")
 
 
+def _build_direct_column_clause(rule: dict, column: str) -> str:
+    """Strict-NULL clause for plain ``tabItem`` columns (manufacturer, brand, …).
+
+    Mirrors the property semantics: ``not_in``/``not_equals`` exclude rows
+    whose column is NULL/empty, so excluding "BrandA" never silently pulls
+    in items with no brand at all.
+    """
+    op = rule["operator"]
+    raw = rule["value"] or ""
+    col = f"item.`{column}`"
+
+    if op == "is_set":
+        return f"({col} IS NOT NULL AND {col} != '')"
+    if op == "is_empty":
+        return f"({col} IS NULL OR {col} = '')"
+    if op == "in":
+        vals = _split_csv(raw)
+        return f"{col} IN ({_quote_list(vals)})" if vals else "1=0"
+    if op == "not_in":
+        vals = _split_csv(raw)
+        if not vals:
+            return "1=0"
+        return f"({col} IS NOT NULL AND {col} != '' AND {col} NOT IN ({_quote_list(vals)}))"
+    if op == "equals":
+        return f"{col} = {frappe.db.escape(raw)}"
+    if op == "not_equals":
+        return f"({col} IS NOT NULL AND {col} != '' AND {col} != {frappe.db.escape(raw)})"
+    if op == "contains":
+        return f"{col} LIKE {frappe.db.escape(f'%{raw}%')}"
+    if op == "regex":
+        return f"{col} REGEXP {frappe.db.escape(raw)}"
+    raise ValueError(f"Unsupported direct-column operator: {op}")
+
+
+# ``Item Field`` rules are direct-column too but accept a user-chosen field
+# via ``field_key``. Keep this list narrow on purpose — opening the whole
+# ``tabItem`` schema lets users write rules against fields that change
+# frequently or contain PII (e.g. ``description``), and a typo'd field
+# leaks into a SQL error rather than a clean validation message.
+_ITEM_FIELD_WHITELIST = frozenset(
+    {
+        "item_code",
+        "item_name",
+        "item_group",
+        "manufacturer",
+        "brand",
+        "stock_uom",
+        "country_of_origin",
+    }
+)
+
+
+def _build_item_field_clause(rule: dict) -> str:
+    field = rule.get("field_key")
+    if field not in _ITEM_FIELD_WHITELIST:
+        raise ValueError(
+            f"Item Field {field!r} not in whitelist; allowed: "
+            f"{sorted(_ITEM_FIELD_WHITELIST)}"
+        )
+    return _build_direct_column_clause(rule, field)
+
+
+def _build_stock_clause(rule: dict) -> str:
+    """Stock availability via ``tabBin``. Only ``is_set``/``is_empty`` make
+    sense — quantity comparisons would need their own operator surface and
+    stock is a coarse "in stock anywhere" check today."""
+    op = rule["operator"]
+    qty_expr = (
+        "(SELECT COALESCE(SUM(actual_qty), 0) FROM `tabBin` b "
+        "WHERE b.item_code = item.name)"
+    )
+    if op == "is_set":
+        return f"{qty_expr} > 0"
+    if op == "is_empty":
+        return f"{qty_expr} <= 0"
+    raise ValueError(
+        f"Unsupported Stock operator: {op} (only is_set/is_empty supported)"
+    )
+
+
 _BUILDERS: dict = {
     "Item Group": _build_item_group_clause,
     "Ecommerce Property": _build_property_clause,
+    "Manufacturer": lambda r: _build_direct_column_clause(r, "manufacturer"),
+    "Brand": lambda r: _build_direct_column_clause(r, "brand"),
+    "Item Field": _build_item_field_clause,
+    "Stock": _build_stock_clause,
 }
 
 
