@@ -8,6 +8,7 @@
   "backend",
   "sales_channel",
   "enabled",
+  "visibility",
   "external_id",
   "sync_status",
   "last_synced_at",
@@ -39,6 +40,15 @@
    "default": "1",
    "in_list_view": 1,
    "columns": 1
+  },
+  {
+   "fieldname": "visibility",
+   "label": "Visibility",
+   "fieldtype": "Select",
+   "options": "All (30)\nLinked Only (20)\nSearch Only (10)\nHidden (0)",
+   "default": "All (30)",
+   "columns": 2,
+   "description": "Shopware-only knob. Medusa treats anything other than ``Hidden (0)`` as visible."
   },
   {
    "fieldname": "external_id",
