@@ -10,10 +10,9 @@
   "sales_channels_section",
   "sales_channels",
   "fetch_sales_channels_btn",
-  "item_group_channel_mappings_section",
-  "item_group_channel_mappings",
-  "all_channels_item_groups",
-  "channel_mapping_info_html",
+  "smart_collections_section",
+  "smart_collections_intro_html",
+  "smart_collections_html",
   "reconciliation_section",
   "skip_category_sync_on_full_reconciliation",
   "bulk_sync_section",
@@ -70,6 +69,11 @@
   "auto_send_invoice_email",
   "invoice_print_format",
   "invoice_email_template",
+  "payment_method_mapping_section",
+  "payment_method_mapping_info_html",
+  "payment_method_mappings",
+  "column_break_payment_method_mapping",
+  "default_mode_of_payment",
   "section_break_tax",
   "html_tax_info",
   "taxes",
@@ -151,31 +155,19 @@
    "label": "Refresh Sales Channels"
   },
   {
-   "collapsible": 1,
-   "depends_on": "eval:doc.enable_shopware && doc.sales_channels && doc.sales_channels.length > 0",
-   "fieldname": "item_group_channel_mappings_section",
+   "fieldname": "smart_collections_section",
    "fieldtype": "Section Break",
-   "label": "Item Group -> Sales Channel Mappings"
+   "label": "Smart Collections",
+   "depends_on": "eval:doc.enable_shopware"
   },
   {
-   "description": "Map Item Groups to Sales Channels. Products inherit channel visibility from their Item Group.",
-   "fieldname": "item_group_channel_mappings",
-   "fieldtype": "Table",
-   "label": "Category Channel Mappings",
-   "options": "Shopware Item Group Channel"
-  },
-  {
-   "description": "Products in these Item Groups will be visible in ALL sales channels",
-   "fieldname": "all_channels_item_groups",
-   "fieldtype": "Table MultiSelect",
-   "label": "Item Groups Visible in ALL Channels",
-   "options": "Shopware All Channels Item Group"
-  },
-  {
-   "fieldname": "channel_mapping_info_html",
+   "fieldname": "smart_collections_intro_html",
    "fieldtype": "HTML",
-   "label": "Channel Mapping Info",
-   "options": "<div class=\"alert alert-info\"><h5>Multi-Storefront Configuration</h5><p><strong>How it works:</strong></p><ul><li>Map Item Groups to specific Sales Channels above</li><li>Products inherit channel visibility from their Item Group</li><li>Add Item Groups to 'ALL Channels' list to make products visible everywhere</li><li>Override per-item via the Item form (Shopware Sales Channels section)</li><li><strong>NEW: Manufacturer Filter</strong> - Optionally filter by Brand/Manufacturer per mapping</li></ul><p><strong>Priority:</strong> Item Override > Item Group Mapping (with Brand Filter) > Default Channel</p><p><strong>Tip:</strong> Use Manufacturer Filter to create brand-specific storefronts from a shared product catalog.</p></div>"
+   "options": "<div class=\"alert alert-info\"><p><strong>Smart Collections drive Shopware channel visibility and category membership.</strong> Each collection's rules resolve to an item set per Sales Channel; the resulting Shopware category, its <code>salesChannels</code> association and the items it contains are managed by the sync. Visibility level (10/20/30) is configurable per target.</p><p>Use the <em>Add Collection</em> button below to create one targeting this backend, or browse all collections under <a href=\"/app/ecommerce-smart-collection?targets.backend=Shopware\"><strong>Smart Collections</strong></a>.</p></div>"
+  },
+  {
+   "fieldname": "smart_collections_html",
+   "fieldtype": "HTML"
   },
   {
    "collapsible": 1,
@@ -541,6 +533,33 @@
    "label": "Invoice Email Template",
    "options": "Email Template",
    "description": "Optional email template. If not set, a default German message is used."
+  },
+  {
+   "fieldname": "payment_method_mapping_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Method Mapping"
+  },
+  {
+   "fieldname": "payment_method_mapping_info_html",
+   "fieldtype": "HTML",
+   "options": "<div class=\"alert alert-info\"><p>Map Shopware payment methods (technical short names) to ERPNext <strong>Modes of Payment</strong>. Lookup order:</p><ol><li>Exact match in this table (case-insensitive).</li><li>Partial match in this table.</li><li>Built-in defaults shipped with the plugin.</li><li>The <em>Default Mode of Payment</em> below.</li></ol><p>If none of the above resolves to an existing Mode of Payment, the order is created without a Mode of Payment.</p></div>"
+  },
+  {
+   "fieldname": "payment_method_mappings",
+   "fieldtype": "Table",
+   "label": "Payment Method Mappings",
+   "options": "Shopware Payment Method Mapping"
+  },
+  {
+   "fieldname": "column_break_payment_method_mapping",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Used when no mapping above resolves to a valid Mode of Payment.",
+   "fieldname": "default_mode_of_payment",
+   "fieldtype": "Link",
+   "label": "Default Mode of Payment",
+   "options": "Mode of Payment"
   },
   {
    "fieldname": "section_break_tax",

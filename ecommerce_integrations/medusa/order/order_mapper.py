@@ -3,6 +3,10 @@ import frappe
 from ecommerce_integrations.ecommerce_integrations.checkout_utils import process_checkout_fields
 from ecommerce_integrations.ecommerce_integrations.ecommerce_custom_fields import STOREFRONT_MEDUSA
 from ecommerce_integrations.medusa.constants import CUSTOMER_ID_FIELD, ORDER_ID_FIELD, PRODUCT_ID_FIELD, VARIANT_ID_FIELD
+from ecommerce_integrations.medusa.payment_method_mapping import (
+    extract_provider_id,
+    resolve_mode_of_payment,
+)
 from ecommerce_integrations.medusa.utils import medusa_price_to_erpnext
 
 
@@ -60,6 +64,13 @@ def map_medusa_order_to_so(order: dict, setting) -> dict:
         )
         if brand_language:
             so["language"] = brand_language
+
+    provider_id = extract_provider_id(order)
+    if provider_id:
+        so["medusa_payment_provider"] = provider_id
+        mop = resolve_mode_of_payment(provider_id, setting)
+        if mop:
+            so["mode_of_payment"] = mop
 
     process_checkout_fields(so, setting, order, _extract_metadata_value, customer=customer_name)
     return so

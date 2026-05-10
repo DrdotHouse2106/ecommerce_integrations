@@ -8,6 +8,10 @@ Ecommerce Channel Branding and override:
     uses ``outgoing_email_account``. Each falls back to the other if empty.
   - sender_full_name
   - bcc (append channel-specific BCC)
+  - subject — when the branding has a non-empty per-kind subject field
+    (``email_acknowledgment_subject`` / ``email_confirmation_subject`` /
+    ``email_invoice_subject``), it replaces the notification's default subject.
+    Mapping is keyed by Notification name in ``SUBJECT_FIELD_BY_NOTIFICATION``.
   - language (frappe.local.lang + doc.language for both subject/body
     rendering and PDF attachment)
   - E-Invoice (when ``enable_einvoice`` is on AND doc is a Sales Invoice):
@@ -38,6 +42,15 @@ INVOICE_DOCTYPES = frozenset({
 	"Credit Note",
 })
 
+# Map shipped Notification names to the branding field that overrides their subject.
+# A non-empty value on the branding doc replaces the notification's subject template,
+# so each channel can phrase its own subject (still rendered as Jinja against `doc`).
+SUBJECT_FIELD_BY_NOTIFICATION = {
+	"Ecommerce Order Acknowledgment": "email_acknowledgment_subject",
+	"Ecommerce Order Confirmation": "email_confirmation_subject",
+	"Ecommerce Sales Invoice": "email_invoice_subject",
+}
+
 
 class ChannelAwareNotification(Notification):
 	def send(self, doc):
@@ -55,13 +68,16 @@ class ChannelAwareNotification(Notification):
 			bool(brand.get("enable_einvoice"))
 			and doc.doctype == "Sales Invoice"
 		)
+		subject_field = SUBJECT_FIELD_BY_NOTIFICATION.get(self.name)
+		brand_subject = (brand.get(subject_field) or "").strip() if subject_field else ""
 
-		if not (email_account or sender_name or bcc_email or language or einvoice_active):
+		if not (email_account or sender_name or bcc_email or language or einvoice_active or brand_subject):
 			return super().send(doc)
 
 		original_sender = self.sender
 		original_sender_email = self.sender_email
 		original_bcc_rows = list(self.recipients or [])
+		original_subject = self.subject
 		original_lang = frappe.local.lang
 		original_doc_lang = doc.get("language") if hasattr(doc, "get") else _UNSET
 		original_attach_print = frappe.attach_print if einvoice_active else None
@@ -73,6 +89,8 @@ class ChannelAwareNotification(Notification):
 				doc.language = language
 			if einvoice_active:
 				frappe.attach_print = _einvoice_attach_print(original_attach_print, doc.name)
+			if brand_subject:
+				self.subject = brand_subject
 
 			# Frappe builds the From header as formataddr((self.sender, self.sender_email)).
 			# Override BOTH so the actual sending address comes from the branding-configured
@@ -100,6 +118,7 @@ class ChannelAwareNotification(Notification):
 			self.sender = original_sender
 			self.sender_email = original_sender_email
 			self.recipients = original_bcc_rows
+			self.subject = original_subject
 			frappe.local.lang = original_lang
 			if original_doc_lang is not _UNSET:
 				doc.language = original_doc_lang

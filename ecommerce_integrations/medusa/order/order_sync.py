@@ -24,7 +24,7 @@ class MedusaOrder:
         result = medusa_request(
             session, base_url, "GET",
             f"{API_ORDERS}/{self.order_id}",
-            params={"fields": "+items,+items.variant,+items.variant.product,+shipping_address,+billing_address,+shipping_methods,+transactions,*customer,*customer.*,*sales_channel"},
+            params={"fields": "+items,+items.variant,+items.variant.product,+shipping_address,+billing_address,+shipping_methods,+transactions,+payment_collections,+payment_collections.payments,+payment_collections.payment_sessions,+payment_collections.payment_providers,*customer,*customer.*,*sales_channel"},
         )
         return result.get("order", {})
 

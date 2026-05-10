@@ -512,16 +512,24 @@ def get_product_visibilities(item, setting) -> Optional[List[Dict[str, Any]]]:
             for sc_id, sc in all_channels.items() if sc.active
         ]
 
-    # Priority 2: Use Item Group channels (default behavior)
+    # Priority 2: Smart Collections (replacement for the legacy Item Group
+    # Channel Mappings — see ecommerce_integrations/smart_collections/).
     if getattr(item, 'shopware_use_item_group_channels', True):
-        # Get item's brand/manufacturer for filtering
-        item_brand = (
-            getattr(item, 'brand', None) or
-            getattr(item, 'default_item_manufacturer', None)
+        from ecommerce_integrations.smart_collections.channel_visibility import (
+            channels_for_item,
         )
-        channel_mappings = _get_channels_from_item_group(item.item_group, setting, item_brand)
-        if channel_mappings:
-            return channel_mappings
+        from ecommerce_integrations.smart_collections.constants import BACKEND_SHOPWARE
+        sc_entries = channels_for_item(item.name, BACKEND_SHOPWARE)
+        if sc_entries:
+            return [
+                {
+                    "salesChannelId": e["sales_channel"],
+                    "visibility": _parse_visibility(e["visibility"]),
+                }
+                for e in sc_entries
+                if e["sales_channel"] in all_channels
+                and _parse_visibility(e["visibility"]) > 0
+            ]
 
     # Priority 3: Per-item overrides
     overrides = getattr(item, 'shopware_channel_overrides', [])
@@ -547,99 +555,6 @@ def get_product_visibilities(item, setting) -> Optional[List[Dict[str, Any]]]:
             return [{"salesChannelId": sc.sales_channel_id, "visibility": 30}]
 
     return None
-
-
-def _get_channels_from_item_group(
-    item_group: str,
-    setting,
-    item_brand: Optional[str] = None
-) -> Optional[List[Dict[str, Any]]]:
-    """
-    Get Sales Channel visibility mappings for an Item Group.
-    Also checks if Item Group is in 'all_channels_item_groups' list.
-    Supports manufacturer/brand filtering per channel.
-
-    Args:
-        item_group: ERPNext Item Group name
-        setting: Shopware Setting document
-        item_brand: Item's brand/manufacturer name for filtering
-
-    Returns:
-        List of visibility dicts or None
-    """
-    if not item_group:
-        return None
-
-    # Check if in "all channels" list
-    all_channel_groups = []
-    for link in (setting.all_channels_item_groups or []):
-        # Table MultiSelect with Shopware All Channels Item Group child table
-        if hasattr(link, 'item_group') and link.item_group:
-            all_channel_groups.append(link.item_group)
-
-    if item_group in all_channel_groups:
-        return [
-            {"salesChannelId": sc.sales_channel_id, "visibility": 30}
-            for sc in (setting.sales_channels or []) if sc.active
-        ]
-
-    # Check specific mappings
-    visibilities = []
-    for mapping in (setting.item_group_channel_mappings or []):
-        matched = False
-
-        if mapping.item_group == item_group:
-            matched = True
-        elif mapping.include_subcategories:
-            # Check if item_group is descendant of mapping.item_group
-            if _is_descendant_item_group(item_group, mapping.item_group):
-                matched = True
-
-        if matched:
-            # Check manufacturer filter if set
-            manufacturer_filter = getattr(mapping, 'manufacturer_filter', None)
-            if manufacturer_filter:
-                filter_mode = getattr(mapping, 'manufacturer_filter_mode', 'Include Only')
-
-                if filter_mode == "Include Only":
-                    # Only include if item brand matches filter
-                    if item_brand != manufacturer_filter:
-                        continue  # Skip this mapping - brand doesn't match
-                elif filter_mode == "Exclude":
-                    # Exclude if item brand matches filter
-                    if item_brand == manufacturer_filter:
-                        continue  # Skip this mapping - brand is excluded
-
-            vis_value = _parse_visibility(mapping.visibility)
-            visibilities.append({
-                "salesChannelId": mapping.sales_channel_id,
-                "visibility": vis_value
-            })
-
-    return visibilities if visibilities else None
-
-
-def _is_descendant_item_group(child: str, parent: str) -> bool:
-    """
-    Check if child Item Group is a descendant of parent using nested set.
-
-    Args:
-        child: Child Item Group name
-        parent: Parent Item Group name
-
-    Returns:
-        True if child is a descendant of parent
-    """
-    if not child or not parent:
-        return False
-
-    parent_info = frappe.db.get_value("Item Group", parent, ["lft", "rgt"], as_dict=True)
-    child_info = frappe.db.get_value("Item Group", child, ["lft", "rgt"], as_dict=True)
-
-    if not parent_info or not child_info:
-        return False
-
-    return child_info.lft > parent_info.lft and child_info.rgt < parent_info.rgt
 
 
 def _parse_visibility(visibility_str: str) -> int:

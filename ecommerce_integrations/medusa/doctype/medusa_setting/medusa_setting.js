@@ -1,3 +1,7 @@
+// Smart Collections widget (render + Add dialog) is loaded via doctype_js
+// from public/js/smart_collections/setting_widget.js — exposes
+// window.smart_collections_widget.render(frm, backend).
+
 frappe.ui.form.on('Medusa Setting', {
 	onload: function(frm) {
 		if (frm.doc.__onload) {
@@ -11,6 +15,9 @@ frappe.ui.form.on('Medusa Setting', {
 	},
 
 	refresh: function(frm) {
+		if (window.smart_collections_widget) {
+			window.smart_collections_widget.render(frm, 'Medusa');
+		}
 		if (frm.fields_dict.fetch_sales_channels_btn && frm.fields_dict.fetch_sales_channels_btn.$input) {
 			frm.fields_dict.fetch_sales_channels_btn.$input.off('click').on('click', function() {
 				frm.call({

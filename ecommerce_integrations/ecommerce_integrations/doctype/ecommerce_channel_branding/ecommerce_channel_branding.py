@@ -40,10 +40,10 @@ DEFAULTS = {
 	"order_confirmation_intro": "Hiermit bestätigen wir Ihre Bestellung:",
 	"delivery_note_title": "Lieferschein",
 	"delivery_note_intro": "Anbei erhalten Sie Ihre Lieferung:",
-	"email_acknowledgment_subject": "",
+	"email_acknowledgment_subject": "Bestellbestätigung {{ doc.name }}",
 	"email_acknowledgment_greeting": "Sehr geehrte Damen und Herren,",
 	"email_acknowledgment_body": "<p>vielen Dank für Ihre Bestellung. Wir haben Ihren Auftrag erhalten und werden ihn schnellstmöglich bearbeiten.</p><p>Nachfolgend finden Sie eine Übersicht Ihrer bestellten Artikel.</p>",
-	"email_confirmation_subject": "",
+	"email_confirmation_subject": "Auftragsbestätigung {{ doc.name }}",
 	"email_confirmation_greeting": "Sehr geehrte Damen und Herren,",
 	"email_confirmation_body": "<p>hiermit bestätigen wir verbindlich Ihre Bestellung. Details entnehmen Sie bitte der angehängten Auftragsbestätigung.</p>",
 	"email_invoice_subject": "Ihre Rechnung {{ doc.name }}",
@@ -270,20 +270,21 @@ def render_branding_text(template: str, doc) -> str:
 
 @frappe.whitelist()
 def get_available_channels() -> list:
-	"""Return distinct channel names from Medusa/Shopware settings + Sales Orders.
+	"""Return distinct channel names from Medusa/Shopware sales channels + Sales Orders.
 
 	Used by the Ecommerce Channel Branding form to populate the channel_name
 	autocomplete with real channels the user actually uses.
 	"""
 	names = set()
 
-	if frappe.db.exists("DocType", "Medusa Sales Channel"):
-		channels = frappe.get_all(
-			"Medusa Sales Channel", fields=["sales_channel_name"], distinct=True
-		)
+	for doctype in ("Medusa Sales Channel", "Shopware Sales Channel"):
+		if not frappe.db.exists("DocType", doctype):
+			continue
+		channels = frappe.get_all(doctype, fields=["sales_channel_name"], distinct=True)
 		for c in channels:
-			if c.get("sales_channel_name"):
-				names.add(c["sales_channel_name"])
+			name = (c.get("sales_channel_name") or "").strip()
+			if name:
+				names.add(name)
 
 	# Distinct values on Sales Orders
 	rows = frappe.db.sql(

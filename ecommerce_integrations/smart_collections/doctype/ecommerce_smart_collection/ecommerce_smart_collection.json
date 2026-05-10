@@ -1,0 +1,161 @@
+{
+ "actions": [],
+ "autoname": "field:slug",
+ "creation": "2026-05-05 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "naming_rule": "By fieldname",
+ "title_field": "title",
+ "field_order": [
+  "title",
+  "slug",
+  "is_active",
+  "column_break_header",
+  "parent_collection",
+  "sort_order",
+  "allow_empty",
+  "description_section",
+  "description",
+  "rule_section",
+  "rule_combinator",
+  "rules",
+  "target_section",
+  "targets",
+  "stats_section",
+  "last_resolved_count",
+  "last_resolved_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "label": "Title",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "slug",
+   "label": "Slug",
+   "fieldtype": "Data",
+   "unique": 1,
+   "in_list_view": 1,
+   "description": "URL handle. Auto-generated from the title on first save; editable afterwards."
+  },
+  {
+   "fieldname": "is_active",
+   "label": "Active",
+   "fieldtype": "Check",
+   "default": "0",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_header",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "parent_collection",
+   "label": "Parent Collection",
+   "fieldtype": "Link",
+   "options": "Ecommerce Smart Collection",
+   "description": "Optional. Used by adapters that support nested categories."
+  },
+  {
+   "fieldname": "sort_order",
+   "label": "Sort Order",
+   "fieldtype": "Int",
+   "default": "0",
+   "in_list_view": 1,
+   "description": "Lower values rank higher. Tie-breaker for the Shopware main-category conflict (spec §5.3)."
+  },
+  {
+   "fieldname": "allow_empty",
+   "label": "Allow Empty Collection",
+   "fieldtype": "Check",
+   "default": "0",
+   "description": "When unchecked (default), the adapter skips creating the backend category and emits a warning if the rules resolve to zero items."
+  },
+  {
+   "fieldname": "description_section",
+   "fieldtype": "Section Break",
+   "label": "Description",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "description",
+   "label": "Description",
+   "fieldtype": "Text",
+   "description": "Optional copy for storefront / SEO."
+  },
+  {
+   "fieldname": "rule_section",
+   "fieldtype": "Section Break",
+   "label": "Rules"
+  },
+  {
+   "fieldname": "rule_combinator",
+   "label": "Rule Combinator",
+   "fieldtype": "Select",
+   "options": "AND\nOR",
+   "default": "AND",
+   "description": "Joins rule groups (rows sharing a non-zero group_id are OR'd within the group)."
+  },
+  {
+   "fieldname": "rules",
+   "label": "Rules",
+   "fieldtype": "Table",
+   "options": "Ecommerce Smart Collection Rule"
+  },
+  {
+   "fieldname": "target_section",
+   "fieldtype": "Section Break",
+   "label": "Sync Targets"
+  },
+  {
+   "fieldname": "targets",
+   "label": "Targets",
+   "fieldtype": "Table",
+   "options": "Ecommerce Smart Collection Target"
+  },
+  {
+   "fieldname": "stats_section",
+   "fieldtype": "Section Break",
+   "label": "Resolver Stats",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "last_resolved_count",
+   "label": "Last Resolved Count",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_resolved_at",
+   "label": "Last Resolved At",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-05-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Smart Collections",
+ "name": "Ecommerce Smart Collection",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

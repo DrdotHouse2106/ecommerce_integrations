@@ -62,10 +62,9 @@ class EcommerceCustomer:
 		Addresses are linked to customers via the Dynamic Link child table,
 		not a direct link_name field. This method uses the correct query.
 		"""
-		try:
-			customer = self.get_customer_doc().name
-			# Query via Dynamic Link - addresses use child table for linking
-			addresses = frappe.db.sql("""
+		customer = self.get_customer_doc().name
+		addresses = frappe.db.sql(
+			"""
 				SELECT a.name
 				FROM `tabAddress` a
 				INNER JOIN `tabDynamic Link` dl ON dl.parent = a.name AND dl.parenttype = 'Address'
@@ -74,7 +73,13 @@ class EcommerceCustomer:
 				AND a.address_type = %s
 				ORDER BY a.creation DESC
 				LIMIT 1
-			""", (customer, address_type), as_dict=True)
+			""",
+			(customer, address_type),
+			as_dict=True,
+		)
+		if addresses:
+			return frappe.get_doc("Address", addresses[0].name)
+		return None
 
 	def create_customer_address(self, address: dict[str, str]) -> None:
 		"""Create address from dictionary containing fields used in Address doctype of ERPNext."""
@@ -91,6 +96,17 @@ class EcommerceCustomer:
 				**address,
 				"links": [{"link_doctype": "Customer", "link_name": customer_doc.name}],
 			}
+		)
+
+		log(
+			f"Address.insert start: integration={self.integration}, customer={customer_doc.name}, "
+			f"type={address_type}, address_id={address_id or 'n/a'}"
+		)
+		started_at = perf_counter()
+		doc.insert(ignore_mandatory=True, ignore_permissions=True)
+		log(
+			f"Address.insert done in {perf_counter() - started_at:.2f}s: integration={self.integration}, "
+			f"customer={customer_doc.name}, type={address_type}, address_id={address_id or 'n/a'}"
 		)
 
 	def create_customer_contact(self, contact: dict[str, str]) -> None:

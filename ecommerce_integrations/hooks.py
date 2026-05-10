@@ -52,6 +52,8 @@ doctype_js = {
 	],
 	"Stock Entry": "public/js/unicommerce/stock_entry.js",
 	"Pick List": "public/js/unicommerce/pick_list.js",
+	"Medusa Setting": "public/js/smart_collections/setting_widget.js",
+	"Shopware Setting": "public/js/smart_collections/setting_widget.js",
 }
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -151,6 +153,10 @@ doc_events = {
 			# RAG: Sync items to Vector Search
 			"ecommerce_integrations.rag.bulk_sync.queue_item_for_sync",
 			"ecommerce_integrations.medusa.bulk_sync.queue_item_for_sync",
+			# Smart Collections: drop the visibility cache so the next
+			# product-sync cycle picks up changed item-group / property /
+			# manufacturer / brand membership.
+			"ecommerce_integrations.smart_collections.hooks.invalidate_visibility_cache",
 		],
 		"on_trash": [
 			# RAG: Delete items from Vector Search
@@ -170,9 +176,28 @@ doc_events = {
 		"on_update": [
 			"ecommerce_integrations.shopware6.bulk_sync.queue_item_group_for_sync",
 			"ecommerce_integrations.medusa.product_export.sync_item_group_to_medusa",
+			# Smart Collections: re-resolves on next sync need a clean cache.
+			"ecommerce_integrations.smart_collections.hooks.invalidate_visibility_cache",
 		],
 		"after_rename": "ecommerce_integrations.shopware6.bulk_sync.queue_item_group_rename_for_sync",
 		"on_trash": "ecommerce_integrations.shopware6.bulk_sync.queue_item_group_delete_for_sync",
+	},
+	"Item Ecommerce Property": {
+		"after_insert": "ecommerce_integrations.smart_collections.hooks.invalidate_visibility_cache",
+		"on_update": "ecommerce_integrations.smart_collections.hooks.invalidate_visibility_cache",
+		"on_trash": "ecommerce_integrations.smart_collections.hooks.invalidate_visibility_cache",
+	},
+	"Ecommerce Smart Collection": {
+		"on_update": "ecommerce_integrations.smart_collections.hooks.invalidate_visibility_cache",
+		"on_trash": "ecommerce_integrations.smart_collections.hooks.invalidate_visibility_cache",
+	},
+	# File: catch image attachments added/removed without an Item save so
+	# gallery-image changes still trigger a per-channel resync. The handler
+	# filters non-image and non-Item-attached Files itself, then forwards to
+	# both Shopware and Medusa bulk queues.
+	"File": {
+		"after_insert": "ecommerce_integrations.ecommerce_integrations.image_sync.queue_parent_item_for_sync",
+		"on_trash": "ecommerce_integrations.ecommerce_integrations.image_sync.queue_parent_item_for_sync",
 	},
 	"Sales Order": {
 		"on_submit": "ecommerce_integrations.shopware6.status_sync.on_sales_order_submit",
@@ -252,6 +277,8 @@ scheduler_events = {
 		"ecommerce_integrations.unicommerce.product.upload_new_items",
 		"ecommerce_integrations.unicommerce.status_updater.update_sales_order_status",
 		"ecommerce_integrations.unicommerce.status_updater.update_shipping_package_status",
+		# Smart Collections: re-resolve and push category memberships to backends.
+		"ecommerce_integrations.smart_collections.tasks.sync_due_collections",
 	],
 	"weekly": [],
 	"monthly": [],
