@@ -15,6 +15,7 @@ import frappe
 import requests
 from frappe.utils import get_files_path
 
+from ecommerce_integrations.ecommerce_integrations.media import IMAGE_EXTENSIONS
 from ecommerce_integrations.shopware6.base.cache_manager import get_cache
 from ecommerce_integrations.shopware6.export.utils import generate_uuid, sanitize_filename
 from ecommerce_integrations.shopware6.utils import get_logger
@@ -493,11 +494,9 @@ def get_item_images(item) -> List[str]:
         order_by="file_name asc"
     )
 
-    image_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp')
-
     for attachment in attachments:
         file_url = attachment.file_url
-        if not file_url or not file_url.lower().endswith(image_extensions):
+        if not file_url or not file_url.lower().endswith(IMAGE_EXTENSIONS):
             continue
 
         if file_url in images:

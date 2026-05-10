@@ -9,7 +9,7 @@ next sync cycle. This module bridges that gap.
 
 import frappe
 
-IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".avif")
+from ecommerce_integrations.ecommerce_integrations.media import is_image_url
 
 # (label, dotted path to queue_item_for_sync). Adding a new channel is one
 # tuple here; the dispatch loop below picks it up automatically.
@@ -26,10 +26,7 @@ def _is_image_attachment(doc) -> bool:
 		return False
 	if not doc.get("attached_to_name"):
 		return False
-	file_url = (doc.get("file_url") or "").lower()
-	if not file_url:
-		return False
-	return file_url.endswith(IMAGE_EXTS)
+	return is_image_url(doc.get("file_url"))
 
 
 def queue_parent_item_for_sync(doc, method=None):

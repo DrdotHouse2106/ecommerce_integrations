@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import frappe
 import requests
 from frappe.utils import cstr
+from ecommerce_integrations.ecommerce_integrations.media import is_image_url
 from ecommerce_integrations.property_utils import get_ecommerce_properties
 from ecommerce_integrations.medusa.connection import medusa_request, medusa_request_all, optional_session, temp_medusa_session
 from ecommerce_integrations.medusa.constants import (
@@ -547,10 +548,7 @@ class MedusaProductExporter:
             order_by="creation",
         )
         for f in attachments:
-            if not f.file_url:
-                continue
-            ext = (f.file_url.rsplit(".", 1)[-1] if "." in f.file_url else "").lower()
-            if ext not in ("jpg", "jpeg", "png", "webp", "avif", "gif"):
+            if not is_image_url(f.file_url):
                 continue
             url = self._resolve_image_url(f.file_url)
             if url and url not in seen:
