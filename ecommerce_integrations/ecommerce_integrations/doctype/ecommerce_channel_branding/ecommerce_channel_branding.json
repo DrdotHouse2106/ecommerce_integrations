@@ -254,7 +254,8 @@
    "label": "Texts: Email Bodies"
   },
   {
-   "description": "Betreffzeile der Bestellbestätigungs-E-Mail. Jinja unterstützt.",
+   "default": "Bestellbestätigung {{ doc.name }}",
+   "description": "Betreffzeile der Bestellbestätigungs-E-Mail. Jinja unterstützt (z.B. {{ doc.name }} für die Auftragsnummer).",
    "fieldname": "email_acknowledgment_subject",
    "fieldtype": "Data",
    "label": "Acknowledgment Email Subject"
@@ -278,7 +279,8 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Betreffzeile der Auftragsbestätigungs-E-Mail",
+   "default": "Auftragsbestätigung {{ doc.name }}",
+   "description": "Betreffzeile der Auftragsbestätigungs-E-Mail. Jinja unterstützt (z.B. {{ doc.name }} für die Auftragsnummer).",
    "fieldname": "email_confirmation_subject",
    "fieldtype": "Data",
    "label": "Confirmation Email Subject"
@@ -298,7 +300,7 @@
   },
   {
    "default": "Ihre Rechnung {{ doc.name }}",
-   "description": "Betreffzeile der Rechnungs-E-Mail. Jinja unterstützt.",
+   "description": "Betreffzeile der Rechnungs-E-Mail. Jinja unterstützt (z.B. {{ doc.name }} für die Rechnungsnummer).",
    "fieldname": "email_invoice_subject",
    "fieldtype": "Data",
    "label": "Invoice Email Subject"
@@ -354,7 +356,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-04-21 00:00:00.000000",
+ "modified": "2026-05-05 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "ecommerce_integrations",
  "name": "Ecommerce Channel Branding",
