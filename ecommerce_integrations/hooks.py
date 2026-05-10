@@ -191,6 +191,14 @@ doc_events = {
 		"on_update": "ecommerce_integrations.smart_collections.hooks.invalidate_visibility_cache",
 		"on_trash": "ecommerce_integrations.smart_collections.hooks.invalidate_visibility_cache",
 	},
+	# File: catch image attachments added/removed without an Item save so
+	# gallery-image changes still trigger a per-channel resync. The handler
+	# filters non-image and non-Item-attached Files itself, then forwards to
+	# both Shopware and Medusa bulk queues.
+	"File": {
+		"after_insert": "ecommerce_integrations.ecommerce_integrations.image_sync.queue_parent_item_for_sync",
+		"on_trash": "ecommerce_integrations.ecommerce_integrations.image_sync.queue_parent_item_for_sync",
+	},
 	"Sales Order": {
 		"on_submit": "ecommerce_integrations.shopware6.status_sync.on_sales_order_submit",
 		"on_update_after_submit": "ecommerce_integrations.unicommerce.order.update_shipping_info",
