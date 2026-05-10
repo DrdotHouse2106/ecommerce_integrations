@@ -207,8 +207,13 @@ def process_bulk_sync_queue():
     if redis.get(SYNC_LOCK_KEY):
         return
 
-    # Wait for cooldown
-    time.sleep(BULK_COOLDOWN)
+    # Bulk mode still active means the user is still queuing items. Skip
+    # this run; ``check_and_process_queue`` (scheduler, every minute) will
+    # pick this back up once BULK_MODE_KEY expires (BULK_COOLDOWN + 5 s).
+    # The previous implementation slept BULK_COOLDOWN seconds inside the
+    # worker — that burned a worker slot and extended the soft-lock window.
+    if redis.get(BULK_MODE_KEY):
+        return
 
     # Check if still items in queue
     items = get_queue_items()
