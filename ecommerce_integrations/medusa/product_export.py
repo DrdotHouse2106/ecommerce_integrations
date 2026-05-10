@@ -117,13 +117,21 @@ class MedusaProductExporter:
         else:
             channel_ids = self.setting.get_active_sales_channel_ids() if hasattr(self.setting, 'get_active_sales_channel_ids') else []
         if not channel_ids:
-            frappe.throw(
+            # Log to Ecommerce Integration Log and raise a plain exception. The
+            # bulk-sync queue catches this per-item, so a single misconfigured
+            # item doesn't break the rest of the batch. Avoid frappe.throw here:
+            # the build path runs from queue workers as well as web requests, and
+            # a UI popup would surface to whichever user happened to be saving an
+            # Item at the wrong moment (CLAUDE.md: errors during sync are logged,
+            # never raised back to the user).
+            msg = (
                 f"No Medusa Sales Channel could be determined for Item {self.item_code} "
                 f"(Item Group: {self.item.item_group}). "
-                "Please check Medusa Settings: ensure at least one Sales Channel is active "
-                "or configure Item Group Channel Mappings.",
-                title="Medusa Sales Channel Missing",
+                "Please check Medusa Settings: ensure at least one Sales Channel is "
+                "active or configure Item Group Channel Mappings."
             )
+            create_medusa_log(status="Error", message=msg)
+            raise ValueError(msg)
         payload["sales_channels"] = [{"id": ch_id} for ch_id in channel_ids]
 
         # Collect attribute values (for post-create batch-assign)
