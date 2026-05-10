@@ -20,6 +20,7 @@ from ecommerce_integrations.medusa.connection import (
     optional_session,
 )
 from ecommerce_integrations.medusa.constants import API_CATEGORIES
+from ecommerce_integrations.smart_collections.constants import BACKEND_MEDUSA
 from ecommerce_integrations.smart_collections.engine.adapters.base import (
     AdapterError,
     CategoryAdapter,
@@ -30,7 +31,7 @@ from ecommerce_integrations.smart_collections.engine.adapters.base import (
 _LINK_BATCH_SIZE = 50
 
 
-@register("Medusa")
+@register(BACKEND_MEDUSA)
 class MedusaCategoryAdapter(CategoryAdapter):
     def upsert_category(self, collection, target) -> str:
         payload = {

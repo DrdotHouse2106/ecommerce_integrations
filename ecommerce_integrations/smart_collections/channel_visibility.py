@@ -18,6 +18,10 @@ from collections import defaultdict
 
 import frappe
 
+from ecommerce_integrations.smart_collections.constants import (
+    KNOWN_BACKENDS,
+    VISIBILITY_DEFAULT,
+)
 from ecommerce_integrations.smart_collections.engine.resolver import resolve
 
 
@@ -52,7 +56,7 @@ def unique_channel_ids(entries: list[dict]) -> list[str]:
 
 def invalidate_cache(backend: str | None = None) -> None:
     """Drop the cached reverse index. ``backend=None`` drops both."""
-    backends = (backend,) if backend else ("Medusa", "Shopware")
+    backends = (backend,) if backend else KNOWN_BACKENDS
     for b in backends:
         frappe.cache.delete_key(_CACHE_KEY_PREFIX + b)
 
@@ -99,7 +103,7 @@ def _build_index(backend: str) -> dict[str, list[dict]]:
         items = resolve(coll, persist_stats=False)
         for item_code in items:
             for row in rows:
-                vis = row.visibility or "All (30)"
+                vis = row.visibility or VISIBILITY_DEFAULT
                 key = (row.sales_channel, vis)
                 if key in seen_per_item[item_code]:
                     continue

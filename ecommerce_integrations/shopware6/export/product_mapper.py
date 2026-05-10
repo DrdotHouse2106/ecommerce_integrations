@@ -518,7 +518,8 @@ def get_product_visibilities(item, setting) -> Optional[List[Dict[str, Any]]]:
         from ecommerce_integrations.smart_collections.channel_visibility import (
             channels_for_item,
         )
-        sc_entries = channels_for_item(item.name, "Shopware")
+        from ecommerce_integrations.smart_collections.constants import BACKEND_SHOPWARE
+        sc_entries = channels_for_item(item.name, BACKEND_SHOPWARE)
         if sc_entries:
             return [
                 {

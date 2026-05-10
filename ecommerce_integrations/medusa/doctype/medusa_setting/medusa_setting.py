@@ -162,6 +162,7 @@ class MedusaSetting(Document):
 			channels_for_item,
 			unique_channel_ids,
 		)
+		from ecommerce_integrations.smart_collections.constants import BACKEND_MEDUSA
 
 		# Resolve sales-channel names from Smart Collections to Medusa
 		# sales-channel ids via the Setting's own channel table.
@@ -171,7 +172,7 @@ class MedusaSetting(Document):
 			if getattr(ch, "short_code", None):
 				ch_lookup[ch.short_code] = ch.sales_channel_id
 
-		entries = channels_for_item(item_code, "Medusa")
+		entries = channels_for_item(item_code, BACKEND_MEDUSA)
 		matched: set[str] = set()
 		for ch_name in unique_channel_ids(entries):
 			ch_id = ch_lookup.get(ch_name)

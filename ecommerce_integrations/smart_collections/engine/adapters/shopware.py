@@ -15,6 +15,7 @@ the orchestrator as the unresolved set.
 import frappe
 
 from ecommerce_integrations.shopware6.connection import temp_shopware_session
+from ecommerce_integrations.smart_collections.constants import BACKEND_SHOPWARE
 from ecommerce_integrations.smart_collections.engine.adapters.base import (
     AdapterError,
     CategoryAdapter,
@@ -22,17 +23,16 @@ from ecommerce_integrations.smart_collections.engine.adapters.base import (
 )
 
 
+from ecommerce_integrations.smart_collections.constants import (
+    VISIBILITY_DEFAULT,
+    VISIBILITY_LEVELS,
+)
+
+
 _LINK_BATCH_SIZE = 50
 
-_VISIBILITY_LEVEL = {
-    "All (30)": 30,
-    "Linked Only (20)": 20,
-    "Search Only (10)": 10,
-    "Hidden (0)": 0,
-}
 
-
-@register("Shopware")
+@register(BACKEND_SHOPWARE)
 class ShopwareCategoryAdapter(CategoryAdapter):
     def upsert_category(self, collection, target) -> str:
         return _with_client(self._upsert_impl, collection, target)
@@ -94,7 +94,7 @@ class ShopwareCategoryAdapter(CategoryAdapter):
         # via the existing product visibility custom fields).
         if not (target.external_id and target.sales_channel):
             return
-        if (target.visibility or "All (30)") == "Hidden (0)":
+        if VISIBILITY_LEVELS.get(target.visibility or VISIBILITY_DEFAULT, 30) == 0:
             try:
                 client.request_delete(
                     f"category/{target.external_id}/sales-channels/"

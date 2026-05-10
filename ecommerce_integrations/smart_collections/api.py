@@ -8,6 +8,8 @@ this endpoint is purely a derived view.
 
 import frappe
 
+from ecommerce_integrations.smart_collections.constants import KNOWN_BACKENDS
+
 
 @frappe.whitelist()
 def list_for_backend(backend: str) -> list[dict]:
@@ -16,7 +18,7 @@ def list_for_backend(backend: str) -> list[dict]:
     The shape is flat (one row per target) so the JS can render it as a
     table grouped by ``sales_channel`` without a second round-trip.
     """
-    if backend not in ("Medusa", "Shopware"):
+    if backend not in KNOWN_BACKENDS:
         frappe.throw(f"Unknown backend: {backend!r}")
 
     rows = frappe.db.sql(
