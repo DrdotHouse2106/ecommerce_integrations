@@ -1,6 +1,5 @@
 """Export ERPNext Items to Medusa v2 as Products."""
 import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import frappe
 import requests
@@ -13,6 +12,21 @@ from ecommerce_integrations.medusa._attributes import (
     get_or_build_attribute_map as _get_or_build_attribute_map,
     resolve_attribute_values as _resolve_attribute_values,
     transliterate as _transliterate,
+)
+from ecommerce_integrations.medusa._prices import (
+    get_or_create_channel_price_list as _get_or_create_channel_price_list,
+    get_or_create_sale_price_list as _get_or_create_sale_price_list,
+    sku_to_variant_id as _sku_to_variant_id,
+    sync_channel_prices as _sync_channel_prices,
+    sync_channel_prices_batch as _sync_channel_prices_batch,
+    sync_sale_prices as _sync_sale_prices,
+    sync_sale_prices_batch as _sync_sale_prices_batch,
+    upsert_price_list_entries as _upsert_price_list_entries,
+)
+from ecommerce_integrations.medusa._variant_images import (
+    associate_variant_images as _associate_variant_images,
+    collect_variant_image_jobs as _collect_variant_image_jobs,
+    run_variant_image_jobs as _run_variant_image_jobs,
 )
 from ecommerce_integrations.medusa.connection import medusa_request, medusa_request_all, optional_session, temp_medusa_session
 from ecommerce_integrations.medusa.constants import (
@@ -857,38 +871,6 @@ def _batch_assign_attributes(session, base_url, created_products: list, attr_val
     except Exception as e:
         frappe.log_error("Medusa Attributes", f"Batch attribute assign failed: {e}")
 
-def _sku_to_variant_id(product: dict) -> dict:
-    """Build {sku: variant_id} map from a Medusa product."""
-    return {v["sku"]: v["id"] for v in product.get("variants", []) if v.get("sku") and v.get("id")}
-
-def _upsert_price_list_entries(session, base_url, price_list_id: str, entries: list, log_label: str = "Medusa Prices"):
-    """Replace price entries for given variants in a Medusa price list.
-
-    Deletes existing entries for the affected variants, then creates new ones.
-    """
-    if not entries or not price_list_id:
-        return
-
-    try:
-        variant_ids = {e["variant_id"] for e in entries}
-        existing_pl = medusa_request(session, base_url, "GET", f"/admin/price-lists/{price_list_id}", params={"fields": "+prices"})
-        existing_prices = existing_pl.get("price_list", {}).get("prices", [])
-        delete_ids = [p["id"] for p in existing_prices if p.get("variant_id") in variant_ids]
-
-        batch = {"create": entries}
-        if delete_ids:
-            batch["delete"] = delete_ids
-
-        medusa_request(session, base_url, "POST", f"/admin/price-lists/{price_list_id}/prices/batch", json=batch)
-    except Exception as e:
-        frappe.log_error(log_label, f"Failed to upsert prices in {price_list_id}: {e}")
-
-def _sync_channel_prices(session, base_url, product: dict, channel_prices: list):
-    """Sync per-channel prices as Medusa Price Lists (type override)."""
-    if not channel_prices:
-        return
-    _sync_channel_prices_batch(session, base_url, [(product, channel_prices)])
-
 def _delete_variants(session, base_url, product_id: str, variants: list):
 	"""Delete given variants from a Medusa product. Tolerates 4xx (e.g., order refs)."""
 	if not variants:
@@ -967,65 +949,6 @@ def _sync_product_extras(session, base_url, products, variant_image_maps, sale_p
 		_sync_channel_prices_batch(session, base_url, channel_prices)
 
 
-def _sync_channel_prices_batch(session, base_url, product_channel_prices: list):
-    """Batch sync channel prices for multiple products.
-
-    Groups all entries by channel, then syncs each channel's price list once.
-    """
-    if not product_channel_prices:
-        return
-
-    by_channel = {}
-    for product, channel_prices in product_channel_prices:
-        vid_map = _sku_to_variant_id(product)
-        for cp in channel_prices:
-            ch_id = cp["channel_id"]
-            by_channel.setdefault(ch_id, {"name": cp["channel_name"], "entries": []})
-            variant_id = vid_map.get(cp["sku"])
-            if variant_id:
-                by_channel[ch_id]["entries"].append({
-                    "variant_id": variant_id,
-                    "currency_code": cp["currency_code"],
-                    "amount": cp["amount"],
-                })
-
-    for ch_id, data in by_channel.items():
-        if not data["entries"]:
-            continue
-        pl_id = _get_or_create_channel_price_list(session, base_url, ch_id, data["name"])
-        if pl_id:
-            _upsert_price_list_entries(session, base_url, pl_id, data["entries"], "Medusa Channel Prices")
-
-def _get_or_create_channel_price_list(session, base_url, channel_id: str, channel_name: str) -> str:
-    """Get or create a Price List for a specific sales channel."""
-    cache_key = f"medusa_channel_pl:{channel_id}"
-    cached = frappe.cache.get_value(cache_key)
-    if cached:
-        return cached
-
-    title = f"Channel: {channel_name}"
-
-    result = medusa_request_all(session, base_url, "/admin/price-lists", "price_lists")
-    for pl in result:
-        if pl.get("title") == title:
-            frappe.cache.set_value(cache_key, pl["id"], expires_in_sec=3600)
-            return pl["id"]
-
-    try:
-        result = medusa_request(session, base_url, "POST", "/admin/price-lists", json={
-            "title": title,
-            "description": f"Channel-specific prices for {channel_name}",
-            "type": "override",
-            "status": "active",
-        })
-        pl_id = result.get("price_list", {}).get("id")
-        if pl_id:
-            frappe.cache.set_value(cache_key, pl_id, expires_in_sec=3600)
-        return pl_id
-    except Exception as e:
-        frappe.log_error("Medusa Channel Prices", f"Failed to create price list for {channel_name}: {e}")
-        return None
-
 def _save_medusa_ids(product: dict, variant_of_map: dict = None):
     """Save Medusa product/variant IDs back to ERPNext Items.
 
@@ -1067,129 +990,6 @@ def _save_medusa_ids(product: dict, variant_of_map: dict = None):
     # Bulk update: group by field values to minimize queries
     for item_code, fields in updates.items():
         frappe.db.set_value("Item", item_code, fields, update_modified=False)
-
-def _collect_variant_image_jobs(product: dict, variant_image_map: dict) -> list:
-    """Collect (product_id, image_id, variant_ids) tuples for parallel execution.
-
-    Groups by image so each tuple becomes one API call via
-    POST /products/{id}/images/{image_id}/variants/batch.
-    """
-    product_id = product.get("id")
-    if not product_id:
-        return []
-
-    url_to_image_id = {}
-    for img in product.get("images", []):
-        if img.get("url") and img.get("id"):
-            url_to_image_id[img["url"]] = img["id"]
-
-    if not url_to_image_id:
-        return []
-
-    image_to_variants = {}
-    for variant in product.get("variants", []):
-        sku = variant.get("sku")
-        variant_id = variant.get("id")
-        if not sku or not variant_id or sku not in variant_image_map:
-            continue
-        image_url = variant_image_map[sku]
-        image_id = url_to_image_id.get(image_url)
-        if image_id:
-            image_to_variants.setdefault(image_id, []).append(variant_id)
-
-    return [(product_id, image_id, vids) for image_id, vids in image_to_variants.items()]
-
-
-def _associate_variant_images(session, base_url, product: dict, variant_image_map: dict):
-    """Associate product images with their specific variants (single-product, sequential).
-
-    Used by single-product export. For bulk sync, use _run_variant_image_jobs.
-    """
-    for product_id, image_id, variant_ids in _collect_variant_image_jobs(product, variant_image_map):
-        try:
-            endpoint = f"{API_PRODUCTS}/{product_id}/images/{image_id}/variants/batch"
-            medusa_request(session, base_url, "POST", endpoint, json={"add": variant_ids})
-        except Exception as e:
-            frappe.log_error("Medusa Variant Images", f"Failed for image {image_id}: {e}")
-
-
-def _run_variant_image_jobs(session, base_url, jobs: list, max_workers=5):
-    """Execute variant-image association jobs in parallel.
-
-    Each job is a (product_id, image_id, variant_ids) tuple.
-    Uses threads to overlap network I/O — the AdaptiveThrottle is thread-safe.
-    """
-    if not jobs:
-        return
-
-    def _do_one(product_id, image_id, variant_ids):
-        endpoint = f"{API_PRODUCTS}/{product_id}/images/{image_id}/variants/batch"
-        medusa_request(session, base_url, "POST", endpoint, json={"add": variant_ids})
-
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {
-            pool.submit(_do_one, pid, iid, vids): (pid, iid)
-            for pid, iid, vids in jobs
-        }
-        for future in as_completed(futures):
-            pid, iid = futures[future]
-            try:
-                future.result()
-            except Exception as e:
-                frappe.log_error("Medusa Variant Images", f"Failed for product {pid} image {iid}: {e}")
-
-def _sync_sale_prices(session, base_url, product: dict, sale_prices: list):
-    """Add sale prices to a Medusa Price List for strikethrough display."""
-    if not sale_prices:
-        return
-    _sync_sale_prices_batch(session, base_url, [(product, sale_prices)])
-
-def _sync_sale_prices_batch(session, base_url, product_sale_prices: list):
-    """Batch sync sale prices for multiple products in one API call."""
-    all_entries = []
-    for product, sale_prices in product_sale_prices:
-        vid_map = _sku_to_variant_id(product)
-        for sp in sale_prices:
-            variant_id = vid_map.get(sp["sku"])
-            if variant_id:
-                all_entries.append({"variant_id": variant_id, "currency_code": sp["currency_code"], "amount": sp["amount"]})
-
-    if not all_entries:
-        return
-
-    price_list_id = _get_or_create_sale_price_list(session, base_url)
-    if price_list_id:
-        _upsert_price_list_entries(session, base_url, price_list_id, all_entries, "Medusa Sale Prices")
-
-def _get_or_create_sale_price_list(session, base_url) -> str:
-    """Get or create the ERPNext sale price list in Medusa."""
-    cache_key = "medusa_sale_price_list_id"
-    cached = frappe.cache.get_value(cache_key)
-    if cached:
-        return cached
-
-    # Search for existing
-    result = medusa_request_all(session, base_url, "/admin/price-lists", "price_lists")
-    for pl in result:
-        if pl.get("title") == "ERPNext Sale Prices" and pl.get("type") == "sale":
-            frappe.cache.set_value(cache_key, pl["id"], expires_in_sec=3600)
-            return pl["id"]
-
-    # Create new
-    try:
-        result = medusa_request(session, base_url, "POST", "/admin/price-lists", json={
-            "title": "ERPNext Sale Prices",
-            "description": "Sale prices synced from ERPNext selling price list",
-            "type": "sale",
-            "status": "active",
-        })
-        pl_id = result.get("price_list", {}).get("id")
-        if pl_id:
-            frappe.cache.set_value(cache_key, pl_id, expires_in_sec=3600)
-        return pl_id
-    except Exception as e:
-        frappe.log_error("Medusa Sale Prices", f"Failed to create sale price list: {e}")
-        return None
 
 def _find_in_product_map(product: dict, lookup_map: dict, default=None, variant_of_map: dict = None):
     """Find data in a map keyed by item_code, matching via variant SKU -> template lookup."""
