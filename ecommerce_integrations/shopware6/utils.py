@@ -2,11 +2,14 @@
 
 import functools
 import time
-from typing import Any, Callable, Dict, Optional, Tuple, Type, Union
+from collections.abc import Callable
+from typing import Any
 
 import frappe
-from frappe import _
-from ecommerce_integrations.shopware6.services.access import (
+
+# Re-exported for backwards compatibility — callers still import these names
+# from ``shopware6.utils`` rather than reaching into ``shopware6.services.access``.
+from ecommerce_integrations.shopware6.services.access import (  # noqa: F401
     require_item_write_permission,
     require_shopware_admin,
 )
@@ -190,11 +193,11 @@ def execute_with_retry(
 
 def create_shopware_log(
     status: str = "Queued",
-    request_data: Optional[Dict[str, Any]] = None,
-    response_data: Optional[Dict[str, Any]] = None,
-    message: Optional[str] = None,
-    exception: Optional[str] = None,
-    method: Optional[str] = None,
+    request_data: dict[str, Any] | None = None,
+    response_data: dict[str, Any] | None = None,
+    message: str | None = None,
+    exception: str | None = None,
+    method: str | None = None,
     rollback: bool = False,
     make_new: bool = False,
 ) -> "frappe.Document":
@@ -232,10 +235,10 @@ def create_shopware_log(
 
 def update_shopware_log(
     log_name: str,
-    status: Optional[str] = None,
-    response_data: Optional[Dict[str, Any]] = None,
-    message: Optional[str] = None,
-    exception: Optional[str] = None,
+    status: str | None = None,
+    response_data: dict[str, Any] | None = None,
+    message: str | None = None,
+    exception: str | None = None,
 ):
     """
     Update an existing Shopware log entry (Ecommerce Integration Log).
@@ -282,7 +285,7 @@ def is_shopware_enabled() -> bool:
         return False
 
 
-def get_shopware_document_id(doctype: str, docname: str) -> Optional[str]:
+def get_shopware_document_id(doctype: str, docname: str) -> str | None:
     """
     Get the Shopware ID for an ERPNext document.
 
@@ -300,7 +303,7 @@ def get_shopware_document_id(doctype: str, docname: str) -> Optional[str]:
     )
 
 
-def format_shopware_datetime(dt_string: str) -> Optional[str]:
+def format_shopware_datetime(dt_string: str) -> str | None:
     """
     Convert Shopware datetime format to ERPNext format.
 
@@ -365,7 +368,7 @@ def clean_shopware_id(shopware_id: str) -> str:
     return shopware_id.lower().replace("-", "")
 
 
-def get_tax_rate_from_shopware_product(product_data: Dict[str, Any]) -> float:
+def get_tax_rate_from_shopware_product(product_data: dict[str, Any]) -> float:
     """
     Extract the tax rate from a Shopware product.
 
@@ -410,9 +413,9 @@ def get_tax_rate_from_shopware_product(product_data: Dict[str, Any]) -> float:
 
 
 def get_price_from_shopware_price_object(
-    price_obj: Dict[str, Any],
+    price_obj: dict[str, Any],
     return_net: bool = False,
-    tax_rate: Optional[float] = None
+    tax_rate: float | None = None
 ) -> float:
     """
     Extract price from a Shopware price object.
@@ -506,7 +509,7 @@ def convert_net_to_gross(net_price: float, tax_rate: float = 19.0) -> float:
     return round(net_price * (1 + tax_rate / 100), 2)
 
 
-def get_tax_rate_from_line_item(line_item: Dict[str, Any], default_rate: float = 19.0) -> float:
+def get_tax_rate_from_line_item(line_item: dict[str, Any], default_rate: float = 19.0) -> float:
     """
     Extract the tax rate from a Shopware line item.
 
@@ -529,7 +532,7 @@ def get_tax_rate_from_line_item(line_item: Dict[str, Any], default_rate: float =
     return default_rate
 
 
-def get_net_unit_price_from_line_item(line_item: Dict[str, Any], default_tax_rate: float = 19.0) -> float:
+def get_net_unit_price_from_line_item(line_item: dict[str, Any], default_tax_rate: float = 19.0) -> float:
     """
     Extract or calculate the net unit price from a Shopware line item.
 
@@ -555,7 +558,7 @@ def get_net_unit_price_from_line_item(line_item: Dict[str, Any], default_tax_rat
     return convert_gross_to_net(unit_price, tax_rate)
 
 
-def map_country_code(shopware_country_iso: str) -> Optional[str]:
+def map_country_code(shopware_country_iso: str) -> str | None:
     """
     Map Shopware country ISO code to ERPNext country name.
 
@@ -572,7 +575,7 @@ def map_country_code(shopware_country_iso: str) -> Optional[str]:
     return country
 
 
-def map_state_from_shopware(country_state_data: Dict[str, Any], country_name: str) -> Optional[str]:
+def map_state_from_shopware(country_state_data: dict[str, Any], country_name: str) -> str | None:
     """
     Map Shopware countryState to ERPNext state name.
     
@@ -650,7 +653,7 @@ def map_state_from_shopware(country_state_data: Dict[str, Any], country_name: st
     return None
 
 
-def generate_item_code_from_shopware(product: Dict[str, Any]) -> str:
+def generate_item_code_from_shopware(product: dict[str, Any]) -> str:
     """
     Generate an item code for a Shopware product.
 
@@ -704,7 +707,7 @@ class ShopwareLogger:
         """
         self._logger.debug(f"[{self.method}] {message}" if self.method else message)
 
-    def info(self, message: str, persist: bool = False, request_data: Dict[str, Any] = None):
+    def info(self, message: str, persist: bool = False, request_data: dict[str, Any] = None):
         """
         Log info message, optionally persist to Shopware Log.
 
@@ -722,7 +725,7 @@ class ShopwareLogger:
                 request_data=request_data,
             )
 
-    def warning(self, message: str, persist: bool = False, request_data: Dict[str, Any] = None):
+    def warning(self, message: str, persist: bool = False, request_data: dict[str, Any] = None):
         """
         Log warning message, optionally persist to Shopware Log.
 
@@ -745,8 +748,8 @@ class ShopwareLogger:
         message: str,
         exception: Exception = None,
         persist: bool = True,
-        request_data: Dict[str, Any] = None,
-        response_data: Dict[str, Any] = None,
+        request_data: dict[str, Any] = None,
+        response_data: dict[str, Any] = None,
         rollback: bool = False,
     ):
         """
@@ -777,8 +780,8 @@ class ShopwareLogger:
     def success(
         self,
         message: str,
-        request_data: Dict[str, Any] = None,
-        response_data: Dict[str, Any] = None,
+        request_data: dict[str, Any] = None,
+        response_data: dict[str, Any] = None,
     ):
         """
         Log successful operation to Shopware Log.
@@ -800,7 +803,7 @@ class ShopwareLogger:
     def queued(
         self,
         message: str,
-        request_data: Dict[str, Any] = None,
+        request_data: dict[str, Any] = None,
     ) -> "frappe.Document":
         """
         Log queued operation to Shopware Log and return the log document.
@@ -827,7 +830,7 @@ class ShopwareLogger:
         log_name: str,
         status: str = None,
         message: str = None,
-        response_data: Dict[str, Any] = None,
+        response_data: dict[str, Any] = None,
         exception: Exception = None,
     ):
         """

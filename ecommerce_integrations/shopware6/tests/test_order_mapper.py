@@ -3,7 +3,7 @@ Tests for Shopware 6 Order Mapper
 """
 
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from ecommerce_integrations.shopware6.order.order_mapper import (
     extract_checkout_field_value,

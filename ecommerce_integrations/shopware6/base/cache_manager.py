@@ -15,7 +15,7 @@ Replaces the following global caches from product_export.py:
 - Redis caches for currency, sales_channel, image_hash, field_mappings
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 import frappe
 from ecommerce_integrations.shopware6.utils import require_shopware_admin
 
@@ -87,7 +87,7 @@ class ShopwareCacheManager:
         """Initialize the cache manager."""
         self._redis = frappe.cache()
         # Instance-level request cache for thread-safety
-        self._request_cache: Dict[str, Any] = {}
+        self._request_cache: dict[str, Any] = {}
 
     def _make_key(self, cache_type: str, key: str = "") -> str:
         """
@@ -104,7 +104,7 @@ class ShopwareCacheManager:
             return f"{self.REDIS_PREFIX}{cache_type}:{key}"
         return f"{self.REDIS_PREFIX}{cache_type}"
 
-    def get(self, cache_type: str, key: str = "") -> Optional[Any]:
+    def get(self, cache_type: str, key: str = "") -> Any | None:
         """
         Get a value from cache.
 
@@ -132,7 +132,7 @@ class ShopwareCacheManager:
 
         return value
 
-    def set(self, cache_type: str, key: str, value: Any, ttl: Optional[int] = None) -> None:
+    def set(self, cache_type: str, key: str, value: Any, ttl: int | None = None) -> None:
         """
         Set a value in cache.
 
@@ -189,7 +189,7 @@ class ShopwareCacheManager:
         for key in keys_to_remove:
             del self._request_cache[key]
 
-    def clear_all(self) -> Dict[str, str]:
+    def clear_all(self) -> dict[str, str]:
         """
         Clear all Shopware caches.
 
@@ -212,8 +212,8 @@ class ShopwareCacheManager:
         cache_type: str,
         key: str,
         fetch_func: callable,
-        ttl: Optional[int] = None
-    ) -> Optional[Any]:
+        ttl: int | None = None
+    ) -> Any | None:
         """
         Get a value from cache or fetch it using the provided function.
 
@@ -249,7 +249,7 @@ class ShopwareCacheManager:
 
     # Convenience methods for specific cache types
 
-    def get_currency_id(self, currency_code: str = "EUR") -> Optional[str]:
+    def get_currency_id(self, currency_code: str = "EUR") -> str | None:
         """Get cached currency ID."""
         return self.get("currency", currency_code)
 
@@ -257,7 +257,7 @@ class ShopwareCacheManager:
         """Cache a currency ID."""
         self.set("currency", currency_code, currency_id)
 
-    def get_sales_channel_id(self) -> Optional[str]:
+    def get_sales_channel_id(self) -> str | None:
         """Get cached default sales channel ID."""
         return self.get("sales_channel", "default")
 
@@ -265,7 +265,7 @@ class ShopwareCacheManager:
         """Cache the default sales channel ID."""
         self.set("sales_channel", "default", sc_id)
 
-    def get_category_id(self, item_group: str) -> Optional[str]:
+    def get_category_id(self, item_group: str) -> str | None:
         """Get cached Shopware category ID for an ERPNext Item Group."""
         return self.get("category", item_group)
 
@@ -273,7 +273,7 @@ class ShopwareCacheManager:
         """Cache a category ID mapping."""
         self.set("category", item_group, category_id)
 
-    def get_property_group_id(self, group_name: str) -> Optional[str]:
+    def get_property_group_id(self, group_name: str) -> str | None:
         """Get cached property group ID."""
         return self.get("property_group", group_name)
 
@@ -281,7 +281,7 @@ class ShopwareCacheManager:
         """Cache a property group ID."""
         self.set("property_group", group_name, group_id)
 
-    def get_property_option_id(self, group_name: str, option_name: str) -> Optional[str]:
+    def get_property_option_id(self, group_name: str, option_name: str) -> str | None:
         """Get cached property option ID."""
         key = f"{group_name}:{option_name}"
         return self.get("property_option", key)
@@ -291,7 +291,7 @@ class ShopwareCacheManager:
         key = f"{group_name}:{option_name}"
         self.set("property_option", key, option_id)
 
-    def get_image_hash(self, item_code: str, position: int) -> Optional[str]:
+    def get_image_hash(self, item_code: str, position: int) -> str | None:
         """Get cached image hash for delta-sync."""
         key = f"{item_code}:{position}"
         return self.get("image_hash", key)
@@ -309,11 +309,11 @@ class ShopwareCacheManager:
         for position in range(max_positions):
             self.invalidate("image_hash", f"{item_code}:{position}")
 
-    def get_field_mappings(self) -> Optional[Dict]:
+    def get_field_mappings(self) -> dict | None:
         """Get cached field mappings configuration."""
         return self.get("field_mappings", "config")
 
-    def set_field_mappings(self, mappings: Dict) -> None:
+    def set_field_mappings(self, mappings: dict) -> None:
         """Cache field mappings configuration."""
         self.set("field_mappings", "config", mappings)
 
@@ -359,7 +359,7 @@ def reset_thread_cache():
 
 
 @frappe.whitelist()
-def clear_shopware_cache() -> Dict[str, str]:
+def clear_shopware_cache() -> dict[str, str]:
     """
     Clear all Shopware-related caches.
 

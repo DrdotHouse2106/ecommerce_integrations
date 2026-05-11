@@ -5,7 +5,7 @@ Main ShopwareOrder class and order synchronization functions.
 Follows the Shopify integration pattern.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 import frappe
 from frappe import _
@@ -13,7 +13,7 @@ from frappe.utils import getdate, nowdate
 
 from lib_shopware6_api_base import Shopware6AdminAPIClientBase, Criteria
 
-from ecommerce_integrations.shopware6.connection import temp_shopware_session, get_shopware_client
+from ecommerce_integrations.shopware6.connection import temp_shopware_session
 from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE
 from ecommerce_integrations.shopware6.utils import (
     get_logger,
@@ -23,8 +23,6 @@ from ecommerce_integrations.shopware6.utils import (
 )
 from ecommerce_integrations.shopware6.customer import (
     get_customer_from_shopware_order,
-    create_or_update_billing_contact,
-    ShopwareCustomer,
     ensure_customer_has_address,
 )
 from ecommerce_integrations.shopware6.product import create_items_if_not_exist
@@ -42,7 +40,6 @@ from ecommerce_integrations.shopware6.order.service_items import process_checkou
 from ecommerce_integrations.shopware6.order.delivery_handler import create_delivery_note
 from ecommerce_integrations.shopware6.order.payment_handler import (
     create_sales_invoice,
-    verify_payment_status_from_shopware,
 )
 
 
@@ -73,7 +70,7 @@ class ShopwareOrder:
         if not self.setting.is_enabled():
             frappe.throw(_("Shopware integration is not enabled."))
 
-    def _get_existing_sales_order(self) -> Optional[str]:
+    def _get_existing_sales_order(self) -> str | None:
         """Check if order is already synced."""
         return frappe.db.get_value("Sales Order", {"shopware_order_id": self.order_id}, "name")
 
@@ -82,7 +79,7 @@ class ShopwareOrder:
         return bool(self.sales_order_name)
 
     @temp_shopware_session
-    def sync(self, client) -> Optional[str]:
+    def sync(self, client) -> str | None:
         """
         Sync order from Shopware to ERPNext.
 
@@ -99,7 +96,7 @@ class ShopwareOrder:
 
 
 @temp_shopware_session
-def sync_order_by_id(client: Shopware6AdminAPIClientBase, order_id: str) -> Optional[str]:
+def sync_order_by_id(client: Shopware6AdminAPIClientBase, order_id: str) -> str | None:
     """
     Sync a specific order from Shopware by ID.
 
@@ -154,7 +151,7 @@ def _build_order_fetch_criteria(order_id: str) -> Criteria:
     return criteria
 
 
-def create_sales_order(order_data: Dict[str, Any]) -> str:
+def create_sales_order(order_data: dict[str, Any]) -> str:
     """
     Create ERPNext Sales Order from Shopware order data.
 
@@ -387,7 +384,7 @@ def _validate_item_group_hierarchy(so: "frappe.Document") -> None:
 
 def _create_delivery_note_if_shipped(
     sales_order: str,
-    order_data: Dict[str, Any],
+    order_data: dict[str, Any],
     setting
 ) -> None:
     """Create Delivery Note if order is shipped."""
@@ -401,7 +398,7 @@ def _create_delivery_note_if_shipped(
 
 def _create_invoice_if_paid(
     sales_order: str,
-    order_data: Dict[str, Any],
+    order_data: dict[str, Any],
     setting
 ) -> None:
     """Create Sales Invoice if order is paid or requires prepayment invoice."""
@@ -420,7 +417,7 @@ def _create_invoice_if_paid(
             create_sales_invoice(sales_order, transaction, setting)
 
 
-def sync_order_from_webhook(payload: Dict[str, Any], request_id: str = None):
+def sync_order_from_webhook(payload: dict[str, Any], request_id: str = None):
     """
     Handle order sync from Shopware webhook.
 
@@ -482,7 +479,7 @@ def sync_order_from_webhook(payload: Dict[str, Any], request_id: str = None):
         lock.release()
 
 
-def _extract_order_id_from_payload(payload: Dict[str, Any]) -> Optional[str]:
+def _extract_order_id_from_payload(payload: dict[str, Any]) -> str | None:
     """Extract order ID from various webhook payload formats."""
     # Direct: primaryKey or id
     order_id = payload.get("primaryKey") or payload.get("id")
@@ -503,7 +500,7 @@ def _extract_order_id_from_payload(payload: Dict[str, Any]) -> Optional[str]:
 def update_order_custom_fields(
     sales_order_name: str,
     shopware_order_id: str,
-    webhook_custom_fields: Dict[str, Any],
+    webhook_custom_fields: dict[str, Any],
     request_id: str = None
 ) -> None:
     """
@@ -566,7 +563,7 @@ def update_order_custom_fields(
             update_shopware_log(request_id, status="Error", exception=str(e))
 
 
-def update_order_status(payload: Dict[str, Any], request_id: str = None):
+def update_order_status(payload: dict[str, Any], request_id: str = None):
     """
     Handle order state change from Shopware webhook.
 

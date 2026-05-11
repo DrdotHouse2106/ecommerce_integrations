@@ -6,18 +6,16 @@ Handles payment-related events from Shopware:
 - Payment status updates
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 import frappe
-from frappe import _
-from frappe.utils import flt, nowdate
+from frappe.utils import nowdate
 
 from ecommerce_integrations.shopware6.constants import (
     SETTING_DOCTYPE,
     PAYMENT_STATE_MAP,
 )
 from ecommerce_integrations.shopware6.utils import (
-    create_shopware_log,
     update_shopware_log,
     get_logger,
 )
@@ -137,7 +135,7 @@ def send_invoice_email(sales_invoice_name: str, setting) -> bool:
         return False
 
 
-def handle_transaction_state_change(payload: Dict[str, Any], request_id: str = None, retry_count: int = 0):
+def handle_transaction_state_change(payload: dict[str, Any], request_id: str = None, retry_count: int = 0):
     """
     Handle order transaction state change from Shopware webhook.
 
@@ -295,7 +293,7 @@ def handle_transaction_state_change(payload: Dict[str, Any], request_id: str = N
         raise
 
 
-def create_payment_entry_for_order(sales_order_name: str, transaction_id: str = None) -> Optional[str]:
+def create_payment_entry_for_order(sales_order_name: str, transaction_id: str = None) -> str | None:
     """
     Create a Payment Entry for a Sales Order that has been paid.
 
@@ -315,7 +313,6 @@ def create_payment_entry_for_order(sales_order_name: str, transaction_id: str = 
     Returns:
         Payment Entry name if created, None otherwise
     """
-    from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
     setting = frappe.get_doc(SETTING_DOCTYPE)
 
@@ -374,7 +371,7 @@ def _create_payment_against_invoice(
     sales_order: "frappe.Document",
     setting,
     transaction_id: str = None
-) -> Optional[str]:
+) -> str | None:
     """Create Payment Entry against a Sales Invoice."""
     from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
@@ -426,7 +423,7 @@ def _create_advance_payment(
     sales_order: "frappe.Document",
     setting,
     transaction_id: str = None
-) -> Optional[str]:
+) -> str | None:
     """
     Create an advance Payment Entry against a Sales Order.
 
@@ -478,7 +475,7 @@ def _create_advance_payment(
 
 
 @frappe.whitelist()
-def manually_create_payment_entry(sales_order_name: str) -> Dict[str, Any]:
+def manually_create_payment_entry(sales_order_name: str) -> dict[str, Any]:
     """
     Manually trigger Payment Entry creation for a Sales Order.
 
@@ -517,7 +514,7 @@ def _create_sales_invoice_for_order(
     sales_order_name: str,
     transaction_id: str,
     setting
-) -> Optional[str]:
+) -> str | None:
     """
     Create Sales Invoice for a paid Sales Order.
 

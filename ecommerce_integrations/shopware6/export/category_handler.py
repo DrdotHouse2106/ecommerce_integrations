@@ -6,16 +6,15 @@ Supports hierarchy sync, FAQ custom fields, SEO fields, and category images.
 """
 
 import hashlib
-import mimetypes
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import frappe
 import requests
 from frappe.utils import get_files_path
 
-from ecommerce_integrations.shopware6.connection import temp_shopware_session, get_shopware_client
+from ecommerce_integrations.shopware6.connection import temp_shopware_session
 from ecommerce_integrations.shopware6.constants import (
     ROOT_ITEM_GROUPS,
     SHOPWARE_CATEGORY_CUSTOM_FIELD_SET_NAME,
@@ -34,7 +33,7 @@ from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_l
 from lib_shopware6_api_base.conf_shopware6_api_base_classes import ShopwareAPIError
 
 
-def ensure_category_custom_field_set(client) -> Optional[str]:
+def ensure_category_custom_field_set(client) -> str | None:
     """
     Ensure the ERPNext category custom field set exists in Shopware.
 
@@ -132,7 +131,7 @@ def ensure_category_custom_field_set(client) -> Optional[str]:
         return None
 
 
-def get_item_group_data(item_group_name: str) -> Optional[Dict[str, Any]]:
+def get_item_group_data(item_group_name: str) -> dict[str, Any] | None:
     """
     Get Item Group data including description, FAQ, SEO, image, and Shopware active status.
 
@@ -183,7 +182,7 @@ def get_item_group_data(item_group_name: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def build_category_custom_fields(item_group_data: Dict[str, Any]) -> Dict[str, Any]:
+def build_category_custom_fields(item_group_data: dict[str, Any]) -> dict[str, Any]:
     """
     Build custom fields dict for category from Item Group data.
 
@@ -209,7 +208,7 @@ def build_category_custom_fields(item_group_data: Dict[str, Any]) -> Dict[str, A
     return custom_fields
 
 
-def get_or_create_media_folder(client, folder_name: str) -> Optional[str]:
+def get_or_create_media_folder(client, folder_name: str) -> str | None:
     """
     Get or create a media folder in Shopware by name.
 
@@ -279,7 +278,7 @@ def get_or_create_media_folder(client, folder_name: str) -> Optional[str]:
         return None
 
 
-def resolve_category_image_path(item_group_data: Dict[str, Any]) -> Optional[str]:
+def resolve_category_image_path(item_group_data: dict[str, Any]) -> str | None:
     """
     Get the best available image path from item group data.
 
@@ -385,7 +384,7 @@ def get_image_content_and_filename(image_path: str) -> tuple:
         return None, None, None
 
 
-def upload_category_media(client, category_id: str, image_path: str) -> Optional[str]:
+def upload_category_media(client, category_id: str, image_path: str) -> str | None:
     """
     Upload and assign media to a category in Shopware.
 
@@ -483,8 +482,8 @@ def get_or_create_category(
     client,
     category_name: str,
     parent_id: str = None,
-    item_group_data: Dict[str, Any] = None
-) -> Optional[str]:
+    item_group_data: dict[str, Any] = None
+) -> str | None:
     """
     Get existing or create/update Category in Shopware.
 
@@ -603,7 +602,7 @@ def get_or_create_category(
         return None
 
 
-def sync_category_hierarchy(client, item_group_name: str) -> Optional[str]:
+def sync_category_hierarchy(client, item_group_name: str) -> str | None:
     """
     Sync the full category hierarchy from ERPNext Item Group to Shopware.
 
@@ -648,7 +647,7 @@ def sync_category_hierarchy(client, item_group_name: str) -> Optional[str]:
     return last_category_id
 
 
-def get_all_item_categories(item_code: str, include_variant_categories: bool = True) -> List[str]:
+def get_all_item_categories(item_code: str, include_variant_categories: bool = True) -> list[str]:
     """
     Get all categories for an item, including multi-category assignments.
 
@@ -710,7 +709,7 @@ def get_all_item_categories(item_code: str, include_variant_categories: bool = T
     return categories
 
 
-def sync_all_item_categories(client, item_code: str, skip_sync: bool = False) -> List[Dict[str, str]]:
+def sync_all_item_categories(client, item_code: str, skip_sync: bool = False) -> list[dict[str, str]]:
     """
     Sync all categories for an item to Shopware.
 
@@ -744,7 +743,7 @@ def sync_all_item_categories(client, item_code: str, skip_sync: bool = False) ->
     return category_ids
 
 
-def get_category_id_fast(client, category_name: str) -> Optional[str]:
+def get_category_id_fast(client, category_name: str) -> str | None:
     """
     Fast category ID lookup without syncing.
 
@@ -1335,9 +1334,9 @@ def sync_item_group_to_shopware(client, item_group_name: str) -> bool:
 
 def bulk_sync_categories(
     client,
-    item_groups: List[Dict[str, Any]],
+    item_groups: list[dict[str, Any]],
     root_parent_id: str = None
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Bulk sync categories to Shopware using Sync API.
 
@@ -1540,9 +1539,9 @@ def _build_category_payload(
     cat_id: str,
     category_name: str,
     parent_id: str,
-    item_group_data: Dict[str, Any] = None,
+    item_group_data: dict[str, Any] = None,
     is_update: bool = False
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Build a category payload for Shopware Sync API.
 
@@ -1591,9 +1590,9 @@ def _build_category_payload(
 
 def bulk_sync_category_images(
     client,
-    item_groups: List[Dict[str, Any]],
-    id_map: Dict[str, str]
-) -> Dict[str, Any]:
+    item_groups: list[dict[str, Any]],
+    id_map: dict[str, str]
+) -> dict[str, Any]:
     """
     Bulk sync category images after categories are created.
 
@@ -1641,7 +1640,7 @@ def bulk_sync_category_images(
     return stats
 
 
-def sync_category_order_by_priority(client, parent_category_id: str = None, recursive: bool = True) -> Dict[str, Any]:
+def sync_category_order_by_priority(client, parent_category_id: str = None, recursive: bool = True) -> dict[str, Any]:
     """
     Synchronize category order in Shopware based on ERPNext shopware_priority.
 
@@ -1761,7 +1760,7 @@ def sync_category_order_by_priority(client, parent_category_id: str = None, recu
         }
 
 
-def _collect_descendant_parents(parent_id: str, children_by_parent: Dict, result: List[str], visited: set = None):
+def _collect_descendant_parents(parent_id: str, children_by_parent: dict, result: list[str], visited: set = None):
     """Recursively collect all descendant parent IDs."""
     if visited is None:
         visited = set()
@@ -1779,7 +1778,7 @@ def _collect_descendant_parents(parent_id: str, children_by_parent: Dict, result
             _collect_descendant_parents(child_id, children_by_parent, result, visited)
 
 
-def _compute_order_updates(children: List[Dict]) -> List[Dict]:
+def _compute_order_updates(children: list[dict]) -> list[dict]:
     """
     Compute afterCategoryId updates for a list of sibling categories.
 
@@ -1821,7 +1820,7 @@ def _compute_order_updates(children: List[Dict]) -> List[Dict]:
     return updates
 
 
-def _reorder_children_by_priority(client, parent_id: str) -> Dict[str, Any]:
+def _reorder_children_by_priority(client, parent_id: str) -> dict[str, Any]:
     """
     Reorder children of a specific parent category by priority.
 
@@ -1920,7 +1919,7 @@ def _reorder_children_by_priority(client, parent_id: str) -> Dict[str, Any]:
 
 @frappe.whitelist()
 @temp_shopware_session
-def sync_all_category_orders(client) -> Dict[str, Any]:
+def sync_all_category_orders(client) -> dict[str, Any]:
     """
     Sync category order for ALL parent categories based on priority.
 
@@ -1938,7 +1937,7 @@ def sync_all_category_orders(client) -> Dict[str, Any]:
 
 @frappe.whitelist()
 @temp_shopware_session
-def migrate_add_priority_custom_field(client) -> Dict[str, Any]:
+def migrate_add_priority_custom_field(client) -> dict[str, Any]:
     """
     Migration: Add the priority custom field to existing category custom field set.
 

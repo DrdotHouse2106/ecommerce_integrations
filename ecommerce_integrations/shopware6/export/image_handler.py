@@ -9,7 +9,7 @@ import hashlib
 import mimetypes
 import os
 import re
-from typing import List, NamedTuple, Optional, Tuple
+from typing import NamedTuple
 
 import frappe
 import requests
@@ -43,7 +43,7 @@ def _is_safe_url(url: str) -> bool:
         return False
 
 
-def get_product_media_folder_id(client) -> Optional[str]:
+def get_product_media_folder_id(client) -> str | None:
     """
     Get the Product Media folder ID in Shopware.
 
@@ -111,7 +111,7 @@ def _get_file_doc_from_url(file_url: str):
     return None
 
 
-def get_file_content_and_type(file_url: str) -> Tuple[Optional[bytes], Optional[str], Optional[str]]:
+def get_file_content_and_type(file_url: str) -> tuple[bytes | None, str | None, str | None]:
     """
     Get file content and mime type from ERPNext file URL.
 
@@ -192,7 +192,7 @@ def get_file_content_and_type(file_url: str) -> Tuple[Optional[bytes], Optional[
         return None, None, None
 
 
-def get_file_hash(file_url: str) -> Optional[str]:
+def get_file_hash(file_url: str) -> str | None:
     """
     Calculate MD5 hash of a file for delta-sync.
 
@@ -242,7 +242,7 @@ def get_file_hash(file_url: str) -> Optional[str]:
         return None
 
 
-def _get_public_image_url(file_url: str) -> Optional[Tuple[str, str]]:
+def _get_public_image_url(file_url: str) -> tuple[str, str] | None:
     """
     Convert ERPNext file URL to a publicly accessible URL for Shopware to fetch.
 
@@ -285,7 +285,7 @@ def _get_public_image_url(file_url: str) -> Optional[Tuple[str, str]]:
     return None
 
 
-def _get_s3_direct_url(file_url: str) -> Optional[str]:
+def _get_s3_direct_url(file_url: str) -> str | None:
     """Build a direct S3 object URL for a dfp_external_storage file.
 
     Same approach as Medusa integration: looks up the S3 key and storage
@@ -348,7 +348,7 @@ def _upload_media_via_url(client, media_id: str, public_url: str, extension: str
         return False
 
 
-def upload_media_to_shopware(client, file_url: str, item_code: str, position: int = 0, force: bool = False) -> Optional[str]:
+def upload_media_to_shopware(client, file_url: str, item_code: str, position: int = 0, force: bool = False) -> str | None:
     """
     Upload a media file to Shopware and return the media ID.
 
@@ -446,7 +446,7 @@ def upload_media_to_shopware(client, file_url: str, item_code: str, position: in
             del file_content
 
 
-def get_item_images(item) -> List[str]:
+def get_item_images(item) -> list[str]:
     """
     Get all unique image URLs for an item.
 
@@ -527,7 +527,7 @@ def get_item_images(item) -> List[str]:
     return images
 
 
-def _bulk_delete_product_media(client, product_media_ids: List[str], media_ids: List[str]) -> Tuple[int, int]:
+def _bulk_delete_product_media(client, product_media_ids: list[str], media_ids: list[str]) -> tuple[int, int]:
     """
     Bulk delete product-media relationships and media objects using Sync API.
 

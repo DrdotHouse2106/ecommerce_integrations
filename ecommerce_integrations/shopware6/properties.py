@@ -12,7 +12,7 @@ For new code, prefer using:
     )
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import frappe
 from frappe.utils import cstr
@@ -50,7 +50,7 @@ def sanitize_field_to_label(fieldname: str) -> str:
     return fieldname.replace('_', ' ').title()
 
 
-def get_jattr_fields() -> List[Dict[str, str]]:
+def get_jattr_fields() -> list[dict[str, str]]:
     """Get all Custom Fields on Item doctype that start with jattr_."""
     return frappe.get_all(
         "Custom Field",
@@ -59,7 +59,7 @@ def get_jattr_fields() -> List[Dict[str, str]]:
     )
 
 
-def get_item_jattr_properties(item_code: str) -> Dict[str, str]:
+def get_item_jattr_properties(item_code: str) -> dict[str, str]:
     """
     Get all jattr_* field values for an item.
 
@@ -86,7 +86,7 @@ def get_item_jattr_properties(item_code: str) -> Dict[str, str]:
 
 
 @temp_shopware_session
-def sync_item_properties_to_shopware(client, item_code: str) -> Dict[str, Any]:
+def sync_item_properties_to_shopware(client, item_code: str) -> dict[str, Any]:
     """
     Sync an ERPNext Item's properties (jattr_* fields) to Shopware.
 
@@ -155,7 +155,7 @@ def sync_item_properties_to_shopware(client, item_code: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
-def sync_all_item_properties(limit: int = 100) -> Dict[str, Any]:
+def sync_all_item_properties(limit: int = 100) -> dict[str, Any]:
     """
     Sync jattr_* properties for all synced items to Shopware.
 
@@ -233,14 +233,14 @@ def upload_item_properties(doc, method=None):
 
 
 @frappe.whitelist()
-def sync_single_item_properties(item_code: str) -> Dict[str, Any]:
+def sync_single_item_properties(item_code: str) -> dict[str, Any]:
     """Manually sync jattr_* properties for a single item."""
     require_item_write_permission(item_code)
     return sync_item_properties_to_shopware(item_code=item_code)
 
 
 @frappe.whitelist()
-def create_all_property_groups() -> Dict[str, Any]:
+def create_all_property_groups() -> dict[str, Any]:
     """Pre-create all PropertyGroups in Shopware based on jattr_* Custom Fields."""
     require_shopware_admin()
     jattr_fields = get_jattr_fields()

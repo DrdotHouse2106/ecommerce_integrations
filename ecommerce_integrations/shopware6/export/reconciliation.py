@@ -21,11 +21,10 @@ Usage:
     enqueue_full_reconciliation(batch_size=50, sync_images=True)
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from frappe.utils import flt, now, cint, create_batch
 
 import frappe
-from frappe import _
 
 from ecommerce_integrations.shopware6.connection import (
     temp_shopware_session,
@@ -57,7 +56,7 @@ def sync_all_categories_to_shopware(
     dry_run: bool = False,
     use_bulk_sync: bool = True,
     sync_images: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Sync ALL Item Groups under a root category to Shopware.
 
@@ -240,9 +239,9 @@ def sync_all_categories_to_shopware(
 
 def get_shopware_products_batch(
     client,
-    product_ids: List[str],
+    product_ids: list[str],
     include_categories: bool = True
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """
     Fetch multiple products from Shopware in a single API call.
 
@@ -280,9 +279,9 @@ def get_shopware_products_batch(
 
 def compare_item_with_shopware(
     erpnext_item,
-    shopware_data: Dict[str, Any],
+    shopware_data: dict[str, Any],
     compare_categories: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compare ERPNext Item with Shopware product data.
 
@@ -375,7 +374,7 @@ def compare_item_with_shopware(
     }
 
 
-def _compare_custom_fields(erpnext_item, shopware_data: Dict[str, Any]) -> Optional[Dict]:
+def _compare_custom_fields(erpnext_item, shopware_data: dict[str, Any]) -> dict | None:
     """Compare ERPNext custom fields with Shopware customFields.
 
     Builds the expected custom fields dict the same way the uploader does
@@ -438,7 +437,7 @@ def reconcile_erpnext_with_shopware(
     sync_images: bool = False,
     include_unlinked: bool = False,
     compare_categories: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     DEPRECATED: Use sync_manager.enqueue_full_reconciliation_no_brainer() instead.
     This function uses single-item uploads which are much slower than the batch approach.
@@ -629,7 +628,7 @@ def reconcile_all_to_shopware(
     dry_run: bool = False,
     sync_images: bool = False,
     compare_categories: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Convenience wrapper for reconcile_erpnext_with_shopware.
 
@@ -661,7 +660,7 @@ def full_reconciliation(
     cleanup_orphaned_variants: bool = True,
     sync_surcharge: bool = True,
     skip_category_sync: bool = None
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     DEPRECATED: Use sync_manager.enqueue_full_reconciliation_no_brainer() instead.
     This function uses single-item uploads which are much slower than the batch approach.
@@ -841,7 +840,7 @@ def full_reconciliation(
 
 
 @temp_shopware_session
-def _cleanup_all_orphaned_variants(client) -> Dict[str, Any]:
+def _cleanup_all_orphaned_variants(client) -> dict[str, Any]:
     """
     Cleanup orphaned variants for all template products.
 
@@ -930,7 +929,7 @@ def cleanup_orphaned_shopware_categories(
     client,
     root_category: str = None,
     dry_run: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Delete categories in Shopware that no longer exist in ERPNext.
 
@@ -1095,7 +1094,7 @@ def cleanup_orphaned_shopware_products(
     client,
     dry_run: bool = True,
     batch_size: int = 100
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Delete products in Shopware that no longer exist in ERPNext.
 
@@ -1219,15 +1218,15 @@ def cleanup_orphaned_shopware_products(
 
     # Step 2: Get all ERPNext item codes for comparison (using SQL for memory efficiency)
     try:
-        erpnext_item_codes = set(
+        erpnext_item_codes = {
             row[0] for row in frappe.db.sql("SELECT name FROM `tabItem`")
-        )
+        }
     except Exception as db_error:
         _logger.error(f"[Orphaned Products Cleanup] DB error fetching items: {db_error}")
         _ensure_db_connection()
-        erpnext_item_codes = set(
+        erpnext_item_codes = {
             row[0] for row in frappe.db.sql("SELECT name FROM `tabItem`")
-        )
+        }
 
     _logger.info(
         f"[Orphaned Products Cleanup] Found {len(erpnext_item_codes)} items in ERPNext"
@@ -1345,7 +1344,7 @@ def cleanup_orphaned_shopware_products(
 def enqueue_cleanup_orphaned_products(
     dry_run: bool = False,
     batch_size: int = 100
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Enqueue orphaned products cleanup as a background job.
 
@@ -1395,7 +1394,7 @@ def enqueue_full_reconciliation(
     batch_size: int = 50,
     sync_images: bool = True,
     compare_categories: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     DEPRECATED: Use sync_manager.enqueue_full_reconciliation_no_brainer() instead.
     This function uses single-item uploads which are much slower than the batch approach.
@@ -1458,7 +1457,7 @@ def enqueue_full_reconciliation_with_categories(
     skip_root_category: bool = None,
     sync_empty_categories: bool = None,
     cleanup_orphaned_categories: bool = False
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Enqueue full reconciliation (categories + products) as background job.
 
@@ -1654,7 +1653,7 @@ def enqueue_force_sync_all_images_parallel(
     item_group: str = None,
     parent_item: str = None,
     start_batch: int = 1,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Enqueue PARALLEL force image sync as a background job.
 
@@ -1729,7 +1728,7 @@ def _run_parallel_image_sync(
     workers: int,
     total: int,
     base_conditions: str,
-    query_params: List = None,
+    query_params: list = None,
     start_batch: int = 1,
 ):
     """
@@ -2033,7 +2032,7 @@ DEFAULT_VARIANT_CHUNK_SIZE = 25
 DEFAULT_VARIANT_CHUNK_DELAY = 2.0  # seconds between chunks to let Shopware DB recover
 
 
-def _get_variant_chunk_settings() -> Tuple[int, float]:
+def _get_variant_chunk_settings() -> tuple[int, float]:
     """
     Get variant chunk settings from Shopware Setting or use defaults.
 
@@ -2049,7 +2048,7 @@ def _get_variant_chunk_settings() -> Tuple[int, float]:
         return DEFAULT_VARIANT_CHUNK_SIZE, DEFAULT_VARIANT_CHUNK_DELAY
 
 
-def _batch_delete_products(client, product_ids: List[str]) -> int:
+def _batch_delete_products(client, product_ids: list[str]) -> int:
     """
     Delete multiple products via Shopware Sync API (batch operation).
 
@@ -2143,7 +2142,7 @@ def _batch_delete_products(client, product_ids: List[str]) -> int:
     return deleted
 
 
-def _batch_delete_categories(client, category_ids: List[str]) -> int:
+def _batch_delete_categories(client, category_ids: list[str]) -> int:
     """
     Delete multiple categories via Shopware Sync API (batch operation).
 
@@ -2226,7 +2225,7 @@ def force_sync_all_variants(
     client,
     limit: int = 0,
     dry_run: bool = False
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Force re-sync all variant products to Shopware using Batch API.
 
@@ -2385,7 +2384,7 @@ def force_sync_single_template_variants(
     sync_prices: bool = True,
     price_list: str = "Standard-Vertrieb",
     sync_images: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Force re-sync all variants for a SINGLE template product using Batch API.
 
@@ -2544,7 +2543,7 @@ def enqueue_force_sync_all_variants(
     price_list: str = "Standard-Vertrieb",
     brand: str = None,
     start_batch: int = 1
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Enqueue force variant sync as a background job.
 

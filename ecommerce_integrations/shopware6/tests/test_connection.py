@@ -145,7 +145,6 @@ class TestRetryLogic(ShopwareTestCase):
 
     def test_is_retriable_error_502(self):
         """Test that 502 Bad Gateway errors are retriable."""
-        from ecommerce_integrations.shopware6.utils import is_retriable_error
 
         # Create mock exception with 502 status
         class MockHTTPError(Exception):
@@ -160,7 +159,6 @@ class TestRetryLogic(ShopwareTestCase):
 
     def test_is_retriable_error_503(self):
         """Test that 503 Service Unavailable errors are retriable."""
-        from ecommerce_integrations.shopware6.utils import is_retriable_error
 
         class MockHTTPError(Exception):
             def __init__(self):
@@ -172,7 +170,6 @@ class TestRetryLogic(ShopwareTestCase):
 
     def test_is_retriable_error_504(self):
         """Test that 504 Gateway Timeout errors are retriable."""
-        from ecommerce_integrations.shopware6.utils import is_retriable_error
 
         class MockHTTPError(Exception):
             def __init__(self):

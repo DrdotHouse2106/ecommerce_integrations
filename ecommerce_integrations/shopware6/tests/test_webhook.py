@@ -120,7 +120,6 @@ class TestWebhookHandler(ShopwareTestCase):
         """Test handling order.placed event."""
         from ecommerce_integrations.shopware6.webhook.handler import (
             WebhookHandler,
-            handle_order_placed,
         )
 
         order_data = create_sample_order_data()

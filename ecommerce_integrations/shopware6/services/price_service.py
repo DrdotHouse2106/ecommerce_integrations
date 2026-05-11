@@ -5,7 +5,7 @@ Single source of truth for all price-related operations.
 Consolidates price retrieval and calculation logic from price_handler.py and product_mapper.py.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import frappe
 from frappe.utils import flt
@@ -44,12 +44,12 @@ class PriceService:
         self.logger = get_logger("PriceService")
 
         # Cache for tax rates
-        self._tax_rate_cache: Dict[str, float] = {}
+        self._tax_rate_cache: dict[str, float] = {}
 
     def get_item_net_price(
         self,
         item_code: str,
-        price_list: Optional[str] = None
+        price_list: str | None = None
     ) -> float:
         """
         Get the net selling price for an item.
@@ -208,7 +208,7 @@ class PriceService:
             return gross_price
         return round(gross_price / (1 + tax_rate / 100), 2)
 
-    def validate_price(self, item_code: str, net_price: float) -> Tuple[bool, str]:
+    def validate_price(self, item_code: str, net_price: float) -> tuple[bool, str]:
         """
         Validate a price before syncing to Shopware.
 
@@ -231,8 +231,8 @@ class PriceService:
         self,
         item_code: str,
         currency_id: str,
-        price_list: Optional[str] = None
-    ) -> Tuple[Optional[List[Dict[str, Any]]], str]:
+        price_list: str | None = None
+    ) -> tuple[list[dict[str, Any]] | None, str]:
         """
         Build a complete Shopware price payload for an item.
 
@@ -264,7 +264,7 @@ class PriceService:
 
         return price_payload, ""
 
-    def get_price_summary(self, item_code: str, price_list: Optional[str] = None) -> Dict[str, Any]:
+    def get_price_summary(self, item_code: str, price_list: str | None = None) -> dict[str, Any]:
         """
         Get a complete price summary for an item.
 
@@ -298,7 +298,7 @@ class PriceService:
 
 
 # Global service instance for convenience
-_price_service_instance: Optional[PriceService] = None
+_price_service_instance: PriceService | None = None
 
 
 def get_price_service() -> PriceService:

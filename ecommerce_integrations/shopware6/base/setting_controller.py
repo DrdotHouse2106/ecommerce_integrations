@@ -5,10 +5,8 @@ Extends the ecommerce SettingController with Shopware-specific functionality.
 Provides warehouse mapping, tax account mapping, and common settings access.
 """
 
-from typing import Dict, List, Optional
 
 import frappe
-from frappe import _
 
 from ecommerce_integrations.controllers.setting import (
     SettingController,
@@ -44,7 +42,7 @@ class ShopwareSettingController(SettingController):
         """
         return bool(getattr(self, "enable_shopware", False))
 
-    def get_erpnext_warehouses(self) -> List[ERPNextWarehouse]:
+    def get_erpnext_warehouses(self) -> list[ERPNextWarehouse]:
         """
         Get list of ERPNext warehouses configured for Shopware sync.
 
@@ -65,7 +63,7 @@ class ShopwareSettingController(SettingController):
 
         return warehouses
 
-    def get_erpnext_to_integration_wh_mapping(self) -> Dict[ERPNextWarehouse, IntegrationWarehouse]:
+    def get_erpnext_to_integration_wh_mapping(self) -> dict[ERPNextWarehouse, IntegrationWarehouse]:
         """
         Get mapping from ERPNext warehouse to Shopware location.
 
@@ -83,7 +81,7 @@ class ShopwareSettingController(SettingController):
 
         return mapping
 
-    def get_integration_to_erpnext_wh_mapping(self) -> Dict[IntegrationWarehouse, ERPNextWarehouse]:
+    def get_integration_to_erpnext_wh_mapping(self) -> dict[IntegrationWarehouse, ERPNextWarehouse]:
         """
         Get mapping from Shopware location to ERPNext warehouse.
 
@@ -101,7 +99,7 @@ class ShopwareSettingController(SettingController):
 
         return mapping
 
-    def get_default_warehouse(self) -> Optional[str]:
+    def get_default_warehouse(self) -> str | None:
         """
         Get the default warehouse for inventory sync.
 
@@ -110,7 +108,7 @@ class ShopwareSettingController(SettingController):
         """
         return getattr(self, "warehouse", None)
 
-    def get_default_company(self) -> Optional[str]:
+    def get_default_company(self) -> str | None:
         """
         Get the default company for transactions.
 
@@ -119,7 +117,7 @@ class ShopwareSettingController(SettingController):
         """
         return getattr(self, "company", None)
 
-    def get_cost_center(self) -> Optional[str]:
+    def get_cost_center(self) -> str | None:
         """
         Get the default cost center.
 
@@ -128,7 +126,7 @@ class ShopwareSettingController(SettingController):
         """
         return getattr(self, "cost_center", None)
 
-    def get_cash_bank_account(self) -> Optional[str]:
+    def get_cash_bank_account(self) -> str | None:
         """
         Get the cash/bank account for payment entries.
 
@@ -137,7 +135,7 @@ class ShopwareSettingController(SettingController):
         """
         return getattr(self, "cash_bank_account", None)
 
-    def get_tax_account_mapping(self) -> Dict[str, str]:
+    def get_tax_account_mapping(self) -> dict[str, str]:
         """
         Get mapping from Shopware tax names to ERPNext tax accounts.
 
@@ -153,7 +151,7 @@ class ShopwareSettingController(SettingController):
 
         return mapping
 
-    def get_default_tax_account(self) -> Optional[str]:
+    def get_default_tax_account(self) -> str | None:
         """
         Get the default sales tax account.
 
@@ -162,7 +160,7 @@ class ShopwareSettingController(SettingController):
         """
         return getattr(self, "default_sales_tax_account", None)
 
-    def get_shipping_charges_account(self) -> Optional[str]:
+    def get_shipping_charges_account(self) -> str | None:
         """
         Get the account for shipping charges.
 
@@ -193,7 +191,7 @@ class ShopwareSettingController(SettingController):
         """
         return f"{self.get_shop_url()}/api"
 
-    def get_checkout_field_config(self, field_key: str) -> Optional[dict]:
+    def get_checkout_field_config(self, field_key: str) -> dict | None:
         """
         Get checkout field configuration by key.
 

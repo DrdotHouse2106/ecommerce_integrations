@@ -5,7 +5,7 @@ Handles event queuing and deduplication to prevent race conditions
 when multiple webhooks arrive for the same entity.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 import hashlib
 import json
 
@@ -39,7 +39,7 @@ class WebhookEventQueue:
         self,
         event_type: str,
         entity_id: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         timestamp: str = None
     ) -> bool:
         """
@@ -98,7 +98,7 @@ class WebhookEventQueue:
     def _is_duplicate(
         self,
         entity_id: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         timestamp: str = None
     ) -> bool:
         """Check if this event was already processed recently."""
@@ -117,7 +117,7 @@ class WebhookEventQueue:
     def _mark_processing(
         self,
         entity_id: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         timestamp: str = None
     ) -> None:
         """Mark an event as being processed."""
@@ -134,7 +134,7 @@ class WebhookEventQueue:
     def _compute_event_hash(
         self,
         entity_id: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         timestamp: str = None
     ) -> str:
         """Compute a unique hash for the event."""
@@ -153,7 +153,7 @@ class WebhookEventQueue:
         self,
         event_type: str,
         entity_id: str,
-        payload: Dict[str, Any]
+        payload: dict[str, Any]
     ) -> None:
         """
         Process the webhook event.
@@ -169,7 +169,7 @@ class WebhookEventQueue:
 def enqueue_webhook_event(
     event_type: str,
     entity_id: str,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     timestamp: str = None
 ) -> bool:
     """

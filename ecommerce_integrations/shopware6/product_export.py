@@ -24,7 +24,6 @@ from ecommerce_integrations.shopware6.export import (
     ShopwareProductUploader,
     # Upload functions
     upload_erpnext_item_to_shopware,
-    deactivate_product_in_shopware,
     upload_template_item_to_shopware,
     upload_variant_item_to_shopware,
     sync_all_variants,
@@ -34,8 +33,6 @@ from ecommerce_integrations.shopware6.export import (
     get_or_create_category,
     sync_item_group_to_shopware,
     rename_category_in_shopware,
-    delete_category_from_shopware,
-    # Images
     sync_product_images_to_shopware,
     upload_media_to_shopware,
     # Prices

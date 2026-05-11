@@ -5,7 +5,7 @@ Handles template/parent product upload for products with variants.
 Creates the parent product with configuratorSettings for variant options.
 """
 
-from typing import Optional, Dict, Any, List
+from typing import Any
 
 import frappe
 
@@ -21,7 +21,6 @@ from ecommerce_integrations.shopware6.export.product_mapper import (
     get_cached_sales_channel_id,
     get_actual_variant_values,
     get_product_visibilities,
-    build_channel_prices,
 )
 from ecommerce_integrations.shopware6.export.category_handler import (
     sync_all_item_categories,
@@ -197,7 +196,7 @@ def clear_product_configurator_settings(client, product_id: str) -> bool:
         return False
 
 
-def upload_template_item_to_shopware(client, template_item) -> Optional[str]:
+def upload_template_item_to_shopware(client, template_item) -> str | None:
     """
     Export an ERPNext template item (has_variants=1) to Shopware as a parent product.
 
@@ -542,7 +541,7 @@ VARIANT_BATCH_SIZE = 100  # Variants per sync request
 VARIANT_BATCH_DELAY = 0.05  # 50ms delay between batches
 
 
-def _log_failed_variant_items(failed_ids: List[str], error_msg: str) -> None:
+def _log_failed_variant_items(failed_ids: list[str], error_msg: str) -> None:
     """
     Persist failed variant deletions to database for later retry.
 
@@ -569,7 +568,7 @@ def _log_failed_variant_items(failed_ids: List[str], error_msg: str) -> None:
         pass
 
 
-def cleanup_all_orphaned_variants_batch(client, progress_callback=None) -> Dict[str, Any]:
+def cleanup_all_orphaned_variants_batch(client, progress_callback=None) -> dict[str, Any]:
     """
     Batch-delete all orphaned variants across all templates using Shopware Sync API.
 

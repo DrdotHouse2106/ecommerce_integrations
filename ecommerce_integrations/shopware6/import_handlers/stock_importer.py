@@ -26,11 +26,10 @@ Usage:
     sync_stock_for_product(item_code="ITEM-001")
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import frappe
-from frappe import _
-from frappe.utils import flt, now
+from frappe.utils import flt
 
 from ecommerce_integrations.shopware6.connection import temp_shopware_session, get_shopware_client
 from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE, MODULE_NAME
@@ -80,7 +79,7 @@ class StockImporter:
 
         return flt(actual_qty)
 
-    def get_shopware_stock(self, client, shopware_id: str) -> Dict[str, float]:
+    def get_shopware_stock(self, client, shopware_id: str) -> dict[str, float]:
         """
         Get stock level from Shopware.
 
@@ -108,7 +107,7 @@ class StockImporter:
         item_code: str,
         qty_difference: float,
         reason: str = "Shopware Stock Sync"
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Create a Stock Entry to adjust stock levels.
 
@@ -173,7 +172,7 @@ class StockImporter:
         item_code: str,
         shopware_id: str,
         dry_run: bool = False
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Sync stock for a single product.
 
@@ -235,7 +234,7 @@ def import_stock_from_shopware(
     client,
     limit: int = 100,
     dry_run: bool = False
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Import stock levels from Shopware for all synced products.
 
@@ -320,7 +319,7 @@ def import_stock_from_shopware(
 
 
 @frappe.whitelist()
-def sync_stock_for_product(item_code: str, dry_run: bool = False) -> Dict[str, Any]:
+def sync_stock_for_product(item_code: str, dry_run: bool = False) -> dict[str, Any]:
     """
     Sync stock for a single product from Shopware.
 
@@ -365,7 +364,7 @@ def sync_stock_for_product(item_code: str, dry_run: bool = False) -> Dict[str, A
     }
 
 
-def handle_stock_webhook(payload: Dict[str, Any]) -> Dict[str, Any]:
+def handle_stock_webhook(payload: dict[str, Any]) -> dict[str, Any]:
     """
     Handle stock update webhook from Shopware.
 

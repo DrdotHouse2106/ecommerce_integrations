@@ -11,7 +11,8 @@ import hashlib
 import hmac
 import json
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any
+from collections.abc import Callable
 
 import frappe
 from frappe import _
@@ -69,7 +70,6 @@ def _strip_empty(obj, _parent_key: str = ""):
 
 from ecommerce_integrations.shopware6.constants import (
     SETTING_DOCTYPE,
-    MODULE_NAME,
 )
 from ecommerce_integrations.shopware6.utils import (
     get_logger,
@@ -336,7 +336,7 @@ def temp_shopware_session(
     return decorator
 
 
-def test_connection() -> Dict[str, Any]:
+def test_connection() -> dict[str, Any]:
     """
     Test the Shopware API connection.
 
@@ -368,7 +368,7 @@ def test_connection() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
-def test_shopware_connection() -> Dict[str, Any]:
+def test_shopware_connection() -> dict[str, Any]:
     """Whitelisted method to test connection from the frontend."""
     require_shopware_admin()
     return test_connection()
@@ -478,7 +478,7 @@ def webhook_handler():
         raise
 
 
-def process_webhook(event_type: str, data: Dict[str, Any]) -> None:
+def process_webhook(event_type: str, data: dict[str, Any]) -> None:
     """
     Process webhook based on event type.
 
@@ -486,7 +486,7 @@ def process_webhook(event_type: str, data: Dict[str, Any]) -> None:
         event_type: Shopware event type (e.g., 'order.placed', 'product.written')
         data: Webhook payload data
     """
-    from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
+    from ecommerce_integrations.shopware6.utils import create_shopware_log
 
     # Map event types to handler methods
     EVENT_HANDLERS = {

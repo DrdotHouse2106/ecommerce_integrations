@@ -4,10 +4,8 @@ Shopware 6 Scheduled Sync
 Scheduled jobs for order synchronization.
 """
 
-from typing import Dict
 
 import frappe
-from frappe import _
 from frappe.utils import nowdate, add_days
 
 from lib_shopware6_api_base import Criteria, RangeFilter
@@ -79,7 +77,7 @@ def sync_orders_from_shopware(
     from_date: str = None,
     to_date: str = None,
     limit: int = 100
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """
     Manually sync orders from Shopware.
 

@@ -4,16 +4,16 @@ Shopware 6 Delivery Handler
 Handles Delivery Note creation from Shopware shipment data.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 import frappe
 
 
 def create_delivery_note(
     sales_order: str,
-    delivery_data: Dict[str, Any],
+    delivery_data: dict[str, Any],
     setting
-) -> Optional[str]:
+) -> str | None:
     """
     Create Delivery Note from Shopware shipment data.
 
@@ -55,7 +55,7 @@ def create_delivery_note(
         return None
 
 
-def get_shipping_address_from_delivery(delivery_data: Dict[str, Any]) -> Dict[str, Any]:
+def get_shipping_address_from_delivery(delivery_data: dict[str, Any]) -> dict[str, Any]:
     """
     Extract shipping address from Shopware delivery object.
 
@@ -79,7 +79,7 @@ def get_shipping_address_from_delivery(delivery_data: Dict[str, Any]) -> Dict[st
     }
 
 
-def get_shipping_method_name(delivery_data: Dict[str, Any]) -> Optional[str]:
+def get_shipping_method_name(delivery_data: dict[str, Any]) -> str | None:
     """
     Get shipping method name from delivery data.
 

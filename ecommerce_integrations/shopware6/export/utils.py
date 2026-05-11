@@ -6,10 +6,8 @@ Common utility functions used across export modules.
 
 import hashlib
 import re
-from typing import Dict, List
 
 import frappe
-from frappe.utils import cstr
 
 from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE
 
@@ -62,7 +60,7 @@ def get_setting():
     return frappe.get_cached_doc(SETTING_DOCTYPE)
 
 
-def get_field_mappings() -> Dict[str, Dict]:
+def get_field_mappings() -> dict[str, dict]:
     """
     Get all configured field mappings from Shopware Settings.
 
@@ -122,7 +120,7 @@ def get_field_mappings() -> Dict[str, Dict]:
     return mappings
 
 
-def get_field_mappings_cached() -> Dict[str, Dict]:
+def get_field_mappings_cached() -> dict[str, dict]:
     """
     Get field mappings with Frappe cache.
 
@@ -150,7 +148,7 @@ def invalidate_field_mappings_cache():
     get_cache().invalidate_field_mappings()
 
 
-def get_item_group_hierarchy(item_group_name: str) -> List[str]:
+def get_item_group_hierarchy(item_group_name: str) -> list[str]:
     """
     Get the full hierarchy path of an Item Group from ERPNext.
 

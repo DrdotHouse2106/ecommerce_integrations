@@ -4,7 +4,7 @@ Shopware 6 Tax Handler
 Handles tax calculation and mapping for orders.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 import frappe
 from frappe.utils import flt
@@ -12,9 +12,9 @@ from frappe.utils import flt
 
 def add_order_taxes(
     so: "frappe.Document",
-    order_data: Dict[str, Any],
+    order_data: dict[str, Any],
     setting,
-    tax_status: Optional[str] = None,
+    tax_status: str | None = None,
 ) -> None:
     """
     Add taxes to the Sales Order.
@@ -87,7 +87,7 @@ def add_order_taxes(
             )
 
 
-def collect_tax_data(order_data: Dict[str, Any]) -> Dict[float, Dict]:
+def collect_tax_data(order_data: dict[str, Any]) -> dict[float, dict]:
     """
     Collect unique tax rates and their amounts from order data.
 
@@ -128,7 +128,7 @@ def collect_tax_data(order_data: Dict[str, Any]) -> Dict[float, Dict]:
     return tax_data
 
 
-def map_tax_accounts(tax_data: Dict[float, Dict], setting) -> None:
+def map_tax_accounts(tax_data: dict[float, dict], setting) -> None:
     """
     Map tax rates to ERPNext tax accounts.
 

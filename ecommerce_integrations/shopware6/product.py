@@ -5,11 +5,11 @@ Handles synchronization of products between Shopware 6 and ERPNext.
 Uses lib_shopware6_api_base SDK for API communication.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import cint, cstr, flt
+from frappe.utils import cstr, flt
 from frappe.utils.nestedset import get_root_of
 
 from lib_shopware6_api_base import (
@@ -19,22 +19,17 @@ from lib_shopware6_api_base import (
 )
 
 from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_item import ecommerce_item
-from ecommerce_integrations.shopware6.connection import temp_shopware_session, get_shopware_client
+from ecommerce_integrations.shopware6.connection import get_shopware_client
 from ecommerce_integrations.shopware6.constants import (
     MODULE_NAME,
     SETTING_DOCTYPE,
     WEIGHT_TO_ERPNEXT_UOM_MAP,
-    SHOPWARE_VARIANTS_ATTR_LIST,
-    SUPPLIER_ID_FIELD,
     ITEM_SELLING_RATE_FIELD,
 )
 from ecommerce_integrations.shopware6.utils import (
-    create_shopware_log,
     update_shopware_log,
-    generate_item_code_from_shopware,
     get_price_from_shopware_price_object,
     get_tax_rate_from_shopware_product,
-    convert_gross_to_net,
     get_logger,
 )
 
@@ -53,8 +48,8 @@ class ShopwareProduct:
     def __init__(
         self,
         product_id: str,
-        variant_id: Optional[str] = None,
-        sku: Optional[str] = None,
+        variant_id: str | None = None,
+        sku: str | None = None,
         has_variants: int = 0,
     ):
         self.product_id = str(product_id) if product_id else None
@@ -123,7 +118,7 @@ class ShopwareProduct:
         product_data = products[0]
         self._make_item(product_data, client)
 
-    def _make_item(self, product_data: Dict[str, Any], client: Shopware6AdminAPIClientBase):
+    def _make_item(self, product_data: dict[str, Any], client: Shopware6AdminAPIClientBase):
         """Create ERPNext Item from Shopware product data."""
         warehouse = self.setting.warehouse
 
@@ -137,7 +132,7 @@ class ShopwareProduct:
         else:
             self._create_item(product_data, warehouse)
 
-    def _create_attributes(self, product_data: Dict[str, Any]) -> List[Dict]:
+    def _create_attributes(self, product_data: dict[str, Any]) -> list[dict]:
         """
         Create/update Item Attributes from Shopware product options.
 
@@ -186,11 +181,11 @@ class ShopwareProduct:
 
     def _create_item(
         self,
-        product_data: Dict[str, Any],
+        product_data: dict[str, Any],
         warehouse: str,
         has_variant: int = 0,
-        attributes: Optional[List] = None,
-        variant_of: Optional[str] = None,
+        attributes: list | None = None,
+        variant_of: str | None = None,
     ):
         """Create ERPNext Item from Shopware product data.
 
@@ -271,9 +266,9 @@ class ShopwareProduct:
 
     def _create_item_variants(
         self,
-        product_data: Dict[str, Any],
+        product_data: dict[str, Any],
         warehouse: str,
-        attributes: List,
+        attributes: list,
         client: Shopware6AdminAPIClientBase,
     ):
         """Create ERPNext Item variants from Shopware product children."""
@@ -334,7 +329,7 @@ class ShopwareProduct:
                 variant_of=template_item.name,
             )
 
-    def _get_item_group(self, product_data: Dict[str, Any]) -> str:
+    def _get_item_group(self, product_data: dict[str, Any]) -> str:
         """Get or create Item Group from Shopware category."""
         parent_item_group = get_root_of("Item Group")
 
@@ -357,7 +352,7 @@ class ShopwareProduct:
 
         return parent_item_group
 
-    def _get_supplier(self, supplier_name: str) -> Optional[str]:
+    def _get_supplier(self, supplier_name: str) -> str | None:
         """Get or create Supplier from manufacturer name."""
         if not supplier_name:
             return None
@@ -391,10 +386,10 @@ class ShopwareProduct:
 
 
 def _match_sku_and_link_item(
-    item_dict: Dict,
+    item_dict: dict,
     product_id: str,
     variant_id: str,
-    variant_of: Optional[str] = None,
+    variant_of: str | None = None,
     has_variant: bool = False,
 ) -> bool:
     """
@@ -425,7 +420,7 @@ def _match_sku_and_link_item(
     return False
 
 
-def create_items_if_not_exist(order: Dict[str, Any]) -> None:
+def create_items_if_not_exist(order: dict[str, Any]) -> None:
     """
     Sync all items from a Shopware order that aren't already synced.
 
@@ -458,7 +453,7 @@ def create_items_if_not_exist(order: Dict[str, Any]) -> None:
                 )
 
 
-def get_item_code(shopware_item: Dict[str, Any]) -> Optional[str]:
+def get_item_code(shopware_item: dict[str, Any]) -> str | None:
     """
     Get ERPNext item code from Shopware line item.
 
@@ -482,7 +477,7 @@ def get_item_code(shopware_item: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def sync_product_from_webhook(payload: Dict[str, Any], request_id: str = None):
+def sync_product_from_webhook(payload: dict[str, Any], request_id: str = None):
     """
     Handle product sync from Shopware webhook.
 

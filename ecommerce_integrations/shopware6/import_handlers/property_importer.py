@@ -23,10 +23,9 @@ Usage:
     sync_property_groups_from_shopware()
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import frappe
-from frappe import _
 
 from ecommerce_integrations.shopware6.connection import temp_shopware_session, get_shopware_client
 from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE, MODULE_NAME
@@ -62,7 +61,7 @@ class PropertyImporter:
         client,
         item_code: str,
         shopware_id: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Import properties from a Shopware product to ERPNext Item.
 
@@ -131,7 +130,7 @@ class PropertyImporter:
         client,
         item_code: str,
         shopware_id: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Analyze properties for a product without importing (dry run).
 
@@ -177,7 +176,7 @@ class PropertyImporter:
 
         return result
 
-    def _ensure_item_attribute(self, group_name: str, option_value: str) -> Tuple[str, str]:
+    def _ensure_item_attribute(self, group_name: str, option_value: str) -> tuple[str, str]:
         """
         Ensure Item Attribute and Value exist in ERPNext.
 
@@ -228,7 +227,7 @@ class PropertyImporter:
     def _update_item_custom_fields(
         self,
         item_code: str,
-        custom_fields: Dict[str, Any]
+        custom_fields: dict[str, Any]
     ) -> int:
         """
         Update ERPNext Item custom fields from Shopware custom fields.
@@ -276,7 +275,7 @@ class PropertyImporter:
 
 @frappe.whitelist()
 @temp_shopware_session
-def sync_property_groups_from_shopware(client, limit: int = 500) -> Dict[str, Any]:
+def sync_property_groups_from_shopware(client, limit: int = 500) -> dict[str, Any]:
     """
     Sync all property groups from Shopware to ERPNext Item Attributes.
 
@@ -375,7 +374,7 @@ def sync_property_groups_from_shopware(client, limit: int = 500) -> Dict[str, An
 
 
 @frappe.whitelist()
-def import_properties_from_shopware(item_code: str, shopware_id: str = None) -> Dict[str, Any]:
+def import_properties_from_shopware(item_code: str, shopware_id: str = None) -> dict[str, Any]:
     """
     Import properties for a specific product from Shopware.
 
@@ -417,7 +416,7 @@ def import_properties_from_shopware(item_code: str, shopware_id: str = None) -> 
 
 @frappe.whitelist()
 @temp_shopware_session
-def batch_import_properties(client, limit: int = 100, dry_run: bool = False) -> Dict[str, Any]:
+def batch_import_properties(client, limit: int = 100, dry_run: bool = False) -> dict[str, Any]:
     """
     Batch import properties for all synced products.
 

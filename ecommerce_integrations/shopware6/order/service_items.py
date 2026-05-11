@@ -5,7 +5,7 @@ Delegates to shared checkout_utils for common logic.
 Adds Shopware-specific service item detection from line items.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ecommerce_integrations.ecommerce_integrations.checkout_utils import (
     process_checkout_fields as _process_fields,
@@ -16,8 +16,8 @@ from ecommerce_integrations.ecommerce_integrations.checkout_utils import (
 def process_checkout_fields(
     so: "frappe.Document",
     setting,
-    order_data: Dict[str, Any],
-    customer: Optional[str] = None,
+    order_data: dict[str, Any],
+    customer: str | None = None,
 ) -> None:
     """Process checkout custom fields from Shopware order data."""
     from ecommerce_integrations.shopware6.order.order_mapper import extract_checkout_field_value
@@ -34,8 +34,8 @@ def process_checkout_fields(
 def _detect_service_items_in_line_items(
     so: "frappe.Document",
     setting,
-    order_data: Dict[str, Any],
-    service_items: Dict[str, Any],
+    order_data: dict[str, Any],
+    service_items: dict[str, Any],
 ) -> None:
     """Detect service items present as Shopware line items and add them."""
     for line_item in (order_data.get("lineItems") or []):
