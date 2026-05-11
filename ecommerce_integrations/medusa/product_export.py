@@ -5,14 +5,22 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import frappe
 import requests
 from frappe.utils import cstr
+
 from ecommerce_integrations.ecommerce_integrations.media import is_image_url
-from ecommerce_integrations.property_utils import get_ecommerce_properties
+from ecommerce_integrations.medusa._attributes import (
+    ensure_attributes_exist as _ensure_attributes_exist,
+    get_category_map as _get_category_map,
+    get_or_build_attribute_map as _get_or_build_attribute_map,
+    resolve_attribute_values as _resolve_attribute_values,
+    transliterate as _transliterate,
+)
 from ecommerce_integrations.medusa.connection import medusa_request, medusa_request_all, optional_session, temp_medusa_session
 from ecommerce_integrations.medusa.constants import (
     API_FEATURE_FLAGS, API_INDEX_SYNC, API_INDEX_DETAILS, API_PRODUCTS, API_PRODUCTS_BATCH,
     API_PRODUCT_VARIANTS, PRODUCT_ID_FIELD, SETTING_DOCTYPE, VARIANT_ID_FIELD,
 )
 from ecommerce_integrations.medusa.utils import create_medusa_log, erpnext_price_to_medusa, is_medusa_enabled, update_medusa_log
+from ecommerce_integrations.property_utils import get_ecommerce_properties
 
 class MedusaProductExporter:
     def __init__(self, item_code: str):
@@ -675,168 +683,6 @@ class MedusaProductExporter:
 
     def _get_list_price(self, item_code=None) -> float:
         return self._get_price(getattr(self.setting, "list_price_price_list", None), item_code)
-
-_UMLAUT_MAP = str.maketrans({
-    "ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss",
-    "Ä": "ae", "Ö": "oe", "Ü": "ue",
-    "é": "e", "è": "e", "ê": "e", "à": "a", "â": "a",
-    "ô": "o", "î": "i", "ç": "c", "ñ": "n",
-})
-
-def _transliterate(text: str) -> str:
-    """Replace umlauts and accented chars with ASCII equivalents."""
-    return text.translate(_UMLAUT_MAP)
-
-
-def _rank_for_value(v: str) -> int:
-    """Derive a stable, order-preserving rank for an attribute value.
-
-    Numeric strings use their numeric value ("150" → 150).
-    Non-numeric strings derive rank from first 4 character codes,
-    preserving alphabetical order ("A" < "AA" < "B" < "Blau").
-    """
-    try:
-        return int(float(v))
-    except (ValueError, TypeError):
-        pass
-    if v:
-        # Pad to 4 chars so single-char values sort correctly vs multi-char
-        # e.g. "B" (padded "B\0\0\0") > "AA" (padded "AA\0\0") — correct
-        chars = v[:4].lower().ljust(4, '\0')
-        rank = 0
-        for ch in chars:
-            rank = rank * 256 + ord(ch)
-        return rank
-    return 0
-
-
-def _resolve_attribute_values(entries: list, attr_map: dict) -> list:
-    """Resolve (attr_name, value) entries to [{attribute_id, value}] using attr_map."""
-    result = []
-    for prop_name, prop_value in entries:
-        attr_entry = attr_map.get(prop_name)
-        if attr_entry and attr_entry.get("id"):
-            result.append({"attribute_id": attr_entry["id"], "value": prop_value})
-    return result
-
-def _get_category_map(session=None, base_url=None) -> dict:
-    """Get {item_group_name: medusa_category_id} map, cached."""
-    from ecommerce_integrations.medusa.constants import API_CATEGORIES
-
-    cache_key = "medusa_category_map"
-    cat_map = frappe.cache.get_value(cache_key)
-    if cat_map is not None:
-        return cat_map
-
-    with optional_session(session, base_url) as (s, url):
-        try:
-            categories = medusa_request_all(s, url, API_CATEGORIES, "product_categories")
-            cat_map = {c["name"]: c["id"] for c in categories}
-            frappe.cache.set_value(cache_key, cat_map, expires_in_sec=300)
-        except Exception:
-            cat_map = {}
-    return cat_map
-
-def _get_or_build_attribute_map(session=None, base_url=None) -> dict:
-    """Get {attr_name: {"id": attr_id, "values": {val: pv_id}}} map, cached."""
-    cache_key = "medusa_attribute_map"
-    attr_map = frappe.cache.get_value(cache_key)
-    if attr_map is not None:
-        return attr_map
-
-    with optional_session(session, base_url) as (s, url):
-        try:
-            attrs = medusa_request_all(s, url, "/admin/plugin/attributes", "attributes")
-            attr_map = {}
-            for a in attrs:
-                attr_map[a["name"]] = {
-                    "id": a["id"],
-                    "values": {pv["value"]: pv["id"] for pv in a.get("possible_values", [])},
-                }
-            frappe.cache.set_value(cache_key, attr_map, expires_in_sec=300)
-        except Exception:
-            attr_map = {}
-    return attr_map
-
-def _ensure_attributes_exist(entries: list, session=None, base_url=None) -> dict:
-    """Ensure all attributes and their possible values exist in Medusa.
-
-    Uses the batch endpoint POST /admin/plugin/attributes/batch to create
-    missing attributes with all their values in a single request.
-
-    Args:
-        entries: list of (attr_name, value) tuples
-        session: optional existing requests.Session to reuse
-        base_url: optional base URL (required if session is provided)
-
-    Returns:
-        attr_map: {attr_name: {"id": attr_id, "values": {val: pv_id}}}
-    """
-    attr_map = _get_or_build_attribute_map(session=session, base_url=base_url)
-
-    # Collect attributes with missing values
-    to_create = {}  # {name: set(values)}
-    for name, value in entries:
-        existing = attr_map.get(name)
-        if not existing:
-            to_create.setdefault(name, set()).add(value)
-        elif value not in existing.get("values", {}):
-            to_create.setdefault(name, set()).add(value)
-
-    if not to_create:
-        return attr_map
-
-    # Send everything as "create" — the endpoint auto-merges new values
-    # into existing attributes (no separate update path needed)
-    create_payloads = []
-    for name, values in to_create.items():
-        handle = _transliterate(name.lower())
-        handle = re.sub(r'[^a-z0-9-]', '-', handle)
-        handle = re.sub(r'-+', '-', handle).strip('-')
-        # Derive a stable rank for each value so Medusa sorts them correctly:
-        # - Numeric values ("150", "5.00") → use the numeric value as rank
-        # - Non-numeric values ("A", "Blau") → derive from character codes to
-        #   preserve alphabetical order across sync batches
-        possible_values = []
-        for v in sorted(values):
-            possible_values.append({"value": v, "rank": _rank_for_value(v)})
-        create_payloads.append({
-            "name": name,
-            "handle": handle,
-            "is_filterable": True,
-            "is_variant_defining": False,
-            "ui_component": "select",
-            "possible_values": possible_values,
-        })
-
-    with optional_session(session, base_url) as (s, url):
-        try:
-            result = medusa_request(s, url, "POST", "/admin/plugin/attributes/batch", json={"create": create_payloads})
-
-            # Update cache from created attributes (full possible_values in response)
-            for attr in result.get("created", []):
-                attr_map[attr["name"]] = {
-                    "id": attr["id"],
-                    "values": {pv["value"]: pv["id"] for pv in attr.get("possible_values", [])},
-                }
-
-            # For merged attributes, invalidate cache entry so it's re-fetched
-            # (merged response only has new_values strings, not full possible_values with IDs)
-            if result.get("merged"):
-                frappe.cache.delete_value("medusa_attribute_map")
-                attr_map = _get_or_build_attribute_map(session=s, base_url=url)
-            else:
-                # Mark sent values as present to prevent re-sending within same sync
-                for name, values in to_create.items():
-                    entry = attr_map.get(name)
-                    if entry:
-                        for v in values:
-                            entry["values"].setdefault(v, "pending")
-                frappe.cache.set_value("medusa_attribute_map", attr_map, expires_in_sec=300)
-        except Exception as e:
-            frappe.log_error("Medusa Attributes", f"Batch attribute sync failed: {e}")
-
-    return attr_map
 
 def _get_dfp_storage_config(storage_name):
     """Get DFP External Storage config (cached)."""
