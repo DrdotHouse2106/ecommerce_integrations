@@ -14,9 +14,8 @@ Usage:
 """
 
 import time
-from typing import List, Optional, Set
 import frappe
-from frappe.utils import now_datetime, cint
+from frappe.utils import cint
 from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE
 from ecommerce_integrations.shopware6.utils import get_logger
 
@@ -156,7 +155,7 @@ def add_to_sync_queue(item_code: str, sync_type: str = "product"):
         logger.debug(f"Shopware6 Bulk Sync: Added {item_code} to {sync_type} queue. Queue size: {len(queue)}")
 
 
-def get_sync_queue(sync_type: str = "product") -> List[str]:
+def get_sync_queue(sync_type: str = "product") -> list[str]:
     """Get all items in the sync queue."""
     cache = get_cache()
     queue_key = f"{SYNC_QUEUE_KEY}:{sync_type}"
@@ -173,7 +172,7 @@ def clear_sync_queue(sync_type: str = "product"):
     cache.delete_value(queue_key)
 
 
-def remove_from_queue(item_codes: List[str], sync_type: str = "product"):
+def remove_from_queue(item_codes: list[str], sync_type: str = "product"):
     """Remove processed items from the queue."""
     cache = get_cache()
     queue_key = f"{SYNC_QUEUE_KEY}:{sync_type}"
@@ -217,18 +216,28 @@ def release_sync_lock():
     cache.delete_value(SYNC_LOCK_KEY)
 
 
-def queue_item_for_sync(doc, method=None):
-    from ecommerce_integrations.shopware6.services.queue_hooks import queue_item_for_sync as _queue_item_for_sync
+# Hook entry points are implemented in services.queue_hooks (lazy-imported
+# there from this module's queue helpers, hence the indirection — a direct
+# top-level import would cycle). __getattr__ forwards them on attribute
+# access so callers and Frappe's hook dispatcher see them at
+# shopware6.bulk_sync.<name> as the doctype events declare in hooks.py.
+_FORWARDED_TO_QUEUE_HOOKS = frozenset({
+    "queue_item_for_sync",
+    "queue_item_delete_for_sync",
+    "queue_properties_for_sync",
+    "queue_item_group_for_sync",
+    "queue_item_group_rename_for_sync",
+    "queue_item_group_delete_for_sync",
+    "queue_price_for_sync",
+})
 
-    return _queue_item_for_sync(doc, method)
 
+def __getattr__(name):
+    if name in _FORWARDED_TO_QUEUE_HOOKS:
+        from ecommerce_integrations.shopware6.services import queue_hooks
 
-def queue_item_delete_for_sync(doc, method=None):
-    from ecommerce_integrations.shopware6.services.queue_hooks import (
-        queue_item_delete_for_sync as _queue_item_delete_for_sync,
-    )
-
-    return _queue_item_delete_for_sync(doc, method)
+        return getattr(queue_hooks, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def sync_single_item_to_shopware(item_code: str):
@@ -248,38 +257,6 @@ def sync_single_item_to_shopware(item_code: str):
         upload_erpnext_item_to_shopware(item_code)
     except Exception as e:
         logger.error(f"Failed to sync item {item_code} to Shopware", exception=e, persist=True)
-
-
-def queue_properties_for_sync(doc, method=None):
-    from ecommerce_integrations.shopware6.services.queue_hooks import (
-        queue_properties_for_sync as _queue_properties_for_sync,
-    )
-
-    return _queue_properties_for_sync(doc, method)
-
-
-def queue_item_group_for_sync(doc, method=None):
-    from ecommerce_integrations.shopware6.services.queue_hooks import (
-        queue_item_group_for_sync as _queue_item_group_for_sync,
-    )
-
-    return _queue_item_group_for_sync(doc, method)
-
-
-def queue_item_group_rename_for_sync(doc, method=None, old_name=None, new_name=None):
-    from ecommerce_integrations.shopware6.services.queue_hooks import (
-        queue_item_group_rename_for_sync as _queue_item_group_rename_for_sync,
-    )
-
-    return _queue_item_group_rename_for_sync(doc, method, old_name, new_name)
-
-
-def queue_item_group_delete_for_sync(doc, method=None):
-    from ecommerce_integrations.shopware6.services.queue_hooks import (
-        queue_item_group_delete_for_sync as _queue_item_group_delete_for_sync,
-    )
-
-    return _queue_item_group_delete_for_sync(doc, method)
 
 
 def schedule_bulk_sync_processing():
@@ -322,9 +299,6 @@ def process_bulk_sync_queue():
 
     This is called by the scheduler or can be triggered manually.
     """
-    from ecommerce_integrations.shopware6.product_export import upload_erpnext_item_to_shopware
-    from ecommerce_integrations.shopware6.properties import sync_item_properties_to_shopware
-    from ecommerce_integrations.shopware6.connection import get_shopware_client
 
     # Check if bulk mode is still active (meaning updates are still coming in)
     if is_bulk_mode_active():
@@ -380,7 +354,7 @@ def process_bulk_sync_queue():
         deactivate_bulk_mode()
 
 
-def process_product_batch(item_codes: List[str]):
+def process_product_batch(item_codes: list[str]):
     """
     Process a batch of products using optimized batch upload.
 
@@ -389,11 +363,9 @@ def process_product_batch(item_codes: List[str]):
     """
     from ecommerce_integrations.shopware6.product_export import (
         upload_template_item_to_shopware,
-        upload_variant_item_to_shopware,
     )
     from ecommerce_integrations.shopware6.export.batch_uploader import BatchProductUploader
     from ecommerce_integrations.shopware6.connection import get_shopware_client
-    from ecommerce_integrations.shopware6.utils import get_shopware_document_id
 
     settings = get_bulk_sync_settings()
     batch_size = settings["batch_size"]
@@ -524,7 +496,7 @@ def process_product_batch(item_codes: List[str]):
         logger.error(f"Sync errors:\n{error_summary}", persist=False)
 
 
-def process_properties_batch(item_codes: List[str]):
+def process_properties_batch(item_codes: list[str]):
     """Process a batch of property syncs."""
     from ecommerce_integrations.shopware6.properties import sync_item_properties_to_shopware
 
@@ -554,7 +526,7 @@ def process_properties_batch(item_codes: List[str]):
     )
 
 
-def process_price_batch(item_codes: List[str]):
+def process_price_batch(item_codes: list[str]):
     """Process a batch of price updates."""
     from ecommerce_integrations.shopware6.product_export import update_item_price_in_shopware
 
@@ -672,10 +644,4 @@ def check_and_process_queue():
     )
 
 
-def queue_price_for_sync(doc, method=None):
-    """Queue price sync when an Item Price is changed."""
-    from ecommerce_integrations.shopware6.services.queue_hooks import (
-        queue_price_for_sync as _queue_price_for_sync,
-    )
-
-    return _queue_price_for_sync(doc, method)
+# queue_price_for_sync is exposed via __getattr__ at the top of this module.

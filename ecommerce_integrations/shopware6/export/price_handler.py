@@ -5,7 +5,7 @@ Handles price synchronization from ERPNext to Shopware.
 Supports multiple price lists and currency handling.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import frappe
 from frappe.utils import flt
@@ -19,7 +19,7 @@ from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_l
 from ecommerce_integrations.shopware6.validators import validate_before_destructive_operation
 
 
-def _batch_delete_prices(client, price_ids: List[str], batch_size: int = 100, logger=None) -> int:
+def _batch_delete_prices(client, price_ids: list[str], batch_size: int = 100, logger=None) -> int:
     """
     Delete multiple price rules via Shopware Sync API for better performance.
 
@@ -197,7 +197,7 @@ def _get_list_price_payload(
     net_price: float,
     tax_rate: float,
     currency_id: str
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """
     Return listPrice dict if UVP > selling price, else None.
 
@@ -244,8 +244,8 @@ def build_price_payload(
     net_price: float,
     tax_rate: float = 19.0,
     currency_id: str = None,
-    list_price_payload: Optional[Dict[str, Any]] = None
-) -> List[Dict[str, Any]]:
+    list_price_payload: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     """
     Build the Shopware price payload.
 
@@ -347,7 +347,7 @@ def sync_product_price(client, item_code: str) -> bool:
 
 
 @temp_shopware_session
-def sync_bulk_prices(client, item_codes: List[str]) -> Dict[str, bool]:
+def sync_bulk_prices(client, item_codes: list[str]) -> dict[str, bool]:
     """
     Sync prices for multiple items efficiently.
 
@@ -386,7 +386,7 @@ def sync_bulk_prices(client, item_codes: List[str]) -> Dict[str, bool]:
     return results
 
 
-def update_item_price_in_shopware(item_code: str = None, doc=None) -> Dict[str, Any]:
+def update_item_price_in_shopware(item_code: str = None, doc=None) -> dict[str, Any]:
     """
     Update price for a single item in Shopware.
 
@@ -426,7 +426,7 @@ def force_sync_single_product_price(
     item_code: str,
     price_list: str = None,
     force: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Force sync price for a single product - deletes all existing prices first.
 
@@ -585,7 +585,7 @@ def force_sync_single_product_price(
 
 
 @frappe.whitelist()
-def force_reconcile_single_price(item_code: str, price_list: str = None) -> Dict[str, Any]:
+def force_reconcile_single_price(item_code: str, price_list: str = None) -> dict[str, Any]:
     """
     Whitelist wrapper for force_sync_single_product_price.
 
@@ -608,7 +608,7 @@ def force_sync_all_prices(
     offset: int = 0,
     price_list: str = None,
     dry_run: bool = False
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Force reconcile ALL product prices - deletes and recreates all prices.
 
@@ -814,7 +814,7 @@ def enqueue_force_sync_all_prices(
     batch_size: int = 500,
     price_list: str = None,
     dry_run: bool = False
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Enqueue forced price reconciliation as background job.
 
@@ -1017,7 +1017,7 @@ PRICE_CHUNK_SIZE = 1000  # Items to process before sending (memory optimization)
 BATCH_DELAY_SECONDS = 0.05  # 50ms delay between API calls to avoid overwhelming Shopware
 
 
-def _log_failed_items_to_db(failed_ids: List[str], operation: str, error_msg: str) -> None:
+def _log_failed_items_to_db(failed_ids: list[str], operation: str, error_msg: str) -> None:
     """
     Persist failed sync items to database for later retry.
 
@@ -1052,7 +1052,7 @@ def _log_failed_items_to_db(failed_ids: List[str], operation: str, error_msg: st
 def force_sync_prices_batch(
     price_list: str = None,
     progress_callback: callable = None
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Batch-sync all prices using Shopware Sync API (5-10x faster).
 
@@ -1304,7 +1304,7 @@ def force_sync_prices_batch(
     }
 
 
-def delete_broken_price_rules_batch(client=None) -> Dict[str, Any]:
+def delete_broken_price_rules_batch(client=None) -> dict[str, Any]:
     """
     Batch-delete all broken product-price rules (0.01€ fallback prices).
 

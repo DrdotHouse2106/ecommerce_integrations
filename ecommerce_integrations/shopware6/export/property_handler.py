@@ -5,15 +5,13 @@ Manages property groups, property options, and custom fields for products.
 Handles both product properties (filterable attributes) and variant options.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import frappe
 from frappe.utils import cstr
 
 from ecommerce_integrations.ecommerce_integrations.ecommerce_custom_fields import PROP_IS_SURCHARGE
-from ecommerce_integrations.shopware6.connection import temp_shopware_session
 from ecommerce_integrations.shopware6.constants import (
-    SETTING_DOCTYPE,
     SHOPWARE_CUSTOM_FIELD_SET_NAME,
     PRODUCT_CUSTOM_FIELDS_MAP,
     WEIGHT_TO_ERPNEXT_UOM_MAP,
@@ -32,7 +30,7 @@ from ecommerce_integrations.shopware6.export.utils import (
 from lib_shopware6_api_base import HEADER_index_asynchronously
 
 
-def build_custom_fields_from_mappings() -> List[Dict[str, Any]]:
+def build_custom_fields_from_mappings() -> list[dict[str, Any]]:
     """
     Build Shopware custom fields array from configured mappings.
 
@@ -60,7 +58,7 @@ def build_custom_fields_from_mappings() -> List[Dict[str, Any]]:
     return custom_fields
 
 
-def ensure_shopware_custom_field_set(client) -> Optional[str]:
+def ensure_shopware_custom_field_set(client) -> str | None:
     """
     Ensure the ERPNext custom field set exists in Shopware.
 
@@ -124,7 +122,7 @@ def ensure_shopware_custom_field_set(client) -> Optional[str]:
         return None
 
 
-def get_item_custom_fields(erpnext_item) -> Dict[str, Any]:
+def get_item_custom_fields(erpnext_item) -> dict[str, Any]:
     """
     Get custom field values from ERPNext Item for Shopware sync.
 
@@ -163,7 +161,7 @@ def get_item_custom_fields(erpnext_item) -> Dict[str, Any]:
     return custom_fields
 
 
-def get_or_create_property_group(client, group_name: str) -> Optional[str]:
+def get_or_create_property_group(client, group_name: str) -> str | None:
     """
     Get existing or create new PropertyGroup in Shopware.
 
@@ -210,7 +208,7 @@ def get_or_create_property_group(client, group_name: str) -> Optional[str]:
         return None
 
 
-def get_or_create_property_option(client, group_id: str, group_name: str, option_value: str) -> Optional[str]:
+def get_or_create_property_option(client, group_id: str, group_name: str, option_value: str) -> str | None:
     """
     Get existing or create new PropertyGroupOption.
 
@@ -269,7 +267,7 @@ def get_or_create_property_option(client, group_id: str, group_name: str, option
         return None
 
 
-def get_or_create_variant_option(client, group_id: str, group_name: str, option_value: str) -> Optional[str]:
+def get_or_create_variant_option(client, group_id: str, group_name: str, option_value: str) -> str | None:
     """
     Get existing or create new PropertyGroupOption for variant attributes.
 
@@ -331,7 +329,7 @@ def get_or_create_variant_option(client, group_id: str, group_name: str, option_
         return None
 
 
-def get_template_item_attributes(template_item) -> List[Dict[str, Any]]:
+def get_template_item_attributes(template_item) -> list[dict[str, Any]]:
     """
     Get all Item Attributes for a template item, including attributes from variants.
 
@@ -428,7 +426,7 @@ def get_template_item_attributes(template_item) -> List[Dict[str, Any]]:
     return attributes
 
 
-def get_variant_attribute_values(variant_item) -> Dict[str, str]:
+def get_variant_attribute_values(variant_item) -> dict[str, str]:
     """
     Get the attribute values for a variant item.
 
@@ -466,7 +464,7 @@ def get_shopware_weight_unit(erpnext_uom: str) -> str:
     return "kg"
 
 
-def get_item_properties(erpnext_item) -> List[Dict[str, str]]:
+def get_item_properties(erpnext_item) -> list[dict[str, str]]:
     """
     Get property values for Shopware from ERPNext Item.
 
@@ -649,7 +647,7 @@ def ensure_surcharge_property(item_code: str) -> bool:
         return False
 
 
-def sync_surcharge_properties_batch(limit: int = 500) -> Dict[str, Any]:
+def sync_surcharge_properties_batch(limit: int = 500) -> dict[str, Any]:
     """
     Batch sync Surcharge properties for all items where is_sales_item = 0.
 
@@ -725,7 +723,7 @@ def sync_surcharge_properties_batch(limit: int = 500) -> Dict[str, Any]:
     return stats
 
 
-def cleanup_orphaned_shopware_properties(client, dry_run: bool = True) -> Dict[str, Any]:
+def cleanup_orphaned_shopware_properties(client, dry_run: bool = True) -> dict[str, Any]:
     """
     Remove property groups and options from Shopware that are not used by any ERPNext item.
 
@@ -873,7 +871,7 @@ PROPERTY_GROUP_BATCH_SIZE = 50  # Groups per sync request
 PROPERTY_BATCH_DELAY = 0.05  # 50ms delay between batches
 
 
-def _log_failed_property_items(failed_ids: List[str], operation: str, error_msg: str) -> None:
+def _log_failed_property_items(failed_ids: list[str], operation: str, error_msg: str) -> None:
     """
     Persist failed property sync items to database for later retry.
 
@@ -902,7 +900,7 @@ def _log_failed_property_items(failed_ids: List[str], operation: str, error_msg:
         pass
 
 
-def cleanup_orphaned_properties_batch(client) -> Dict[str, Any]:
+def cleanup_orphaned_properties_batch(client) -> dict[str, Any]:
     """
     Batch-delete orphaned property groups using Shopware Sync API.
 

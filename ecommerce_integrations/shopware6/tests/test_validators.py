@@ -5,7 +5,6 @@ Tests for Shopware 6 Data Validators
 import unittest
 from ecommerce_integrations.shopware6.validators import (
     ShopwareDataValidator,
-    validate_and_log,
 )
 from ecommerce_integrations.shopware6.tests.utils import (
     ShopwareTestCase,

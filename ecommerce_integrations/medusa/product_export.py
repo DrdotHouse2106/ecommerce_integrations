@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import frappe
 import requests
 from frappe.utils import cstr
+from ecommerce_integrations.ecommerce_integrations.media import is_image_url
 from ecommerce_integrations.property_utils import get_ecommerce_properties
 from ecommerce_integrations.medusa.connection import medusa_request, medusa_request_all, optional_session, temp_medusa_session
 from ecommerce_integrations.medusa.constants import (
@@ -116,13 +117,21 @@ class MedusaProductExporter:
         else:
             channel_ids = self.setting.get_active_sales_channel_ids() if hasattr(self.setting, 'get_active_sales_channel_ids') else []
         if not channel_ids:
-            frappe.throw(
+            # Log to Ecommerce Integration Log and raise a plain exception. The
+            # bulk-sync queue catches this per-item, so a single misconfigured
+            # item doesn't break the rest of the batch. Avoid frappe.throw here:
+            # the build path runs from queue workers as well as web requests, and
+            # a UI popup would surface to whichever user happened to be saving an
+            # Item at the wrong moment (CLAUDE.md: errors during sync are logged,
+            # never raised back to the user).
+            msg = (
                 f"No Medusa Sales Channel could be determined for Item {self.item_code} "
                 f"(Item Group: {self.item.item_group}). "
-                "Please check Medusa Settings: ensure at least one Sales Channel is active "
-                "or configure Item Group Channel Mappings.",
-                title="Medusa Sales Channel Missing",
+                "Please check Medusa Settings: ensure at least one Sales Channel is "
+                "active or configure Item Group Channel Mappings."
             )
+            create_medusa_log(status="Error", message=msg)
+            raise ValueError(msg)
         payload["sales_channels"] = [{"id": ch_id} for ch_id in channel_ids]
 
         # Collect attribute values (for post-create batch-assign)
@@ -547,10 +556,7 @@ class MedusaProductExporter:
             order_by="creation",
         )
         for f in attachments:
-            if not f.file_url:
-                continue
-            ext = (f.file_url.rsplit(".", 1)[-1] if "." in f.file_url else "").lower()
-            if ext not in ("jpg", "jpeg", "png", "webp", "avif", "gif"):
+            if not is_image_url(f.file_url):
                 continue
             url = self._resolve_image_url(f.file_url)
             if url and url not in seen:

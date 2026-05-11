@@ -7,8 +7,8 @@ Follows the Shopify test pattern.
 
 import json
 import os
-from typing import Any, Dict, Optional
-from unittest.mock import MagicMock, patch
+from typing import Any
+from unittest.mock import MagicMock
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -47,7 +47,7 @@ class ShopwareTestCase(FrappeTestCase):
             # Ensure integration is disabled for tests
             frappe.db.set_value(SETTING_DOCTYPE, SETTING_DOCTYPE, "enable_shopware", 0)
 
-    def get_test_data(self, filename: str) -> Dict[str, Any]:
+    def get_test_data(self, filename: str) -> dict[str, Any]:
         """
         Load test data from JSON file.
 
@@ -62,7 +62,7 @@ class ShopwareTestCase(FrappeTestCase):
             "data",
             filename
         )
-        with open(data_path, "r") as f:
+        with open(data_path) as f:
             return json.load(f)
 
     def create_mock_client(self) -> MagicMock:
@@ -143,7 +143,7 @@ class ShopwareTestCase(FrappeTestCase):
         customer.insert(ignore_permissions=True)
         return customer
 
-    def cleanup_test_documents(self, doctype: str, filters: Dict = None):
+    def cleanup_test_documents(self, doctype: str, filters: dict = None):
         """
         Delete test documents matching filters.
 
@@ -182,7 +182,7 @@ def mock_shopware_session(func):
     return wrapper
 
 
-def create_sample_order_data() -> Dict[str, Any]:
+def create_sample_order_data() -> dict[str, Any]:
     """Create sample Shopware order data for testing."""
     return {
         "id": "test-order-id-123",
@@ -237,7 +237,7 @@ def create_sample_order_data() -> Dict[str, Any]:
     }
 
 
-def create_sample_product_data() -> Dict[str, Any]:
+def create_sample_product_data() -> dict[str, Any]:
     """Create sample Shopware product data for testing."""
     return {
         "id": "test-product-id-123",
@@ -260,7 +260,7 @@ def create_sample_product_data() -> Dict[str, Any]:
     }
 
 
-def create_sample_customer_data() -> Dict[str, Any]:
+def create_sample_customer_data() -> dict[str, Any]:
     """Create sample Shopware customer data for testing."""
     return {
         "id": "test-customer-id-456",

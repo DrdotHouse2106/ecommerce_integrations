@@ -5,7 +5,7 @@ Maps ERPNext Item fields to Shopware product payload.
 Handles price calculation, tax rates, and SEO fields.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import frappe
 from frappe.utils import flt
@@ -17,7 +17,7 @@ from ecommerce_integrations.shopware6.export.utils import generate_uuid
 from ecommerce_integrations.shopware6.utils import get_logger
 
 
-def get_tax_id_by_rate(client, tax_rate: float = 19.0) -> Optional[str]:
+def get_tax_id_by_rate(client, tax_rate: float = 19.0) -> str | None:
     """
     Get the Shopware tax ID for a given tax rate.
 
@@ -118,7 +118,7 @@ def _parse_delivery_time(delivery_time_name: str) -> tuple:
     return min_val, max_val, unit
 
 
-def get_or_create_delivery_time(client, delivery_time_name: str) -> Optional[str]:
+def get_or_create_delivery_time(client, delivery_time_name: str) -> str | None:
     """
     Get existing or create new Delivery Time in Shopware.
     Updates min/max/unit on existing entities if they don't match the parsed name.
@@ -185,7 +185,7 @@ def get_or_create_delivery_time(client, delivery_time_name: str) -> Optional[str
         return None
 
 
-def get_or_create_manufacturer(client, manufacturer_name: str) -> Optional[str]:
+def get_or_create_manufacturer(client, manufacturer_name: str) -> str | None:
     """
     Get existing or create new Manufacturer in Shopware.
 
@@ -226,7 +226,7 @@ def get_or_create_manufacturer(client, manufacturer_name: str) -> Optional[str]:
         return None
 
 
-def get_cached_currency_id(client, currency_code: str = "EUR") -> Optional[str]:
+def get_cached_currency_id(client, currency_code: str = "EUR") -> str | None:
     """
     Get currency ID from cache or fetch from Shopware API.
 
@@ -258,7 +258,7 @@ def get_cached_currency_id(client, currency_code: str = "EUR") -> Optional[str]:
     return None
 
 
-def get_cached_sales_channel_id(client) -> Optional[str]:
+def get_cached_sales_channel_id(client) -> str | None:
     """
     Get default sales channel ID from cache or fetch from API.
 
@@ -286,7 +286,7 @@ def get_cached_sales_channel_id(client) -> Optional[str]:
     return None
 
 
-def map_erpnext_item_to_shopware(erpnext_item) -> Dict[str, Any]:
+def map_erpnext_item_to_shopware(erpnext_item) -> dict[str, Any]:
     """
     Map ERPNext Item fields to Shopware product payload.
 
@@ -447,7 +447,7 @@ def map_erpnext_item_to_shopware(erpnext_item) -> Dict[str, Any]:
     return payload
 
 
-def get_actual_variant_values(template_item_code: str, attribute_name: str) -> List[str]:
+def get_actual_variant_values(template_item_code: str, attribute_name: str) -> list[str]:
     """
     Get unique attribute values actually used by enabled variants of a template.
 
@@ -478,7 +478,7 @@ def get_actual_variant_values(template_item_code: str, attribute_name: str) -> L
     return [v for v in values if v]
 
 
-def get_product_visibilities(item, setting) -> Optional[List[Dict[str, Any]]]:
+def get_product_visibilities(item, setting) -> list[dict[str, Any]] | None:
     """
     Calculate which Sales Channels a product should be visible in.
 
@@ -582,12 +582,12 @@ def _parse_visibility(visibility_str: str) -> int:
 
 def build_channel_prices(
     item,
-    visibilities: List[Dict[str, Any]],
+    visibilities: list[dict[str, Any]],
     setting,
     client,
     tax_rate: float = 19.0,
     currency_id: str = None
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Build multi-channel prices array with Shopware Rules.
 

@@ -4,10 +4,9 @@ Shopware 6 Webhook Handler
 Routes webhook events to appropriate handlers.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 import frappe
-from frappe import _
 
 from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCTYPE
 from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
@@ -54,7 +53,7 @@ class WebhookHandler:
         self,
         event_type: str,
         entity_id: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         request_id: str = None
     ) -> bool:
         """
@@ -110,7 +109,7 @@ class WebhookHandler:
     def handle_order_placed(
         self,
         order_id: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         request_id: str = None
     ) -> bool:
         """Handle new order placement."""
@@ -122,7 +121,7 @@ class WebhookHandler:
     def handle_order_written(
         self,
         order_id: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         request_id: str = None
     ) -> bool:
         """Handle order update."""
@@ -139,7 +138,7 @@ class WebhookHandler:
     def handle_order_deleted(
         self,
         order_id: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         request_id: str = None
     ) -> bool:
         """Handle order deletion."""
@@ -166,7 +165,7 @@ class WebhookHandler:
     def handle_order_status_changed(
         self,
         order_id: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         request_id: str = None
     ) -> bool:
         """Handle order status change."""
@@ -178,7 +177,7 @@ class WebhookHandler:
     def handle_payment_status_changed(
         self,
         transaction_id: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         request_id: str = None
     ) -> bool:
         """Handle payment status change."""
@@ -190,7 +189,7 @@ class WebhookHandler:
     def handle_delivery_status_changed(
         self,
         delivery_id: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         request_id: str = None
     ) -> bool:
         """Handle delivery status change."""
@@ -222,7 +221,7 @@ class WebhookHandler:
     def handle_product_written(
         self,
         product_id: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         request_id: str = None
     ) -> bool:
         """Handle product create/update."""
@@ -238,7 +237,7 @@ class WebhookHandler:
     def handle_product_deleted(
         self,
         product_id: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         request_id: str = None
     ) -> bool:
         """Handle product deletion."""
@@ -264,7 +263,7 @@ class WebhookHandler:
     def handle_customer_written(
         self,
         customer_id: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         request_id: str = None
     ) -> bool:
         """Handle customer create/update."""
@@ -280,7 +279,7 @@ class WebhookHandler:
     def handle_customer_deleted(
         self,
         customer_id: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         request_id: str = None
     ) -> bool:
         """Handle customer deletion."""
@@ -309,7 +308,7 @@ class WebhookHandler:
     def handle_stock_changed(
         self,
         product_id: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         request_id: str = None
     ) -> bool:
         """Handle stock level change."""
@@ -325,7 +324,7 @@ class WebhookHandler:
 def handle_webhook_event(
     event_type: str,
     entity_id: str,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     request_id: str = None
 ) -> bool:
     """

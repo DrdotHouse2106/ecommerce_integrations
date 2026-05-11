@@ -11,7 +11,6 @@ Run manually via:
 """
 
 import frappe
-from frappe import _
 
 
 def execute():

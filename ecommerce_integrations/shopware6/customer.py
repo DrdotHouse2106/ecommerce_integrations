@@ -6,16 +6,14 @@ Handles synchronization of customers between Shopware 6 and ERPNext.
 
 from contextlib import contextmanager
 from time import perf_counter
-from typing import Any, Dict, Optional
+from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import cstr
 
 from lib_shopware6_api_base import (
     Shopware6AdminAPIClientBase,
     Criteria,
-    EqualsFilter,
 )
 
 from ecommerce_integrations.controllers.customer import EcommerceCustomer
@@ -27,7 +25,6 @@ from ecommerce_integrations.shopware6.constants import (
     ADDRESS_ID_FIELD,
 )
 from ecommerce_integrations.shopware6.utils import (
-    create_shopware_log,
     update_shopware_log,
     map_country_code,
     map_state_from_shopware,
@@ -76,7 +73,7 @@ class ShopwareCustomer(EcommerceCustomer):
         self.setting = frappe.get_doc(SETTING_DOCTYPE)
         super().__init__(customer_id, CUSTOMER_ID_FIELD, MODULE_NAME)
     
-    def sync_customer(self, customer: Dict[str, Any], sales_channel_id: str = None) -> None:
+    def sync_customer(self, customer: dict[str, Any], sales_channel_id: str = None) -> None:
         """Create Customer in ERPNext using Shopware's Customer dict."""
 
         # Determine customer name
@@ -158,7 +155,7 @@ class ShopwareCustomer(EcommerceCustomer):
     def create_customer_address(
         self,
         customer_name: str,
-        shopware_address: Dict[str, Any],
+        shopware_address: dict[str, Any],
         address_type: str = "Billing",
         email: str = None,
         is_also_shipping: bool = False,
@@ -195,7 +192,7 @@ class ShopwareCustomer(EcommerceCustomer):
             f"customer_id={self.customer_id}, type={address_type}, shopware_address_id={shopware_address_id}"
         )
     
-    def update_customer_data(self, customer: Dict[str, Any]) -> None:
+    def update_customer_data(self, customer: dict[str, Any]) -> None:
         """
         Update existing customer's core data from Shopware.
 
@@ -255,7 +252,7 @@ class ShopwareCustomer(EcommerceCustomer):
             if vat_id and f"tax_id: {vat_id}" in updates_made:
                 trigger_vat_id_check(customer_doc.name, vat_id)
 
-    def update_existing_addresses(self, customer: Dict[str, Any]) -> None:
+    def update_existing_addresses(self, customer: dict[str, Any]) -> None:
         """Update existing addresses with new data from Shopware."""
         billing_address = customer.get("defaultBillingAddress") or {}
         shipping_address = customer.get("defaultShippingAddress") or {}
@@ -282,7 +279,7 @@ class ShopwareCustomer(EcommerceCustomer):
     def _update_existing_address(
         self,
         customer_name: str,
-        shopware_address: Dict[str, Any],
+        shopware_address: dict[str, Any],
         address_type: str = "Billing",
         email: str = None,
         is_also_shipping: bool = False,
@@ -341,7 +338,7 @@ class ShopwareCustomer(EcommerceCustomer):
                 old_address.flags.ignore_mandatory = True
                 old_address.save(ignore_permissions=True)
     
-    def create_customer_contact(self, shopware_customer: Dict[str, Any]) -> None:
+    def create_customer_contact(self, shopware_customer: dict[str, Any]) -> None:
         """Create contact from Shopware customer data."""
         first_name = shopware_customer.get("firstName", "")
         last_name = shopware_customer.get("lastName", "")
@@ -399,7 +396,7 @@ class ShopwareCustomer(EcommerceCustomer):
             f"customer_id={self.customer_id}, email={email or 'n/a'}"
         )
     
-    def create_or_update_billing_contact(self, billing_email: str, customer_data: Dict[str, Any] = None) -> Optional[str]:
+    def create_or_update_billing_contact(self, billing_email: str, customer_data: dict[str, Any] = None) -> str | None:
         """
         Create or update a Billing Contact for this customer.
         
@@ -472,12 +469,12 @@ class ShopwareCustomer(EcommerceCustomer):
 
 
 def _map_address_fields(
-    shopware_address: Dict[str, Any],
+    shopware_address: dict[str, Any],
     customer_name: str,
     address_type: str,
     email: str = None,
     is_also_shipping: bool = False
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Map Shopware address fields to ERPNext Address fields.
 
     Args:
@@ -524,7 +521,7 @@ def _map_address_fields(
     return address_fields
 
 
-def get_customer_from_shopware_order(order: Dict[str, Any]) -> str:
+def get_customer_from_shopware_order(order: dict[str, Any]) -> str:
     """
     Get or create ERPNext Customer from Shopware order data.
     
@@ -613,7 +610,7 @@ def get_customer_from_shopware_order(order: Dict[str, Any]) -> str:
 
 
 
-def ensure_customer_has_address(customer: str, order_data: Dict[str, Any]) -> None:
+def ensure_customer_has_address(customer: str, order_data: dict[str, Any]) -> None:
     """
     Ensure customer has billing and shipping addresses from order data.
 
@@ -735,7 +732,7 @@ def create_guest_customer() -> str:
     return customer.name
 
 
-def _ensure_customer_contact(customer: str, order_customer: Dict[str, Any]) -> None:
+def _ensure_customer_contact(customer: str, order_customer: dict[str, Any]) -> None:
     """
     Ensure a contact exists for the customer and update salutation/gender if needed.
     
@@ -782,7 +779,7 @@ def _ensure_customer_contact(customer: str, order_customer: Dict[str, Any]) -> N
             create_customer_contact(customer, order_customer)
 
 
-def map_shopware_salutation(salutation_data: Dict[str, Any]) -> tuple:
+def map_shopware_salutation(salutation_data: dict[str, Any]) -> tuple:
     """
     Map Shopware salutation to ERPNext salutation and gender.
 
@@ -836,7 +833,7 @@ def map_shopware_salutation(salutation_data: Dict[str, Any]) -> tuple:
     return salutation, gender
 
 
-def create_customer_contact(customer: str, customer_data: Dict[str, Any], is_primary: bool = True) -> Optional[str]:
+def create_customer_contact(customer: str, customer_data: dict[str, Any], is_primary: bool = True) -> str | None:
     """
     Create a Contact linked to the Customer.
 
@@ -894,8 +891,8 @@ def create_or_update_billing_contact(
     customer: str, 
     billing_email: str, 
     billing_name: str = None,
-    customer_data: Dict[str, Any] = None
-) -> Optional[str]:
+    customer_data: dict[str, Any] = None
+) -> str | None:
     """
     Create or update a Billing Contact for the Customer.
     
@@ -1006,9 +1003,9 @@ def create_or_update_billing_contact(
 
 def create_customer_address(
     customer: str,
-    address_data: Dict[str, Any],
+    address_data: dict[str, Any],
     address_type: str = "Billing"
-) -> Optional[str]:
+) -> str | None:
     """
     Create an Address linked to the Customer.
 
@@ -1095,7 +1092,7 @@ def create_customer_address(
         return None
 
 
-def sync_customer_from_webhook(payload: Dict[str, Any], request_id: str = None):
+def sync_customer_from_webhook(payload: dict[str, Any], request_id: str = None):
     """
     Handle customer sync from Shopware webhook.
 
@@ -1141,7 +1138,7 @@ def sync_customer_from_webhook(payload: Dict[str, Any], request_id: str = None):
 
 
 @temp_shopware_session
-def sync_customer_by_id(client: Shopware6AdminAPIClientBase, customer_id: str) -> Optional[str]:
+def sync_customer_by_id(client: Shopware6AdminAPIClientBase, customer_id: str) -> str | None:
     """
     Sync a specific customer from Shopware by ID.
 
@@ -1179,7 +1176,7 @@ def sync_customer_by_id(client: Shopware6AdminAPIClientBase, customer_id: str) -
     return create_customer_from_shopware_data(customer_data)
 
 
-def create_customer_from_shopware_data(customer_data: Dict[str, Any]) -> str:
+def create_customer_from_shopware_data(customer_data: dict[str, Any]) -> str:
     """
     Create ERPNext Customer from Shopware customer data.
 
@@ -1280,7 +1277,7 @@ def _find_existing_customer_to_link(
     company: str,
     customer_name: str,
     customer_id: str
-) -> Optional[str]:
+) -> str | None:
     """
     Find an existing ERPNext customer that can be linked to a Shopware customer.
 
@@ -1339,7 +1336,7 @@ def _find_existing_customer_to_link(
 
 
 @frappe.whitelist()
-def sync_customers_from_shopware(limit: int = 100) -> Dict[str, int]:
+def sync_customers_from_shopware(limit: int = 100) -> dict[str, int]:
     """
     Manually sync customers from Shopware.
 
@@ -1466,7 +1463,7 @@ def sync_old_customers(client: Shopware6AdminAPIClientBase):
         logger.error("Scheduled old customer sync failed", exception=e, persist=True)
 
 
-def trigger_vat_id_check(customer_name: str, vat_id: str) -> Optional[str]:
+def trigger_vat_id_check(customer_name: str, vat_id: str) -> str | None:
     """
     Trigger automatic VAT ID validation using ERPNext Germany's VAT ID Check.
 

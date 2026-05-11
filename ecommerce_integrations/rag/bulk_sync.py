@@ -180,22 +180,44 @@ def remove_from_queue(item_code: str):
             redis.srem(SYNC_QUEUE_KEY, json.dumps(item))
 
 
-def schedule_bulk_sync_processing():
-    """Schedule bulk processing after cooldown"""
-    # Check if job already exists
-    from frappe.utils.background_jobs import get_jobs
-    jobs = get_jobs()
+_BULK_SYNC_JOB_NAME = "rag_process_bulk_sync_queue"
 
-    for site_jobs in jobs.values():
-        for job in site_jobs:
-            if "process_bulk_sync_queue" in str(job):
-                return  # Job already scheduled
+
+def schedule_bulk_sync_processing():
+    """Idempotently schedule a bulk-processing job.
+
+    Previously walked every queued/started RQ job across every site and
+    substring-matched ``"process_bulk_sync_queue" in str(job)`` — racy and
+    cross-site leaky. Now we identify the job by a stable ``job_name`` and
+    query the ``RQ Job`` doctype for an exact match.
+    """
+    try:
+        existing = frappe.get_all(
+            "RQ Job",
+            filters={
+                "status": ("in", ("queued", "started")),
+                "job_name": _BULK_SYNC_JOB_NAME,
+            },
+            limit=1,
+        )
+    except ValueError as e:
+        # RQ Job's registry cleanup runs ``signal.signal(...)`` which raises
+        # "signal only works in main thread" when invoked from a worker. If
+        # that bubbles out, skip the dedup check — the next scheduler tick
+        # (check_and_process_queue, every minute) will pick the work up.
+        if "signal only works in main thread" not in str(e):
+            raise
+        existing = []
+
+    if existing:
+        return
 
     frappe.enqueue(
         "ecommerce_integrations.rag.bulk_sync.process_bulk_sync_queue",
         queue="long",
+        job_name=_BULK_SYNC_JOB_NAME,
+        enqueue_after_commit=True,
         at_front=False,
-        enqueue_after_commit=True
     )
 
 
@@ -207,8 +229,13 @@ def process_bulk_sync_queue():
     if redis.get(SYNC_LOCK_KEY):
         return
 
-    # Wait for cooldown
-    time.sleep(BULK_COOLDOWN)
+    # Bulk mode still active means the user is still queuing items. Skip
+    # this run; ``check_and_process_queue`` (scheduler, every minute) will
+    # pick this back up once BULK_MODE_KEY expires (BULK_COOLDOWN + 5 s).
+    # The previous implementation slept BULK_COOLDOWN seconds inside the
+    # worker — that burned a worker slot and extended the soft-lock window.
+    if redis.get(BULK_MODE_KEY):
+        return
 
     # Check if still items in queue
     items = get_queue_items()

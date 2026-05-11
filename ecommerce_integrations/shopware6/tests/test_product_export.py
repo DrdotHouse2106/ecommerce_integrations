@@ -7,7 +7,6 @@ from unittest.mock import patch, MagicMock
 
 from ecommerce_integrations.shopware6.tests.utils import (
     ShopwareTestCase,
-    create_sample_product_data,
 )
 
 

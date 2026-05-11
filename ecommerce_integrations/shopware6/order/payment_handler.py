@@ -4,7 +4,7 @@ Shopware 6 Payment Handler
 Handles payment processing, invoice creation, and payment entries.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 import frappe
 
@@ -14,9 +14,9 @@ from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_l
 
 def create_sales_invoice(
     sales_order: str,
-    transaction_data: Dict[str, Any],
+    transaction_data: dict[str, Any],
     setting
-) -> Optional[str]:
+) -> str | None:
     """
     Create Sales Invoice from Shopware payment transaction.
 
@@ -83,7 +83,7 @@ def make_payment_entry_against_sales_invoice(
     sales_invoice,
     sales_order_name: str,
     setting
-) -> Optional[str]:
+) -> str | None:
     """
     Create Payment Entry against a Sales Invoice.
 

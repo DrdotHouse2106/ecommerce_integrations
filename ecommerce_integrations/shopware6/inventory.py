@@ -4,7 +4,7 @@ Shopware 6 Inventory Sync Module
 Handles synchronization of stock levels between ERPNext and Shopware 6.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import frappe
 from frappe import _
@@ -12,8 +12,6 @@ from frappe.utils import flt, now_datetime
 
 from lib_shopware6_api_base import (
     Shopware6AdminAPIClientBase,
-    Criteria,
-    EqualsFilter,
     HEADER_index_asynchronously,
 )
 
@@ -57,7 +55,7 @@ def sync_inventory_to_shopware():
         )
 
 
-def sync_all_inventory() -> Dict[str, int]:
+def sync_all_inventory() -> dict[str, int]:
     """
     Sync all synced items' stock levels to Shopware.
 
@@ -132,7 +130,7 @@ def sync_all_inventory() -> Dict[str, int]:
     return {"synced": synced, "errors": errors}
 
 
-def _send_stock_updates_with_tracking(client: Shopware6AdminAPIClientBase, updates: List[Dict]) -> Dict[str, int]:
+def _send_stock_updates_with_tracking(client: Shopware6AdminAPIClientBase, updates: list[dict]) -> dict[str, int]:
     """
     Send batch stock updates with granular error tracking (Shopify pattern).
 
@@ -173,7 +171,7 @@ def _send_stock_updates_with_tracking(client: Shopware6AdminAPIClientBase, updat
     return {"success": success, "errors": errors}
 
 
-def _send_stock_updates(client: Shopware6AdminAPIClientBase, updates: List[Dict]) -> None:
+def _send_stock_updates(client: Shopware6AdminAPIClientBase, updates: list[dict]) -> None:
     """
     Send batch stock updates to Shopware using the sync API.
 
@@ -261,7 +259,7 @@ def get_stock_qty(item_code: str, warehouse: str = None) -> float:
 
 
 @frappe.whitelist()
-def sync_single_item_stock(item_code: str) -> Dict[str, Any]:
+def sync_single_item_stock(item_code: str) -> dict[str, Any]:
     """
     Sync stock for a single item to Shopware.
 

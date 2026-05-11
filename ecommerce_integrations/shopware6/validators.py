@@ -5,12 +5,11 @@ Input validation for Shopware data to ensure data integrity
 and provide clear error messages.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import frappe
 
 from ecommerce_integrations.shopware6.utils import get_logger
-from frappe import _
 
 
 class ValidationError(Exception):
@@ -34,7 +33,7 @@ class ShopwareDataValidator:
     WEBHOOK_REQUIRED_FIELDS = ["source", "data"]
 
     @classmethod
-    def validate_order(cls, order_data: Dict[str, Any]) -> Tuple[bool, List[str]]:
+    def validate_order(cls, order_data: dict[str, Any]) -> tuple[bool, list[str]]:
         """
         Validate Shopware order data.
 
@@ -81,7 +80,7 @@ class ShopwareDataValidator:
         return len(errors) == 0, errors
 
     @classmethod
-    def validate_customer(cls, customer_data: Dict[str, Any]) -> Tuple[bool, List[str]]:
+    def validate_customer(cls, customer_data: dict[str, Any]) -> tuple[bool, list[str]]:
         """
         Validate Shopware customer data.
 
@@ -114,7 +113,7 @@ class ShopwareDataValidator:
         return len(errors) == 0, errors
 
     @classmethod
-    def validate_product(cls, product_data: Dict[str, Any]) -> Tuple[bool, List[str]]:
+    def validate_product(cls, product_data: dict[str, Any]) -> tuple[bool, list[str]]:
         """
         Validate Shopware product data.
 
@@ -154,7 +153,7 @@ class ShopwareDataValidator:
         return len(errors) == 0, errors
 
     @classmethod
-    def validate_category(cls, category_data: Dict[str, Any]) -> Tuple[bool, List[str]]:
+    def validate_category(cls, category_data: dict[str, Any]) -> tuple[bool, list[str]]:
         """
         Validate Shopware category data.
 
@@ -182,7 +181,7 @@ class ShopwareDataValidator:
         return len(errors) == 0, errors
 
     @classmethod
-    def validate_webhook_payload(cls, payload: Dict[str, Any]) -> Tuple[bool, List[str]]:
+    def validate_webhook_payload(cls, payload: dict[str, Any]) -> tuple[bool, list[str]]:
         """
         Validate Shopware webhook payload.
 
@@ -213,7 +212,7 @@ class ShopwareDataValidator:
         return len(errors) == 0, errors
 
     @classmethod
-    def validate_line_item(cls, line_item: Dict[str, Any]) -> Tuple[bool, List[str]]:
+    def validate_line_item(cls, line_item: dict[str, Any]) -> tuple[bool, list[str]]:
         """
         Validate Shopware order line item.
 
@@ -268,7 +267,7 @@ class ERPNextDataValidator:
     """
 
     @classmethod
-    def validate_item_for_export(cls, item_code: str) -> Tuple[bool, List[str]]:
+    def validate_item_for_export(cls, item_code: str) -> tuple[bool, list[str]]:
         """
         Validate an ERPNext Item before exporting to Shopware.
 
@@ -309,7 +308,7 @@ class ERPNextDataValidator:
         return len(errors) == 0, errors
 
     @classmethod
-    def validate_customer_for_export(cls, customer_name: str) -> Tuple[bool, List[str]]:
+    def validate_customer_for_export(cls, customer_name: str) -> tuple[bool, list[str]]:
         """
         Validate an ERPNext Customer before exporting to Shopware.
 
@@ -363,7 +362,7 @@ class ERPNextDataValidator:
 
 def validate_and_log(
     validator_func,
-    data: Dict[str, Any],
+    data: dict[str, Any],
     entity_type: str,
     entity_id: str = None
 ) -> bool:
@@ -461,7 +460,7 @@ def validate_before_destructive_operation(
 
 
 def validate_bulk_delete(
-    items_to_delete: List[Any],
+    items_to_delete: list[Any],
     item_type: str,
     threshold: int = 50,
     force: bool = False

@@ -24,14 +24,14 @@ Usage:
     result = manager.full_reconciliation_no_brainer()
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 from dataclasses import dataclass, field
 
 import frappe
 from frappe import _
 from frappe.utils import now, cint
 
-from ecommerce_integrations.shopware6.connection import get_shopware_client, temp_shopware_session
+from ecommerce_integrations.shopware6.connection import get_shopware_client
 from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCTYPE
 from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log, update_shopware_log
 
@@ -77,7 +77,7 @@ class ReconciliationResult:
     properties_deleted: int = 0
 
     # Error tracking
-    errors: List[Dict] = field(default_factory=list)
+    errors: list[dict] = field(default_factory=list)
 
     @property
     def summary(self) -> str:
@@ -133,7 +133,7 @@ class SyncManager:
         if not self.setting.is_enabled():
             frappe.throw(_("Shopware integration is not enabled"))
 
-    def sync_item(self, item_code: str, sync_images: bool = True) -> Dict[str, Any]:
+    def sync_item(self, item_code: str, sync_images: bool = True) -> dict[str, Any]:
         """
         Sync a single item to Shopware.
 
@@ -145,8 +145,7 @@ class SyncManager:
             dict with sync result
         """
         from ecommerce_integrations.shopware6.export.product_uploader import (
-            sync_item_if_changed,
-            ShopwareProductUploader
+            sync_item_if_changed
         )
 
         result = sync_item_if_changed(item_code, force=False)
@@ -158,9 +157,9 @@ class SyncManager:
 
     def sync_items_batch(
         self,
-        item_codes: List[str],
+        item_codes: list[str],
         sync_images: bool = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Sync multiple items to Shopware.
 
@@ -381,7 +380,7 @@ class SyncManager:
 
         return result
 
-    def _sync_all_categories(self, client, dry_run: bool) -> Dict[str, Any]:
+    def _sync_all_categories(self, client, dry_run: bool) -> dict[str, Any]:
         """Sync all categories from ERPNext to Shopware."""
         from ecommerce_integrations.shopware6.export.reconciliation import (
             sync_all_categories_to_shopware
@@ -402,7 +401,7 @@ class SyncManager:
         limit: int,
         sync_images: bool,
         dry_run: bool
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Sync all products from ERPNext to Shopware with batch logging."""
         from ecommerce_integrations.shopware6.export.product_uploader import upload_erpnext_item_to_shopware
         
@@ -519,7 +518,7 @@ class SyncManager:
         
         return stats
 
-    def _sync_all_variants(self, client, dry_run: bool) -> Dict[str, Any]:
+    def _sync_all_variants(self, client, dry_run: bool) -> dict[str, Any]:
         """Sync all variant products with batch logging."""
         from ecommerce_integrations.shopware6.export.template_handler import (
             upload_template_item_to_shopware
@@ -594,7 +593,7 @@ class SyncManager:
 
         return stats
 
-    def _sync_all_products_batch(self, client, sync_images: bool = True) -> Dict[str, Any]:
+    def _sync_all_products_batch(self, client, sync_images: bool = True) -> dict[str, Any]:
         """
         Batch-sync all products using Shopware Sync API (5-10x faster).
 
@@ -737,7 +736,7 @@ class SyncManager:
         limit: int,
         dry_run: bool,
         use_batch: bool = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Force sync all prices, fixing any broken 0.01 prices."""
         price_list = getattr(self.setting, 'default_selling_price_list', 'Standard-Vertrieb')
 
@@ -783,7 +782,7 @@ class SyncManager:
                 force=True
             )
 
-    def _cleanup_orphan_variants(self, client, use_batch: bool = True) -> Dict[str, Any]:
+    def _cleanup_orphan_variants(self, client, use_batch: bool = True) -> dict[str, Any]:
         """Delete variants in Shopware that don't exist in ERPNext."""
         if use_batch:
             # BATCH MODE: Use Sync API for faster deletion
@@ -834,7 +833,7 @@ class SyncManager:
 
             return stats
 
-    def _cleanup_orphan_categories(self, client) -> Dict[str, Any]:
+    def _cleanup_orphan_categories(self, client) -> dict[str, Any]:
         """Delete categories in Shopware that don't exist in ERPNext."""
         from ecommerce_integrations.shopware6.export.reconciliation import (
             cleanup_orphaned_shopware_categories
@@ -851,7 +850,7 @@ class SyncManager:
             "deleted": result.get("statistics", {}).get("deleted", 0)
         }
 
-    def _cleanup_orphan_properties(self, client, use_batch: bool = True) -> Dict[str, Any]:
+    def _cleanup_orphan_properties(self, client, use_batch: bool = True) -> dict[str, Any]:
         """Delete property groups in Shopware that don't exist in ERPNext."""
         if use_batch:
             # BATCH MODE: Use Sync API for faster deletion
@@ -922,7 +921,7 @@ class SyncManager:
         client,
         limit: int,
         dry_run: bool
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Sync stock levels from ERPNext to Shopware."""
         from ecommerce_integrations.shopware6.inventory import sync_stock_for_all_items
 
@@ -957,7 +956,7 @@ def quick_reconciliation(
     limit: int = 100,
     sync_images: bool = False,
     dry_run: bool = False
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Quick reconciliation for small batches.
 
@@ -1015,7 +1014,7 @@ def full_reconciliation_no_brainer(
     skip_prices: bool = False,
     skip_cleanup: bool = False,
     log_name: str = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     THE NO-BRAINER FUNCTION.
 
@@ -1182,7 +1181,7 @@ def enqueue_full_reconciliation_no_brainer(
     skip_variants: bool = False,
     skip_prices: bool = False,
     skip_cleanup: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Enqueue the no-brainer reconciliation as a background job.
 

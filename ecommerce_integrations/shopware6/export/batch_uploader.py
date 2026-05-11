@@ -11,7 +11,7 @@ Key improvements over sequential upload:
 """
 
 import time
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any
 from dataclasses import dataclass, field
 
 import frappe
@@ -27,7 +27,7 @@ from ecommerce_integrations.shopware6.constants import (
     PRODUCT_CUSTOM_FIELDS_MAP,
 )
 from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
-from ecommerce_integrations.shopware6.export.utils import generate_uuid, get_shopware_document_id
+from ecommerce_integrations.shopware6.export.utils import generate_uuid
 from ecommerce_integrations.shopware6.export.product_mapper import get_product_visibilities, get_actual_variant_values
 from ecommerce_integrations.shopware6.base.cache_manager import get_cache
 
@@ -105,11 +105,11 @@ class BatchUploadResult:
     success: int = 0
     failed: int = 0
     skipped: int = 0
-    errors: List[Dict[str, Any]] = field(default_factory=list)
-    created_ids: List[str] = field(default_factory=list)  # Shopware IDs
-    updated_ids: List[str] = field(default_factory=list)  # Shopware IDs
-    processed_item_codes: List[str] = field(default_factory=list)  # ERPNext item codes
-    skipped_items: List[Dict[str, str]] = field(default_factory=list)  # {item_code, reason}
+    errors: list[dict[str, Any]] = field(default_factory=list)
+    created_ids: list[str] = field(default_factory=list)  # Shopware IDs
+    updated_ids: list[str] = field(default_factory=list)  # Shopware IDs
+    processed_item_codes: list[str] = field(default_factory=list)  # ERPNext item codes
+    skipped_items: list[dict[str, str]] = field(default_factory=list)  # {item_code, reason}
 
 
 class BatchProductUploader:
@@ -127,7 +127,7 @@ class BatchProductUploader:
         uploader = BatchProductUploader(progress_callback=on_progress)
     """
 
-    def __init__(self, progress_callback: Optional[callable] = None):
+    def __init__(self, progress_callback: callable | None = None):
         """
         Initialize the batch uploader.
 
@@ -140,17 +140,17 @@ class BatchProductUploader:
         self.progress_callback = progress_callback
 
         # Pre-cached lookups (populated once per batch)
-        self._currency_id: Optional[str] = None
-        self._tax_ids: Dict[float, str] = {}
-        self._manufacturer_ids: Dict[str, str] = {}
-        self._category_cache: Dict[str, List[str]] = {}
-        self._existing_products: Dict[str, str] = {}  # item_code -> shopware_id
+        self._currency_id: str | None = None
+        self._tax_ids: dict[float, str] = {}
+        self._manufacturer_ids: dict[str, str] = {}
+        self._category_cache: dict[str, list[str]] = {}
+        self._existing_products: dict[str, str] = {}  # item_code -> shopware_id
 
         # Bulk property caches (populated per template batch)
-        self._property_groups: Dict[str, str] = {}  # group_name -> group_id
-        self._property_options: Dict[str, str] = {}  # "group_name:option_value" -> option_id
+        self._property_groups: dict[str, str] = {}  # group_name -> group_id
+        self._property_options: dict[str, str] = {}  # "group_name:option_value" -> option_id
 
-    def upload_items(self, item_codes: List[str], skip_images: bool = False, start_batch: int = 1) -> BatchUploadResult:
+    def upload_items(self, item_codes: list[str], skip_images: bool = False, start_batch: int = 1) -> BatchUploadResult:
         """
         Upload multiple items to Shopware in batches.
 
@@ -322,7 +322,7 @@ class BatchProductUploader:
         except Exception as e:
             self.logger.warning(f"Could not ensure custom field set: {e}")
 
-    def _load_existing_mappings(self, item_codes: List[str]) -> None:
+    def _load_existing_mappings(self, item_codes: list[str]) -> None:
         """Load existing Ecommerce Item mappings in batch."""
         if not item_codes:
             return
@@ -341,7 +341,7 @@ class BatchProductUploader:
             for m in mappings
         }
 
-    def _reconcile_with_shopware(self, client, item_codes: List[str]) -> None:
+    def _reconcile_with_shopware(self, client, item_codes: list[str]) -> None:
         """
         Lookup products in Shopware by productNumber and reconcile mappings.
         This ensures we always update existing products even if Ecommerce Item mapping is missing.
@@ -416,7 +416,7 @@ class BatchProductUploader:
     def _process_batch(
         self,
         client,
-        item_codes: List[str],
+        item_codes: list[str],
         skip_images: bool = False
     ) -> BatchUploadResult:
         """
@@ -581,7 +581,7 @@ class BatchProductUploader:
 
         return result
 
-    def _batch_read_items(self, item_codes: List[str]) -> Dict[str, Dict]:
+    def _batch_read_items(self, item_codes: list[str]) -> dict[str, dict]:
         """
         Read multiple items from ERPNext in a single query.
 
@@ -646,7 +646,7 @@ class BatchProductUploader:
 
         return simple_items
 
-    def _batch_load_prices(self, item_codes: List[str], items_dict: Dict) -> None:
+    def _batch_load_prices(self, item_codes: list[str], items_dict: dict) -> None:
         """Load prices for multiple items."""
         if not item_codes:
             return
@@ -671,7 +671,7 @@ class BatchProductUploader:
             if price.item_code in items_dict:
                 items_dict[price.item_code]["_price"] = flt(price.price_list_rate)
 
-    def _batch_load_barcodes(self, item_codes: List[str], items_dict: Dict) -> None:
+    def _batch_load_barcodes(self, item_codes: list[str], items_dict: dict) -> None:
         """Load barcodes for multiple items."""
         if not item_codes:
             return
@@ -690,7 +690,7 @@ class BatchProductUploader:
                 items_dict[bc.parent]["_barcode"] = bc.barcode
                 seen.add(bc.parent)
 
-    def _batch_load_taxes(self, item_codes: List[str], items_dict: Dict) -> None:
+    def _batch_load_taxes(self, item_codes: list[str], items_dict: dict) -> None:
         """Load tax rates for multiple items."""
         if not item_codes:
             return
@@ -703,7 +703,7 @@ class BatchProductUploader:
         )
 
         # Get rates from templates
-        templates = set(t.item_tax_template for t in taxes if t.item_tax_template)
+        templates = {t.item_tax_template for t in taxes if t.item_tax_template}
         template_rates = {}
 
         if templates:
@@ -720,7 +720,7 @@ class BatchProductUploader:
             if tax.parent in items_dict and tax.item_tax_template in template_rates:
                 items_dict[tax.parent]["_tax_rate"] = template_rates[tax.item_tax_template]
 
-    def _batch_load_ecommerce_properties(self, item_codes: List[str], items_dict: Dict) -> None:
+    def _batch_load_ecommerce_properties(self, item_codes: list[str], items_dict: dict) -> None:
         """
         Load ecommerce_properties child table for multiple items (Shopware-relevant only).
 
@@ -758,8 +758,8 @@ class BatchProductUploader:
     def _build_product_payload(
         self,
         client,
-        item_data: Dict
-    ) -> Tuple[Optional[Dict], bool, Optional[str]]:
+        item_data: dict
+    ) -> tuple[dict | None, bool, str | None]:
         """
         Build Shopware product payload from ERPNext item data.
 
@@ -914,7 +914,7 @@ class BatchProductUploader:
 
         return payload, is_new, None  # No skip reason - success
 
-    def _get_currency_id(self, client, code: str = "EUR") -> Optional[str]:
+    def _get_currency_id(self, client, code: str = "EUR") -> str | None:
         """Get currency ID with caching."""
         cached = self.cache.get_currency_id(code)
         if cached:
@@ -934,7 +934,7 @@ class BatchProductUploader:
             pass
         return None
 
-    def _get_tax_id(self, client, rate: float) -> Optional[str]:
+    def _get_tax_id(self, client, rate: float) -> str | None:
         """Get tax ID with caching."""
         rate = round(rate, 2)
         cached = self.cache.get("tax", str(rate))
@@ -955,7 +955,7 @@ class BatchProductUploader:
             pass
         return None
 
-    def _get_manufacturer_id(self, client, name: str) -> Optional[str]:
+    def _get_manufacturer_id(self, client, name: str) -> str | None:
         """Get or create manufacturer with caching."""
         if not name:
             return None
@@ -992,7 +992,7 @@ class BatchProductUploader:
             return None
 
 
-    def _batch_update_visibilities(self, client, visibility_updates: List[Dict]) -> None:
+    def _batch_update_visibilities(self, client, visibility_updates: list[dict]) -> None:
         """
         BATCH update product visibilities using Shopware Sync API.
 
@@ -1132,7 +1132,7 @@ class BatchProductUploader:
     def _batch_sync_categories(
         self,
         client,
-        products_with_categories: List[Dict]
+        products_with_categories: list[dict]
     ) -> None:
         """
         BATCH sync product categories - only delete removed categories.
@@ -1234,7 +1234,7 @@ class BatchProductUploader:
         else:
             self.logger.debug("[BATCH] No category removals needed")
 
-    def _get_default_sales_channel_id(self, client) -> Optional[str]:
+    def _get_default_sales_channel_id(self, client) -> str | None:
         """Get default sales channel ID."""
         # Check setting first
         for sc in (self.setting.sales_channels or []):
@@ -1263,7 +1263,7 @@ class BatchProductUploader:
 
         return None
 
-    def _get_delivery_time_id(self, client, delivery_time_name: str) -> Optional[str]:
+    def _get_delivery_time_id(self, client, delivery_time_name: str) -> str | None:
         """
         Get or create delivery time ID with caching.
 
@@ -1288,7 +1288,7 @@ class BatchProductUploader:
 
         return delivery_time_id
 
-    def _build_custom_fields(self, item_data: Dict) -> Dict[str, Any]:
+    def _build_custom_fields(self, item_data: dict) -> dict[str, Any]:
         """
         Build Shopware custom fields dict from ERPNext item data.
 
@@ -1325,7 +1325,7 @@ class BatchProductUploader:
     # BATCH TEMPLATE UPLOAD
     # =========================================================================
 
-    def upload_templates(self, item_codes: List[str], skip_images: bool = False, start_batch: int = 1) -> BatchUploadResult:
+    def upload_templates(self, item_codes: list[str], skip_images: bool = False, start_batch: int = 1) -> BatchUploadResult:
         """
         Upload multiple template items (has_variants=1) to Shopware in batches.
         Uses Sync API for bulk upsert with configuratorSettings.
@@ -1339,10 +1339,6 @@ class BatchProductUploader:
             BatchUploadResult with statistics
         """
         from ecommerce_integrations.shopware6.connection import get_shopware_client
-        from ecommerce_integrations.shopware6.export.property_handler import (
-            get_or_create_property_group,
-            get_or_create_variant_option,
-        )
 
         result = BatchUploadResult(total=len(item_codes))
 
@@ -1374,8 +1370,8 @@ class BatchProductUploader:
         self._reconcile_with_shopware(client, item_codes)
 
         # Pre-cache property groups and options for all templates
-        self._property_group_cache: Dict[str, str] = {}
-        self._option_cache: Dict[str, str] = {}
+        self._property_group_cache: dict[str, str] = {}
+        self._option_cache: dict[str, str] = {}
 
         # Process in batches
         total_batches = (len(item_codes) + BATCH_SIZE - 1) // BATCH_SIZE
@@ -1484,12 +1480,11 @@ class BatchProductUploader:
     def _process_template_batch(
         self,
         client,
-        item_codes: List[str],
+        item_codes: list[str],
         skip_images: bool = False
     ) -> BatchUploadResult:
         """Process a batch of template items using Shopware Sync API."""
         # Note: property_handler imports moved to _get_property_group_id/_get_property_option_id (fallback only)
-        from ecommerce_integrations.shopware6.export.category_handler import sync_all_item_categories
 
         result = BatchUploadResult(total=len(item_codes))
         self.logger.info(f"[TIMING] _process_template_batch START for {len(item_codes)} items")
@@ -1664,7 +1659,7 @@ class BatchProductUploader:
 
         return result
 
-    def _bulk_clear_configurator_settings(self, client, product_ids: List[str]) -> set:
+    def _bulk_clear_configurator_settings(self, client, product_ids: list[str]) -> set:
         """
         Bulk clear configuratorSettings for multiple products using Sync API.
 
@@ -1738,7 +1733,7 @@ class BatchProductUploader:
     def _bulk_prefetch_property_groups_and_options(
         self,
         client,
-        templates_data: Dict[str, Dict]
+        templates_data: dict[str, dict]
     ) -> None:
         """
         Bulk prefetch and create property groups and options for all templates.
@@ -1896,7 +1891,7 @@ class BatchProductUploader:
             self._property_groups = {}
             self._property_options = {}
 
-    def _get_property_group_id(self, client, group_name: str) -> Optional[str]:
+    def _get_property_group_id(self, client, group_name: str) -> str | None:
         """Get property group ID from local cache or fall back to API."""
         # Check local batch cache first
         if group_name in self._property_groups:
@@ -1909,7 +1904,7 @@ class BatchProductUploader:
             self._property_groups[group_name] = group_id
         return group_id
 
-    def _get_property_option_id(self, client, group_id: str, group_name: str, option_value: str) -> Optional[str]:
+    def _get_property_option_id(self, client, group_id: str, group_name: str, option_value: str) -> str | None:
         """Get property option ID from local cache or fall back to API."""
         key = f"{group_name}:{option_value}"
 
@@ -1924,7 +1919,7 @@ class BatchProductUploader:
             self._property_options[key] = option_id
         return option_id
 
-    def _batch_read_templates(self, item_codes: List[str]) -> Dict[str, Dict]:
+    def _batch_read_templates(self, item_codes: list[str]) -> dict[str, dict]:
         """Read multiple template items from ERPNext with their attributes."""
         if not item_codes:
             return {}
@@ -1971,7 +1966,7 @@ class BatchProductUploader:
 
         return items_dict
 
-    def _batch_load_template_attributes(self, item_codes: List[str], items_dict: Dict) -> None:
+    def _batch_load_template_attributes(self, item_codes: list[str], items_dict: dict) -> None:
         """Load Item Variant Attributes for templates using ACTUAL variant values.
 
         IMPORTANT: This uses get_actual_variant_values() to get values that are
@@ -2015,8 +2010,8 @@ class BatchProductUploader:
     def _build_template_payload(
         self,
         client,
-        item_data: Dict
-    ) -> Tuple[Optional[Dict], bool, Optional[str]]:
+        item_data: dict
+    ) -> tuple[dict | None, bool, str | None]:
         """Build Shopware template product payload with configuratorSettings.
 
         Returns:
@@ -2188,7 +2183,7 @@ class BatchProductUploader:
     # BATCH VARIANT UPLOAD
     # =========================================================================
 
-    def upload_variants(self, item_codes: List[str], skip_images: bool = False, start_batch: int = 1) -> BatchUploadResult:
+    def upload_variants(self, item_codes: list[str], skip_images: bool = False, start_batch: int = 1) -> BatchUploadResult:
         """
         Upload multiple variant items to Shopware in batches.
         Uses Sync API for bulk upsert with parentId and options.
@@ -2347,7 +2342,7 @@ class BatchProductUploader:
     def _process_variant_batch(
         self,
         client,
-        item_codes: List[str],
+        item_codes: list[str],
         skip_images: bool = False
     ) -> BatchUploadResult:
         """Process a batch of variant items using Shopware Sync API."""
@@ -2463,7 +2458,7 @@ class BatchProductUploader:
 
         return result
 
-    def _batch_read_variants(self, item_codes: List[str]) -> Dict[str, Dict]:
+    def _batch_read_variants(self, item_codes: list[str]) -> dict[str, dict]:
         """Read multiple variant items from ERPNext with their attribute values."""
         if not item_codes:
             return {}
@@ -2521,7 +2516,7 @@ class BatchProductUploader:
 
         return items_dict
 
-    def _batch_load_variant_attributes(self, item_codes: List[str], items_dict: Dict) -> None:
+    def _batch_load_variant_attributes(self, item_codes: list[str], items_dict: dict) -> None:
         """Load variant attribute values for variant items."""
         if not item_codes:
             return
@@ -2543,8 +2538,8 @@ class BatchProductUploader:
     def _build_variant_payload(
         self,
         client,
-        item_data: Dict
-    ) -> Tuple[Optional[Dict], bool, Optional[str]]:
+        item_data: dict
+    ) -> tuple[dict | None, bool, str | None]:
         """Build Shopware variant product payload with parentId and options.
 
         Returns:
@@ -2700,7 +2695,7 @@ class BatchProductUploader:
         return payload, is_new, None  # No skip reason - success
 
 
-def batch_upload_products(item_codes: List[str], skip_images: bool = True) -> Dict[str, Any]:
+def batch_upload_products(item_codes: list[str], skip_images: bool = True) -> dict[str, Any]:
     """
     Convenience function for batch uploading products.
 
@@ -2726,7 +2721,7 @@ def batch_upload_products(item_codes: List[str], skip_images: bool = True) -> Di
     }
 
 
-def get_all_item_codes_by_type() -> Dict[str, List[str]]:
+def get_all_item_codes_by_type() -> dict[str, list[str]]:
     """Get all item codes grouped by type (including disabled - they sync as active=false)."""
 
     # Templates (has_variants=1) - including disabled (will be synced as active=false)

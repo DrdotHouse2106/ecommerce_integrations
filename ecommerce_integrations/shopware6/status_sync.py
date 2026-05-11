@@ -13,15 +13,11 @@ Invoice Creation Policy (German Law Compliant):
 """
 
 import frappe
-from frappe import _
-from typing import Optional
 
 from ecommerce_integrations.shopware6.connection import temp_shopware_session
 from ecommerce_integrations.shopware6.constants import (
     SETTING_DOCTYPE,
     ORDER_ID_FIELD,
-    DELIVERY_ID_FIELD,
-    TRANSACTION_ID_FIELD,
 )
 from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
 
@@ -210,7 +206,7 @@ def create_invoice_from_delivery_note(
     delivery_note_name: str,
     sales_order_name: str,
     shopware_order_id: str
-) -> Optional[str]:
+) -> str | None:
     """
     Create Sales Invoice from Delivery Note after shipment.
 
@@ -483,7 +479,6 @@ def on_sales_order_submit(doc, method=None):
 
         # Fetch current order data from Shopware
         from ecommerce_integrations.shopware6.order.order_sync import (
-            sync_order_by_id,
             _create_delivery_note_if_shipped,
             _create_invoice_if_paid,
         )

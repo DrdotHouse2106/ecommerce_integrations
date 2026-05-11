@@ -6,7 +6,6 @@ Creates rules with condition "Sales Channel = X" that are then used
 to attach channel-specific prices to products.
 """
 
-from typing import Optional, Dict, Any
 
 import frappe
 
@@ -18,7 +17,7 @@ def get_or_create_sales_channel_rule(
     client,
     sales_channel_id: str,
     sales_channel_name: str
-) -> Optional[str]:
+) -> str | None:
     """
     Get existing or create new Shopware Rule for a sales channel.
 
@@ -98,7 +97,7 @@ def get_or_create_sales_channel_rule(
         return None
 
 
-def ensure_all_channel_rules(client, setting) -> Dict[str, str]:
+def ensure_all_channel_rules(client, setting) -> dict[str, str]:
     """
     Ensure all sales channels have corresponding Shopware rules.
 
@@ -138,7 +137,7 @@ def ensure_all_channel_rules(client, setting) -> Dict[str, str]:
     return rule_map
 
 
-def get_channel_rule_id(client, sales_channel_id: str, setting) -> Optional[str]:
+def get_channel_rule_id(client, sales_channel_id: str, setting) -> str | None:
     """
     Get the Shopware rule ID for a specific sales channel.
 

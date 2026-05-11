@@ -5,7 +5,6 @@ Handles variant product upload for products that are variants of a template.
 Creates variants as child products linked to the parent product.
 """
 
-from typing import Optional
 
 import frappe
 
@@ -38,7 +37,7 @@ from ecommerce_integrations.shopware6.export.category_handler import (
 )
 
 
-def upload_variant_item_to_shopware(client, variant_item) -> Optional[str]:
+def upload_variant_item_to_shopware(client, variant_item) -> str | None:
     """
     Export an ERPNext variant item to Shopware as a child product.
 

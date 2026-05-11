@@ -20,7 +20,7 @@ Features:
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 from frappe.utils import flt
 
 import frappe
@@ -59,10 +59,10 @@ class ConflictReport:
     item_code: str
     shopware_id: str
     has_conflicts: bool = False
-    differences: List[FieldDifference] = field(default_factory=list)
+    differences: list[FieldDifference] = field(default_factory=list)
     missing_in_shopware: bool = False
     orphaned_in_shopware: bool = False  # Exists in Shopware but not in ERPNext
-    error: Optional[str] = None
+    error: str | None = None
 
     @property
     def needs_sync(self) -> bool:
@@ -122,7 +122,7 @@ class ConflictDetector:
     def detect_conflicts(
         self,
         erpnext_item,
-        shopware_data: Dict[str, Any]
+        shopware_data: dict[str, Any]
     ) -> ConflictReport:
         """
         Detect all differences between ERPNext Item and Shopware Product.
@@ -158,7 +158,7 @@ class ConflictDetector:
     def _compare_basic_fields(
         self,
         erpnext_item,
-        shopware_data: Dict[str, Any],
+        shopware_data: dict[str, Any],
         report: ConflictReport
     ):
         """Compare basic product fields."""
@@ -229,7 +229,7 @@ class ConflictDetector:
     def _compare_price(
         self,
         erpnext_item,
-        shopware_data: Dict[str, Any],
+        shopware_data: dict[str, Any],
         report: ConflictReport
     ):
         """Compare product prices."""
@@ -262,7 +262,7 @@ class ConflictDetector:
     def _compare_active_status(
         self,
         erpnext_item,
-        shopware_data: Dict[str, Any],
+        shopware_data: dict[str, Any],
         report: ConflictReport
     ):
         """Compare active/disabled status."""
@@ -279,7 +279,7 @@ class ConflictDetector:
     def _compare_categories(
         self,
         erpnext_item,
-        shopware_data: Dict[str, Any],
+        shopware_data: dict[str, Any],
         report: ConflictReport
     ):
         """Compare category assignments."""
@@ -308,7 +308,7 @@ class ConflictDetector:
     def _compare_images(
         self,
         erpnext_item,
-        shopware_data: Dict[str, Any],
+        shopware_data: dict[str, Any],
         report: ConflictReport
     ):
         """Compare product images."""
@@ -338,7 +338,7 @@ class ConflictDetector:
     def _compare_stock(
         self,
         erpnext_item,
-        shopware_data: Dict[str, Any],
+        shopware_data: dict[str, Any],
         report: ConflictReport
     ):
         """Compare stock levels (only if stock sync is enabled)."""
@@ -370,9 +370,9 @@ class ConflictDetector:
 
 
 def detect_all_conflicts(
-    item_codes: List[str] = None,
+    item_codes: list[str] = None,
     limit: int = 100
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Detect conflicts for multiple products.
 

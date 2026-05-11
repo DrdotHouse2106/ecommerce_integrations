@@ -4,7 +4,7 @@ Shopware 6 Line Item Handler
 Handles processing of order line items (products, shipping, discounts).
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 import frappe
 from frappe.utils import flt
@@ -12,17 +12,14 @@ from frappe.utils import flt
 from ecommerce_integrations.shopware6.product import get_item_code
 from ecommerce_integrations.shopware6.utils import (
     get_logger,
-    get_net_unit_price_from_line_item,
-    get_tax_rate_from_line_item,
-    convert_gross_to_net,
 )
 
 
 def add_order_item(
     so: "frappe.Document",
-    line_item: Dict[str, Any],
+    line_item: dict[str, Any],
     setting,
-    tax_status: Optional[str] = None,
+    tax_status: str | None = None,
 ) -> None:
     """
     Add a line item to the Sales Order.
@@ -127,9 +124,9 @@ def add_order_item(
 
 def _add_shipping_item(
     so: "frappe.Document",
-    line_item: Dict[str, Any],
+    line_item: dict[str, Any],
     setting,
-    tax_status: Optional[str] = None,
+    tax_status: str | None = None,
 ) -> None:
     """Add shipping as a line item.
 
@@ -158,9 +155,9 @@ def _add_shipping_item(
 
 def add_shipping_costs(
     so: "frappe.Document",
-    order_data: Dict[str, Any],
+    order_data: dict[str, Any],
     setting,
-    tax_status: Optional[str] = None,
+    tax_status: str | None = None,
 ) -> None:
     """
     Add shipping costs as a line item to the Sales Order.
@@ -233,9 +230,9 @@ def add_shipping_costs(
 
 def _add_discount_item(
     so: "frappe.Document",
-    line_item: Dict[str, Any],
+    line_item: dict[str, Any],
     setting,
-    tax_status: Optional[str] = None,
+    tax_status: str | None = None,
 ) -> None:
     """
     Add a discount/promotion as a negative line item.

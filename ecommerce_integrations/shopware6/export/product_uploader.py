@@ -8,7 +8,6 @@ NOTE: This class was renamed from ShopwareProduct to ShopwareProductUploader
 to avoid confusion with the import class in product.py.
 """
 
-from typing import Optional
 
 import frappe
 from frappe import _
@@ -79,7 +78,7 @@ class ShopwareProductUploader:
         """Get the ERPNext Item document."""
         return frappe.get_doc("Item", self.item_code)
 
-    def upload(self) -> Optional[str]:
+    def upload(self) -> str | None:
         """
         Upload or update product in Shopware.
 
@@ -189,7 +188,7 @@ class ShopwareProductUploader:
                 persist=False  # Don't clutter logs with visibility errors
             )
 
-    def _upload_simple_product(self, client, item) -> Optional[str]:
+    def _upload_simple_product(self, client, item) -> str | None:
         """
         Upload a simple (non-variant) product.
 
@@ -466,7 +465,7 @@ def deactivate_product_in_shopware(item_code: str) -> bool:
     return True
 
 
-def upload_erpnext_item_to_shopware(item_code: str) -> Optional[str]:
+def upload_erpnext_item_to_shopware(item_code: str) -> str | None:
     """
     Convenience function to upload an ERPNext Item to Shopware.
 
@@ -499,7 +498,6 @@ def sync_item_if_changed(item_code: str, force: bool = False) -> dict:
     """
     from ecommerce_integrations.shopware6.connection import get_shopware_client
     from ecommerce_integrations.shopware6.export.reconciliation import compare_item_with_shopware
-    from frappe.utils import flt
     from ecommerce_integrations.shopware6.utils import require_item_write_permission
 
     require_item_write_permission(item_code)
