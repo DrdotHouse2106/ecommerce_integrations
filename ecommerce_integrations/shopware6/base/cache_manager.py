@@ -172,16 +172,22 @@ class ShopwareCacheManager:
         """
         Invalidate all entries of a specific cache type.
 
-        Note: This uses Redis key pattern matching which may be slow
-        for large numbers of keys. Use sparingly.
-
         Args:
             cache_type: Type of cache to clear
         """
-        pattern = self._make_key(cache_type, "*")
-        keys = self._redis.get_keys(pattern)
-        for key in keys:
-            self._redis.delete_value(key)
+        # Use SCAN, not KEYS — KEYS is O(N) over the whole Redis keyspace
+        # and blocks all clients for the duration. SCAN streams in cursor
+        # batches so the worker doesn't starve neighbouring sites.
+        # ``make_key`` prepends the Frappe site prefix; delete_value with
+        # make_keys=False then operates on the already-prefixed bytes.
+        pattern = self._redis.make_key(self._make_key(cache_type, "*"))
+        cursor = 0
+        while True:
+            cursor, batch = self._redis.scan(cursor=cursor, match=pattern, count=500)
+            if batch:
+                self._redis.delete_value(batch, make_keys=False)
+            if cursor == 0:
+                break
 
         # Clear request cache entries of this type
         prefix = f"{cache_type}:"

@@ -127,7 +127,37 @@ def make_item(
 
 
 def cleanup_test_data(prefixes: tuple[str, ...] = ("TItem", "TGroup")) -> None:
-    """Delete all Items / Item Groups whose name starts with any test prefix."""
+    """Delete all test-prefixed Items / Item Groups and their child rows.
+
+    Item Manufacturer and Item Ecommerce Property child-table rows are
+    inserted as standalone documents in :func:`make_item`. When the parent
+    Item is deleted via ``frappe.delete_doc`` Frappe normally cascades to
+    the child rows, but a failed parent delete (e.g. linked elsewhere)
+    leaves orphans that the next ``make_item`` call collides with by
+    unique-index. Sweep them explicitly first so the next setUp starts
+    clean even if the previous run died part-way through teardown.
+    """
+    # Item Manufacturer doesn't carry a ``parent`` column on this site —
+    # make_item inserts it as a standalone doc keyed by ``item_code``. Same
+    # story for Item Ecommerce Property (where the link field is ``parent``
+    # because it really is a child table). One DELETE per doctype using the
+    # actual link field — N+1 per-row deletes added up fast on CI runs that
+    # died mid-teardown.
+    prefix_filter = [("like", f"{p}%") for p in prefixes][0] if prefixes else None
+    for child_doctype, link_field in (
+        ("Item Manufacturer", "item_code"),
+        ("Item Ecommerce Property", "parent"),
+    ):
+        if not frappe.db.exists("DocType", child_doctype):
+            continue
+        # One filter per prefix; ``or`` across multiple prefixes is rare in
+        # practice (the default is just ``TItem``/``TGroup``), so we issue
+        # one DELETE per prefix rather than building an IN-clause.
+        for p in prefixes:
+            try:
+                frappe.db.delete(child_doctype, {link_field: ("like", f"{p}%")})
+            except Exception:
+                pass
     for doctype in ("Item", "Item Group"):
         names = frappe.get_all(doctype, filters={"name": ("like", "T%")}, pluck="name")
         for n in names:

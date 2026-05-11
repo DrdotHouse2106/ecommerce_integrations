@@ -90,11 +90,19 @@ class TestResolverDryRun(IntegrationTestCase):
         self.assertEqual(per_rule[0]["matching_count"], 60)
         self.assertEqual(per_rule[1]["matching_count"], 40)
 
+    def _insert_and_reload(self, rules):
+        # Reload so ``before`` and ``after`` both read from the DB: the
+        # Int field's DB default is 0 while the in-memory attribute right
+        # after insert is None, so comparing the two would always differ.
+        coll = self._coll(rules)
+        coll.insert(ignore_permissions=True)
+        coll.reload()
+        return coll
+
     def test_dry_run_does_not_persist_stats(self):
-        coll = self._coll(
+        coll = self._insert_and_reload(
             [{"rule_type": "Item Group", "operator": "equals", "value": self.grp}]
         )
-        coll.insert(ignore_permissions=True)
         try:
             before = (coll.last_resolved_count, coll.last_resolved_at)
             dry_run(coll)
@@ -110,10 +118,9 @@ class TestResolverDryRun(IntegrationTestCase):
             )
 
     def test_resolve_persist_stats_false_does_not_persist(self):
-        coll = self._coll(
+        coll = self._insert_and_reload(
             [{"rule_type": "Item Group", "operator": "equals", "value": self.grp}]
         )
-        coll.insert(ignore_permissions=True)
         try:
             before = (coll.last_resolved_count, coll.last_resolved_at)
             resolve(coll, persist_stats=False)
