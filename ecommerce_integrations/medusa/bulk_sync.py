@@ -13,23 +13,31 @@ Flow:
 import time
 
 import frappe
-from frappe.utils import cint
 
+from ecommerce_integrations.controllers.bulk_sync_base import (
+	BulkModeTracker,
+	acquire_lock,
+	release_lock,
+)
 from ecommerce_integrations.medusa.constants import PRODUCT_ID_FIELD, SETTING_DOCTYPE
 from ecommerce_integrations.medusa.utils import is_medusa_enabled
 
 QUEUE_KEY = "medusa:sync_queue:product"
 PRICE_QUEUE_KEY = "medusa:sync_queue:price"
 LOCK_KEY = "medusa:sync_lock"
-BULK_MODE_KEY = "medusa:bulk_mode"
-REQUEST_COUNT_KEY = "medusa:request_count"
-LAST_REQUEST_KEY = "medusa:last_sync_request"
 
 BATCH_SIZE = 10
 BULK_THRESHOLD = 5
 BULK_WINDOW = 2       # seconds
 BULK_COOLDOWN = 10    # seconds before processing starts
 BATCH_DELAY = 0.5     # seconds between batches
+
+_TRACKER = BulkModeTracker(
+	key_prefix="medusa",
+	threshold=BULK_THRESHOLD,
+	window=BULK_WINDOW,
+	cooldown=BULK_COOLDOWN,
+)
 
 
 def queue_item_for_sync(doc, method=None):
@@ -241,47 +249,22 @@ def _remove_from_queue(item_codes, queue_key):
         cache.delete_value(queue_key)
 
 
-# ── Bulk mode helpers ─────────────────────────────────────────
+# ── Bulk mode + lock helpers ──────────────────────────────────
+# Delegate to controllers.bulk_sync_base so all channels share the same
+# atomic-lock and request-frequency semantics.
 
 def _is_bulk_mode():
-    return bool(frappe.cache.get_value(BULK_MODE_KEY))
+    return _TRACKER.is_active()
 
 
 def _should_activate_bulk_mode():
-    """Check request frequency. Returns True if in bulk mode (existing or just activated)."""
-    cache = frappe.cache
+    """Check request frequency. Returns True if bulk mode is on."""
+    return _TRACKER.should_activate()
 
-    if cache.get_value(BULK_MODE_KEY):
-        cache.set_value(BULK_MODE_KEY, "1", expires_in_sec=BULK_COOLDOWN * 3)
-        return True
-
-    current_time = time.time()
-    last = cache.get_value(LAST_REQUEST_KEY)
-    count = cint(cache.get_value(REQUEST_COUNT_KEY)) or 0
-
-    if last and current_time - float(last) > BULK_WINDOW:
-        count = 0
-
-    count += 1
-    cache.set_value(REQUEST_COUNT_KEY, str(count), expires_in_sec=BULK_WINDOW * 2)
-    cache.set_value(LAST_REQUEST_KEY, str(current_time), expires_in_sec=BULK_WINDOW * 2)
-
-    if count >= BULK_THRESHOLD:
-        cache.set_value(BULK_MODE_KEY, "1", expires_in_sec=BULK_COOLDOWN * 3)
-        return True
-    return False
-
-
-# ── Lock helpers ──────────────────────────────────────────────
 
 def _acquire_lock(timeout=300):
-    cache = frappe.cache
-    lock = cache.get_value(LOCK_KEY)
-    if lock and time.time() - float(lock) < timeout:
-        return False
-    cache.set_value(LOCK_KEY, str(time.time()), expires_in_sec=timeout)
-    return True
+    return acquire_lock(LOCK_KEY, ttl_seconds=timeout)
 
 
 def _release_lock():
-    frappe.cache.delete_value(LOCK_KEY)
+    release_lock(LOCK_KEY)

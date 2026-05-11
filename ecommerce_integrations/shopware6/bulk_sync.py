@@ -14,20 +14,25 @@ Usage:
 """
 
 import time
+
 import frappe
 from frappe.utils import cint
+
+from ecommerce_integrations.controllers.bulk_sync_base import (
+    BulkModeTracker,
+    acquire_lock,
+    release_lock,
+)
 from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE
 from ecommerce_integrations.shopware6.utils import get_logger
 
 # Module logger
 logger = get_logger("bulk_sync")
 
-# Redis key prefixes
+# Redis key prefixes. BulkModeTracker (controllers.bulk_sync_base) owns the
+# request-counter / bulk-mode keys, derived from the "shopware6" prefix.
 SYNC_QUEUE_KEY = "shopware6:sync_queue"
 SYNC_LOCK_KEY = "shopware6:sync_lock"
-LAST_SYNC_REQUEST_KEY = "shopware6:last_sync_request"
-BULK_MODE_KEY = "shopware6:bulk_mode"
-REQUEST_COUNT_KEY = "shopware6:request_count"
 
 # Default Configuration (can be overridden in Shopware Settings)
 DEFAULT_BULK_THRESHOLD = 5  # Number of requests within BULK_WINDOW to trigger bulk mode
@@ -59,77 +64,45 @@ def get_cache():
     return frappe.cache()
 
 
+def _get_tracker() -> BulkModeTracker:
+    """Build a ``BulkModeTracker`` with the current Shopware Settings threshold.
+
+    The threshold is read from Shopware Settings on every call so the admin
+    can tune it without a worker restart. The window/cooldown are fixed
+    constants for this channel.
+    """
+    settings = get_bulk_sync_settings()
+    return BulkModeTracker(
+        key_prefix="shopware6",
+        threshold=settings["threshold"],
+        window=BULK_WINDOW,
+        cooldown=BULK_COOLDOWN,
+    )
+
+
 def is_bulk_mode_active() -> bool:
     """Check if bulk mode is currently active."""
-    cache = get_cache()
-    return bool(cache.get_value(BULK_MODE_KEY))
+    return _get_tracker().is_active()
 
 
 def activate_bulk_mode():
     """Activate bulk mode to queue items instead of syncing immediately."""
-    cache = get_cache()
-    cache.set_value(BULK_MODE_KEY, "1", expires_in_sec=BULK_COOLDOWN * 3)
+    _get_tracker().activate()
     logger.info("Shopware6 Bulk Sync: Bulk mode activated")
 
 
 def deactivate_bulk_mode():
     """Deactivate bulk mode."""
-    cache = get_cache()
-    cache.delete_value(BULK_MODE_KEY)
+    _get_tracker().deactivate()
     logger.info("Shopware6 Bulk Sync: Bulk mode deactivated")
 
 
-def increment_request_count() -> int:
-    """
-    Increment the request counter and return current count.
-    Counter resets after BULK_WINDOW seconds.
-    """
-    cache = get_cache()
-    current_time = time.time()
-
-    # Get last request time and count
-    last_request = cache.get_value(LAST_SYNC_REQUEST_KEY)
-    count = cint(cache.get_value(REQUEST_COUNT_KEY)) or 0
-
-    if last_request:
-        last_time = float(last_request)
-        # Reset counter if window has passed
-        if current_time - last_time > BULK_WINDOW:
-            count = 0
-
-    count += 1
-    cache.set_value(REQUEST_COUNT_KEY, str(count), expires_in_sec=BULK_WINDOW * 2)
-    cache.set_value(LAST_SYNC_REQUEST_KEY, str(current_time), expires_in_sec=BULK_WINDOW * 2)
-
-    return count
-
-
 def should_use_bulk_mode() -> bool:
-    """
-    Determine if bulk mode should be used based on request frequency.
-    Returns True if we're in a bulk update scenario.
-    """
+    """Determine if bulk mode should be used based on request frequency."""
     settings = get_bulk_sync_settings()
-
-    # Skip if bulk sync is disabled
     if not settings["enabled"]:
         return False
-
-    # Already in bulk mode
-    if is_bulk_mode_active():
-        # Extend bulk mode timeout
-        cache = get_cache()
-        cache.set_value(BULK_MODE_KEY, "1", expires_in_sec=BULK_COOLDOWN * 3)
-        return True
-
-    # Check request frequency
-    count = increment_request_count()
-
-    if count >= settings["threshold"]:
-        activate_bulk_mode()
-        return True
-
-    return False
+    return _get_tracker().should_activate()
 
 
 def add_to_sync_queue(item_code: str, sync_type: str = "product"):
@@ -185,35 +158,17 @@ def remove_from_queue(item_codes: list[str], sync_type: str = "product"):
 
 
 def acquire_sync_lock(timeout: int = 300) -> bool:
+    """Acquire a lock to prevent concurrent bulk sync operations.
+
+    Delegates to :func:`controllers.bulk_sync_base.acquire_lock`, which
+    issues a single Redis ``SET NX EX`` and is atomic by construction.
     """
-    Acquire a lock to prevent concurrent bulk sync operations.
-
-    Args:
-        timeout: Lock timeout in seconds
-
-    Returns:
-        True if lock acquired, False otherwise
-    """
-    cache = get_cache()
-    lock_value = cache.get_value(SYNC_LOCK_KEY)
-
-    if lock_value:
-        # Check if lock is stale
-        lock_time = float(lock_value)
-        if time.time() - lock_time > timeout:
-            # Lock is stale, acquire it
-            cache.set_value(SYNC_LOCK_KEY, str(time.time()), expires_in_sec=timeout)
-            return True
-        return False
-
-    cache.set_value(SYNC_LOCK_KEY, str(time.time()), expires_in_sec=timeout)
-    return True
+    return acquire_lock(SYNC_LOCK_KEY, ttl_seconds=timeout)
 
 
 def release_sync_lock():
     """Release the sync lock."""
-    cache = get_cache()
-    cache.delete_value(SYNC_LOCK_KEY)
+    release_lock(SYNC_LOCK_KEY)
 
 
 # Hook entry points are implemented in services.queue_hooks (lazy-imported
@@ -564,9 +519,12 @@ def process_price_batch(item_codes: list[str]):
 
 
 def is_processing() -> bool:
-    """Check if bulk sync is currently processing."""
-    cache = get_cache()
-    return bool(cache.get_value(SYNC_LOCK_KEY))
+    """Check if bulk sync is currently processing.
+
+    Reads the raw Redis key (no Frappe site-prefix) so it sees the lock
+    written by :func:`acquire_lock` / Redis ``SET NX EX``.
+    """
+    return bool(get_cache().get(SYNC_LOCK_KEY))
 
 
 @frappe.whitelist()
@@ -623,10 +581,9 @@ def check_and_process_queue():
     if not product_queue and not properties_queue and not price_queue:
         return
 
-    # Check if a sync job is already running
-    cache = get_cache()
-    lock_value = cache.get_value(SYNC_LOCK_KEY)
-    if lock_value:
+    # Check if a sync job is already running. Raw redis read — matches what
+    # acquire_lock writes via SET NX EX.
+    if get_cache().get(SYNC_LOCK_KEY):
         return
 
     # Trigger queue processing

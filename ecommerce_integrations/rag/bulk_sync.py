@@ -3,16 +3,21 @@
 
 import json
 import time
+
 import frappe
 from frappe.utils import now_datetime
+
+from ecommerce_integrations.controllers.bulk_sync_base import (
+    BulkModeTracker,
+    acquire_lock,
+    release_lock,
+)
 from ecommerce_integrations.rag.services.access import require_rag_admin
 
-# Redis Keys
+# Redis Keys. Bulk-mode / request-counter keys are owned by BulkModeTracker
+# (controllers.bulk_sync_base), derived from the "rag" prefix.
 SYNC_QUEUE_KEY = "rag:sync_queue"
-BULK_MODE_KEY = "rag:bulk_mode"
 SYNC_LOCK_KEY = "rag:sync_lock"
-REQUEST_COUNT_KEY = "rag:request_count"
-LAST_REQUEST_KEY = "rag:last_request"
 
 # Timing
 BULK_COOLDOWN = 10  # seconds
@@ -63,41 +68,31 @@ def get_batch_size():
     return settings.bulk_sync_batch_size or 50
 
 
+def _get_tracker() -> BulkModeTracker:
+    """Build a ``BulkModeTracker`` with the current RAG Settings threshold.
+
+    Threshold is read from RAG Setting on every call so the admin can tune
+    it without a worker restart. Other window/cooldown are fixed constants.
+    """
+    return BulkModeTracker(
+        key_prefix="rag",
+        threshold=get_bulk_threshold(),
+        window=REQUEST_WINDOW,
+        cooldown=BULK_COOLDOWN,
+    )
+
+
 def should_use_bulk_mode():
-    """Check if bulk mode should be activated"""
+    """Return True if bulk mode should be active.
+
+    Bulk mode is determined by request frequency: more than
+    ``RAG Setting.bulk_sync_threshold`` operations within ``REQUEST_WINDOW``
+    seconds activates it. The activated key auto-expires ``BULK_COOLDOWN``
+    seconds after the last operation.
+    """
     if not is_bulk_sync_enabled():
         return False
-
-    redis = get_redis()
-    current_time = time.time()
-
-    # Increment request counter
-    last_request = redis.get(LAST_REQUEST_KEY)
-    if last_request:
-        try:
-            last_time = float(last_request)
-            if current_time - last_time <= REQUEST_WINDOW:
-                count = redis.incr(REQUEST_COUNT_KEY)
-            else:
-                redis.set(REQUEST_COUNT_KEY, 1)
-                count = 1
-        except (ValueError, TypeError):
-            redis.set(REQUEST_COUNT_KEY, 1)
-            count = 1
-    else:
-        redis.set(REQUEST_COUNT_KEY, 1)
-        count = 1
-
-    redis.set(LAST_REQUEST_KEY, str(current_time))
-
-    # Check threshold
-    threshold = get_bulk_threshold()
-    if count >= threshold:
-        redis.set(BULK_MODE_KEY, "1", ex=BULK_COOLDOWN + 5)
-        return True
-
-    # Check if already in bulk mode
-    return redis.get(BULK_MODE_KEY) == "1"
+    return _get_tracker().should_activate()
 
 
 def queue_item_for_sync(doc, method=None):
@@ -166,9 +161,15 @@ def get_queue_items() -> list:
 
 
 def clear_queue():
-    """Clear the queue"""
-    redis = get_redis()
-    redis.delete(SYNC_QUEUE_KEY)
+    """Clear the queue.
+
+    Uses ``delete_value`` (site-prefixed key) because ``add_to_queue`` /
+    ``get_queue_items`` / ``remove_from_queue`` all go through Frappe's
+    namespaced ``sadd`` / ``smembers`` / ``srem``. ``redis.delete()`` on
+    the raw key would no-op silently against a key that lives under the
+    site prefix — a pre-refactor bug uncovered by the bulk-sync tests.
+    """
+    get_redis().delete_value(SYNC_QUEUE_KEY)
 
 
 def remove_from_queue(item_code: str):
@@ -223,18 +224,10 @@ def schedule_bulk_sync_processing():
 
 def process_bulk_sync_queue():
     """Process the bulk queue"""
-    redis = get_redis()
-
-    # Check lock
-    if redis.get(SYNC_LOCK_KEY):
-        return
-
     # Bulk mode still active means the user is still queuing items. Skip
     # this run; ``check_and_process_queue`` (scheduler, every minute) will
-    # pick this back up once BULK_MODE_KEY expires (BULK_COOLDOWN + 5 s).
-    # The previous implementation slept BULK_COOLDOWN seconds inside the
-    # worker — that burned a worker slot and extended the soft-lock window.
-    if redis.get(BULK_MODE_KEY):
+    # pick this back up once BULK_MODE_KEY expires.
+    if _get_tracker().is_active():
         return
 
     # Check if still items in queue
@@ -242,8 +235,12 @@ def process_bulk_sync_queue():
     if not items:
         return
 
-    # Set lock (10 minutes max)
-    redis.set(SYNC_LOCK_KEY, "1", ex=600)
+    # Atomically acquire the lock. The previous implementation did a
+    # non-atomic get-then-set, so two workers reaching this point
+    # concurrently could both observe "no lock" and both proceed —
+    # producing duplicate batches.
+    if not acquire_lock(SYNC_LOCK_KEY, ttl_seconds=600):
+        return
 
     try:
         from .product_export import upload_items_batch_to_rag
@@ -282,8 +279,8 @@ def process_bulk_sync_queue():
     except Exception as e:
         frappe.log_error(message=str(e), title="RAG Bulk Sync Error")
     finally:
-        redis.delete(SYNC_LOCK_KEY)
-        redis.delete(BULK_MODE_KEY)
+        release_lock(SYNC_LOCK_KEY)
+        _get_tracker().deactivate()
 
 
 def check_and_process_queue():
@@ -295,10 +292,8 @@ def check_and_process_queue():
     if is_auto_sync_paused():
         return
 
-    redis = get_redis()
-
     # Only if not in active bulk mode
-    if redis.get(BULK_MODE_KEY):
+    if _get_tracker().is_active():
         return
 
     items = get_queue_items()
@@ -321,22 +316,17 @@ def force_process_queue():
 def get_queue_status():
     """Get queue status for UI"""
     require_rag_admin()
-    redis = get_redis()
     items = get_queue_items()
 
-    bulk_mode = redis.get(BULK_MODE_KEY)
-    if isinstance(bulk_mode, bytes):
-        bulk_mode = bulk_mode.decode('utf-8')
-
-    processing = redis.get(SYNC_LOCK_KEY)
-    if isinstance(processing, bytes):
-        processing = processing.decode('utf-8')
-
+    # ``processing`` reads the raw SYNC_LOCK_KEY (no Frappe namespace) so it
+    # sees the same value acquire_lock writes via SET NX EX. bulk_mode_active
+    # goes through the BulkModeTracker so it stays consistent with the
+    # site-prefixed key the tracker writes.
     return {
         "queue_size": len(items),
-        "bulk_mode_active": bulk_mode == "1",
-        "processing": processing == "1",
-        "auto_sync_paused": is_auto_sync_paused()
+        "bulk_mode_active": _get_tracker().is_active(),
+        "processing": bool(get_redis().get(SYNC_LOCK_KEY)),
+        "auto_sync_paused": is_auto_sync_paused(),
     }
 
 
