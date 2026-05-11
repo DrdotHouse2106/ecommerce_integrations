@@ -161,9 +161,15 @@ def get_queue_items() -> list:
 
 
 def clear_queue():
-    """Clear the queue"""
-    redis = get_redis()
-    redis.delete(SYNC_QUEUE_KEY)
+    """Clear the queue.
+
+    Uses ``delete_value`` (site-prefixed key) because ``add_to_queue`` /
+    ``get_queue_items`` / ``remove_from_queue`` all go through Frappe's
+    namespaced ``sadd`` / ``smembers`` / ``srem``. ``redis.delete()`` on
+    the raw key would no-op silently against a key that lives under the
+    site prefix — a pre-refactor bug uncovered by the bulk-sync tests.
+    """
+    get_redis().delete_value(SYNC_QUEUE_KEY)
 
 
 def remove_from_queue(item_code: str):
