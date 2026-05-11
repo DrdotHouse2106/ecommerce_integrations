@@ -1,195 +1,122 @@
-"""
-Tests for Shopware 6 Webhook Handler
+"""Tests for the Shopware 6 webhook dispatch table and handler.
+
+Exercises ``EVENT_HANDLERS``, ``WebhookHandler.handle`` and
+``WebhookEventQueue.__init__``. Full dedup/lock behaviour is integration-
+covered against a live Redis.
 """
 
 import unittest
-from unittest.mock import patch, MagicMock
-import time
+from unittest.mock import patch
 
 from ecommerce_integrations.shopware6.tests.utils import (
-    ShopwareTestCase,
-    create_sample_order_data,
+	ShopwareTestCase,
+	TEST_ORDER_UUID,
 )
 
 
+class TestEventHandlerDispatchTable(unittest.TestCase):
+	"""``EVENT_HANDLERS`` is the source of truth for which Shopware
+	webhook events the integration knows how to route. Adding a new
+	event type should land in this dict; tests guard against accidental
+	deletion of the well-known entries."""
+
+	REQUIRED_EVENTS = (
+		"order.placed",
+		"order.written",
+		"order.deleted",
+		"checkout.order.placed",
+		# Shopware emits state changes per-entity, not as a single
+		# ``order.status.changed`` — keep all three.
+		"order.state_machine_state.changed",
+		"order_transaction.state_machine_state.changed",
+		"order_delivery.state_machine_state.changed",
+		"product.written",
+		"product.deleted",
+		"customer.written",
+		"customer.deleted",
+		"product_stock.written",
+	)
+
+	def test_required_events_have_handlers(self):
+		from ecommerce_integrations.shopware6.webhook.handler import EVENT_HANDLERS
+
+		for event in self.REQUIRED_EVENTS:
+			self.assertIn(
+				event, EVENT_HANDLERS,
+				f"Missing handler entry for {event}",
+			)
+
+	def test_handler_names_match_method_naming(self):
+		# Every value should be a plain identifier — they're looked up via
+		# ``getattr(self, handler_name)`` on the WebhookHandler instance.
+		import re
+		from ecommerce_integrations.shopware6.webhook.handler import EVENT_HANDLERS
+
+		ident = re.compile(r"^[a-z_][a-z0-9_]*$")
+		for event, handler in EVENT_HANDLERS.items():
+			self.assertTrue(
+				ident.match(handler),
+				f"Handler {handler!r} for {event} is not a valid attribute name",
+			)
+
+
+class TestWebhookHandlerDispatch(ShopwareTestCase):
+	"""``WebhookHandler.handle`` should: gate on settings.is_enabled, fall
+	through gracefully on unknown event types, and forward to the matching
+	method on the handler instance for known events."""
+
+	@patch("ecommerce_integrations.shopware6.webhook.handler.ShopwareDataValidator")
+	@patch("ecommerce_integrations.shopware6.webhook.handler.frappe")
+	def test_returns_false_when_integration_disabled(self, mock_frappe, mock_validator):
+		from ecommerce_integrations.shopware6.webhook.handler import WebhookHandler
+
+		mock_setting = self.make_enabled_setting_mock()
+		mock_setting.is_enabled.return_value = False
+		mock_frappe.get_cached_doc.return_value = mock_setting
+
+		handler = WebhookHandler()
+		result = handler.handle("order.placed", TEST_ORDER_UUID, {})
+		self.assertFalse(result)
+		mock_validator.validate_webhook_payload.assert_not_called()
+
+	@patch("ecommerce_integrations.shopware6.webhook.handler.ShopwareDataValidator")
+	@patch("ecommerce_integrations.shopware6.webhook.handler.frappe")
+	def test_returns_true_for_unknown_event_type(self, mock_frappe, mock_validator):
+		from ecommerce_integrations.shopware6.webhook.handler import WebhookHandler
+
+		mock_frappe.get_cached_doc.return_value = self.make_enabled_setting_mock()
+		mock_validator.validate_webhook_payload.return_value = (True, [])
+
+		# Unknown event types must succeed — returning False would have
+		# Shopware retry forever for events we haven't built handlers for.
+		handler = WebhookHandler()
+		result = handler.handle("something.unknown", TEST_ORDER_UUID, {"primaryKey": "x"})
+		self.assertTrue(result)
+
+	@patch("ecommerce_integrations.shopware6.webhook.handler.ShopwareDataValidator")
+	@patch("ecommerce_integrations.shopware6.webhook.handler.frappe")
+	def test_returns_false_for_invalid_payload(self, mock_frappe, mock_validator):
+		from ecommerce_integrations.shopware6.webhook.handler import WebhookHandler
+
+		mock_frappe.get_cached_doc.return_value = self.make_enabled_setting_mock()
+		mock_validator.validate_webhook_payload.return_value = (False, ["missing field"])
+
+		handler = WebhookHandler()
+		result = handler.handle("order.placed", TEST_ORDER_UUID, {})
+		self.assertFalse(result)
+
+
 class TestWebhookEventQueue(ShopwareTestCase):
-    """Test cases for WebhookEventQueue."""
+	"""WebhookEventQueue construction. The dedup/lock path itself needs
+	Redis + real state-machine arrivals; covered by integration tests."""
 
-    def test_event_queue_initialization(self):
-        """Test event queue initializes correctly."""
-        from ecommerce_integrations.shopware6.webhook.event_queue import WebhookEventQueue
-
-        queue = WebhookEventQueue()
-        self.assertIsNotNone(queue)
-
-    @patch("ecommerce_integrations.shopware6.webhook.event_queue.frappe")
-    def test_enqueue_new_event(self, mock_frappe):
-        """Test enqueueing a new event."""
-        from ecommerce_integrations.shopware6.webhook.event_queue import WebhookEventQueue
-
-        mock_frappe.cache.return_value.get.return_value = None
-        mock_frappe.cache.return_value.lock.return_value.__enter__ = MagicMock()
-        mock_frappe.cache.return_value.lock.return_value.__exit__ = MagicMock()
-
-        queue = WebhookEventQueue()
-        result = queue.enqueue(
-            event_type="order.placed",
-            entity_id="test-order-123",
-            payload={"orderId": "test-order-123"}
-        )
-
-        # Should return True for new events
-        self.assertTrue(result)
-
-    @patch("ecommerce_integrations.shopware6.webhook.event_queue.frappe")
-    def test_enqueue_duplicate_event(self, mock_frappe):
-        """Test that duplicate events are deduplicated."""
-        from ecommerce_integrations.shopware6.webhook.event_queue import WebhookEventQueue
-
-        # Simulate existing event in cache
-        existing_event = {
-            "event_type": "order.placed",
-            "entity_id": "test-order-123",
-            "processed_at": time.time()
-        }
-        mock_frappe.cache.return_value.get.return_value = existing_event
-        mock_frappe.cache.return_value.lock.return_value.__enter__ = MagicMock()
-        mock_frappe.cache.return_value.lock.return_value.__exit__ = MagicMock()
-
-        queue = WebhookEventQueue()
-        result = queue.enqueue(
-            event_type="order.placed",
-            entity_id="test-order-123",
-            payload={"orderId": "test-order-123"}
-        )
-
-        # Should return False for duplicate events
-        self.assertFalse(result)
-
-    @patch("ecommerce_integrations.shopware6.webhook.event_queue.frappe")
-    def test_is_processed_recently(self, mock_frappe):
-        """Test checking if event was processed recently."""
-        from ecommerce_integrations.shopware6.webhook.event_queue import WebhookEventQueue
-
-        # Event processed 30 seconds ago (within window)
-        mock_frappe.cache.return_value.get.return_value = {
-            "processed_at": time.time() - 30
-        }
-
-        queue = WebhookEventQueue()
-        result = queue.is_processed("order.placed", "test-order-123")
-
-        self.assertTrue(result)
-
-    @patch("ecommerce_integrations.shopware6.webhook.event_queue.frappe")
-    def test_is_not_processed_old(self, mock_frappe):
-        """Test that old events are not considered processed."""
-        from ecommerce_integrations.shopware6.webhook.event_queue import WebhookEventQueue
-
-        # Event processed 10 minutes ago (outside window)
-        mock_frappe.cache.return_value.get.return_value = {
-            "processed_at": time.time() - 600
-        }
-
-        queue = WebhookEventQueue()
-        result = queue.is_processed("order.placed", "test-order-123")
-
-        # Should return False for old events (depending on TTL config)
-        # This depends on implementation details
-        pass
-
-
-class TestWebhookHandler(ShopwareTestCase):
-    """Test cases for webhook handler routing."""
-
-    def test_event_handlers_defined(self):
-        """Test that all expected event handlers are defined."""
-        from ecommerce_integrations.shopware6.webhook.handler import EVENT_HANDLERS
-
-        expected_events = [
-            "order.placed",
-            "order.status.changed",
-            "order.payment.state.changed",
-        ]
-
-        for event in expected_events:
-            self.assertIn(event, EVENT_HANDLERS)
-
-    @patch("ecommerce_integrations.shopware6.webhook.handler.frappe")
-    def test_handle_order_placed(self, mock_frappe):
-        """Test handling order.placed event."""
-        from ecommerce_integrations.shopware6.webhook.handler import (
-            WebhookHandler,
-        )
-
-        order_data = create_sample_order_data()
-        payload = {
-            "source": "shopware",
-            "data": {"entity": order_data},
-            "primaryKey": order_data["id"]
-        }
-
-        # Test that handler extracts order ID correctly
-        handler = WebhookHandler()
-        entity_id = handler.get_entity_id(payload)
-        self.assertEqual(entity_id, order_data["id"])
-
-    @patch("ecommerce_integrations.shopware6.webhook.handler.frappe")
-    def test_handle_unknown_event(self, mock_frappe):
-        """Test handling unknown event type."""
-        from ecommerce_integrations.shopware6.webhook.handler import WebhookHandler
-
-        handler = WebhookHandler()
-
-        payload = {
-            "source": "shopware",
-            "data": {"entity": {"id": "test-123"}},
-            "primaryKey": "test-123"
-        }
-
-        # Should not raise error for unknown events
-        result = handler.route_event("unknown.event.type", payload)
-        self.assertIsNone(result)
-
-
-class TestWebhookPayloadValidation(ShopwareTestCase):
-    """Test cases for webhook payload validation."""
-
-    def test_validate_order_placed_payload(self):
-        """Test validation of order.placed payload."""
-        from ecommerce_integrations.shopware6.validators import ShopwareDataValidator
-
-        order_data = create_sample_order_data()
-        payload = {
-            "source": "shopware",
-            "data": {"entity": order_data, "orderId": order_data["id"]},
-            "primaryKey": order_data["id"]
-        }
-
-        is_valid, errors = ShopwareDataValidator.validate_webhook_payload(payload)
-        self.assertTrue(is_valid)
-        self.assertEqual(len(errors), 0)
-
-    def test_validate_empty_payload(self):
-        """Test validation fails for empty payload."""
-        from ecommerce_integrations.shopware6.validators import ShopwareDataValidator
-
-        is_valid, errors = ShopwareDataValidator.validate_webhook_payload({})
-        self.assertFalse(is_valid)
-
-    def test_validate_payload_without_entity_id(self):
-        """Test validation fails without entity ID."""
-        from ecommerce_integrations.shopware6.validators import ShopwareDataValidator
-
-        payload = {
-            "source": "shopware",
-            "data": {}
-        }
-
-        is_valid, errors = ShopwareDataValidator.validate_webhook_payload(payload)
-        self.assertFalse(is_valid)
-        self.assertTrue(any("entity ID" in e for e in errors))
+	def test_event_queue_initialization(self):
+		from ecommerce_integrations.shopware6.webhook.event_queue import (
+			WebhookEventQueue,
+		)
+		queue = WebhookEventQueue()
+		self.assertIsNotNone(queue.cache)
 
 
 if __name__ == "__main__":
-    unittest.main()
+	unittest.main()

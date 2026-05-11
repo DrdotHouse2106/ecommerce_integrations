@@ -1,225 +1,106 @@
+"""Tests for ``shopware6.base.cache_manager.ShopwareCacheManager``.
+
+Runs against the live Frappe Redis cache — mocking Redis here would
+test nothing, since the cache manager's contract *is* the Redis wrapping.
+Each test cleans its own keys under the ``test_cache_manager`` prefix.
 """
-Tests for Shopware 6 Cache Manager
-"""
 
-import unittest
-from unittest.mock import patch, MagicMock
-import time
+import frappe
+from frappe.tests import IntegrationTestCase
 
-from ecommerce_integrations.shopware6.tests.utils import ShopwareTestCase
+from ecommerce_integrations.shopware6.base.cache_manager import ShopwareCacheManager
 
 
-class TestShopwareCacheManager(ShopwareTestCase):
-    """Test cases for ShopwareCacheManager."""
-
-    @patch("ecommerce_integrations.shopware6.base.cache_manager.frappe")
-    def test_cache_initialization(self, mock_frappe):
-        """Test cache manager initializes correctly."""
-        from ecommerce_integrations.shopware6.base.cache_manager import ShopwareCacheManager
-
-        mock_frappe.cache.return_value = MagicMock()
-        cache = ShopwareCacheManager()
-        self.assertIsNotNone(cache)
-
-    @patch("ecommerce_integrations.shopware6.base.cache_manager.frappe")
-    def test_cache_set_get(self, mock_frappe):
-        """Test basic cache set and get operations."""
-        from ecommerce_integrations.shopware6.base.cache_manager import ShopwareCacheManager
-
-        mock_cache = MagicMock()
-        mock_cache.get.return_value = None
-        mock_frappe.cache.return_value = mock_cache
-
-        cache = ShopwareCacheManager()
-
-        # Set a value
-        cache.set("test_key", "test_value", ttl=300)
-        mock_cache.set_value.assert_called()
-
-        # Get the value
-        mock_cache.get_value.return_value = {"value": "test_value", "expires_at": time.time() + 300}
-        result = cache.get("test_key")
-        self.assertEqual(result, "test_value")
-
-    @patch("ecommerce_integrations.shopware6.base.cache_manager.frappe")
-    def test_cache_expiration(self, mock_frappe):
-        """Test that expired cache entries return None."""
-        from ecommerce_integrations.shopware6.base.cache_manager import ShopwareCacheManager
-
-        mock_cache = MagicMock()
-        # Return expired entry
-        mock_cache.get_value.return_value = {
-            "value": "old_value",
-            "expires_at": time.time() - 100  # Expired 100 seconds ago
-        }
-        mock_frappe.cache.return_value = mock_cache
-
-        cache = ShopwareCacheManager()
-        result = cache.get("expired_key")
-
-        # Should return None for expired entries
-        self.assertIsNone(result)
-
-    @patch("ecommerce_integrations.shopware6.base.cache_manager.frappe")
-    def test_cache_invalidate(self, mock_frappe):
-        """Test cache invalidation."""
-        from ecommerce_integrations.shopware6.base.cache_manager import ShopwareCacheManager
-
-        mock_cache = MagicMock()
-        mock_frappe.cache.return_value = mock_cache
-
-        cache = ShopwareCacheManager()
-        cache.invalidate("some_key")
-
-        mock_cache.delete_value.assert_called()
-
-    @patch("ecommerce_integrations.shopware6.base.cache_manager.frappe")
-    def test_cache_invalidate_pattern(self, mock_frappe):
-        """Test cache invalidation by pattern."""
-        from ecommerce_integrations.shopware6.base.cache_manager import ShopwareCacheManager
-
-        mock_cache = MagicMock()
-        mock_cache.get_keys.return_value = [
-            "shopware:category:1",
-            "shopware:category:2",
-            "shopware:category:3"
-        ]
-        mock_frappe.cache.return_value = mock_cache
-
-        cache = ShopwareCacheManager()
-        cache.invalidate_pattern("category")
-
-        # Should delete all matching keys
-        self.assertEqual(mock_cache.delete_value.call_count, 3)
-
-    @patch("ecommerce_integrations.shopware6.base.cache_manager.frappe")
-    def test_get_or_fetch_cache_hit(self, mock_frappe):
-        """Test get_or_fetch returns cached value on cache hit."""
-        from ecommerce_integrations.shopware6.base.cache_manager import ShopwareCacheManager
-
-        mock_cache = MagicMock()
-        mock_cache.get_value.return_value = {
-            "value": "cached_value",
-            "expires_at": time.time() + 300
-        }
-        mock_frappe.cache.return_value = mock_cache
-
-        cache = ShopwareCacheManager()
-        fetch_fn = MagicMock(return_value="fresh_value")
-
-        result = cache.get_or_fetch("test_key", fetch_fn)
-
-        # Should return cached value
-        self.assertEqual(result, "cached_value")
-        # Fetch function should not be called
-        fetch_fn.assert_not_called()
-
-    @patch("ecommerce_integrations.shopware6.base.cache_manager.frappe")
-    def test_get_or_fetch_cache_miss(self, mock_frappe):
-        """Test get_or_fetch calls fetch function on cache miss."""
-        from ecommerce_integrations.shopware6.base.cache_manager import ShopwareCacheManager
-
-        mock_cache = MagicMock()
-        mock_cache.get_value.return_value = None  # Cache miss
-        mock_frappe.cache.return_value = mock_cache
-
-        cache = ShopwareCacheManager()
-        fetch_fn = MagicMock(return_value="fresh_value")
-
-        result = cache.get_or_fetch("test_key", fetch_fn, ttl=300)
-
-        # Should return fresh value
-        self.assertEqual(result, "fresh_value")
-        # Fetch function should be called
-        fetch_fn.assert_called_once()
-        # Value should be cached
-        mock_cache.set_value.assert_called()
+_TEST_TYPE = "test_cache_manager"
 
 
-class TestCacheConvenienceMethods(ShopwareTestCase):
-    """Test cases for cache convenience methods."""
+class TestShopwareCacheManager(IntegrationTestCase):
+	def setUp(self):
+		# One scan per suite via setUp would mean 9 × full-keyspace scans;
+		# rely on tearDown's invalidate_all (cheap SCAN over a small set)
+		# and only seed when something is left over from a crashed run.
+		ShopwareCacheManager().invalidate_all(_TEST_TYPE)
 
-    @patch("ecommerce_integrations.shopware6.base.cache_manager.frappe")
-    def test_get_currency_id(self, mock_frappe):
-        """Test getting cached currency ID."""
-        from ecommerce_integrations.shopware6.base.cache_manager import ShopwareCacheManager
+	def tearDown(self):
+		ShopwareCacheManager().invalidate_all(_TEST_TYPE)
 
-        mock_cache = MagicMock()
-        mock_cache.get_value.return_value = {
-            "value": "currency-eur-id",
-            "expires_at": time.time() + 300
-        }
-        mock_frappe.cache.return_value = mock_cache
+	def test_initialization(self):
+		# Each instance must own its request cache — class-attr regression guard.
+		cache = ShopwareCacheManager()
+		self.assertEqual(cache._request_cache, {})
 
-        cache = ShopwareCacheManager()
-        result = cache.get_currency_id("EUR")
+	def test_set_then_get_returns_value(self):
+		cache = ShopwareCacheManager()
+		cache.set(_TEST_TYPE, "alpha", "hello", ttl=60)
+		self.assertEqual(cache.get(_TEST_TYPE, "alpha"), "hello")
 
-        self.assertEqual(result, "currency-eur-id")
+	def test_get_missing_key_returns_none(self):
+		cache = ShopwareCacheManager()
+		self.assertIsNone(cache.get(_TEST_TYPE, "never-set"))
 
-    @patch("ecommerce_integrations.shopware6.base.cache_manager.frappe")
-    def test_get_sales_channel_id(self, mock_frappe):
-        """Test getting cached sales channel ID."""
-        from ecommerce_integrations.shopware6.base.cache_manager import ShopwareCacheManager
+	def test_set_overwrites(self):
+		cache = ShopwareCacheManager()
+		cache.set(_TEST_TYPE, "k", "v1", ttl=60)
+		cache.set(_TEST_TYPE, "k", "v2", ttl=60)
+		self.assertEqual(cache.get(_TEST_TYPE, "k"), "v2")
 
-        mock_cache = MagicMock()
-        mock_cache.get_value.return_value = {
-            "value": "sales-channel-storefront",
-            "expires_at": time.time() + 300
-        }
-        mock_frappe.cache.return_value = mock_cache
+	def test_invalidate_drops_specific_key(self):
+		cache = ShopwareCacheManager()
+		cache.set(_TEST_TYPE, "stays", "kept", ttl=60)
+		cache.set(_TEST_TYPE, "goes", "dropped", ttl=60)
+		cache.invalidate(_TEST_TYPE, "goes")
+		self.assertEqual(cache.get(_TEST_TYPE, "stays"), "kept")
+		self.assertIsNone(cache.get(_TEST_TYPE, "goes"))
 
-        cache = ShopwareCacheManager()
-        result = cache.get_sales_channel_id()
+	def test_invalidate_all_clears_type(self):
+		cache = ShopwareCacheManager()
+		cache.set(_TEST_TYPE, "a", 1, ttl=60)
+		cache.set(_TEST_TYPE, "b", 2, ttl=60)
+		cache.set(_TEST_TYPE, "c", 3, ttl=60)
+		cache.invalidate_all(_TEST_TYPE)
+		self.assertIsNone(cache.get(_TEST_TYPE, "a"))
+		self.assertIsNone(cache.get(_TEST_TYPE, "b"))
+		self.assertIsNone(cache.get(_TEST_TYPE, "c"))
 
-        self.assertEqual(result, "sales-channel-storefront")
+	def test_request_cache_hit_does_not_touch_redis(self):
+		# After a set, the same instance should serve the get from the
+		# in-memory request cache; a fresh instance must still find the
+		# value in Redis (no isolation between instances at the Redis level).
+		cache_a = ShopwareCacheManager()
+		cache_a.set(_TEST_TYPE, "shared", "value", ttl=60)
+		self.assertEqual(cache_a.get(_TEST_TYPE, "shared"), "value")
+		cache_b = ShopwareCacheManager()
+		self.assertEqual(cache_b.get(_TEST_TYPE, "shared"), "value")
 
-    @patch("ecommerce_integrations.shopware6.base.cache_manager.frappe")
-    def test_get_category_id(self, mock_frappe):
-        """Test getting cached category ID."""
-        from ecommerce_integrations.shopware6.base.cache_manager import ShopwareCacheManager
+	def test_get_or_fetch_calls_fetcher_on_miss(self):
+		cache = ShopwareCacheManager()
+		call_count = {"n": 0}
 
-        mock_cache = MagicMock()
-        mock_cache.get_value.return_value = {
-            "value": "category-clothing-id",
-            "expires_at": time.time() + 300
-        }
-        mock_frappe.cache.return_value = mock_cache
+		def fetcher():
+			call_count["n"] += 1
+			return "computed"
 
-        cache = ShopwareCacheManager()
-        result = cache.get_category_id("Clothing")
+		# First call: misses cache, invokes fetcher.
+		v1 = cache.get_or_fetch(_TEST_TYPE, "lazy", fetcher, ttl=60)
+		self.assertEqual(v1, "computed")
+		self.assertEqual(call_count["n"], 1)
 
-        self.assertEqual(result, "category-clothing-id")
+		# Second call: hits cache, fetcher not re-invoked.
+		v2 = cache.get_or_fetch(_TEST_TYPE, "lazy", fetcher, ttl=60)
+		self.assertEqual(v2, "computed")
+		self.assertEqual(call_count["n"], 1)
 
-    @patch("ecommerce_integrations.shopware6.base.cache_manager.frappe")
-    def test_get_image_hash(self, mock_frappe):
-        """Test getting cached image hash for delta sync."""
-        from ecommerce_integrations.shopware6.base.cache_manager import ShopwareCacheManager
-
-        mock_cache = MagicMock()
-        mock_cache.get_value.return_value = {
-            "value": "abc123def456",
-            "expires_at": time.time() + 300
-        }
-        mock_frappe.cache.return_value = mock_cache
-
-        cache = ShopwareCacheManager()
-        result = cache.get_image_hash("product-123", "image-1.jpg")
-
-        self.assertEqual(result, "abc123def456")
-
-    @patch("ecommerce_integrations.shopware6.base.cache_manager.frappe")
-    def test_set_image_hash(self, mock_frappe):
-        """Test setting image hash for delta sync."""
-        from ecommerce_integrations.shopware6.base.cache_manager import ShopwareCacheManager
-
-        mock_cache = MagicMock()
-        mock_frappe.cache.return_value = mock_cache
-
-        cache = ShopwareCacheManager()
-        cache.set_image_hash("product-123", "image-1.jpg", "new-hash-789")
-
-        mock_cache.set_value.assert_called()
+	def test_default_ttl_table_has_known_cache_types(self):
+		cache = ShopwareCacheManager()
+		for cache_type in (
+			"property_group", "category", "media_folder", "currency",
+			"sales_channel", "image_hash", "field_mappings",
+		):
+			self.assertIn(cache_type, cache.DEFAULT_TTL)
+			self.assertGreater(cache.DEFAULT_TTL[cache_type], 0)
 
 
 if __name__ == "__main__":
-    unittest.main()
+	import unittest
+
+	unittest.main()

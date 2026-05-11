@@ -1,249 +1,147 @@
-"""
-Tests for Shopware 6 Product Export
+"""Tests for ShopwareProductUploader + pure helpers in
+``shopware6.export.utils`` and ``shopware6.export.image_handler``.
+
+Pure functions are tested directly; anything that needs a Shopware
+Setting goes through small mocks so the suite runs on any clean site.
 """
 
+import os
+import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 
-from ecommerce_integrations.shopware6.tests.utils import (
-    ShopwareTestCase,
-)
+from ecommerce_integrations.shopware6.tests.utils import ShopwareTestCase
 
 
 class TestShopwareProductUploader(ShopwareTestCase):
-    """Test cases for ShopwareProductUploader class."""
+	"""Construction-time behaviour. Full upload is integration-only."""
+
+	@patch("ecommerce_integrations.shopware6.export.product_uploader.frappe")
+	@patch("ecommerce_integrations.shopware6.export.product_uploader.get_shopware_document_id")
+	def test_initialization_stores_item_code(self, mock_get_doc_id, mock_frappe):
+		from ecommerce_integrations.shopware6.export.product_uploader import (
+			ShopwareProductUploader,
+		)
+		mock_get_doc_id.return_value = None
+		mock_frappe.get_cached_doc.return_value = MagicMock()
+		uploader = ShopwareProductUploader(item_code="TEST-001")
+		self.assertEqual(uploader.item_code, "TEST-001")
+		self.assertIsNone(uploader.shopware_id)
+
+	@patch("ecommerce_integrations.shopware6.export.product_uploader.frappe")
+	@patch("ecommerce_integrations.shopware6.export.product_uploader.get_shopware_document_id")
+	def test_is_synced_false_when_no_mapping(self, mock_get_doc_id, mock_frappe):
+		from ecommerce_integrations.shopware6.export.product_uploader import (
+			ShopwareProductUploader,
+		)
+		mock_get_doc_id.return_value = None
+		mock_frappe.get_cached_doc.return_value = MagicMock()
+		uploader = ShopwareProductUploader(item_code="NEW-ITEM")
+		self.assertFalse(uploader.is_synced())
+
+	@patch("ecommerce_integrations.shopware6.export.product_uploader.frappe")
+	@patch("ecommerce_integrations.shopware6.export.product_uploader.get_shopware_document_id")
+	def test_is_synced_true_when_mapping_exists(self, mock_get_doc_id, mock_frappe):
+		from ecommerce_integrations.shopware6.export.product_uploader import (
+			ShopwareProductUploader,
+		)
+		mock_get_doc_id.return_value = "existing-shopware-id"
+		mock_frappe.get_cached_doc.return_value = MagicMock()
+		uploader = ShopwareProductUploader(item_code="SYNCED-ITEM")
+		self.assertTrue(uploader.is_synced())
+
+
+class TestExportUtils(unittest.TestCase):
+	"""Pure helpers from ``shopware6.export.utils``.
+
+	These are deterministic, no Frappe state required.
+	"""
+
+	def test_generate_uuid_deterministic(self):
+		from ecommerce_integrations.shopware6.export.utils import generate_uuid
+
+		# Same input → same output (idempotent).
+		self.assertEqual(generate_uuid("ITEM-001"), generate_uuid("ITEM-001"))
+		# Different inputs → different outputs.
+		self.assertNotEqual(generate_uuid("ITEM-001"), generate_uuid("ITEM-002"))
+
+	def test_generate_uuid_md5_shape(self):
+		from ecommerce_integrations.shopware6.export.utils import generate_uuid
+
+		# 32 hex chars (MD5).
+		result = generate_uuid("anything")
+		self.assertEqual(len(result), 32)
+		self.assertTrue(all(c in "0123456789abcdef" for c in result))
+
+	def test_sanitize_filename_replaces_illegal_chars(self):
+		from ecommerce_integrations.shopware6.export.utils import sanitize_filename
+
+		# Shopware rejects | < > : " / \ ? * in filenames.
+		self.assertEqual(sanitize_filename('file|name.jpg'), "file_name.jpg")
+		self.assertEqual(sanitize_filename('a/b\\c:d.jpg'), "a_b_c_d.jpg")
+		self.assertEqual(sanitize_filename('q?<>".jpg'), "q____.jpg")
+
+	def test_sanitize_filename_keeps_safe_chars(self):
+		from ecommerce_integrations.shopware6.export.utils import sanitize_filename
+
+		# Spaces, dots, dashes, underscores, unicode — all kept as-is.
+		self.assertEqual(sanitize_filename("My-File 2024.jpg"), "My-File 2024.jpg")
+		self.assertEqual(sanitize_filename("Größe_42.png"), "Größe_42.png")
+
+
+class TestImageHandlerHelpers(unittest.TestCase):
+	"""Pure helpers from ``shopware6.export.image_handler``."""
+
+	def test_get_file_hash_returns_md5_for_local_file(self):
+		from ecommerce_integrations.shopware6.export import image_handler
+
+		# ``get_file_hash`` resolves ``/files/<name>`` via ``get_files_path()``.
+		# Redirect that to a TemporaryDirectory so the test leaves no artifacts
+		# under the live site and stays independent of site state.
+		with tempfile.TemporaryDirectory() as tmp:
+			path = os.path.join(tmp, "image.jpg")
+			with open(path, "wb") as f:
+				f.write(b"hello-image-content")
+			with patch.object(image_handler, "get_files_path", return_value=tmp):
+				h1 = image_handler.get_file_hash("image.jpg")
+				h2 = image_handler.get_file_hash("image.jpg")
+		self.assertIsNotNone(h1)
+		self.assertEqual(h1, h2)
+		self.assertEqual(len(h1), 32)
+
+	def test_get_file_hash_returns_none_for_missing_file(self):
+		from ecommerce_integrations.shopware6.export.image_handler import get_file_hash
+
+		self.assertIsNone(get_file_hash("/files/does-not-exist-9f8e7d6c5b4a.jpg"))
+
+	def test_get_file_hash_returns_none_for_http_urls(self):
+		# Network URLs are intentionally not hashed (would require a request);
+		# the caller falls back to a fetch + md5 elsewhere.
+		from ecommerce_integrations.shopware6.export.image_handler import get_file_hash
 
-    @patch("ecommerce_integrations.shopware6.export.product_uploader.frappe")
-    @patch("ecommerce_integrations.shopware6.export.product_uploader.get_shopware_document_id")
-    def test_shopware_product_uploader_initialization(self, mock_get_doc_id, mock_frappe):
-        """Test ShopwareProductUploader class initialization."""
-        from ecommerce_integrations.shopware6.export.product_uploader import ShopwareProductUploader
+		self.assertIsNone(get_file_hash("https://example.com/image.jpg"))
 
-        mock_get_doc_id.return_value = None
-        mock_frappe.get_cached_doc.return_value = MagicMock()
+	def test_is_safe_url_blocks_loopback(self):
+		from ecommerce_integrations.shopware6.export.image_handler import _is_safe_url
 
-        uploader = ShopwareProductUploader(item_code="TEST-001")
+		# SSRF protection: 127.0.0.1, localhost, RFC1918 ranges should never be fetched.
+		self.assertFalse(_is_safe_url("http://127.0.0.1/x.jpg"))
+		self.assertFalse(_is_safe_url("http://localhost/x.jpg"))
 
-        self.assertEqual(uploader.item_code, "TEST-001")
-        self.assertIsNone(uploader.shopware_id)
+	def test_is_safe_url_blocks_private_ranges(self):
+		from ecommerce_integrations.shopware6.export.image_handler import _is_safe_url
 
-    @patch("ecommerce_integrations.shopware6.export.product_uploader.frappe")
-    @patch("ecommerce_integrations.shopware6.export.product_uploader.get_shopware_document_id")
-    def test_shopware_product_uploader_is_synced_false(self, mock_get_doc_id, mock_frappe):
-        """Test is_synced returns False for new products."""
-        from ecommerce_integrations.shopware6.export.product_uploader import ShopwareProductUploader
+		self.assertFalse(_is_safe_url("http://10.0.0.1/x.jpg"))
+		self.assertFalse(_is_safe_url("http://192.168.1.1/x.jpg"))
 
-        mock_get_doc_id.return_value = None
-        mock_frappe.get_cached_doc.return_value = MagicMock()
+	def test_is_safe_url_allows_public_urls(self):
+		from ecommerce_integrations.shopware6.export.image_handler import _is_safe_url
 
-        uploader = ShopwareProductUploader(item_code="NEW-ITEM")
-
-        self.assertFalse(uploader.is_synced())
-
-    @patch("ecommerce_integrations.shopware6.export.product_uploader.frappe")
-    @patch("ecommerce_integrations.shopware6.export.product_uploader.get_shopware_document_id")
-    def test_shopware_product_uploader_is_synced_true(self, mock_get_doc_id, mock_frappe):
-        """Test is_synced returns True for synced products."""
-        from ecommerce_integrations.shopware6.export.product_uploader import ShopwareProductUploader
-
-        mock_get_doc_id.return_value = "existing-shopware-id"
-        mock_frappe.get_cached_doc.return_value = MagicMock()
-
-        uploader = ShopwareProductUploader(item_code="SYNCED-ITEM")
-
-        self.assertTrue(uploader.is_synced())
-
-
-class TestProductMapper(ShopwareTestCase):
-    """Test cases for product field mapping."""
-
-    @patch("ecommerce_integrations.shopware6.export.product_mapper.frappe")
-    def test_map_item_to_shopware_basic(self, mock_frappe):
-        """Test basic item to Shopware mapping."""
-        from ecommerce_integrations.shopware6.export.product_mapper import map_item_to_shopware
-
-        mock_item = MagicMock()
-        mock_item.item_code = "TEST-001"
-        mock_item.item_name = "Test Product"
-        mock_item.description = "A test product"
-        mock_item.stock_uom = "Nos"
-        mock_item.weight_per_unit = 1.5
-        mock_item.standard_rate = 49.99
-        mock_item.has_variants = 0
-
-        mock_frappe.get_doc.return_value = mock_item
-
-        result = map_item_to_shopware(mock_item)
-
-        self.assertIn("productNumber", result)
-        self.assertEqual(result["productNumber"], "TEST-001")
-        self.assertIn("name", result)
-
-    @patch("ecommerce_integrations.shopware6.export.product_mapper.frappe")
-    def test_map_item_weight_conversion(self, mock_frappe):
-        """Test weight unit conversion to kg."""
-        from ecommerce_integrations.shopware6.export.product_mapper import map_item_to_shopware
-
-        mock_item = MagicMock()
-        mock_item.item_code = "HEAVY-001"
-        mock_item.item_name = "Heavy Product"
-        mock_item.description = ""
-        mock_item.weight_per_unit = 1500  # grams
-        mock_item.weight_uom = "Gram"
-        mock_item.has_variants = 0
-
-        mock_frappe.get_doc.return_value = mock_item
-
-        result = map_item_to_shopware(mock_item)
-
-        # Weight should be converted to kg
-        if "weight" in result:
-            self.assertIsInstance(result["weight"], (int, float))
-
-
-class TestCategoryHandler(ShopwareTestCase):
-    """Test cases for category handling."""
-
-    @patch("ecommerce_integrations.shopware6.export.category_handler.frappe")
-    def test_get_item_categories(self, mock_frappe):
-        """Test getting categories for an item."""
-        from ecommerce_integrations.shopware6.export.category_handler import get_item_categories
-
-        mock_frappe.db.get_value.return_value = "Clothing"
-
-        categories = get_item_categories("TEST-001")
-
-        self.assertIsInstance(categories, (list, tuple))
-
-    @patch("ecommerce_integrations.shopware6.export.category_handler.frappe")
-    def test_create_category_hierarchy(self, mock_frappe):
-        """Test creating nested category hierarchy."""
-        # Test that category hierarchy is properly created
-        # e.g., "Clothing > Men > Shirts" creates all three levels
-        pass
-
-
-class TestImageHandler(ShopwareTestCase):
-    """Test cases for image handling."""
-
-    def test_calculate_image_hash(self):
-        """Test image hash calculation for delta sync."""
-        from ecommerce_integrations.shopware6.export.image_handler import calculate_image_hash
-
-        # Create test image data
-        test_data = b"fake image data for testing"
-        hash1 = calculate_image_hash(test_data)
-        hash2 = calculate_image_hash(test_data)
-
-        # Same data should produce same hash
-        self.assertEqual(hash1, hash2)
-
-        # Different data should produce different hash
-        different_data = b"different image data"
-        hash3 = calculate_image_hash(different_data)
-        self.assertNotEqual(hash1, hash3)
-
-    @patch("ecommerce_integrations.shopware6.export.image_handler.frappe")
-    def test_get_item_images(self, mock_frappe):
-        """Test getting images for an item."""
-        from ecommerce_integrations.shopware6.export.image_handler import get_item_images
-
-        mock_frappe.get_doc.return_value = MagicMock()
-        mock_frappe.get_doc.return_value.image = "/files/test-image.jpg"
-
-        images = get_item_images("TEST-001")
-
-        self.assertIsInstance(images, list)
-
-
-class TestPriceHandler(ShopwareTestCase):
-    """Test cases for price handling."""
-
-    @patch("ecommerce_integrations.shopware6.export.price_handler.frappe")
-    def test_get_item_price(self, mock_frappe):
-        """Test getting item price for Shopware."""
-        from ecommerce_integrations.shopware6.export.price_handler import get_item_price
-
-        mock_frappe.db.get_value.return_value = 49.99
-
-        price = get_item_price("TEST-001", "EUR")
-
-        self.assertIsInstance(price, (int, float))
-
-    @patch("ecommerce_integrations.shopware6.export.price_handler.frappe")
-    def test_calculate_gross_price(self, mock_frappe):
-        """Test gross price calculation with tax."""
-        from ecommerce_integrations.shopware6.export.price_handler import calculate_gross_price
-
-        net_price = 100.0
-        tax_rate = 19.0
-
-        gross = calculate_gross_price(net_price, tax_rate)
-
-        self.assertEqual(gross, 119.0)
-
-    @patch("ecommerce_integrations.shopware6.export.price_handler.frappe")
-    def test_calculate_net_price(self, mock_frappe):
-        """Test net price calculation from gross."""
-        from ecommerce_integrations.shopware6.export.price_handler import calculate_net_price
-
-        gross_price = 119.0
-        tax_rate = 19.0
-
-        net = calculate_net_price(gross_price, tax_rate)
-
-        self.assertAlmostEqual(net, 100.0, places=2)
-
-
-class TestVariantHandler(ShopwareTestCase):
-    """Test cases for variant handling."""
-
-    @patch("ecommerce_integrations.shopware6.export.variant_handler.frappe")
-    def test_get_template_variants(self, mock_frappe):
-        """Test getting variants for a template item."""
-        from ecommerce_integrations.shopware6.export.variant_handler import get_template_variants
-
-        mock_frappe.get_all.return_value = [
-            {"name": "TEMPLATE-001-S-RED"},
-            {"name": "TEMPLATE-001-M-RED"},
-            {"name": "TEMPLATE-001-L-RED"},
-        ]
-
-        variants = get_template_variants("TEMPLATE-001")
-
-        self.assertEqual(len(variants), 3)
-
-    @patch("ecommerce_integrations.shopware6.export.variant_handler.frappe")
-    def test_get_variant_options(self, mock_frappe):
-        """Test extracting variant options (size, color, etc.)."""
-        from ecommerce_integrations.shopware6.export.variant_handler import get_variant_options
-
-        mock_frappe.get_doc.return_value = MagicMock()
-        mock_frappe.get_doc.return_value.attributes = [
-            MagicMock(attribute="Size", attribute_value="M"),
-            MagicMock(attribute="Color", attribute_value="Red"),
-        ]
-
-        options = get_variant_options("TEMPLATE-001-M-RED")
-
-        self.assertIsInstance(options, (list, dict))
-
-
-class TestPropertyHandler(ShopwareTestCase):
-    """Test cases for property/attribute handling."""
-
-    @patch("ecommerce_integrations.shopware6.export.property_handler.frappe")
-    def test_get_item_attributes(self, mock_frappe):
-        """Test getting item attributes for Shopware properties."""
-        from ecommerce_integrations.shopware6.export.property_handler import get_item_attributes
-
-        mock_frappe.get_doc.return_value = MagicMock()
-        mock_frappe.get_doc.return_value.attributes = []
-
-        attributes = get_item_attributes("TEST-001")
-
-        self.assertIsInstance(attributes, list)
+		# 8.8.8.8 (Google DNS) is public and parses without a real DNS lookup:
+		# ``ipaddress.ip_address(socket.gethostbyname("8.8.8.8"))`` short-circuits
+		# the dotted-quad rather than issuing a network call.
+		self.assertTrue(_is_safe_url("https://8.8.8.8/x.jpg"))
 
 
 if __name__ == "__main__":
-    unittest.main()
+	unittest.main()

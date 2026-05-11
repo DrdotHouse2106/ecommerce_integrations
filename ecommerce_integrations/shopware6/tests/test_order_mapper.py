@@ -64,7 +64,10 @@ class TestOrderMapper(ShopwareTestCase):
 
         method_name, erpnext_mode, status = get_payment_method_info(order_data)
 
-        self.assertEqual(method_name, "Invoice")
+        # ``payment_method_name`` prefers Shopware's ``shortName`` over the
+        # display name, because the configurable mapping in Shopware Setting
+        # keys on the short name (stable, language-independent).
+        self.assertEqual(method_name, "invoice")
         self.assertEqual(status, "Unpaid")  # "open" maps to "Unpaid"
 
     def test_get_payment_method_info_no_transactions(self):
@@ -94,34 +97,45 @@ class TestOrderMapper(ShopwareTestCase):
     @patch("ecommerce_integrations.shopware6.order.order_mapper.get_item_code")
     def test_calculate_delivery_date(self, mock_get_item_code, mock_frappe):
         """Test delivery date calculation based on lead time."""
+        import frappe
+
         mock_get_item_code.return_value = "TEST-ITEM"
-        mock_frappe.db.get_value.return_value = 5  # 5 days lead time
+        # ``frappe.db.get_value(..., as_dict=True)`` returns a ``frappe._dict``
+        # which supports both ``.get()`` and attribute access. The mapper
+        # uses attribute access on the fallback path, so a plain dict won't
+        # do — use _dict directly.
+        mock_frappe.db.get_value.return_value = frappe._dict(
+            delivery_time=None, lead_time_days=5,
+        )
 
         order_date = "2024-01-15"
         line_items = [
             {"productId": "product-1", "payload": {"productNumber": "TEST-ITEM"}}
         ]
 
+        # 5 days > the default 1-day floor → result is order_date + 5
         result = calculate_delivery_date(order_date, line_items)
-
-        # Should be order_date + 5 days
         self.assertEqual(result, "2024-01-20")
 
     @patch("ecommerce_integrations.shopware6.order.order_mapper.frappe")
     @patch("ecommerce_integrations.shopware6.order.order_mapper.get_item_code")
     def test_calculate_delivery_date_minimum(self, mock_get_item_code, mock_frappe):
-        """Test delivery date has minimum 1 day lead time."""
+        """Test delivery date has minimum 1 day lead time (no same-day delivery)."""
+        import frappe
+
         mock_get_item_code.return_value = "TEST-ITEM"
-        mock_frappe.db.get_value.return_value = 0  # No lead time
+        # Both unset → item falls through to default 1-day floor.
+        mock_frappe.db.get_value.return_value = frappe._dict(
+            delivery_time=None, lead_time_days=0,
+        )
 
         order_date = "2024-01-15"
         line_items = [
             {"productId": "product-1", "payload": {"productNumber": "TEST-ITEM"}}
         ]
 
+        # Should be order_date + 1 day (minimum floor in calculate_delivery_date)
         result = calculate_delivery_date(order_date, line_items)
-
-        # Should be order_date + 1 day (minimum)
         self.assertEqual(result, "2024-01-16")
 
 

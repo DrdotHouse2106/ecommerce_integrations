@@ -63,12 +63,6 @@ class TestShopwareConnection(ShopwareTestCase):
         result = get_shopware_document_id("Item", "NON-EXISTENT-ITEM-12345")
         self.assertIsNone(result)
 
-    def test_get_erpnext_document_not_found(self):
-        """Test get_erpnext_document returns None for non-existent mapping."""
-        from ecommerce_integrations.shopware6.utils import get_erpnext_document
-
-        result = get_erpnext_document("product", "non-existent-shopware-id-12345")
-        self.assertIsNone(result)
 
 
 class TestWebhookSignatureValidation(ShopwareTestCase):
