@@ -35,9 +35,16 @@ _LINK_BATCH_SIZE = 50
 @register(BACKEND_MEDUSA)
 class MedusaCategoryAdapter(CategoryAdapter):
     def upsert_category(self, collection, target) -> str:
+        # ``external_handle`` lets operators override the channel-suffixed
+        # slug with a shorter storefront-friendly URL handle. Falls back to
+        # slug so existing collections keep their handles.
+        handle = (
+            (getattr(collection, "external_handle", None) or "").strip()
+            or collection.slug
+        )
         payload = {
             "name": collection.title,
-            "handle": collection.slug,
+            "handle": handle,
             "is_active": bool(collection.is_active),
         }
         if collection.description:
@@ -89,7 +96,7 @@ class MedusaCategoryAdapter(CategoryAdapter):
                     except Exception:
                         resp_text = ""
                 if "already exists" in resp_text.lower():
-                    existing = _lookup_by_handle(session, base_url, collection.slug)
+                    existing = _lookup_by_handle(session, base_url, handle)
                     if existing:
                         return existing
                 raise AdapterError(f"Medusa category create failed: {e}") from e
