@@ -71,6 +71,7 @@
   "sync_item_on_update",
   "sync_new_item_as_active",
   "column_break_product_sync",
+  "category_assignment_mode",
   "category_sync_root",
   "product_batch_size",
   "inventory_sync_section",
@@ -480,6 +481,15 @@
   },
   {
    "depends_on": "eval:doc.upload_erpnext_items",
+   "default": "Item Group Mapping",
+   "fieldname": "category_assignment_mode",
+   "fieldtype": "Select",
+   "label": "Category Assignment Mode",
+   "options": "Item Group Mapping\nSmart Collections Only",
+   "description": "``Item Group Mapping`` (legacy): each Item is auto-assigned to the Medusa category that mirrors its ERPNext Item Group, plus any Smart-Collection categories. ``Smart Collections Only``: the per-Item-Group auto-mapping is disabled — categories come exclusively from Smart Collections. Pick the latter when you drive your Medusa category tree via Smart Collections and don't want the parallel Item-Group tree replicated in Medusa."
+  },
+  {
+   "depends_on": "eval:doc.upload_erpnext_items && doc.category_assignment_mode != 'Smart Collections Only'",
    "fieldname": "category_sync_root",
    "fieldtype": "Link",
    "label": "Category Sync Root",
