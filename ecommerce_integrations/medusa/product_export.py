@@ -525,7 +525,16 @@ class MedusaProductExporter:
         Sources:
         1. Item's primary item_group
         2. Website Item's additional item groups (multi-category)
+
+        When ``Medusa Setting.category_assignment_mode`` is set to
+        ``"Smart Collections Only"`` the per-Item-Group auto-mapping is
+        skipped — categories are then assigned exclusively via Smart
+        Collection ``link_items`` calls and the Item-Group tree never
+        gets replicated as a parallel Medusa category tree.
         """
+        if getattr(self.setting, "category_assignment_mode", "") == "Smart Collections Only":
+            return []
+
         cat_map = self._get_medusa_category_map(session=session, base_url=base_url)
         if not cat_map:
             return []
@@ -1495,6 +1504,10 @@ def _sync_categories_to_medusa(session, base_url, category_root=None, dry_run=0)
 	from ecommerce_integrations.medusa.constants import API_CATEGORIES
 
 	setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+	if getattr(setting, "category_assignment_mode", "") == "Smart Collections Only":
+		# Item-Group mirroring is disabled — categories come from Smart
+		# Collections instead. Avoid replicating the Item-Group tree.
+		return {"total": 0, "synced": 0, "errors": 0, "skipped": "Smart Collections Only mode"}
 	root = category_root or setting.category_sync_root or "All Item Groups"
 
 	groups = frappe.get_all(
