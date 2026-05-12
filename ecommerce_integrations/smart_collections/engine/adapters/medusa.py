@@ -17,6 +17,7 @@ import frappe
 
 from ecommerce_integrations.medusa.connection import (
     medusa_request,
+    medusa_request_all,
     optional_session,
 )
 from ecommerce_integrations.medusa.constants import API_CATEGORIES
@@ -62,6 +63,24 @@ class MedusaCategoryAdapter(CategoryAdapter):
                     session, base_url, "POST", API_CATEGORIES, json=payload,
                 )
             except Exception as e:
+                # Medusa returns 400 ``Product category with handle ...
+                # already exists.`` when a previous create-then-link-fail
+                # cycle left an orphan category in Medusa with no
+                # ``external_id`` persisted on the target. The exception
+                # ``str()`` only carries the status line, not the body —
+                # check the response body via ``e.response.text`` and fall
+                # back to a lookup-by-handle so the sync self-heals.
+                resp_text = ""
+                resp = getattr(e, "response", None)
+                if resp is not None:
+                    try:
+                        resp_text = resp.text or ""
+                    except Exception:
+                        resp_text = ""
+                if "already exists" in resp_text.lower():
+                    existing = _lookup_by_handle(session, base_url, collection.slug)
+                    if existing:
+                        return existing
                 raise AdapterError(f"Medusa category create failed: {e}") from e
 
         category = (resp or {}).get("product_category") or {}
@@ -101,6 +120,11 @@ class MedusaCategoryAdapter(CategoryAdapter):
         product_ids_add, missing = _items_to_medusa_product_ids(add)
         product_ids_remove, _ = _items_to_medusa_product_ids(remove)
 
+        # Medusa v2 batch endpoint: POST {add: [...], remove: [...]}.
+        # Earlier code sent ``{product_ids: [...]}`` which Medusa rejects
+        # with ``{"type":"invalid_data","message":"Unrecognized fields:
+        # 'product_ids'"}`` — a 400 that surfaced as the cryptic "Medusa
+        # link batch failed" message in the integration log.
         url = f"{API_CATEGORIES}/{target.external_id}/products"
 
         with optional_session() as (session, base_url):
@@ -108,7 +132,7 @@ class MedusaCategoryAdapter(CategoryAdapter):
                 try:
                     medusa_request(
                         session, base_url, "POST", url,
-                        json={"product_ids": batch},
+                        json={"add": batch, "remove": []},
                     )
                 except Exception as e:
                     raise AdapterError(f"Medusa link batch failed: {e}") from e
@@ -116,13 +140,34 @@ class MedusaCategoryAdapter(CategoryAdapter):
             for batch in _chunked(product_ids_remove, _LINK_BATCH_SIZE):
                 try:
                     medusa_request(
-                        session, base_url, "DELETE", url,
-                        json={"product_ids": batch},
+                        session, base_url, "POST", url,
+                        json={"add": [], "remove": batch},
                     )
                 except Exception as e:
                     raise AdapterError(f"Medusa unlink batch failed: {e}") from e
 
         return missing
+
+
+def _lookup_by_handle(session, base_url, handle: str) -> str | None:
+    """Return the Medusa product-category id for ``handle`` if it exists.
+
+    Used by ``upsert_category`` as a fallback when Medusa rejects a create
+    with "already exists" — the orphaned category from a previous
+    create-then-link-fail run still lives in Medusa but the local target
+    row never got its ``external_id`` persisted.
+    """
+    try:
+        resp = medusa_request(
+            session, base_url, "GET", API_CATEGORIES,
+            params={"handle": handle, "limit": 1},
+        )
+    except Exception:
+        return None
+    categories = (resp or {}).get("product_categories") or []
+    if categories:
+        return categories[0].get("id")
+    return None
 
 
 def _items_to_medusa_product_ids(item_codes) -> tuple[list[str], list[str]]:
