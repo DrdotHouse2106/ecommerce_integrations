@@ -211,26 +211,42 @@ def _lookup_by_handle(session, base_url, handle: str) -> str | None:
 
 
 def _items_to_medusa_product_ids(item_codes) -> tuple[list[str], list[str]]:
-    """Map ERPNext item codes to Medusa product ids via ``Item.medusa_product_id``.
+    """Map ERPNext item codes to Medusa product ids.
 
-    Returns ``(resolved_product_ids, missing_item_codes)``.
+    Variants in ERPNext have their own row but in Medusa they live as
+    ``variants`` under the template product; only the template carries
+    ``medusa_product_id``. So if an item has no id of its own and is a
+    variant, fall back to the template's id. The Smart Collection
+    category then ends up linked to the template, which is what
+    Medusa's storefront listings already do.
+
+    Returns ``(resolved_product_ids, missing_item_codes)`` — the
+    returned product ids are de-duplicated so a template with N
+    variants in the same collection only links once.
     """
     if not item_codes:
         return [], []
     rows = frappe.db.sql(
         """
-        SELECT name, medusa_product_id
-        FROM `tabItem`
-        WHERE name IN ({placeholders})
+        SELECT i.name,
+               COALESCE(NULLIF(i.medusa_product_id, ''),
+                        parent.medusa_product_id) AS medusa_product_id
+        FROM `tabItem` i
+        LEFT JOIN `tabItem` parent
+            ON parent.name = i.variant_of
+        WHERE i.name IN ({placeholders})
         """.format(placeholders=", ".join(["%s"] * len(item_codes))),
         tuple(item_codes),
         as_dict=True,
     )
+    seen: set[str] = set()
     resolved: list[str] = []
     have: set[str] = set()
     for r in rows:
-        if r.medusa_product_id:
+        if r.medusa_product_id and r.medusa_product_id not in seen:
             resolved.append(r.medusa_product_id)
+            seen.add(r.medusa_product_id)
+        if r.medusa_product_id:
             have.add(r.name)
     missing = [c for c in item_codes if c not in have]
     return resolved, missing
