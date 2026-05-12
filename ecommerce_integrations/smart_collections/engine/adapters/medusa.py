@@ -43,6 +43,17 @@ class MedusaCategoryAdapter(CategoryAdapter):
         if collection.description:
             payload["description"] = collection.description
 
+        # Propagate hierarchy: if the collection points at a parent
+        # Smart Collection, find that parent's Medusa target for the
+        # *same* sales channel and use its external_id. Parents that
+        # haven't been synced yet (or that don't target this channel)
+        # fall back to a root-level category — the sync re-runs daily,
+        # so on the next pass the parent will exist and the child gets
+        # promoted into the tree.
+        parent_id = _resolve_parent_category_id(collection, target)
+        if parent_id:
+            payload["parent_category_id"] = parent_id
+
         with optional_session() as (session, base_url):
             if target.external_id:
                 try:
@@ -147,6 +158,28 @@ class MedusaCategoryAdapter(CategoryAdapter):
                     raise AdapterError(f"Medusa unlink batch failed: {e}") from e
 
         return missing
+
+
+def _resolve_parent_category_id(collection, target) -> str | None:
+    """Return the parent collection's external_id on the same sales channel.
+
+    Hierarchy is per-channel: ``Steckregal`` and ``Steckregal-Zubehör``
+    might both have Medusa targets, but only the same-channel target's
+    external_id makes sense as a parent in that channel's category tree.
+    """
+    if not getattr(collection, "parent_collection", None):
+        return None
+    row = frappe.db.sql(
+        """
+        SELECT external_id
+        FROM `tabEcommerce Smart Collection Target`
+        WHERE parent = %s AND backend = %s AND sales_channel = %s
+          AND external_id IS NOT NULL AND external_id != ''
+        LIMIT 1
+        """,
+        (collection.parent_collection, target.backend, target.sales_channel),
+    )
+    return row[0][0] if row else None
 
 
 def _lookup_by_handle(session, base_url, handle: str) -> str | None:
