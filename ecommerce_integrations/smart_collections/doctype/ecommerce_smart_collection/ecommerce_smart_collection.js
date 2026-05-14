@@ -272,9 +272,12 @@ function _render_target_section(t) {
 				| ${__('external_id')}: ${frappe.utils.escape_html(t.external_id || '—')}
 			</div>
 			<div style="margin-top:0.5em">
-				<span class="indicator-pill green">${__('Add')}: ${t.to_add.length}</span>
-				<span class="indicator-pill red">${__('Remove')}: ${removed_label}</span>
-				<span class="indicator-pill gray">${__('Keep')}: ${t.to_keep.length}</span>
+				<span class="indicator-pill green">${__('Link to category')}: ${t.to_add.length}</span>
+				<span class="indicator-pill red">${__('Unlink from category')}: ${removed_label}</span>
+				<span class="indicator-pill gray">${__('Already linked')}: ${t.to_keep.length}</span>
+			</div>
+			<div class="text-muted small" style="margin-top:0.25em">
+				${__('These counts describe the category-product link relationship only. Products themselves are not created, modified or deleted by Smart Collection sync.')}
 			</div>
 			${drift_html}
 			${notes}

@@ -80,3 +80,9 @@ Filter (optional),Filter (optional)
 Execution,Ausführung
 Warning,Warnung
 Start,Starten
+---
+Link to category,Verknüpfen mit Kategorie
+Unlink from category,Verknüpfung aufheben
+Already linked,Bereits verknüpft
+These counts describe the category-product link relationship only. Products themselves are not created\, modified or deleted by Smart Collection sync.,Die Zahlen beschreiben nur die Kategorie-Produkt-Verknüpfung. Produkte selbst werden weder angelegt\, geändert noch gelöscht.
+Add,Hinzufügen
