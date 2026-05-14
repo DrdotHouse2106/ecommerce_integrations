@@ -8,3 +8,4 @@ rag
 ai_description
 medusa
 Smart Collections
+Catalog Mirror

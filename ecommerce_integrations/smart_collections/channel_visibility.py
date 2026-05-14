@@ -1,17 +1,18 @@
-"""Smart-Collections-driven channel visibility lookup.
+"""Smart-Collections-driven channel visibility lookup (DEPRECATED).
 
-Replaces the legacy ``Setting.get_channels_for_item(item_group, brand)``
-indirection used by the Medusa and Shopware product-sync code paths. The
-new logic asks the Smart Collections engine "for the given item, which
-channels of the given backend should it appear in?" and returns one entry
-per (collection × target) the item resolves into — with the target's
-configured visibility level so Shopware's salesChannels association can
-distinguish ``All (30)`` vs ``Linked Only (20)`` etc.
+Phase 2 of the Catalog Mirror project moved the canonical
+"which channels does Item X land on?" logic into
+:mod:`ecommerce_integrations.catalog_mirror.resolver`, which combines
+per-item overrides, Catalog Mirror placements and Smart Collections in
+one place with **Variant A** precedence (highest visibility wins).
 
-The reverse index (item_code → channels) is cached in Frappe's cache for
-five minutes; cache keys are namespaced by backend so changes to one
-backend's collections don't drop the other backend's index. Hooks
-invalidate on Item / Item Ecommerce Property / Item Group save.
+This module is kept for **backwards compatibility only** — every public
+symbol now delegates to the new resolver. The legacy `_build_index`
+helper is retained as dead code; it's no longer wired up and exists
+solely so a downstream import doesn't break on a half-rolled-out site.
+
+New code should import from
+``ecommerce_integrations.catalog_mirror.resolver`` directly.
 """
 
 from collections import defaultdict
@@ -30,15 +31,28 @@ _CACHE_TTL_SEC = 300
 
 
 def channels_for_item(item_code: str, backend: str) -> list[dict]:
-    """Return all (sales_channel, visibility) entries the item resolves into.
+    """Return legacy-shape entries via the unified resolver.
 
-    Each entry is a dict with ``sales_channel``, ``visibility`` and the
-    matching ``collection`` name. Multiple Smart Collections targeting the
-    same channel produce multiple entries — callers that just need a
-    deduped channel list should pass through ``unique_channel_ids``.
+    DEPRECATED — delegates to
+    :func:`ecommerce_integrations.catalog_mirror.resolver.channels_for_item`
+    and reshapes the result to the legacy dict form
+    (``{sales_channel, visibility, collection}``) so existing callers
+    keep working. New code should call the resolver directly to get the
+    typed :class:`ChannelEntry` objects with full source info.
     """
-    index = _index_for_backend(backend)
-    return list(index.get(item_code, ()))
+    from ecommerce_integrations.catalog_mirror.resolver import (
+        channels_for_item as _new_channels_for_item,
+    )
+
+    entries = _new_channels_for_item(item_code, backend)
+    return [
+        {
+            "sales_channel": e.sales_channel,
+            "visibility": e.visibility,
+            "collection": e.source_doc,
+        }
+        for e in entries
+    ]
 
 
 def unique_channel_ids(entries: list[dict]) -> list[str]:
@@ -55,13 +69,35 @@ def unique_channel_ids(entries: list[dict]) -> list[str]:
 
 
 def invalidate_cache(backend: str | None = None) -> None:
-    """Drop the cached reverse index. ``backend=None`` drops both."""
+    """Drop the cached reverse index (both legacy and resolver).
+
+    Hooks call this function (via
+    :func:`smart_collections.hooks.invalidate_visibility_cache`) on
+    Item / Item Group / Smart Collection save. The legacy cache key is
+    flushed for safety even though no code path reads it any more —
+    cheap to clear, and keeps a half-rolled-out site honest.
+    """
+    from ecommerce_integrations.catalog_mirror.resolver import (
+        invalidate_cache as _new_invalidate_cache,
+    )
+
+    _new_invalidate_cache(backend)
+
     backends = (backend,) if backend else KNOWN_BACKENDS
     for b in backends:
-        frappe.cache.delete_key(_CACHE_KEY_PREFIX + b)
+        try:
+            frappe.cache.delete_key(_CACHE_KEY_PREFIX + b)
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Dead code (kept for backwards compat — never called)
+# ---------------------------------------------------------------------------
 
 
 def _index_for_backend(backend: str) -> dict[str, list[dict]]:
+    """Legacy reverse-index lookup. Retained as dead code."""
     cache_key = _CACHE_KEY_PREFIX + backend
     cached = frappe.cache.get_value(cache_key)
     if cached is not None:
@@ -72,6 +108,8 @@ def _index_for_backend(backend: str) -> dict[str, list[dict]]:
 
 
 def _build_index(backend: str) -> dict[str, list[dict]]:
+    """Legacy index builder. Retained as dead code; new code should use
+    :mod:`ecommerce_integrations.catalog_mirror.resolver` instead."""
     targets = frappe.db.sql(
         """
         SELECT sc.name AS collection, sc.title,
@@ -91,9 +129,6 @@ def _build_index(backend: str) -> dict[str, list[dict]]:
     index: dict[str, list[dict]] = defaultdict(list)
     seen_per_item: dict[str, set[tuple[str, str]]] = defaultdict(set)
 
-    # Resolving once per collection keeps the cost at one SQL query per
-    # active collection rather than one per item — critical when the
-    # product sync iterates over thousands of items.
     by_collection: dict[str, list[dict]] = defaultdict(list)
     for row in targets:
         by_collection[row.collection].append(row)

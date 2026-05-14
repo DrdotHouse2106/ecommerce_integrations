@@ -274,6 +274,8 @@ scheduler_events = {
 		"ecommerce_integrations.medusa.product_export.ensure_index_fresh",
 		# Smart Collections: re-flag targets stuck in 'running' past the heartbeat timeout
 		"ecommerce_integrations.smart_collections.tasks.recover_stale_targets",
+		# Catalog Mirror: re-flag mirrors stuck in 'running' past heartbeat
+		"ecommerce_integrations.catalog_mirror.tasks.recover_stale_mirrors",
 		# Shopware6: re-enqueue items from the DLQ for retry (failed batch items).
 		"ecommerce_integrations.shopware6.bulk_sync_dlq.retry_failed_items_from_dlq",
 	],
@@ -284,6 +286,8 @@ scheduler_events = {
 		"ecommerce_integrations.unicommerce.status_updater.update_shipping_package_status",
 		# Smart Collections: re-resolve and push category memberships to backends.
 		"ecommerce_integrations.smart_collections.tasks.sync_due_collections",
+		# Catalog Mirror: walk + diff + apply every active mirror against its backend
+		"ecommerce_integrations.catalog_mirror.tasks.sync_due_mirrors",
 	],
 	"weekly": [],
 	"monthly": [],

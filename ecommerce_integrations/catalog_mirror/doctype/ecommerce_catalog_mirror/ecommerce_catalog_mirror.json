@@ -1,0 +1,211 @@
+{
+ "actions": [],
+ "autoname": "field:title",
+ "creation": "2026-05-14 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "naming_rule": "By fieldname",
+ "title_field": "title",
+ "field_order": [
+  "title",
+  "backend",
+  "is_active",
+  "column_break_header",
+  "target_sales_channel",
+  "target_sales_channel_data",
+  "root_section",
+  "root_item_group",
+  "external_root_id",
+  "column_break_root",
+  "sync_inactive_leaves",
+  "orphan_policy",
+  "templates_section",
+  "name_template",
+  "description_template",
+  "overrides_section",
+  "node_overrides",
+  "status_section",
+  "sync_status",
+  "last_synced_at",
+  "column_break_status",
+  "last_heartbeat_at",
+  "last_error"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "label": "Title",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "User-facing label, e.g. 'Main Shop / Products'."
+  },
+  {
+   "fieldname": "backend",
+   "label": "Backend",
+   "fieldtype": "Select",
+   "options": "Shopware\nMedusa",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "is_active",
+   "label": "Active",
+   "fieldtype": "Check",
+   "default": "1",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_header",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "target_sales_channel",
+   "label": "Target Sales Channel",
+   "fieldtype": "Link",
+   "options": "Shopware Sales Channel",
+   "depends_on": "eval:doc.backend === 'Shopware'",
+   "description": "Shopware Sales Channel that owns this mirror. The sales-channel's navigationCategoryId is used as the live root when External Root ID is empty."
+  },
+  {
+   "fieldname": "target_sales_channel_data",
+   "label": "Target Sales Channel (Medusa)",
+   "fieldtype": "Data",
+   "depends_on": "eval:doc.backend === 'Medusa'",
+   "description": "Medusa has no per-channel categorisation; this is informational."
+  },
+  {
+   "fieldname": "root_section",
+   "fieldtype": "Section Break",
+   "label": "Root"
+  },
+  {
+   "fieldname": "root_item_group",
+   "label": "Root Item Group",
+   "fieldtype": "Link",
+   "options": "Item Group",
+   "reqd": 1,
+   "description": "Walk starts here. The Item Group's own catalog_mirror_skip flag is ignored at the root."
+  },
+  {
+   "fieldname": "external_root_id",
+   "label": "External Root ID",
+   "fieldtype": "Data",
+   "read_only_depends_on": "eval:!!doc.external_root_id",
+   "description": "Backend category UUID for the root. Pin manually to mirror against an existing backend category; otherwise auto-resolved from Target Sales Channel on first sync."
+  },
+  {
+   "fieldname": "column_break_root",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sync_inactive_leaves",
+   "label": "Sync Inactive Leaves",
+   "fieldtype": "Check",
+   "default": "0",
+   "description": "When unchecked, leaf Item Groups (is_group=0) with zero items are skipped."
+  },
+  {
+   "fieldname": "orphan_policy",
+   "label": "Orphan Policy",
+   "fieldtype": "Select",
+   "options": "keep\ndelete\nreport",
+   "default": "keep",
+   "description": "What to do with backend categories under the root that don't match any Item Group."
+  },
+  {
+   "fieldname": "templates_section",
+   "fieldtype": "Section Break",
+   "label": "Naming",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "name_template",
+   "label": "Name Template",
+   "fieldtype": "Data",
+   "default": "{{ item_group.item_group_name }}",
+   "description": "Jinja template rendered over the Item Group. The result becomes the backend category name."
+  },
+  {
+   "fieldname": "description_template",
+   "label": "Description Template",
+   "fieldtype": "Small Text",
+   "description": "Optional Jinja template for the backend category description."
+  },
+  {
+   "fieldname": "overrides_section",
+   "fieldtype": "Section Break",
+   "label": "Per-IG Overrides",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "node_overrides",
+   "label": "Node Overrides",
+   "fieldtype": "Table",
+   "options": "Ecommerce Catalog Mirror Node Override",
+   "description": "Manual per-IG mappings (pin a specific backend UUID, or skip an IG entirely)."
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Status",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "sync_status",
+   "label": "Sync Status",
+   "fieldtype": "Select",
+   "options": "pending\nrunning\nok\nerror",
+   "default": "pending",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_synced_at",
+   "label": "Last Synced At",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "last_heartbeat_at",
+   "label": "Last Heartbeat At",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "hidden": 1,
+   "description": "Updated at the start of every sync attempt. recover_stale_mirrors sweeps rows stuck in 'running' past the heartbeat timeout."
+  },
+  {
+   "fieldname": "last_error",
+   "label": "Last Error",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-05-14 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Catalog Mirror",
+ "name": "Ecommerce Catalog Mirror",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

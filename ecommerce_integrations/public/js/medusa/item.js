@@ -10,6 +10,11 @@ frappe.ui.form.on('Item', {
     refresh: function(frm) {
         if (frm.is_new()) return;
         render_medusa_item_indicators(frm);
+        if (typeof render_combined_channel_resolution === 'function') {
+            render_combined_channel_resolution(frm);
+        } else if (typeof _ec_render_combined_channel_resolution === 'function') {
+            _ec_render_combined_channel_resolution(frm);
+        }
     }
 });
 
@@ -61,4 +66,175 @@ function render_medusa_item_indicators(frm) {
             }
         });
     });
+}
+
+
+/* -------------------------------------------------------------------------
+ * Combined cross-backend channel resolution card — fallback definition.
+ *
+ * The canonical implementation lives in public/js/shopware6/item.js (so
+ * the Shopware-only operator still gets the card). If that file is also
+ * loaded, ``render_combined_channel_resolution`` is already defined and
+ * this fallback is unused. If Shopware is disabled or its bundle isn't
+ * loaded on this site, this fallback fires instead.
+ * ----------------------------------------------------------------------- */
+
+if (typeof render_combined_channel_resolution === 'undefined') {
+    window._ec_render_combined_channel_resolution = function(frm) {
+        if (window._ecommerce_channel_card_rendered === frm.doc.name) return;
+        window._ecommerce_channel_card_rendered = frm.doc.name;
+
+        frappe.call({
+            method: 'ecommerce_integrations.catalog_mirror.api.resolve_item_for_form',
+            args: { item_code: frm.doc.item_code },
+            callback: function(r) {
+                if (!r || !r.message) {
+                    frm.dashboard.add_indicator(
+                        __('Resolver not yet available — run bench migrate'),
+                        'orange'
+                    );
+                    return;
+                }
+                _ec_render_card(frm, r.message);
+            },
+            error: function() {
+                frm.dashboard.add_indicator(
+                    __('Resolver not yet available — run bench migrate'),
+                    'orange'
+                );
+            }
+        });
+    };
+
+    function _ec_render_card(frm, data) {
+        const shopware = (data && data.shopware) || { channels: [], categories: [], excluded_channels: [], warnings: [] };
+        const medusa = (data && data.medusa) || { channels: [], categories: [], excluded_channels: [], warnings: [] };
+
+        const html = $(`
+            <div class="ecommerce-channel-resolution" style="margin: 10px 0; padding: 10px;
+                 border: 1px solid var(--border-color); border-radius: 6px; background: var(--fg-color);">
+                <h6 style="margin-top:0;">${frappe.utils.escape_html(__('Ecommerce Visibility (live, computed)'))}</h6>
+                <div class="ec-visibility"></div>
+                <h6 style="margin-top:14px;">${frappe.utils.escape_html(__('Categories (would be linked next sync)'))}</h6>
+                <div class="ec-categories"></div>
+                <div style="margin-top:10px;">
+                    <button class="btn btn-xs btn-default ec-edit-overrides">
+                        ${frappe.utils.escape_html(__('Edit Channel Overrides'))}
+                    </button>
+                </div>
+            </div>
+        `);
+
+        html.find('.ec-visibility').append(_ec_render_visibility('Shopware', shopware));
+        html.find('.ec-visibility').append(_ec_render_visibility('Medusa', medusa));
+        html.find('.ec-categories').append(_ec_render_categories('Shopware', shopware));
+        html.find('.ec-categories').append(_ec_render_categories('Medusa', medusa));
+
+        html.find('.ec-edit-overrides').on('click', function() {
+            frm.scroll_to_field('ecommerce_channel_overrides');
+        });
+
+        let $host = frm.dashboard && frm.dashboard.wrapper
+            ? $(frm.dashboard.wrapper).find('.form-dashboard-section.ecommerce-channel-host')
+            : $();
+        if (!$host.length) {
+            $host = $(`<div class="form-dashboard-section ecommerce-channel-host"></div>`);
+            if (frm.dashboard && frm.dashboard.wrapper) {
+                $(frm.dashboard.wrapper).append($host);
+            }
+        }
+        $host.empty().append(html);
+    }
+
+    function _ec_render_visibility(backend_label, payload) {
+        const rows = [];
+        const included = payload.channels || [];
+        const excluded = payload.excluded_channels || [];
+
+        rows.push(`<div style="font-weight:600; margin-top:6px;">${frappe.utils.escape_html(backend_label)}:</div>`);
+
+        if (!included.length && !excluded.length) {
+            rows.push(`<div style="padding-left:14px; color: var(--text-muted);">
+                ${frappe.utils.escape_html(__('(none — backend not yet configured)'))}
+            </div>`);
+            return rows.join('');
+        }
+
+        included.forEach(function(c) {
+            const name = frappe.utils.escape_html(c.sales_channel || '');
+            const vis = frappe.utils.escape_html(String(c.visibility || ''));
+            rows.push(`<div style="padding-left:14px;">
+                <span style="color: var(--green-600);">&#10003;</span>
+                <span>${name}</span>
+                <span style="color: var(--text-muted); margin-left:8px;">${__('visibility')} ${vis}</span>
+                <span style="margin-left:8px;">${_ec_format_source(c)}</span>
+            </div>`);
+        });
+
+        excluded.forEach(function(c) {
+            const name = frappe.utils.escape_html(c.sales_channel || '');
+            rows.push(`<div style="padding-left:14px; color: var(--text-muted);">
+                <span>&#8856;</span>
+                <span>${name}</span>
+                <span style="margin-left:8px;">${frappe.utils.escape_html(__('(excluded)'))}</span>
+                <span style="margin-left:8px;">${_ec_format_source(c)}</span>
+            </div>`);
+        });
+
+        return rows.join('');
+    }
+
+    function _ec_render_categories(backend_label, payload) {
+        const cats = payload.categories || [];
+        const out = [];
+        out.push(`<div style="font-weight:600; margin-top:6px;">${frappe.utils.escape_html(backend_label)}:</div>`);
+        if (!cats.length) {
+            out.push(`<div style="padding-left:14px; color: var(--text-muted);">
+                ${frappe.utils.escape_html(__('(none — backend not yet configured)'))}
+            </div>`);
+            return out.join('');
+        }
+        cats.forEach(function(c) {
+            const path = frappe.utils.escape_html(c.path || c.sales_channel || '');
+            out.push(`<div style="padding-left:14px;">
+                <span>&bull;</span>
+                <span>${path}</span>
+                <span style="margin-left:8px;">${_ec_format_source(c)}</span>
+            </div>`);
+        });
+        return out.join('');
+    }
+
+    function _ec_format_source(entry) {
+        const source = entry.source || 'default';
+        const doc = entry.source_doc;
+        function tag(label, href) {
+            const esc = frappe.utils.escape_html(label);
+            if (href) {
+                return `<a href="${href}" target="_blank">[${esc}]</a>`;
+            }
+            return `<span style="color: var(--text-muted);">[${esc}]</span>`;
+        }
+        if (source === 'override:include' || source === 'override:exclude') {
+            return tag(__('from Override'));
+        }
+        if (source === 'default') {
+            return tag(__('from default'));
+        }
+        if (source.indexOf('mirror:') === 0) {
+            const name = source.slice('mirror:'.length);
+            const href = doc
+                ? `/app/ecommerce-catalog-mirror/${encodeURIComponent(doc)}`
+                : `/app/ecommerce-catalog-mirror/${encodeURIComponent(name)}`;
+            return tag(__('from Mirror: {0}', [name]), href);
+        }
+        if (source.indexOf('smart_collection:') === 0) {
+            const name = source.slice('smart_collection:'.length);
+            const href = doc
+                ? `/app/ecommerce-smart-collection/${encodeURIComponent(doc)}`
+                : `/app/ecommerce-smart-collection/${encodeURIComponent(name)}`;
+            return tag(__('from SC: {0}', [name]), href);
+        }
+        return tag(source);
+    }
 }

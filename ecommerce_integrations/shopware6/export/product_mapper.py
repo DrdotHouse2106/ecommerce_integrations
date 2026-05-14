@@ -512,23 +512,24 @@ def get_product_visibilities(item, setting) -> list[dict[str, Any]] | None:
             for sc_id, sc in all_channels.items() if sc.active
         ]
 
-    # Priority 2: Smart Collections (replacement for the legacy Item Group
-    # Channel Mappings — see ecommerce_integrations/smart_collections/).
+    # Priority 2: Catalog Mirror + Smart Collections (unified resolver).
+    # The resolver combines per-item overrides, Catalog Mirror placements
+    # and Smart Collections with Variant A precedence (highest visibility
+    # wins per channel). See ecommerce_integrations/catalog_mirror/resolver.py.
     if getattr(item, 'shopware_use_item_group_channels', True):
-        from ecommerce_integrations.smart_collections.channel_visibility import (
+        from ecommerce_integrations.catalog_mirror.resolver import (
             channels_for_item,
         )
-        from ecommerce_integrations.smart_collections.constants import BACKEND_SHOPWARE
-        sc_entries = channels_for_item(item.name, BACKEND_SHOPWARE)
-        if sc_entries:
+        from ecommerce_integrations.catalog_mirror.constants import BACKEND_SHOPWARE
+        entries = channels_for_item(item.name, BACKEND_SHOPWARE)
+        if entries:
             return [
                 {
-                    "salesChannelId": e["sales_channel"],
-                    "visibility": _parse_visibility(e["visibility"]),
+                    "salesChannelId": e.sales_channel,
+                    "visibility": e.visibility,
                 }
-                for e in sc_entries
-                if e["sales_channel"] in all_channels
-                and _parse_visibility(e["visibility"]) > 0
+                for e in entries
+                if e.sales_channel in all_channels and e.visibility > 0
             ]
 
     # Priority 3: Per-item overrides

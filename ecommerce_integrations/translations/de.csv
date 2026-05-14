@@ -86,3 +86,95 @@ Unlink from category,Verknüpfung aufheben
 Already linked,Bereits verknüpft
 These counts describe the category-product link relationship only. Products themselves are not created\, modified or deleted by Smart Collection sync.,Die Zahlen beschreiben nur die Kategorie-Produkt-Verknüpfung. Produkte selbst werden weder angelegt\, geändert noch gelöscht.
 Add,Hinzufügen
+Ecommerce Visibility (live\, computed),Ecommerce-Sichtbarkeit (Live berechnet)
+Preview Sync,Sync vorschauen
+Apply Live,Live anwenden
+Catalog Mirror,Katalog-Spiegel
+Backend categories without ERPNext match,Backend-Kategorien ohne ERPNext-Pendant
+Backend categories without ERPNext match (per orphan_policy={0}),Backend-Kategorien ohne ERPNext-Pendant (gemäß orphan_policy={0})
+Stale mappings,Veraltete Verknüpfungen
+Stale mappings (Item Groups pointing at deleted backend categories),Veraltete Verknüpfungen (Artikelgruppen mit gelöschten Backend-Kategorien)
+Clear mapping & re-create,Verknüpfung löschen & neu anlegen
+Adopt existing…,Bestehendes übernehmen…
+Adopt → IG…,Zu Item-Group zuordnen…
+Refresh Preview,Vorschau aktualisieren
+Apply this plan to {0}?,Diesen Plan auf {0} anwenden?
+Apply this plan to {0}? Creates: {1}\, Updates: {2}\, Moves: {3}\, Orphans handled: {4}.,Diesen Plan auf {0} anwenden? Anlegen: {1}\, Aktualisieren: {2}\, Verschieben: {3}\, Verwaiste behandelt: {4}.
+Creates: {0}\, Updates: {1}\, Moves: {2}\, Orphans handled: {3},Anlegen: {0}\, Aktualisieren: {1}\, Verschieben: {2}\, Verwaiste: {3}
+parent: {0} → {1},übergeordnet: {0} → {1}
+would create under {0},würde unter {0} angelegt
+Sync running since {0},Sync läuft seit {0}
+{0} target(s) in error,{0} Ziel(e) mit Fehler
+Sync error,Sync-Fehler
+Sync error: {0},Sync-Fehler: {0}
+Last sync OK,Letzter Sync OK
+Root: {0},Wurzel: {0}
+Channel: {0},Kanal: {0}
+Last synced: {0},Zuletzt synchronisiert: {0}
+Building preview…,Vorschau wird erstellt…
+Applying mirror…,Spiegel wird angewendet…
+Adopting…,Übernahme läuft…
+Updating orphan…,Verwaisten Eintrag aktualisieren…
+Clearing mapping…,Verknüpfung wird gelöscht…
+Apply this mirror against the live backend now?,Diesen Spiegel jetzt gegen das Live-Backend anwenden?
+Really apply now? This creates / updates / deletes backend categories.,Wirklich jetzt anwenden? Dabei werden Backend-Kategorien angelegt / aktualisiert / gelöscht.
+Apply (Live),Anwenden (Live)
+Preview Sync: {0},Sync vorschauen: {0}
+Skipped: {0},Übersprungen: {0}
+Root resolved,Wurzel aufgelöst
+Unresolved root,Wurzel nicht aufgelöst
+not yet resolved,noch nicht aufgelöst
+Backend,Backend
+Channel,Kanal
+Create,Anlegen
+Update,Aktualisieren
+Move,Verschieben
+Noop,Unverändert
+Orphan,Verwaist
+Mapping drift,Verknüpfung verschoben
+Tree diff,Baum-Diff
+node(s),Knoten
+No tree nodes in plan.,Keine Baumknoten im Plan.
+CREATE,ANLEGEN
+UPDATE,AKTUALISIEREN
+MOVE,VERSCHIEBEN
+NOOP,UNVERÄNDERT
+ORPHAN,VERWAIST
+DRIFT,VERSCHOBEN
+ERROR,FEHLER
+name,Name
+description,Beschreibung
+active,Aktiv
+root,Wurzel
+Path,Pfad
+External ID,Externe ID
+Stale External ID,Veraltete externe ID
+Proposed Name,Vorgeschlagener Name
+Products,Produkte
+Last modified,Zuletzt geändert
+Actions,Aktionen
+Item Group,Artikelgruppe
+Mode,Modus
+Adopt,Übernehmen
+Adopted: {0},Übernommen: {0}
+Adopted: {0} → {1},Übernommen: {0} → {1}
+Cleared: {0},Gelöscht: {0}
+Orphan {0}: {1},Verwaist {0}: {1}
+Delete backend category {0}? This cannot be undone.,Backend-Kategorie {0} löschen? Dies kann nicht rückgängig gemacht werden.
+Clear backend mapping on Item Group {0}? The next sync will re-create the category.,Backend-Verknüpfung auf Artikelgruppe {0} löschen? Der nächste Sync legt die Kategorie erneut an.
+Suggested parent: {0},Vorgeschlagene übergeordnete: {0}
+Paste the backend category ID for this Item Group. The mapping is stored as a node_override on the mirror so it survives re-walks.,Backend-Kategorie-ID für diese Artikelgruppe einfügen. Die Zuordnung wird als node_override im Spiegel gespeichert und überdauert erneute Walks.
+'pin' wires the IG to this external_id. 'skip' tells the mirror to ignore this IG.,'pin' verknüpft die Artikelgruppe mit dieser external_id. 'skip' weist den Spiegel an\, diese Artikelgruppe zu ignorieren.
+Pick the ERPNext Item Group that should own this backend category.,ERPNext-Artikelgruppe wählen\, der diese Backend-Kategorie zugeordnet werden soll.
+Status: {0} — created: {1}\, updated: {2}\, moved: {3}\, deleted: {4},Status: {0} — angelegt: {1}\, aktualisiert: {2}\, verschoben: {3}\, gelöscht: {4}
+Categories (would be linked next sync),Kategorien (würden beim nächsten Sync verlinkt)
+Channel Visibility Overrides (cross-backend),Channel-Sichtbarkeit Overrides (cross-backend)
+from Mirror: {0},von Mirror: {0}
+from SC: {0},von SC: {0}
+from Override,von Override
+from default,Standard-Kanal
+(excluded),(ausgeschlossen)
+Edit Channel Overrides,Channel-Overrides bearbeiten
+Resolver not yet available — run bench migrate,Resolver nicht verfügbar — bitte bench migrate ausführen
+include,einschließen
+exclude,ausschließen
