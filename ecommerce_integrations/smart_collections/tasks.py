@@ -459,16 +459,30 @@ def _build_target_plan(coll, target, sorted_items: list[str]) -> TargetSyncPlan:
     # blip on one adapter never blocks the preview for the others.
     live: LiveCategoryState
     live_error: str | None = None
-    try:
-        adapter = get_adapter(backend)
-        live = adapter.fetch_state(target)
-    except Exception as e:
+    backend_disabled = _is_backend_disabled(backend)
+    if backend_disabled:
+        # The session decorator returns None silently when the channel
+        # is disabled, which would land us with empty matches and no
+        # diff signal — exactly the case where the operator would
+        # mistakenly think the preview was authoritative. Surface it.
         live = LiveCategoryState(exists=False)
-        live_error = f"fetch_state failed: {e!s}"
+        live_error = (
+            f"{backend} integration is disabled — live diff and match "
+            "suggestions are NOT included in this preview. To get a full "
+            f"backend-aware preview, enable {backend} (with "
+            "upload/update toggles OFF) and re-run."
+        )
+    else:
+        try:
+            adapter = get_adapter(backend)
+            live = adapter.fetch_state(target)
+        except Exception as e:
+            live = LiveCategoryState(exists=False)
+            live_error = f"fetch_state failed: {e!s}"
 
     # Match suggestions only when the target hasn't been wired up yet.
     matches: list[dict] = []
-    if not target.external_id:
+    if not target.external_id and not backend_disabled:
         try:
             adapter = get_adapter(backend)
             for m in adapter.find_matching_category(coll, target) or []:
@@ -620,3 +634,28 @@ def _resolve_product_ids(
         return set(ids), list(missing)
 
     return set(), list(item_codes)
+
+
+def _is_backend_disabled(backend: str) -> bool:
+    """Return True when the backend's master toggle is OFF.
+
+    The Smart Collections session decorator returns ``None`` silently when
+    the channel is disabled (existing Shopify-style behaviour) — without
+    this check the preview would land with empty matches and no error,
+    leading operators to mistakenly trust an incomplete diff. We check
+    upstream so the preview can surface the disabled state explicitly.
+    """
+    try:
+        if backend == "Shopware":
+            return not bool(frappe.db.get_single_value(
+                "Shopware Setting", "enable_shopware",
+            ))
+        if backend == "Medusa":
+            return not bool(frappe.db.get_single_value(
+                "Medusa Setting", "enable_medusa",
+            ))
+    except Exception:
+        # If the setting doctype doesn't exist yet (fresh install) treat
+        # the backend as disabled so the preview reports honestly.
+        return True
+    return False

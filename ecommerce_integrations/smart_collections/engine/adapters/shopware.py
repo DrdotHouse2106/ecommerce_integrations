@@ -212,8 +212,8 @@ class ShopwareCategoryAdapter(CategoryAdapter):
     def _find_matching_impl(
         self, client, collection, target,
     ) -> list[CategoryMatch]:
-        title = (collection.title or "").strip()
-        if not title:
+        candidates = _candidate_names(collection)
+        if not candidates:
             return []
 
         parent_id: str | None = None
@@ -230,62 +230,89 @@ class ShopwareCategoryAdapter(CategoryAdapter):
                 # across all categories and surface the matches anyway.
                 parent_id = None
 
-        criteria: dict = {
-            "filter": [
-                {"type": "equals", "field": "name", "value": title},
-            ],
-            "limit": 25,
-        }
-        if parent_id:
-            criteria["filter"].append(
-                {"type": "equals", "field": "parentId", "value": parent_id},
-            )
-
-        try:
-            resp = client.request_post("search/category", payload=criteria)
-        except Exception as e:
-            raise AdapterError(
-                f"Shopware category search failed: {e}",
-            ) from e
-
         matches: list[CategoryMatch] = []
-        for row in (resp or {}).get("data") or []:
-            attrs = row.get("attributes") or row
-            ext_id = row.get("id") or attrs.get("id")
-            if not ext_id:
-                continue
-            cat_name = attrs.get("name") or title
-            breadcrumb = attrs.get("breadcrumb") or [cat_name]
-            path = " / ".join(str(p) for p in breadcrumb)
-            linked = _fetch_category_product_count(client, ext_id)
+        seen_ids: set[str] = set()
 
-            # ``has_target_sales_channel`` lets the JS sort matches that
-            # are already visible on the operator's target channel above
-            # ones that aren't — adopting the visible one is almost
-            # always what the user wants.
-            has_channel = False
-            if target.sales_channel:
-                try:
-                    sc_resp = client.request_get(
-                        f"category/{ext_id}/sales-channels",
-                    )
-                    for sc in (sc_resp or {}).get("data") or []:
-                        sc_id = sc.get("id") or (sc.get("attributes") or {}).get("id")
-                        if sc_id == target.sales_channel:
-                            has_channel = True
-                            break
-                except Exception:
-                    has_channel = False
+        # Search globally across the Shopware category tree for each
+        # candidate. We deliberately do NOT filter by parentId —
+        # operators often have multiple categories with the same name
+        # in different navigation trees (per sales channel, archive,
+        # staging duplicates, etc.) and surfacing all of them lets the
+        # operator pick the right one. ``has_target_sales_channel``
+        # still flags whichever match is wired up to the target
+        # sales channel, so the JS can sort those to the top.
+        for cand in candidates:
+            criteria = {
+                "filter": [
+                    {"type": "equals", "field": "name", "value": cand},
+                ],
+                "limit": 50,
+            }
+            try:
+                resp = client.request_post("search/category", payload=criteria)
+            except Exception as e:
+                raise AdapterError(
+                    f"Shopware category search failed: {e}",
+                ) from e
 
-            matches.append(
-                CategoryMatch(
-                    external_id=ext_id,
-                    name=cat_name,
-                    path=path,
-                    has_target_sales_channel=has_channel,
-                    linked_product_count=linked,
-                ),
-            )
+            for row in (resp or {}).get("data") or []:
+                attrs = row.get("attributes") or row
+                ext_id = row.get("id") or attrs.get("id")
+                if not ext_id or ext_id in seen_ids:
+                    continue
+                seen_ids.add(ext_id)
+                cat_name = attrs.get("name") or cand
+                breadcrumb = attrs.get("breadcrumb") or [cat_name]
+                path = " / ".join(str(p) for p in breadcrumb)
+                linked = _fetch_category_product_count(client, ext_id)
+
+                has_channel = False
+                if target.sales_channel:
+                    try:
+                        sc_resp = client.request_get(
+                            f"category/{ext_id}/sales-channels",
+                        )
+                        for sc in (sc_resp or {}).get("data") or []:
+                            sc_id = sc.get("id") or (sc.get("attributes") or {}).get("id")
+                            if sc_id == target.sales_channel:
+                                has_channel = True
+                                break
+                    except Exception:
+                        has_channel = False
+
+                # Categories under the target sales channel's
+                # navigation root are usually the intended targets
+                # (operators rarely want to adopt a category outside
+                # their channel tree). Use the parent_id we fetched
+                # earlier to detect this. Direct children of the nav
+                # root are clearly in-channel; descendants further down
+                # are likely in-channel too if the breadcrumb starts
+                # with the channel's root.
+                in_channel_tree = False
+                if parent_id and breadcrumb:
+                    # Walk the chain: a category is "in-channel" if its
+                    # breadcrumb's root id chain reaches parent_id.
+                    # Shopware's breadcrumb is a list of names not ids,
+                    # so we accept the looser signal "category has the
+                    # sales-channel association set".
+                    in_channel_tree = has_channel
+
+                matches.append(
+                    CategoryMatch(
+                        external_id=ext_id,
+                        name=cat_name,
+                        path=path,
+                        has_target_sales_channel=has_channel or in_channel_tree,
+                        linked_product_count=linked,
+                    ),
+                )
+
+        # Sort: matches with the target sales-channel association first,
+        # then by linked product count desc (operators usually want the
+        # category that's already populated, not an empty duplicate).
+        matches.sort(
+            key=lambda m: (not m.has_target_sales_channel, -m.linked_product_count),
+        )
         return matches
 
     def _delete_impl(self, client, target) -> None:
@@ -416,3 +443,54 @@ def _fetch_category_product_count(client, category_id: str) -> int:
     except Exception:
         return 0
     return int((resp or {}).get("total") or 0)
+
+
+def _candidate_names(collection) -> list[str]:
+    """Build an ordered list of category names to search Shopware for.
+
+    Order is most-specific-first:
+      1. ``collection.title`` (e.g. "Produkte (Test GmbH)")
+      2. ``collection.title`` without a trailing parenthesized brand tag
+         (e.g. "Produkte")
+      3. Values from ``Item Group`` rules — if the collection's rules
+         filter by Item Group (``rule_type='Item Group'``, operator in
+         ``equals``/``descends_from``), use the rule's value (e.g.
+         "Produkte" from a rule ``Item Group descends_from Produkte``).
+         These match the legacy convention where Shopware categories
+         were generated 1:1 from ERPNext Item Groups.
+    Duplicates removed while preserving order.
+    """
+    import re
+
+    seen: set[str] = set()
+    out: list[str] = []
+
+    def _add(name):
+        if not name:
+            return
+        n = str(name).strip()
+        if n and n not in seen:
+            seen.add(n)
+            out.append(n)
+
+    _add(getattr(collection, "title", None))
+
+    title = (getattr(collection, "title", None) or "").strip()
+    if title:
+        # Strip trailing "(...)" — common brand-tag convention.
+        stripped = re.sub(r"\s*\([^)]*\)\s*$", "", title).strip()
+        if stripped:
+            _add(stripped)
+
+    # ``external_handle`` is a user-facing override that wins when set.
+    _add(getattr(collection, "external_handle", None))
+
+    # Pull Item Group values from the rules.
+    for rule in getattr(collection, "rules", None) or []:
+        rule_type = getattr(rule, "rule_type", None)
+        op = (getattr(rule, "operator", "") or "").lower()
+        value = getattr(rule, "value", None)
+        if rule_type == "Item Group" and op in ("equals", "descends_from", "="):
+            _add(value)
+
+    return out
