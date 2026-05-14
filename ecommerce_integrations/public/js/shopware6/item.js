@@ -1,46 +1,88 @@
 /**
  * Shopware 6 Item Form Extensions
  *
- * Adds Full Resync to Shopware button on the Item form.
+ * - Adds Full Resync to Shopware button on the Item form.
+ * - Renders a per-item sync indicator (last sync time + integration item code).
+ * - Adds an "Open in Shopware Admin" button if the item is already synced.
  */
 
 frappe.ui.form.on('Item', {
     refresh: function(frm) {
+        if (frm.is_new()) return;
+        render_shopware_item_indicators(frm);
         add_shopware_resync_button(frm);
     }
 });
 
 
-function add_shopware_resync_button(frm) {
-    if (frm.is_new()) return;
+function _get_shopware_setting(callback) {
+    if (window._shopware_setting_cache) {
+        callback(window._shopware_setting_cache);
+        return;
+    }
+    frappe.db.get_value('Shopware Setting', 'Shopware Setting', ['enable_shopware', 'shop_url'])
+        .then(r => {
+            window._shopware_setting_cache = r.message || {};
+            callback(window._shopware_setting_cache);
+        });
+}
 
-    // Check if Shopware integration is enabled
-    frappe.call({
-        method: 'frappe.client.get_value',
-        args: {
-            doctype: 'Shopware Setting',
-            fieldname: 'enable_shopware'
-        },
-        callback: function(r) {
-            if (!r.message || !r.message.enable_shopware) {
-                return;
+
+function render_shopware_item_indicators(frm) {
+    _get_shopware_setting(function(setting) {
+        if (!setting || !setting.enable_shopware) return;
+
+        frappe.db.get_list('Ecommerce Item', {
+            filters: {
+                erpnext_item_code: frm.doc.item_code,
+                integration: 'shopware6'
+            },
+            fields: ['integration_item_code', 'modified', 'sku', 'has_variants'],
+            limit: 20
+        }).then(rows => {
+            if (!rows || !rows.length) return;
+            rows.forEach(row => {
+                let when = row.modified ? frappe.datetime.comment_when(row.modified) : '';
+                let label = when
+                    ? __('Shopware: {0} (last sync {1})', [row.integration_item_code, when])
+                    : __('Shopware: {0}', [row.integration_item_code]);
+                frm.dashboard.add_indicator(label, 'green');
+            });
+
+            // Add "Open in Shopware Admin" button if we have a shop URL and an id
+            let shop_url = (setting.shop_url || '').replace(/\/+$/, '');
+            let first = rows[0];
+            if (shop_url && first && first.integration_item_code) {
+                let admin_url = `${shop_url}/admin#/sw/product/detail/${first.integration_item_code}`;
+                frm.add_custom_button(
+                    __('Open in Shopware Admin'),
+                    function() { window.open(admin_url, '_blank'); },
+                    __('Shopware')
+                );
             }
+        });
+    });
+}
 
-            // Check if item is a template (has variants)
-            const is_template = frm.doc.has_variants;
 
-            // Add Full Resync button under Shopware group
-            frm.add_custom_button(
-                __('Full Resync to Shopware'),
-                function() {
-                    sync_item_to_shopware(frm, is_template);
-                },
-                __('Shopware')
-            );
+function add_shopware_resync_button(frm) {
+    _get_shopware_setting(function(setting) {
+        if (!setting || !setting.enable_shopware) return;
 
-            // Style the button (optional: make it stand out)
-            frm.change_custom_button_type(__('Full Resync to Shopware'), __('Shopware'), 'primary');
-        }
+        // Check if item is a template (has variants)
+        const is_template = frm.doc.has_variants;
+
+        // Add Full Resync button under Shopware group
+        frm.add_custom_button(
+            __('Full Resync to Shopware'),
+            function() {
+                sync_item_to_shopware(frm, is_template);
+            },
+            __('Shopware')
+        );
+
+        // Style the button
+        frm.change_custom_button_type(__('Full Resync to Shopware'), __('Shopware'), 'primary');
     });
 }
 
@@ -48,7 +90,6 @@ function add_shopware_resync_button(frm) {
 function sync_item_to_shopware(frm, is_template) {
     const item_code = frm.doc.item_code;
 
-    // Show confirmation dialog with options
     let dialog = new frappe.ui.Dialog({
         title: __('Full Resync to Shopware'),
         fields: [
@@ -77,7 +118,6 @@ function sync_item_to_shopware(frm, is_template) {
 
             const include_variants = is_template && dialog.get_value('include_variants');
 
-            // Determine which method to call
             const method = include_variants
                 ? 'ecommerce_integrations.shopware6.product_export.sync_template_with_variants_to_shopware'
                 : 'ecommerce_integrations.shopware6.product_export.sync_item_to_shopware';
@@ -98,12 +138,10 @@ function sync_item_to_shopware(frm, is_template) {
                         if (r.message.success) {
                             let message = r.message.message || __('Synced successfully to Shopware');
 
-                            // Add variant count if applicable
                             if (r.message.variants_synced !== undefined) {
                                 message += `<br><br><strong>${__('Variants synced')}:</strong> ${r.message.variants_synced}`;
                             }
 
-                            // Add Shopware ID if available
                             if (r.message.shopware_id) {
                                 message += `<br><strong>${__('Shopware ID')}:</strong> ${r.message.shopware_id}`;
                             }

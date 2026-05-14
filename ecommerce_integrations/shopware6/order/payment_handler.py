@@ -8,7 +8,11 @@ from typing import Any
 
 import frappe
 
-from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE, PAYMENT_STATE_MAP
+from ecommerce_integrations.shopware6.constants import (
+    SETTING_DOCTYPE,
+    PAYMENT_STATE_MAP,
+    STATUS_SYNC_ENQUEUE_TIMEOUT,
+)
 from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
 
 
@@ -229,7 +233,7 @@ def verify_payment_status_from_shopware(order_id: str, sales_order_name: str):
                 order_id=order_id,
                 action="pay",
                 queue="short",
-                timeout=60,
+                timeout=STATUS_SYNC_ENQUEUE_TIMEOUT,
             )
 
             frappe.db.commit()

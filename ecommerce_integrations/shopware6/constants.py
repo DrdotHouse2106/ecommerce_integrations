@@ -109,6 +109,12 @@ WEIGHT_TO_ERPNEXT_UOM_MAP = {
 # Default pagination settings
 DEFAULT_PAGE_SIZE = 100
 
+# Background job / lock timeouts (seconds)
+STATUS_SYNC_ENQUEUE_TIMEOUT = 60       # seconds — short-running hook handlers
+INVOICE_CREATE_ENQUEUE_TIMEOUT = 120   # seconds — invoice/payment creation
+ORDER_SYNC_LOCK_TIMEOUT = 120          # seconds — per-order serialization
+BULK_SYNC_JOB_TIMEOUT = 1800           # seconds — full queue processing
+
 # Default tax rate (configure in Shopware Settings for your country)
 DEFAULT_TAX_RATE = 19.0
 

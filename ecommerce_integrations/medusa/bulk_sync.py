@@ -19,8 +19,15 @@ from ecommerce_integrations.controllers.bulk_sync_base import (
 	acquire_lock,
 	release_lock,
 )
-from ecommerce_integrations.medusa.constants import PRODUCT_ID_FIELD, SETTING_DOCTYPE
-from ecommerce_integrations.medusa.utils import is_medusa_enabled
+from ecommerce_integrations.medusa.connection import optional_session
+from ecommerce_integrations.medusa.constants import SETTING_DOCTYPE
+from ecommerce_integrations.medusa.utils import (
+    create_medusa_log,
+    get_medusa_variant_id,
+    is_medusa_enabled,
+    is_synced_to_medusa,
+    update_medusa_log,
+)
 
 QUEUE_KEY = "medusa:sync_queue:product"
 PRICE_QUEUE_KEY = "medusa:sync_queue:price"
@@ -48,7 +55,7 @@ def queue_item_for_sync(doc, method=None):
         return
 
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
-    has_medusa_id = bool(doc.get(PRODUCT_ID_FIELD))
+    has_medusa_id = is_synced_to_medusa(doc.name)
 
     # disabled-state toggles must always sync if the item is already in Medusa,
     # so the mirror reflects ERPNext (disabled → status=draft, re-enabled → published).
@@ -71,11 +78,17 @@ def queue_item_for_sync(doc, method=None):
 
     if _should_activate_bulk_mode():
         return
+    # job_id + deduplicate=True collapse rapid double-saves of the same Item
+    # into a single queued job. Without this, every save spawns a parallel
+    # sync job; the queue-based work below would still dedup items, but the
+    # job overhead piled up.
     frappe.enqueue(
         "ecommerce_integrations.medusa.bulk_sync.process_queue",
         queue="short",
         job_name="medusa_single_sync",
         enqueue_after_commit=True,
+        job_id=f"medusa_sync_item:{doc.name}",
+        deduplicate=True,
     )
 
 
@@ -98,9 +111,8 @@ def queue_price_for_sync(doc, method=None):
     if doc.price_list not in relevant_lists:
         return
 
-    # Only queue if item is synced to Medusa
-    from ecommerce_integrations.medusa.constants import VARIANT_ID_FIELD
-    if not frappe.db.get_value("Item", item_code, VARIANT_ID_FIELD):
+    # Only queue if the item has a synced variant in Medusa
+    if not get_medusa_variant_id(item_code):
         return
 
     _add_to_queue(item_code, PRICE_QUEUE_KEY)
@@ -112,6 +124,8 @@ def queue_price_for_sync(doc, method=None):
         queue="short",
         job_name="medusa_single_price_sync",
         enqueue_after_commit=True,
+        job_id=f"medusa_price:{item_code}",
+        deduplicate=True,
     )
 
 
@@ -150,7 +164,10 @@ def process_queue():
 
 
 def _process_product_queue():
-    from ecommerce_integrations.medusa.product_export import MedusaProductExporter
+    from ecommerce_integrations.medusa.product_export import (
+        MedusaProductExporter,
+        _build_medusa_sku_map,
+    )
 
     queue = _get_queue(QUEUE_KEY)
     if not queue:
@@ -160,28 +177,57 @@ def _process_product_queue():
     processed = 0
     errors = 0
 
-    for i in range(0, total, BATCH_SIZE):
-        batch = queue[i:i + BATCH_SIZE]
+    log_name = create_medusa_log(
+        request_type="bulk_sync.process_queue",
+        status="In Progress",
+        request_data={"queue": "product", "total": total},
+    )
 
-        for item_code in batch:
-            try:
-                MedusaProductExporter(item_code).export()
-                processed += 1
-            except Exception as e:
-                errors += 1
-                frappe.log_error(f"Medusa bulk sync failed: {item_code}", str(e))
+    # The per-item update path resolves variant_ids via the cached SKU map.
+    # Without a fresh map, every update sends variants without ``id`` and
+    # Medusa rejects them with a "variant with sku X already exists" 400.
+    # Build it once under a shared session for the whole batch.
+    with optional_session() as (session, base_url):
+        try:
+            _build_medusa_sku_map(session, base_url)
+        except Exception as e:
+            update_medusa_log(
+                log_name,
+                status="Error",
+                message=f"SKU map build failed before bulk sync: {e}",
+            )
+            raise
 
-        # Remove processed batch from the live queue (may have new items added since snapshot)
-        _remove_from_queue(batch, QUEUE_KEY)
-        frappe.db.commit()
+        for i in range(0, total, BATCH_SIZE):
+            batch = queue[i:i + BATCH_SIZE]
 
-        if i + BATCH_SIZE < total:
-            time.sleep(BATCH_DELAY)
+            for item_code in batch:
+                try:
+                    MedusaProductExporter(item_code).export()
+                    processed += 1
+                except Exception as e:
+                    errors += 1
+                    frappe.log_error(f"Medusa bulk sync failed: {item_code}", str(e))
 
-    if total:
-        frappe.logger("medusa").info(
-            f"Medusa Bulk Sync: {processed}/{total} products synced, {errors} errors"
-        )
+            _remove_from_queue(batch, QUEUE_KEY)
+            frappe.db.commit()
+
+            update_medusa_log(
+                log_name,
+                message=f"{processed}/{total} products synced, {errors} errors",
+            )
+
+            if i + BATCH_SIZE < total:
+                time.sleep(BATCH_DELAY)
+
+    update_medusa_log(
+        log_name,
+        status="Error" if errors else "Success",
+        message=f"{processed}/{total} products synced, {errors} errors",
+    )
+    frappe.logger("medusa").info(
+        f"Medusa Bulk Sync: {processed}/{total} products synced, {errors} errors"
+    )
 
 
 def _process_price_queue():
@@ -194,6 +240,12 @@ def _process_price_queue():
     total = len(queue)
     processed = 0
     errors = 0
+
+    log_name = create_medusa_log(
+        request_type="bulk_sync.process_queue",
+        status="In Progress",
+        request_data={"queue": "price", "total": total},
+    )
 
     for i in range(0, total, BATCH_SIZE):
         batch = queue[i:i + BATCH_SIZE]
@@ -209,13 +261,22 @@ def _process_price_queue():
         _remove_from_queue(batch, PRICE_QUEUE_KEY)
         frappe.db.commit()
 
+        update_medusa_log(
+            log_name,
+            message=f"{processed}/{total} prices synced, {errors} errors",
+        )
+
         if i + BATCH_SIZE < total:
             time.sleep(BATCH_DELAY)
 
-    if total:
-        frappe.logger("medusa").info(
-            f"Medusa Bulk Sync: {processed}/{total} prices synced, {errors} errors"
-        )
+    update_medusa_log(
+        log_name,
+        status="Error" if errors else "Success",
+        message=f"{processed}/{total} prices synced, {errors} errors",
+    )
+    frappe.logger("medusa").info(
+        f"Medusa Bulk Sync: {processed}/{total} prices synced, {errors} errors"
+    )
 
 
 # ── Queue helpers ─────────────────────────────────────────────

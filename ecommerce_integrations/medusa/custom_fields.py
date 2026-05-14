@@ -65,26 +65,11 @@ MEDUSA_CUSTOM_FIELDS = {
     "Sales Invoice": [*ECOMMERCE_DOWNSTREAM_FIELDS],
     "Delivery Note": [*ECOMMERCE_DOWNSTREAM_FIELDS],
     "Payment Entry": [*ECOMMERCE_DOWNSTREAM_FIELDS],
-    "Item": [
-        {
-            "fieldname": "medusa_product_id",
-            "label": "Medusa Product ID",
-            "fieldtype": "Data",
-            "read_only": 1,
-            "insert_after": "item_name",
-            "no_copy": 1,
-            "print_hide": 1,
-        },
-        {
-            "fieldname": "medusa_variant_id",
-            "label": "Medusa Variant ID",
-            "fieldtype": "Data",
-            "read_only": 1,
-            "insert_after": "medusa_product_id",
-            "no_copy": 1,
-            "print_hide": 1,
-        },
-    ],
+    # NOTE: Item.medusa_product_id / Item.medusa_variant_id were
+    # removed in favour of the canonical ``tabEcommerce Item`` mapping
+    # (``integration='medusa'``). See
+    # ``patches/migrate_medusa_ids_to_ecommerce_item.py`` and
+    # ``patches/drop_medusa_item_custom_fields.py``.
 }
 
 

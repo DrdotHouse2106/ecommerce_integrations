@@ -46,6 +46,7 @@ doctype_js = {
 		"public/js/unicommerce/item.js",
 		"public/js/ai_description/item.js",
 		"public/js/shopware6/item.js",
+		"public/js/medusa/item.js",
 	],
 	"Item Group": [
 		"public/js/shopware6/item_group.js",
@@ -271,6 +272,10 @@ scheduler_events = {
 		"ecommerce_integrations.ai_description.scheduler.process_batch_descriptions",
 		# Medusa: safety-net index-sync if last_synced_at is stale
 		"ecommerce_integrations.medusa.product_export.ensure_index_fresh",
+		# Smart Collections: re-flag targets stuck in 'running' past the heartbeat timeout
+		"ecommerce_integrations.smart_collections.tasks.recover_stale_targets",
+		# Shopware6: re-enqueue items from the DLQ for retry (failed batch items).
+		"ecommerce_integrations.shopware6.bulk_sync_dlq.retry_failed_items_from_dlq",
 	],
 	"hourly_long": [
 		"ecommerce_integrations.zenoti.doctype.zenoti_settings.zenoti_settings.sync_invoices",

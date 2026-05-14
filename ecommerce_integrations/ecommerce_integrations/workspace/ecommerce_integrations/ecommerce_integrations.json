@@ -1,0 +1,140 @@
+{
+ "app": "ecommerce_integrations",
+ "charts": [],
+ "content": "[{\"id\":\"header_health\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Sync Health</b></span>\",\"col\":12}},{\"id\":\"nc_errors\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Ecommerce Sync Errors (24h)\",\"col\":4}},{\"id\":\"nc_queued\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Ecommerce Queued Syncs\",\"col\":4}},{\"id\":\"nc_success\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Ecommerce Successful Syncs (24h)\",\"col\":4}},{\"id\":\"sp1\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"header_links\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Configure &amp; Investigate</b></span>\",\"col\":12}},{\"id\":\"card_settings\",\"type\":\"card\",\"data\":{\"card_name\":\"Settings\",\"col\":4}},{\"id\":\"card_collections\",\"type\":\"card\",\"data\":{\"card_name\":\"Collections\",\"col\":4}},{\"id\":\"card_logs\",\"type\":\"card\",\"data\":{\"card_name\":\"Logs\",\"col\":4}}]",
+ "creation": "2026-05-14 00:00:00.000000",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "for_user": "",
+ "hide_custom": 0,
+ "icon": "shopping-cart",
+ "idx": 0,
+ "indicator_color": "blue",
+ "is_hidden": 0,
+ "label": "Ecommerce Integrations",
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Settings",
+   "link_count": 2,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Shopware Setting",
+   "link_count": 0,
+   "link_to": "Shopware Setting",
+   "link_type": "DocType",
+   "onboard": 1,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Medusa Setting",
+   "link_count": 0,
+   "link_to": "Medusa Setting",
+   "link_type": "DocType",
+   "onboard": 1,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Collections",
+   "link_count": 1,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Ecommerce Smart Collection",
+   "link_count": 0,
+   "link_to": "Ecommerce Smart Collection",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Logs",
+   "link_count": 1,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Ecommerce Integration Log",
+   "link_count": 0,
+   "link_to": "Ecommerce Integration Log",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-05-14 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Ecommerce Integrations",
+ "name": "Ecommerce Integrations",
+ "number_cards": [
+  {
+   "label": "Ecommerce Sync Errors (24h)",
+   "number_card_name": "Ecommerce Sync Errors (24h)"
+  },
+  {
+   "label": "Ecommerce Queued Syncs",
+   "number_card_name": "Ecommerce Queued Syncs"
+  },
+  {
+   "label": "Ecommerce Successful Syncs (24h)",
+   "number_card_name": "Ecommerce Successful Syncs (24h)"
+  }
+ ],
+ "owner": "Administrator",
+ "parent_page": "",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [],
+ "sequence_id": 100,
+ "shortcuts": [
+  {
+   "color": "Blue",
+   "doc_view": "",
+   "label": "Shopware Setting",
+   "link_to": "Shopware Setting",
+   "type": "DocType"
+  },
+  {
+   "color": "Purple",
+   "doc_view": "",
+   "label": "Medusa Setting",
+   "link_to": "Medusa Setting",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "doc_view": "List",
+   "label": "Smart Collections",
+   "link_to": "Ecommerce Smart Collection",
+   "type": "DocType"
+  },
+  {
+   "color": "Red",
+   "doc_view": "List",
+   "label": "Integration Logs",
+   "link_to": "Ecommerce Integration Log",
+   "type": "DocType"
+  }
+ ],
+ "title": "Ecommerce Integrations"
+}

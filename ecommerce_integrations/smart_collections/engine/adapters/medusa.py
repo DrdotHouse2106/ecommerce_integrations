@@ -15,17 +15,18 @@ them but continue.
 
 import frappe
 
-from ecommerce_integrations.medusa.connection import (
-    medusa_request,
-    medusa_request_all,
-    optional_session,
-)
-from ecommerce_integrations.medusa.constants import API_CATEGORIES
+from ecommerce_integrations.medusa.connection import medusa_request, optional_session
+from ecommerce_integrations.medusa.constants import API_CATEGORIES, MODULE_NAME as MEDUSA_MODULE
 from ecommerce_integrations.smart_collections.constants import BACKEND_MEDUSA
 from ecommerce_integrations.smart_collections.engine.adapters.base import (
     AdapterError,
     CategoryAdapter,
+    CategoryMatch,
+    LiveCategoryState,
     register,
+)
+from ecommerce_integrations.smart_collections.doctype.ecommerce_smart_collection.ecommerce_smart_collection import (
+    slugify,
 )
 
 
@@ -35,13 +36,7 @@ _LINK_BATCH_SIZE = 50
 @register(BACKEND_MEDUSA)
 class MedusaCategoryAdapter(CategoryAdapter):
     def upsert_category(self, collection, target) -> str:
-        # ``external_handle`` lets operators override the channel-suffixed
-        # slug with a shorter storefront-friendly URL handle. Falls back to
-        # slug so existing collections keep their handles.
-        handle = (
-            (getattr(collection, "external_handle", None) or "").strip()
-            or collection.slug
-        )
+        handle = (collection.external_handle or "").strip() or collection.slug
         payload = {
             "name": collection.title,
             "handle": handle,
@@ -50,13 +45,6 @@ class MedusaCategoryAdapter(CategoryAdapter):
         if collection.description:
             payload["description"] = collection.description
 
-        # Propagate hierarchy: if the collection points at a parent
-        # Smart Collection, find that parent's Medusa target for the
-        # *same* sales channel and use its external_id. Parents that
-        # haven't been synced yet (or that don't target this channel)
-        # fall back to a root-level category — the sync re-runs daily,
-        # so on the next pass the parent will exist and the child gets
-        # promoted into the tree.
         parent_id = _resolve_parent_category_id(collection, target)
         if parent_id:
             payload["parent_category_id"] = parent_id
@@ -71,8 +59,8 @@ class MedusaCategoryAdapter(CategoryAdapter):
                     )
                     return target.external_id
                 except Exception as e:
-                    # If Medusa returned 404 the cached external_id is stale
-                    # — fall through to a create.
+                    # 404 means the cached external_id is stale — fall
+                    # through to a create. Anything else is a real error.
                     if "404" not in str(e):
                         raise AdapterError(f"Medusa category update failed: {e}") from e
 
@@ -81,21 +69,10 @@ class MedusaCategoryAdapter(CategoryAdapter):
                     session, base_url, "POST", API_CATEGORIES, json=payload,
                 )
             except Exception as e:
-                # Medusa returns 400 ``Product category with handle ...
-                # already exists.`` when a previous create-then-link-fail
-                # cycle left an orphan category in Medusa with no
-                # ``external_id`` persisted on the target. The exception
-                # ``str()`` only carries the status line, not the body —
-                # check the response body via ``e.response.text`` and fall
-                # back to a lookup-by-handle so the sync self-heals.
-                resp_text = ""
-                resp = getattr(e, "response", None)
-                if resp is not None:
-                    try:
-                        resp_text = resp.text or ""
-                    except Exception:
-                        resp_text = ""
-                if "already exists" in resp_text.lower():
+                # ``handle already exists`` on create means an earlier run
+                # created the category but failed before persisting its id
+                # — recover by looking it up. Anything else is a real error.
+                if "already exists" in _error_body(e).lower():
                     existing = _lookup_by_handle(session, base_url, handle)
                     if existing:
                         return existing
@@ -127,6 +104,129 @@ class MedusaCategoryAdapter(CategoryAdapter):
             except Exception as e:
                 raise AdapterError(f"Medusa category delete failed: {e}") from e
 
+    def fetch_state(self, target) -> LiveCategoryState:
+        if not target.external_id:
+            return LiveCategoryState(exists=False)
+
+        with optional_session() as (session, base_url):
+            try:
+                resp = medusa_request(
+                    session, base_url, "GET",
+                    f"{API_CATEGORIES}/{target.external_id}",
+                    params={"fields": "id,name,handle,description,is_active"},
+                )
+            except Exception as e:
+                if "404" in str(e):
+                    return LiveCategoryState(exists=False)
+                raise AdapterError(
+                    f"Medusa category fetch failed: {e}",
+                ) from e
+
+            category = (resp or {}).get("product_category") or {}
+            if not category:
+                return LiveCategoryState(exists=False)
+
+            # Pull linked products via the dedicated products endpoint.
+            # Medusa v2 caps a single page at a few hundred, so paginate
+            # offset/limit until exhausted (the same pattern the rest of
+            # the Medusa module uses — see ``medusa_request_all``).
+            linked: set[str] = set()
+            total = 0
+            offset = 0
+            page_size = 200
+            hard_cap = 5000
+            while True:
+                try:
+                    page = medusa_request(
+                        session, base_url, "GET",
+                        f"{API_CATEGORIES}/{target.external_id}/products",
+                        params={"limit": page_size, "offset": offset, "fields": "id"},
+                    )
+                except Exception as e:
+                    if "404" in str(e):
+                        page = {}
+                    else:
+                        raise AdapterError(
+                            f"Medusa category-product fetch failed: {e}",
+                        ) from e
+                products = (page or {}).get("products") or []
+                total = (page or {}).get("count", total) or total
+                for p in products:
+                    pid = p.get("id")
+                    if pid:
+                        linked.add(pid)
+                if (
+                    not products
+                    or len(linked) >= hard_cap
+                    or len(products) < page_size
+                ):
+                    break
+                offset += page_size
+
+        return LiveCategoryState(
+            exists=True,
+            external_id=target.external_id,
+            name=category.get("name"),
+            description=category.get("description"),
+            active=bool(category.get("is_active", True)),
+            sales_channel_ids=[],
+            linked_product_ids=linked,
+            product_count_total=int(total or len(linked)),
+        )
+
+    def find_matching_category(self, collection, target) -> list[CategoryMatch]:
+        if target.external_id:
+            return []
+        title = (collection.title or "").strip()
+        if not title:
+            return []
+        handle = (collection.external_handle or "").strip() or slugify(title)
+        if not handle:
+            return []
+
+        with optional_session() as (session, base_url):
+            try:
+                resp = medusa_request(
+                    session, base_url, "GET", API_CATEGORIES,
+                    params={"handle": handle, "limit": 5, "fields": "id,name,handle"},
+                )
+            except Exception as e:
+                if "404" in str(e):
+                    return []
+                raise AdapterError(
+                    f"Medusa category search failed: {e}",
+                ) from e
+
+            categories = (resp or {}).get("product_categories") or []
+            matches: list[CategoryMatch] = []
+            for cat in categories:
+                ext_id = cat.get("id")
+                if not ext_id:
+                    continue
+                count = 0
+                try:
+                    count_resp = medusa_request(
+                        session, base_url, "GET",
+                        f"{API_CATEGORIES}/{ext_id}/products",
+                        params={"limit": 1, "fields": "id"},
+                    )
+                    count = int((count_resp or {}).get("count") or 0)
+                except Exception:
+                    count = 0
+                matches.append(
+                    CategoryMatch(
+                        external_id=ext_id,
+                        name=cat.get("name") or title,
+                        path=cat.get("handle") or handle,
+                        # Medusa has no sales-channel-on-category concept,
+                        # so this is always False for now — keeps the JS
+                        # rendering code shared with Shopware.
+                        has_target_sales_channel=False,
+                        linked_product_count=count,
+                    ),
+                )
+            return matches
+
     def _mutate_links(
         self, target, *, add: list[str] | tuple[str, ...], remove: list[str] | tuple[str, ...]
     ) -> list[str]:
@@ -138,11 +238,7 @@ class MedusaCategoryAdapter(CategoryAdapter):
         product_ids_add, missing = _items_to_medusa_product_ids(add)
         product_ids_remove, _ = _items_to_medusa_product_ids(remove)
 
-        # Medusa v2 batch endpoint: POST {add: [...], remove: [...]}.
-        # Earlier code sent ``{product_ids: [...]}`` which Medusa rejects
-        # with ``{"type":"invalid_data","message":"Unrecognized fields:
-        # 'product_ids'"}`` — a 400 that surfaced as the cryptic "Medusa
-        # link batch failed" message in the integration log.
+        # Medusa v2 batch endpoint: ``POST {add: [...], remove: [...]}``.
         url = f"{API_CATEGORIES}/{target.external_id}/products"
 
         with optional_session() as (session, base_url):
@@ -174,29 +270,23 @@ def _resolve_parent_category_id(collection, target) -> str | None:
     might both have Medusa targets, but only the same-channel target's
     external_id makes sense as a parent in that channel's category tree.
     """
-    if not getattr(collection, "parent_collection", None):
+    if not collection.parent_collection:
         return None
-    row = frappe.db.sql(
-        """
-        SELECT external_id
-        FROM `tabEcommerce Smart Collection Target`
-        WHERE parent = %s AND backend = %s AND sales_channel = %s
-          AND external_id IS NOT NULL AND external_id != ''
-        LIMIT 1
-        """,
-        (collection.parent_collection, target.backend, target.sales_channel),
+    external_id = frappe.db.get_value(
+        "Ecommerce Smart Collection Target",
+        {
+            "parent": collection.parent_collection,
+            "backend": target.backend,
+            "sales_channel": target.sales_channel,
+            "external_id": ["!=", ""],
+        },
+        "external_id",
     )
-    return row[0][0] if row else None
+    return external_id or None
 
 
 def _lookup_by_handle(session, base_url, handle: str) -> str | None:
-    """Return the Medusa product-category id for ``handle`` if it exists.
-
-    Used by ``upsert_category`` as a fallback when Medusa rejects a create
-    with "already exists" — the orphaned category from a previous
-    create-then-link-fail run still lives in Medusa but the local target
-    row never got its ``external_id`` persisted.
-    """
+    """Return the Medusa product-category id for ``handle`` if it exists."""
     try:
         resp = medusa_request(
             session, base_url, "GET", API_CATEGORIES,
@@ -210,15 +300,31 @@ def _lookup_by_handle(session, base_url, handle: str) -> str | None:
     return None
 
 
+def _error_body(exc: Exception) -> str:
+    """Best-effort extract of the response body from a ``requests.HTTPError``."""
+    resp = getattr(exc, "response", None)
+    if resp is None:
+        return ""
+    try:
+        return resp.text or ""
+    except Exception:
+        return ""
+
+
 def _items_to_medusa_product_ids(item_codes) -> tuple[list[str], list[str]]:
-    """Map ERPNext item codes to Medusa product ids.
+    """Map ERPNext item codes to Medusa product ids via ``tabEcommerce Item``.
 
     Variants in ERPNext have their own row but in Medusa they live as
     ``variants`` under the template product; only the template carries
-    ``medusa_product_id``. So if an item has no id of its own and is a
-    variant, fall back to the template's id. The Smart Collection
+    a Medusa product id. So if an item has no row of its own and is a
+    variant, fall back to the template's row. The Smart Collection
     category then ends up linked to the template, which is what
     Medusa's storefront listings already do.
+
+    Mirrors the Shopware adapter pattern at
+    ``smart_collections/engine/adapters/shopware.py:_items_to_shopware_product_ids``
+    so the two channels converge on the canonical mapping table
+    (``integration='medusa'`` / ``integration='shopware6'``).
 
     Returns ``(resolved_product_ids, missing_item_codes)`` — the
     returned product ids are de-duplicated so a template with N
@@ -226,28 +332,35 @@ def _items_to_medusa_product_ids(item_codes) -> tuple[list[str], list[str]]:
     """
     if not item_codes:
         return [], []
+    placeholders = ", ".join(["%s"] * len(item_codes))
     rows = frappe.db.sql(
-        """
-        SELECT i.name,
-               COALESCE(NULLIF(i.medusa_product_id, ''),
-                        parent.medusa_product_id) AS medusa_product_id
+        f"""
+        SELECT i.name AS item_code,
+               COALESCE(
+                   NULLIF(self_ei.integration_item_code, ''),
+                   parent_ei.integration_item_code
+               ) AS product_id
         FROM `tabItem` i
-        LEFT JOIN `tabItem` parent
-            ON parent.name = i.variant_of
+        LEFT JOIN `tabEcommerce Item` self_ei
+               ON self_ei.integration = %s
+              AND self_ei.erpnext_item_code = i.name
+        LEFT JOIN `tabEcommerce Item` parent_ei
+               ON parent_ei.integration = %s
+              AND parent_ei.erpnext_item_code = i.variant_of
         WHERE i.name IN ({placeholders})
-        """.format(placeholders=", ".join(["%s"] * len(item_codes))),
-        tuple(item_codes),
+        """,
+        (MEDUSA_MODULE, MEDUSA_MODULE, *item_codes),
         as_dict=True,
     )
     seen: set[str] = set()
     resolved: list[str] = []
     have: set[str] = set()
     for r in rows:
-        if r.medusa_product_id and r.medusa_product_id not in seen:
-            resolved.append(r.medusa_product_id)
-            seen.add(r.medusa_product_id)
-        if r.medusa_product_id:
-            have.add(r.name)
+        if r.product_id and r.product_id not in seen:
+            resolved.append(r.product_id)
+            seen.add(r.product_id)
+        if r.product_id:
+            have.add(r.item_code)
     missing = [c for c in item_codes if c not in have]
     return resolved, missing
 

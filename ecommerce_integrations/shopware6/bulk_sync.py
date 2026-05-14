@@ -444,11 +444,16 @@ def process_product_batch(item_codes: list[str]):
     )
 
     if errors:
+        from ecommerce_integrations.shopware6.bulk_sync_dlq import push_to_dlq
+
         failed_items = [code for code, _ in errors]
+        error_summary = "\n".join([f"{code}: {str(err)[:80]}" for code, err in errors[:10]])
+        # Move to DLQ (not silently drop). The hourly scheduler will retry up
+        # to MAX_ATTEMPTS with exponential backoff.
+        push_to_dlq(failed_items, "product", error=error_summary[:500])
         remove_from_queue(failed_items, "product")
 
-        error_summary = "\n".join([f"{code}: {str(err)[:80]}" for code, err in errors[:10]])
-        logger.error(f"Sync errors:\n{error_summary}", persist=False)
+        logger.error(f"Sync errors (pushed to DLQ):\n{error_summary}", persist=False)
 
 
 def process_properties_batch(item_codes: list[str]):
@@ -475,6 +480,14 @@ def process_properties_batch(item_codes: list[str]):
         time.sleep(BATCH_DELAY)
 
     remove_from_queue(processed, "properties")
+
+    if errors:
+        from ecommerce_integrations.shopware6.bulk_sync_dlq import push_to_dlq
+
+        failed_items = [code for code, _ in errors]
+        error_summary = "\n".join([f"{code}: {str(err)[:80]}" for code, err in errors[:10]])
+        push_to_dlq(failed_items, "properties", error=error_summary[:500])
+        remove_from_queue(failed_items, "properties")
 
     logger.info(
         f"Shopware6 Bulk Sync: Processed {len(processed)} property syncs, {len(errors)} errors"
@@ -514,8 +527,16 @@ def process_price_batch(item_codes: list[str]):
     )
 
     if errors:
+        from ecommerce_integrations.shopware6.bulk_sync_dlq import push_to_dlq
+
+        failed_items = [code for code, _ in errors]
         error_summary = "\n".join([f"{code}: {err}" for code, err in errors[:20]])
-        get_logger().error(f"Shopware6 Price Sync Errors:\n{error_summary}", persist=False)
+        push_to_dlq(failed_items, "price", error=error_summary[:500])
+        remove_from_queue(failed_items, "price")
+        get_logger().error(
+            f"Shopware6 Price Sync Errors (pushed to DLQ):\n{error_summary}",
+            persist=False,
+        )
 
 
 def is_processing() -> bool:

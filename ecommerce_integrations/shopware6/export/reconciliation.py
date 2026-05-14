@@ -428,7 +428,7 @@ def _compare_custom_fields(erpnext_item, shopware_data: dict[str, Any]) -> dict 
     return diffs if diffs else None
 
 
-@frappe.whitelist()
+# DEPRECATED
 @temp_shopware_session
 def reconcile_erpnext_with_shopware(
     client,
@@ -455,6 +455,10 @@ def reconcile_erpnext_with_shopware(
     Returns:
         Reconciliation results with statistics
     """
+    return {
+        "success": False,
+        "message": "Deprecated. Use sync_manager.enqueue_full_reconciliation_no_brainer() instead.",
+    }
     from ecommerce_integrations.shopware6.export.product_uploader import upload_erpnext_item_to_shopware
 
     # Parse parameters
@@ -647,7 +651,7 @@ def reconcile_all_to_shopware(
 # FULL RECONCILIATION (Categories + Products)
 # =============================================================================
 
-@frappe.whitelist()
+# DEPRECATED
 def full_reconciliation(
     limit: int = 500,
     dry_run: bool = False,
@@ -683,6 +687,10 @@ def full_reconciliation(
     Returns:
         Combined results from category and product sync
     """
+    return {
+        "success": False,
+        "message": "Deprecated. Use sync_manager.enqueue_full_reconciliation_no_brainer() instead.",
+    }
     # Parse parameters
     dry_run = _parse_bool(dry_run)
     sync_images = _parse_bool(sync_images)
@@ -1389,7 +1397,7 @@ def enqueue_cleanup_orphaned_products(
 RECONCILIATION_JOB_NAME = "shopware6.reconciliation.full"
 
 
-@frappe.whitelist()
+# DEPRECATED
 def enqueue_full_reconciliation(
     batch_size: int = 50,
     sync_images: bool = True,
@@ -1411,6 +1419,10 @@ def enqueue_full_reconciliation(
     Returns:
         Job enqueue status
     """
+    return {
+        "success": False,
+        "message": "Deprecated. Use sync_manager.enqueue_full_reconciliation_no_brainer() instead.",
+    }
     from frappe.utils.background_jobs import is_job_enqueued
 
     sync_images = _parse_bool(sync_images)
@@ -1447,7 +1459,7 @@ def enqueue_full_reconciliation(
     }
 
 
-@frappe.whitelist()
+# DEPRECATED
 def enqueue_full_reconciliation_with_categories(
     limit: int = 500,
     dry_run: bool = False,
@@ -1459,6 +1471,8 @@ def enqueue_full_reconciliation_with_categories(
     cleanup_orphaned_categories: bool = False
 ) -> dict[str, Any]:
     """
+    DEPRECATED: Use sync_manager.enqueue_full_reconciliation_no_brainer() instead.
+
     Enqueue full reconciliation (categories + products) as background job.
 
     Args:
@@ -1474,6 +1488,10 @@ def enqueue_full_reconciliation_with_categories(
     Returns:
         Job enqueue status
     """
+    return {
+        "success": False,
+        "message": "Deprecated. Use sync_manager.enqueue_full_reconciliation_no_brainer() instead.",
+    }
     # Parse parameters
     dry_run = _parse_bool(dry_run)
     sync_images = _parse_bool(sync_images)

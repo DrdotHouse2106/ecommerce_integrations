@@ -4,9 +4,13 @@ LOG_DOCTYPE = "Ecommerce Integration Log"
 
 CUSTOMER_ID_FIELD = "medusa_customer_id"
 ORDER_ID_FIELD = "medusa_order_id"
-PRODUCT_ID_FIELD = "medusa_product_id"
-VARIANT_ID_FIELD = "medusa_variant_id"
 CATEGORY_ID_FIELD = "medusa_category_id"
+
+# PRODUCT_ID_FIELD / VARIANT_ID_FIELD were the legacy ``tabItem``
+# custom-field names; they are no longer used. Medusa product / variant
+# ids now live in ``tabEcommerce Item`` (integration='medusa') — see
+# ``medusa/utils.py`` for the canonical accessors and
+# ``patches/migrate_medusa_ids_to_ecommerce_item.py`` for the migration.
 
 API_PRODUCTS = "/admin/products"
 API_PRODUCTS_BATCH = "/admin/products/batch"
@@ -25,6 +29,12 @@ API_AUTH = "/auth/user/emailpass"
 API_FEATURE_FLAGS = "/admin/feature-flags"
 API_INDEX_SYNC = "/admin/index/sync"
 API_INDEX_DETAILS = "/admin/index/details"
+
+# Values for ``Medusa Setting.category_assignment_mode``. The default
+# mirrors Item Groups to Medusa categories; the alternative leaves
+# category assignment to the Smart Collections engine.
+CATEGORY_MODE_ITEM_GROUP_MAPPING = "Item Group Mapping"
+CATEGORY_MODE_SMART_COLLECTIONS_ONLY = "Smart Collections Only"
 
 ORDER_STATUS_MAP = {
     "pending": "Draft",

@@ -13,6 +13,7 @@
   "api_key",
   "section_break_webhook",
   "webhook_secret",
+  "allow_unsigned_webhooks",
   "sales_channels_section",
   "sales_channels",
   "fetch_sales_channels_btn",
@@ -137,6 +138,13 @@
    "fieldname": "webhook_secret",
    "fieldtype": "Password",
    "label": "Webhook Secret"
+  },
+  {
+   "default": "0",
+   "description": "DANGEROUS: allow webhooks without HMAC signature verification. Only enable for local development.",
+   "fieldname": "allow_unsigned_webhooks",
+   "fieldtype": "Check",
+   "label": "Allow Unsigned Webhooks"
   },
   {
    "collapsible": 1,
@@ -459,14 +467,16 @@
    "default": "0",
    "fieldname": "upload_erpnext_items",
    "fieldtype": "Check",
-   "label": "Upload ERPNext Items to Medusa"
+   "label": "Upload ERPNext Items to Medusa",
+   "description": "Enables the outbound push: every new Item and every Item save will queue a sync to Medusa. WARNING: if you currently edit product copy directly in Medusa, those changes will be overwritten on the next ERPNext save. Run a Complete Sync (Dry Run) first to see what would be pushed."
   },
   {
    "default": "0",
    "depends_on": "eval:doc.upload_erpnext_items",
    "fieldname": "sync_item_on_update",
    "fieldtype": "Check",
-   "label": "Sync Item on Update"
+   "label": "Sync Item on Update",
+   "description": "Pushes Item edits to Medusa on every save. Disable to control sync manually via 'Full Resync' on each Item."
   },
   {
    "default": "1",

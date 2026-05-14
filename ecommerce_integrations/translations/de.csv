@@ -1,0 +1,82 @@
+Test Connection,Verbindung testen
+Connection OK – {0} sales channel(s),Verbindung OK – {0} Verkaufskanal/-kanäle
+Connection OK – {0},Verbindung OK – {0}
+Connection failed,Verbindung fehlgeschlagen
+Could not reach {0}. Check URL and credentials.,{0} konnte nicht erreicht werden. Bitte URL und Zugangsdaten prüfen.
+Complete Sync,Komplett-Sync
+Preview Changes,Änderungen vorschauen
+Start Live Sync,Live-Sync starten
+Dry Run,Trockenlauf
+Preview the operation without applying.,Vorschau der Aktion ohne tatsächliche Ausführung.
+Preview changes without applying them. Recommended for first run.,Änderungen vorschauen ohne sie anzuwenden. Für den ersten Lauf empfohlen.
+Dry run started. Check logs for results.,Trockenlauf gestartet. Ergebnisse in den Logs einsehen.
+Complete Sync started in background.,Komplett-Sync läuft im Hintergrund.
+Run LIVE Complete Sync against {0}? This will create/update/delete categories and products. Run a Dry Run first if unsure.,Live-Komplett-Sync gegen {0} ausführen? Dabei werden Kategorien und Produkte angelegt/aktualisiert/gelöscht. Im Zweifel zuerst einen Trockenlauf starten.
+Rebuild Prices,Preise neu aufbauen
+Rebuild Prices…,Preise neu aufbauen …
+Rebuild Variants,Varianten neu aufbauen
+Rebuild Variants…,Varianten neu aufbauen …
+Force Price Sync,Preis-Sync erzwingen
+Force Variant Sync,Varianten-Sync erzwingen
+Force Image Sync,Bild-Sync erzwingen
+Warning: This deletes all existing price rules in Shopware and recreates them from ERPNext. Run a Dry Run first.,"Warnung: Dies löscht alle bestehenden Preisregeln in Shopware und legt sie neu aus ERPNext an. Bitte zuerst einen Trockenlauf starten."
+Warning: This deletes all existing variants in Shopware and recreates them from ERPNext. Run a Dry Run first.,"Warnung: Dies löscht alle bestehenden Varianten in Shopware und legt sie neu aus ERPNext an. Bitte zuerst einen Trockenlauf starten."
+Warning: This deletes all existing price rules in Medusa and recreates them from ERPNext. Run a Dry Run first.,"Warnung: Dies löscht alle bestehenden Preisregeln in Medusa und legt sie neu aus ERPNext an. Bitte zuerst einen Trockenlauf starten."
+This deletes Shopware products that no longer exist in ERPNext.,"Dies löscht Shopware-Produkte, die nicht mehr in ERPNext existieren."
+Use Dry Run to preview first.,Mit Trockenlauf vorab prüfen.
+Delete and recreate all price rules?,Alle Preisregeln löschen und neu anlegen?
+Delete and recreate all price rules in Shopware?,Alle Preisregeln in Shopware löschen und neu anlegen?
+Delete and recreate all price rules in Medusa?,Alle Preisregeln in Medusa löschen und neu anlegen?
+Delete and recreate all variants?,Alle Varianten löschen und neu anlegen?
+Delete and recreate all variants in Shopware?,Alle Varianten in Shopware löschen und neu anlegen?
+This will permanently delete products from Shopware. Continue?,Diese Aktion löscht Produkte dauerhaft aus Shopware. Fortfahren?
+Find and remove orphaned categories in Shopware?,Verwaiste Kategorien in Shopware suchen und entfernen?
+Remove Orphaned Products,Verwaiste Produkte entfernen
+Remove Orphaned Categories,Verwaiste Kategorien entfernen
+Orphaned Products Preview,Vorschau verwaiste Produkte
+Analyze Conflicts,Konflikte analysieren
+Categories,Kategorien
+Properties,Eigenschaften
+Stock,Bestand
+Orders,Bestellungen
+Customers,Kunden
+Import,Importieren
+Import Orders from Shopware,Bestellungen aus Shopware importieren
+Import Customers from Shopware,Kunden aus Shopware importieren
+Import Properties from Shopware,Eigenschaften aus Shopware importieren
+Import Stock from Shopware,Bestand aus Shopware importieren
+Import Orders from Medusa,Bestellungen aus Medusa importieren
+Sync Categories,Kategorien synchronisieren
+Sync to Shopware,Zu Shopware synchronisieren
+Sync to Medusa,Zu Medusa synchronisieren
+Import from Shopware,Aus Shopware importieren
+Import from Medusa,Aus Medusa importieren
+Maintenance,Wartung
+Process Queue Now,Warteschlange jetzt verarbeiten
+Clear Queue,Warteschlange leeren
+Clear all pending sync items?,Alle ausstehenden Sync-Einträge löschen?
+Clear Cache,Cache leeren
+Cache cleared.,Cache geleert.
+Queue processing started.,Warteschlangenverarbeitung gestartet.
+Queues cleared.,Warteschlangen geleert.
+Open in Shopware Admin,Im Shopware-Admin öffnen
+Open in Medusa Admin,Im Medusa-Admin öffnen
+Full Resync to Shopware,Vollständiger Resync zu Shopware
+Sync Now,Jetzt synchronisieren
+Sync Successful,Synchronisation erfolgreich
+Sync Failed,Synchronisation fehlgeschlagen
+Failed to sync to Shopware. Check the error log for details.,Synchronisation zu Shopware fehlgeschlagen. Details im Fehlerlog.
+Setup: 1) Connection (Shop URL + Client ID/Secret). 2) Test Connection. 3) Refresh Sales Channels. 4) Company + Customer defaults. 5) Enable Upload only after a Dry-Run Complete Sync.,"Einrichtung: 1) Verbindung (Shop-URL + Client ID/Secret). 2) Verbindung testen. 3) Verkaufskanäle aktualisieren. 4) Firma & Kunden-Standards. 5) Upload erst nach einem erfolgreichen Trockenlauf-Komplett-Sync aktivieren."
+Setup: 1) Connection (Medusa URL + API Key). 2) Test Connection. 3) Refresh Sales Channels. 4) Company + Customer defaults. 5) Enable Upload only after a Dry-Run Complete Sync.,"Einrichtung: 1) Verbindung (Medusa-URL + API-Schlüssel). 2) Verbindung testen. 3) Verkaufskanäle aktualisieren. 4) Firma & Kunden-Standards. 5) Upload erst nach einem erfolgreichen Trockenlauf-Komplett-Sync aktivieren."
+{0} sync errors in last 24h,{0} Sync-Fehler in den letzten 24 Stunden
+Shopware: {0} (last sync {1}),Shopware: {0} (letzter Sync {1})
+Medusa: {0} (last sync {1}),Medusa: {0} (letzter Sync {1})
+Import new Medusa orders since the last sync ({0})?,Neue Medusa-Bestellungen seit dem letzten Sync ({0}) importieren?
+Import new Medusa customers since the last sync ({0})?,Neue Medusa-Kunden seit dem letzten Sync ({0}) importieren?
+never,nie
+Item Group filter,Artikelgruppen-Filter
+Batch Size,Stapelgröße
+Filter (optional),Filter (optional)
+Execution,Ausführung
+Warning,Warnung
+Start,Starten

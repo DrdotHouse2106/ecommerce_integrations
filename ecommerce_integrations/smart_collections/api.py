@@ -7,6 +7,7 @@ this endpoint is purely a derived view.
 """
 
 import frappe
+from frappe import _
 
 from ecommerce_integrations.smart_collections.constants import KNOWN_BACKENDS
 
@@ -63,6 +64,72 @@ def preview(collection: str) -> dict:
     if not frappe.has_permission("Ecommerce Smart Collection", "read", doc=collection):
         frappe.throw("Not permitted to preview this collection")
     return dry_run(frappe.get_doc("Ecommerce Smart Collection", collection))
+
+
+@frappe.whitelist()
+def preview_collection(collection: str) -> dict:
+    """Return a dry-run preview as a JSON-serialisable dict.
+
+    Used by the Smart Collection form's *Preview Sync* dialog to show:
+
+    - per-target action (CREATE/UPDATE/NOOP) and the live diff against
+      the backend's current state,
+    - item-level add/remove/keep counts,
+    - match suggestions for the Adopt flow when ``external_id`` is empty,
+    - unresolved items (not yet exported to the backend).
+
+    Requires *write* permission on the collection — preview-only access
+    leaks information about backend state that read-only users
+    shouldn't be able to probe through this endpoint.
+    """
+    if not frappe.has_permission(
+        "Ecommerce Smart Collection", "write", doc=collection,
+    ):
+        frappe.throw(_("Not permitted to preview this collection"))
+    from ecommerce_integrations.smart_collections.tasks import sync_collection
+
+    plan = sync_collection(collection, dry_run=True)
+    return plan.to_dict() if hasattr(plan, "to_dict") else plan
+
+
+@frappe.whitelist()
+def adopt_match(target_name: str, external_id: str, link_only: int = 0) -> dict:
+    """Adopt an existing backend category by wiring its id onto ``target``.
+
+    Used by the *Preview Sync* dialog when the adapter found an
+    existing same-named category in the backend — the user clicks
+    ``Adopt`` (optionally ``+ Link Only``) and the target row is
+    updated in place. The next sync then *updates* that category
+    instead of creating a duplicate.
+
+    The ``link_only=1`` flavour additionally turns on the
+    adopt-and-protect mode: the first sync only ADDS items and
+    doesn't unlink anything already in the backend. Useful when the
+    backend category was hand-curated and the operator only wants
+    ERPNext rules to extend it, not overwrite it.
+    """
+    if not external_id:
+        frappe.throw(_("external_id is required"))
+
+    target = frappe.get_doc("Ecommerce Smart Collection Target", target_name)
+    if target.parenttype != "Ecommerce Smart Collection":
+        frappe.throw(_("Not a Smart Collection target"))
+    parent = frappe.get_doc(target.parenttype, target.parent)
+    parent.check_permission("write")
+
+    update = {
+        "external_id": external_id,
+        "sync_status": "pending",
+        "last_error": "",
+    }
+    if int(link_only or 0):
+        update["link_only"] = 1
+    target.db_set(update, update_modified=True)
+    return {
+        "target_name": target.name,
+        "external_id": external_id,
+        "link_only": int(link_only or 0),
+    }
 
 
 @frappe.whitelist()

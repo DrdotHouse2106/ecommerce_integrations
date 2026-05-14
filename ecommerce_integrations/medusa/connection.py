@@ -14,7 +14,14 @@ from ecommerce_integrations.medusa.constants import SETTING_DOCTYPE
 class AdaptiveThrottle:
     """Adaptive rate limiter that slows down on errors and speeds up on success.
 
-    Thread-safe. Shared across all requests in the same process.
+    State (current delay + consecutive-success counter) lives in Redis so
+    every RQ worker on every node sees the same throttle. Without this, a
+    429 storm only backs off one worker while the others happily keep
+    hammering Medusa.
+
+    The local ``threading.Lock`` is kept to serialise the small read-modify-
+    write window inside a single process, and ``_last_request_ts`` stays
+    process-local because the actual ``sleep`` is per-process by nature.
     """
 
     MIN_DELAY = 0.05      # Minimum delay between requests (50ms — low for local/LAN Medusa)
@@ -23,50 +30,106 @@ class AdaptiveThrottle:
     RECOVERY_FACTOR = 0.7 # Multiply delay on success
     RECOVERY_THRESHOLD = 3 # Consecutive successes before reducing delay
 
+    # Redis keys (shared across processes). TTL is generous — throttle state
+    # naturally resets after a long idle period anyway.
+    _DELAY_KEY = "medusa:throttle:delay"
+    _SUCCESS_KEY = "medusa:throttle:successes"
+    _STATE_TTL = 3600  # 1 hour
+
     def __init__(self):
-        self._delay = self.MIN_DELAY
-        self._consecutive_successes = 0
+        # ``_last_request_ts`` stays per-process — sleep timing is inherently
+        # local. ``_lock`` only protects the local read-modify-write window.
         self._lock = threading.Lock()
+        self._last_request_ts = 0.0
+
+    # ── Redis-backed state ─────────────────────────────────────────
+
+    def _get_delay(self) -> float:
+        try:
+            raw = frappe.cache.get_value(self._DELAY_KEY)
+            if raw is None:
+                return self.MIN_DELAY
+            return float(raw)
+        except Exception:
+            return self.MIN_DELAY
+
+    def _set_delay(self, value: float) -> None:
+        try:
+            frappe.cache.set_value(self._DELAY_KEY, float(value), expires_in_sec=self._STATE_TTL)
+        except Exception:
+            pass
+
+    def _get_successes(self) -> int:
+        try:
+            raw = frappe.cache.get_value(self._SUCCESS_KEY)
+            if raw is None:
+                return 0
+            return int(raw)
+        except Exception:
+            return 0
+
+    def _set_successes(self, value: int) -> None:
+        try:
+            frappe.cache.set_value(self._SUCCESS_KEY, int(value), expires_in_sec=self._STATE_TTL)
+        except Exception:
+            pass
+
+    # ── Public API (unchanged) ─────────────────────────────────────
 
     def wait(self):
         """Wait the current adaptive delay before making a request."""
-        with self._lock:
-            delay = self._delay
+        delay = self._get_delay()
         if delay > 0:
             time.sleep(delay)
+        self._last_request_ts = time.time()
 
     def record_success(self):
         """Record a successful request — gradually reduce delay."""
         with self._lock:
-            self._consecutive_successes += 1
-            if self._consecutive_successes >= self.RECOVERY_THRESHOLD and self._delay > self.MIN_DELAY:
-                self._delay = max(self.MIN_DELAY, self._delay * self.RECOVERY_FACTOR)
-                self._consecutive_successes = 0
+            successes = self._get_successes() + 1
+            delay = self._get_delay()
+            if successes >= self.RECOVERY_THRESHOLD and delay > self.MIN_DELAY:
+                new_delay = max(self.MIN_DELAY, delay * self.RECOVERY_FACTOR)
+                self._set_delay(new_delay)
+                self._set_successes(0)
+            else:
+                self._set_successes(successes)
 
     def record_error(self, is_overload=False):
         """Record a failed request — increase delay."""
         with self._lock:
-            self._consecutive_successes = 0
+            self._set_successes(0)
+            delay = self._get_delay()
             if is_overload:
                 # Server overloaded — significant backoff
-                self._delay = min(self.MAX_DELAY, max(1.0, self._delay) * self.BACKOFF_FACTOR)
+                new_delay = min(self.MAX_DELAY, max(1.0, delay) * self.BACKOFF_FACTOR)
             else:
                 # Other error — small bump
-                self._delay = min(self.MAX_DELAY, self._delay + 0.5)
+                new_delay = min(self.MAX_DELAY, delay + 0.5)
+            self._set_delay(new_delay)
 
     @property
     def current_delay(self):
-        with self._lock:
-            return self._delay
+        return self._get_delay()
 
     def reset(self):
         with self._lock:
-            self._delay = self.MIN_DELAY
-            self._consecutive_successes = 0
+            self._set_delay(self.MIN_DELAY)
+            self._set_successes(0)
 
 
-# Singleton throttle shared across all Medusa API calls in this process
+# Singleton throttle instance. State lives in Redis, so every worker shares it.
 _throttle = AdaptiveThrottle()
+
+
+def get_throttle_status() -> dict:
+    """Read-only diagnostics for the shared throttle (no side effects)."""
+    return {
+        "current_delay": _throttle._get_delay(),
+        "consecutive_successes": _throttle._get_successes(),
+        "min_delay": AdaptiveThrottle.MIN_DELAY,
+        "max_delay": AdaptiveThrottle.MAX_DELAY,
+    }
 
 # Overload indicators
 _OVERLOAD_STATUS_CODES = {429, 502, 503, 504}

@@ -18,6 +18,8 @@ from ecommerce_integrations.shopware6.connection import temp_shopware_session
 from ecommerce_integrations.shopware6.constants import (
     SETTING_DOCTYPE,
     ORDER_ID_FIELD,
+    STATUS_SYNC_ENQUEUE_TIMEOUT,
+    INVOICE_CREATE_ENQUEUE_TIMEOUT,
 )
 from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
 
@@ -179,7 +181,7 @@ def on_delivery_note_submit(doc, method=None):
         order_id=shopware_order_id,
         action="ship",
         queue="short",
-        timeout=60
+        timeout=STATUS_SYNC_ENQUEUE_TIMEOUT,
     )
 
     create_shopware_log(
@@ -198,7 +200,7 @@ def on_delivery_note_submit(doc, method=None):
             sales_order_name=sales_order_name,
             shopware_order_id=shopware_order_id,
             queue="short",
-            timeout=120
+            timeout=INVOICE_CREATE_ENQUEUE_TIMEOUT,
         )
 
 
@@ -313,7 +315,7 @@ def on_delivery_note_cancel(doc, method=None):
         order_id=shopware_order_id,
         action="reopen",
         queue="short",
-        timeout=60
+        timeout=STATUS_SYNC_ENQUEUE_TIMEOUT,
     )
 
 
@@ -362,7 +364,7 @@ def on_sales_invoice_submit(doc, method=None):
         order_id=shopware_order_id,
         action="process",
         queue="short",
-        timeout=60
+        timeout=STATUS_SYNC_ENQUEUE_TIMEOUT,
     )
 
     create_shopware_log(
@@ -378,7 +380,7 @@ def on_sales_invoice_submit(doc, method=None):
             order_id=shopware_order_id,
             action="pay",
             queue="short",
-            timeout=60
+            timeout=STATUS_SYNC_ENQUEUE_TIMEOUT,
         )
 
         create_shopware_log(
@@ -405,7 +407,7 @@ def on_sales_order_cancel(doc, method=None):
         order_id=shopware_order_id,
         action="cancel",
         queue="short",
-        timeout=60
+        timeout=STATUS_SYNC_ENQUEUE_TIMEOUT,
     )
 
     create_shopware_log(
@@ -449,7 +451,7 @@ def on_payment_entry_submit(doc, method=None):
                     order_id=shopware_order_id,
                     action="pay",
                     queue="short",
-                    timeout=60
+                    timeout=STATUS_SYNC_ENQUEUE_TIMEOUT,
                 )
 
                 create_shopware_log(

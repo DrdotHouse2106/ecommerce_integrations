@@ -2,7 +2,7 @@
 import frappe
 from ecommerce_integrations.ecommerce_integrations.checkout_utils import process_checkout_fields
 from ecommerce_integrations.ecommerce_integrations.ecommerce_custom_fields import STOREFRONT_MEDUSA
-from ecommerce_integrations.medusa.constants import CUSTOMER_ID_FIELD, ORDER_ID_FIELD, PRODUCT_ID_FIELD, VARIANT_ID_FIELD
+from ecommerce_integrations.medusa.constants import CUSTOMER_ID_FIELD, MODULE_NAME as MEDUSA_MODULE, ORDER_ID_FIELD
 from ecommerce_integrations.medusa.payment_method_mapping import (
     extract_provider_id,
     resolve_mode_of_payment,
@@ -141,11 +141,13 @@ def _map_shipping(order: dict, setting) -> list:
 
 def _resolve_item_code(product_id: str, sku: str, item: dict, variant_id: str = "") -> str:
     if variant_id:
-        row = frappe.db.get_value(
-            "Item", {VARIANT_ID_FIELD: variant_id}, ["name", "has_variants"], as_dict=True
+        item_code = frappe.db.get_value(
+            "Ecommerce Item",
+            {"integration": MEDUSA_MODULE, "variant_id": variant_id, "has_variants": 0},
+            "erpnext_item_code",
         )
-        if row and not row.has_variants:
-            return row.name
+        if item_code:
+            return item_code
     if sku:
         row = frappe.db.get_value(
             "Item", {"item_code": sku}, ["name", "has_variants"], as_dict=True
@@ -154,14 +156,17 @@ def _resolve_item_code(product_id: str, sku: str, item: dict, variant_id: str = 
             return row.name
     if product_id:
         rows = frappe.db.get_all(
-            "Item",
-            filters={PRODUCT_ID_FIELD: product_id},
-            fields=["name", "has_variants"],
+            "Ecommerce Item",
+            filters={
+                "integration": MEDUSA_MODULE,
+                "integration_item_code": product_id,
+                "has_variants": 0,
+            },
+            fields=["erpnext_item_code"],
             limit=2,
         )
-        concrete = [r for r in rows if not r.has_variants]
-        if len(concrete) == 1:
-            return concrete[0].name
+        if len(rows) == 1:
+            return rows[0].erpnext_item_code
     title = item.get("title", "") or item.get("product_title", "")
     if title:
         row = frappe.db.get_value(

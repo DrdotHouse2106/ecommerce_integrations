@@ -1,4 +1,4 @@
-"""Unit tests for medusa/_attributes.py pure helpers.
+"""Unit tests for medusa/attribute_sync.py pure helpers.
 
 These exercise the transliteration and rank-derivation logic without
 touching the Medusa API or the database. The cached-map helpers
@@ -10,7 +10,7 @@ they're skipped here so this module runs in any checkout.
 
 import unittest
 
-from ecommerce_integrations.medusa._attributes import (
+from ecommerce_integrations.medusa.attribute_sync import (
 	rank_for_value,
 	resolve_attribute_values,
 	transliterate,

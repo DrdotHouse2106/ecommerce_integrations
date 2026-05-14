@@ -1,0 +1,21 @@
+{
+ "color": "#2e9f6f",
+ "creation": "2026-05-14 00:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Number Card",
+ "document_type": "Ecommerce Integration Log",
+ "filters_json": "[[\"Ecommerce Integration Log\",\"status\",\"=\",\"Success\"],[\"Ecommerce Integration Log\",\"creation\",\"Timespan\",\"last 1 days\"]]",
+ "function": "Count",
+ "idx": 0,
+ "is_public": 1,
+ "is_standard": 1,
+ "label": "Ecommerce Successful Syncs (24h)",
+ "modified": "2026-05-14 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Ecommerce Integrations",
+ "name": "Ecommerce Successful Syncs (24h)",
+ "owner": "Administrator",
+ "show_percentage_stats": 1,
+ "stats_time_interval": "Daily",
+ "type": "Document Type"
+}

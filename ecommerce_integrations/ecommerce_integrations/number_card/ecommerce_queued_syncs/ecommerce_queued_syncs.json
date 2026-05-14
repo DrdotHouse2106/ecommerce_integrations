@@ -1,0 +1,21 @@
+{
+ "color": "#f8a31a",
+ "creation": "2026-05-14 00:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Number Card",
+ "document_type": "Ecommerce Integration Log",
+ "filters_json": "[[\"Ecommerce Integration Log\",\"status\",\"=\",\"Queued\"]]",
+ "function": "Count",
+ "idx": 0,
+ "is_public": 1,
+ "is_standard": 1,
+ "label": "Ecommerce Queued Syncs",
+ "modified": "2026-05-14 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Ecommerce Integrations",
+ "name": "Ecommerce Queued Syncs",
+ "owner": "Administrator",
+ "show_percentage_stats": 0,
+ "stats_time_interval": "Daily",
+ "type": "Document Type"
+}

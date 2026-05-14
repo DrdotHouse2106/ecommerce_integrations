@@ -6,19 +6,24 @@ root navigation category). Channel visibility is set via the category's
 ``salesChannels`` association so ``All (30)`` etc. become real-world
 visibility levels.
 
-Item code → Shopware product id is read from
-``Item.shopware_product_id`` (set by the Shopware product-export
-pipeline). Items not yet synced to Shopware are skipped and returned to
-the orchestrator as the unresolved set.
+Item code → Shopware product id is read from ``tabEcommerce Item`` —
+the canonical cross-integration mapping table written by the Shopware
+product-export pipeline (``integration='shopware6'``,
+``erpnext_item_code`` ↔ ``integration_item_code``). Items not yet
+exported to Shopware are returned to the orchestrator as the unresolved
+set so they can be retried after the next product export.
 """
 
 import frappe
 
 from ecommerce_integrations.shopware6.connection import temp_shopware_session
+from ecommerce_integrations.shopware6.constants import MODULE_NAME as SHOPWARE_MODULE
 from ecommerce_integrations.smart_collections.constants import BACKEND_SHOPWARE
 from ecommerce_integrations.smart_collections.engine.adapters.base import (
     AdapterError,
     CategoryAdapter,
+    CategoryMatch,
+    LiveCategoryState,
     register,
 )
 
@@ -47,6 +52,16 @@ class ShopwareCategoryAdapter(CategoryAdapter):
         if not target.external_id:
             return
         _with_client(self._delete_impl, target)
+
+    def fetch_state(self, target) -> LiveCategoryState:
+        if not target.external_id:
+            return LiveCategoryState(exists=False)
+        return _with_client(self._fetch_state_impl, target)
+
+    def find_matching_category(self, collection, target) -> list[CategoryMatch]:
+        if target.external_id:
+            return []
+        return _with_client(self._find_matching_impl, collection, target)
 
     def _upsert_impl(self, client, collection, target) -> str:
         payload = {
@@ -150,6 +165,129 @@ class ShopwareCategoryAdapter(CategoryAdapter):
                     continue
                 raise AdapterError(f"Shopware unlink failed: {e}") from e
 
+    def _fetch_state_impl(self, client, target) -> LiveCategoryState:
+        try:
+            resp = client.request_get(f"category/{target.external_id}")
+        except Exception as e:
+            if "404" in str(e):
+                return LiveCategoryState(exists=False)
+            raise AdapterError(f"Shopware category fetch failed: {e}") from e
+
+        data = (resp or {}).get("data") or {}
+        attrs = data.get("attributes") or data
+        name = attrs.get("name")
+        description = attrs.get("description")
+        active = bool(attrs.get("active", True))
+
+        sales_channel_ids: list[str] = []
+        try:
+            sc_resp = client.request_get(
+                f"category/{target.external_id}/sales-channels",
+            )
+            for row in (sc_resp or {}).get("data") or []:
+                sc_id = row.get("id") or (row.get("attributes") or {}).get("id")
+                if sc_id:
+                    sales_channel_ids.append(sc_id)
+        except Exception:
+            # Listing sales-channels is best-effort — a missing association
+            # is the same outcome as an empty list for the preview, and
+            # the operator can still inspect the live state from the dialog.
+            pass
+
+        linked_product_ids, total = _fetch_linked_product_ids(
+            client, target.external_id,
+        )
+
+        return LiveCategoryState(
+            exists=True,
+            external_id=target.external_id,
+            name=name,
+            description=description,
+            active=active,
+            sales_channel_ids=sales_channel_ids,
+            linked_product_ids=linked_product_ids,
+            product_count_total=total,
+        )
+
+    def _find_matching_impl(
+        self, client, collection, target,
+    ) -> list[CategoryMatch]:
+        title = (collection.title or "").strip()
+        if not title:
+            return []
+
+        parent_id: str | None = None
+        if target.sales_channel:
+            try:
+                sc_resp = client.request_get(
+                    f"sales-channel/{target.sales_channel}",
+                )
+                data = (sc_resp or {}).get("data") or {}
+                attrs = data.get("attributes") or data
+                parent_id = attrs.get("navigationCategoryId")
+            except Exception:
+                # Sales-channel lookup is advisory — without it we search
+                # across all categories and surface the matches anyway.
+                parent_id = None
+
+        criteria: dict = {
+            "filter": [
+                {"type": "equals", "field": "name", "value": title},
+            ],
+            "limit": 25,
+        }
+        if parent_id:
+            criteria["filter"].append(
+                {"type": "equals", "field": "parentId", "value": parent_id},
+            )
+
+        try:
+            resp = client.request_post("search/category", payload=criteria)
+        except Exception as e:
+            raise AdapterError(
+                f"Shopware category search failed: {e}",
+            ) from e
+
+        matches: list[CategoryMatch] = []
+        for row in (resp or {}).get("data") or []:
+            attrs = row.get("attributes") or row
+            ext_id = row.get("id") or attrs.get("id")
+            if not ext_id:
+                continue
+            cat_name = attrs.get("name") or title
+            breadcrumb = attrs.get("breadcrumb") or [cat_name]
+            path = " / ".join(str(p) for p in breadcrumb)
+            linked = _fetch_category_product_count(client, ext_id)
+
+            # ``has_target_sales_channel`` lets the JS sort matches that
+            # are already visible on the operator's target channel above
+            # ones that aren't — adopting the visible one is almost
+            # always what the user wants.
+            has_channel = False
+            if target.sales_channel:
+                try:
+                    sc_resp = client.request_get(
+                        f"category/{ext_id}/sales-channels",
+                    )
+                    for sc in (sc_resp or {}).get("data") or []:
+                        sc_id = sc.get("id") or (sc.get("attributes") or {}).get("id")
+                        if sc_id == target.sales_channel:
+                            has_channel = True
+                            break
+                except Exception:
+                    has_channel = False
+
+            matches.append(
+                CategoryMatch(
+                    external_id=ext_id,
+                    name=cat_name,
+                    path=path,
+                    has_target_sales_channel=has_channel,
+                    linked_product_count=linked,
+                ),
+            )
+        return matches
+
     def _delete_impl(self, client, target) -> None:
         try:
             client.request_delete(f"category/{target.external_id}")
@@ -173,23 +311,38 @@ def _with_client(fn, *args, **kwargs):
 
 
 def _items_to_shopware_product_ids(item_codes) -> tuple[list[str], list[str]]:
+    """Resolve ERPNext item codes to Shopware product UUIDs via
+    ``tabEcommerce Item`` (``integration='shopware6'``). Returns
+    ``(resolved_product_ids, missing_item_codes)`` with product ids
+    de-duplicated — two ERPNext rows pointing at the same Shopware
+    product (theoretically a parent/variant collision) link the
+    category to that product only once.
+    """
     if not item_codes:
         return [], []
+    placeholders = ", ".join(["%s"] * len(item_codes))
     rows = frappe.db.sql(
-        """
-        SELECT name, shopware_product_id
-        FROM `tabItem`
-        WHERE name IN ({placeholders})
-        """.format(placeholders=", ".join(["%s"] * len(item_codes))),
-        tuple(item_codes),
+        f"""
+        SELECT erpnext_item_code AS item_code,
+               integration_item_code AS product_id
+        FROM `tabEcommerce Item`
+        WHERE integration = %s
+          AND erpnext_item_code IN ({placeholders})
+          AND integration_item_code IS NOT NULL
+          AND integration_item_code != ''
+        """,
+        (SHOPWARE_MODULE, *item_codes),
         as_dict=True,
     )
+    seen: set[str] = set()
     resolved: list[str] = []
     have: set[str] = set()
     for r in rows:
-        if r.shopware_product_id:
-            resolved.append(r.shopware_product_id)
-            have.add(r.name)
+        if r.product_id and r.product_id not in seen:
+            resolved.append(r.product_id)
+            seen.add(r.product_id)
+        if r.product_id:
+            have.add(r.item_code)
     missing = [c for c in item_codes if c not in have]
     return resolved, missing
 
@@ -198,3 +351,68 @@ def _chunked(seq, n: int):
     seq = list(seq)
     for i in range(0, len(seq), n):
         yield seq[i:i + n]
+
+
+_PREVIEW_PRODUCT_PAGE = 500
+_PREVIEW_PRODUCT_HARD_CAP = 5000
+
+
+def _fetch_linked_product_ids(client, category_id: str) -> tuple[set[str], int]:
+    """Return ``(set_of_product_ids, total_count)`` for ``category_id``.
+
+    Paginates ``POST /search/product`` filtered by
+    ``categories.id = category_id``. The returned set is capped at
+    :data:`_PREVIEW_PRODUCT_HARD_CAP` to keep the dry-run preview fast
+    on huge categories; ``total`` always reflects the real category
+    size so the dialog can warn the operator.
+    """
+    product_ids: set[str] = set()
+    total = 0
+    page = 1
+    while True:
+        criteria = {
+            "page": page,
+            "limit": _PREVIEW_PRODUCT_PAGE,
+            "filter": [
+                {"type": "equals", "field": "categories.id", "value": category_id},
+            ],
+            "total-count-mode": 1,
+            "includes": {"product": ["id"]},
+        }
+        try:
+            resp = client.request_post("search/product", payload=criteria)
+        except Exception as e:
+            raise AdapterError(
+                f"Shopware product search failed: {e}",
+            ) from e
+        data = (resp or {}).get("data") or []
+        total = (resp or {}).get("total", total) or total
+        for row in data:
+            pid = row.get("id") or (row.get("attributes") or {}).get("id")
+            if pid:
+                product_ids.add(pid)
+        if (
+            not data
+            or len(product_ids) >= _PREVIEW_PRODUCT_HARD_CAP
+            or len(data) < _PREVIEW_PRODUCT_PAGE
+        ):
+            break
+        page += 1
+    return product_ids, int(total)
+
+
+def _fetch_category_product_count(client, category_id: str) -> int:
+    """One ``POST /search/product`` with ``limit=1`` to read the total."""
+    criteria = {
+        "limit": 1,
+        "filter": [
+            {"type": "equals", "field": "categories.id", "value": category_id},
+        ],
+        "total-count-mode": 1,
+        "includes": {"product": ["id"]},
+    }
+    try:
+        resp = client.request_post("search/product", payload=criteria)
+    except Exception:
+        return 0
+    return int((resp or {}).get("total") or 0)

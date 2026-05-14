@@ -279,11 +279,16 @@ def _is_shopware_item_sync_enabled(item_code: str) -> bool:
 
 
 def _enqueue_shopware_product_sync(item_code: str) -> None:
+    # ``job_id`` + ``deduplicate=True`` collapse rapid double-saves of the
+    # same Item into a single queued job. Without this, every save spawns a
+    # parallel sync job for the same item_code.
     frappe.enqueue(
         "ecommerce_integrations.shopware6.bulk_sync.sync_single_item_to_shopware",
         queue="short",
         item_code=item_code,
         enqueue_after_commit=True,
+        job_id=f"shopware6_sync_item:{item_code}",
+        deduplicate=True,
     )
 
 
@@ -293,6 +298,8 @@ def _enqueue_shopware_price_sync(item_code: str) -> None:
         queue="short",
         item_code=item_code,
         enqueue_after_commit=True,
+        job_id=f"shopware6_price:{item_code}",
+        deduplicate=True,
     )
 
 

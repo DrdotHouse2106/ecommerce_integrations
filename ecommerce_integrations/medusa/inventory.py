@@ -1,84 +1,88 @@
-"""Sync ERPNext stock levels to Medusa v2 inventory."""
+"""Sync ERPNext stock levels to Medusa v2 inventory.
+
+Uses the cross-channel ``controllers/inventory`` helpers — same as
+Shopify, Unicommerce and Shopware — so delta detection lives in the
+shared ``tabEcommerce Item.inventory_synced_on`` column instead of a
+private Redis snapshot. Each Ecommerce Item knows when it was last
+pushed; ``get_inventory_levels`` returns only rows whose Bin has been
+touched since.
+"""
 import frappe
+from frappe.utils import now
+
+from ecommerce_integrations.controllers.inventory import (
+    get_inventory_levels,
+    update_inventory_sync_status,
+)
 from ecommerce_integrations.controllers.scheduling import need_to_run
 from ecommerce_integrations.medusa.connection import medusa_request, temp_medusa_session
 from ecommerce_integrations.medusa.constants import (
-    API_INVENTORY_LEVELS_BATCH, SETTING_DOCTYPE, VARIANT_ID_FIELD,
+    API_INVENTORY_LEVELS_BATCH,
+    MODULE_NAME as MEDUSA_MODULE,
+    SETTING_DOCTYPE,
 )
-from ecommerce_integrations.medusa.utils import is_medusa_enabled
-
-INVENTORY_CACHE_KEY = "medusa_inventory_snapshot"
+from ecommerce_integrations.medusa.utils import (
+    get_medusa_variant_id,
+    is_medusa_enabled,
+)
 
 
 def sync_inventory_to_medusa():
-    """Sync stock quantities from ERPNext to Medusa for changed items only.
+    """Push changed stock quantities from ERPNext to Medusa.
 
-    Uses delta detection: compares current stock against a cached snapshot
-    and only sends items whose quantity changed. Falls back to full sync
-    when no snapshot exists (first run or after cache expiry).
+    Delta detection is driven by the canonical mapping table:
+    ``controllers/inventory.get_inventory_levels`` returns the rows
+    where ``Bin.modified > Ecommerce Item.inventory_synced_on``. After
+    a successful Medusa write we stamp ``inventory_synced_on`` via
+    ``update_inventory_sync_status`` so the next call skips them.
     """
     if not is_medusa_enabled():
         return
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
     if not setting.sync_inventory:
         return
-    if not setting.medusa_stock_location_id:
-        frappe.log_error("Medusa stock location ID not configured", "Medusa Inventory Sync")
-        return
     if not need_to_run(SETTING_DOCTYPE, "inventory_sync_frequency", "last_inventory_sync"):
         return
 
-    # Get all ERPNext items that have a medusa_variant_id
-    items = frappe.db.get_all(
-        "Item",
-        filters={VARIANT_ID_FIELD: ["is", "set"], "disabled": 0},
-        fields=["item_code", VARIANT_ID_FIELD],
-    )
-    if not items:
+    wh_to_location = _get_warehouse_to_location_map(setting)
+    if not wh_to_location:
+        frappe.log_error(
+            "No Medusa stock-location mappings configured (Medusa Setting → Warehouse Mappings).",
+            "Medusa Inventory Sync",
+        )
         return
 
-    # Batch-fetch stock quantities (1 SQL query instead of N)
-    item_codes = [i.item_code for i in items]
-    stock_map = _batch_get_stock_qty(item_codes, setting.warehouse)
+    levels = get_inventory_levels(tuple(wh_to_location.keys()), MEDUSA_MODULE)
+    if not levels:
+        return
 
-    # Build current snapshot and detect delta
-    previous_snapshot = frappe.cache.get_value(INVENTORY_CACHE_KEY) or {}
-    current_snapshot = {}
-    changed_items = []
-
-    for item in items:
-        qty = max(0, int(stock_map.get(item.item_code, 0)))
-        current_snapshot[item.item_code] = {
-            "variant_id": item[VARIANT_ID_FIELD],
-            "qty": qty,
-        }
-        prev = previous_snapshot.get(item.item_code)
-        if not prev or prev.get("qty") != qty:
-            changed_items.append(item)
-
-    if not changed_items:
+    # Filter out rows without a Medusa variant id (template-only rows).
+    levels = [d for d in levels if d.variant_id]
+    if not levels:
         return
 
     frappe.logger("medusa").info(
-        f"Inventory delta sync: {len(changed_items)} of {len(items)} items changed"
+        f"Medusa inventory delta: {len(levels)} variants changed since last sync"
     )
 
-    # Resolve variant_id → inventory_item_id via Medusa API (only for changed items)
-    variant_ids = [i[VARIANT_ID_FIELD] for i in changed_items]
-    variant_to_qty = {i[VARIANT_ID_FIELD]: current_snapshot[i.item_code]["qty"] for i in changed_items}
-
-    _sync_changed_inventory(variant_ids, variant_to_qty, setting)
-
-    # Save snapshot on success
-    frappe.cache.set_value(INVENTORY_CACHE_KEY, current_snapshot, expires_in_sec=86400)
+    synced_on = now()
+    succeeded = _push_levels(levels, wh_to_location)
+    for d in succeeded:
+        update_inventory_sync_status(d.ecom_item, time=synced_on)
+        frappe.db.commit()
 
 
 @temp_medusa_session
-def _sync_changed_inventory(session, base_url, variant_ids, variant_to_qty, setting):
-    """Resolve inventory item IDs for changed variants and batch-update levels."""
-    # Fetch variant → inventory_item mapping only for changed variants
-    # Process in chunks of 50 to avoid oversized query strings
-    variant_to_inventory_item = {}
+def _push_levels(session, base_url, levels, wh_to_location):
+    """Resolve variant -> inventory_item_id and batch-update Medusa.
+
+    Returns the subset of ``levels`` rows that were successfully pushed
+    so the caller can stamp their Ecommerce Item rows.
+    """
+    # Resolve variant -> inventory_item_id in chunks of 50 (Medusa
+    # admin search caps the ``id`` filter list).
+    variant_ids = sorted({d.variant_id for d in levels if d.variant_id})
+    variant_to_inventory_item: dict[str, str] = {}
     for i in range(0, len(variant_ids), 50):
         chunk = variant_ids[i:i + 50]
         result = medusa_request(
@@ -92,21 +96,24 @@ def _sync_changed_inventory(session, base_url, variant_ids, variant_to_qty, sett
                     variant_to_inventory_item[v["id"]] = ii_id
                     break
 
-    # Build batch update payload
-    updates = []
-    for variant_id, qty in variant_to_qty.items():
-        ii_id = variant_to_inventory_item.get(variant_id)
-        if ii_id:
-            updates.append({
-                "inventory_item_id": ii_id,
-                "location_id": setting.medusa_stock_location_id,
-                "stocked_quantity": qty,
-            })
+    updates: list[dict] = []
+    pushed: list = []
+    for d in levels:
+        ii_id = variant_to_inventory_item.get(d.variant_id)
+        location_id = wh_to_location.get(d.warehouse)
+        if not ii_id or not location_id:
+            continue
+        qty = max(0, int((d.actual_qty or 0) - (d.reserved_qty or 0)))
+        updates.append({
+            "inventory_item_id": ii_id,
+            "location_id": location_id,
+            "stocked_quantity": qty,
+        })
+        pushed.append(d)
 
     if not updates:
-        return
+        return []
 
-    # Send in chunks of 500
     for i in range(0, len(updates), 500):
         chunk = updates[i:i + 500]
         medusa_request(
@@ -114,48 +121,44 @@ def _sync_changed_inventory(session, base_url, variant_ids, variant_to_qty, sett
             json={"create": [], "update": chunk, "delete": []},
         )
 
+    return pushed
 
-def _batch_get_stock_qty(item_codes: list, warehouse: str = None) -> dict:
-    """Fetch stock quantities for multiple items. Chunked to avoid SQL placeholder limits."""
-    if not item_codes:
-        return {}
-    result = {}
-    chunk_size = 5000
-    for i in range(0, len(item_codes), chunk_size):
-        chunk = item_codes[i:i + chunk_size]
-        placeholders = ", ".join(["%s"] * len(chunk))
-        if warehouse:
-            rows = frappe.db.sql(
-                f"""SELECT item_code, SUM(actual_qty) as qty
-                FROM `tabBin`
-                WHERE item_code IN ({placeholders}) AND warehouse = %s
-                GROUP BY item_code""",
-                (*chunk, warehouse),
-                as_dict=True,
-            )
-        else:
-            rows = frappe.db.sql(
-                f"""SELECT item_code, SUM(actual_qty) as qty
-                FROM `tabBin`
-                WHERE item_code IN ({placeholders})
-                GROUP BY item_code""",
-                chunk,
-                as_dict=True,
-            )
-        for r in rows:
-            result[r.item_code] = r.qty
-    return result
+
+def _get_warehouse_to_location_map(setting) -> dict[str, str]:
+    """Return ``{erpnext_warehouse: medusa_stock_location_id}``.
+
+    Reads ``Medusa Setting.warehouse_mappings`` (per-row mapping) and
+    falls back to the legacy single-location field
+    (``medusa_stock_location_id`` + ``warehouse``) so installs that
+    haven't migrated to the multi-warehouse model still work.
+    """
+    mapping: dict[str, str] = {}
+    if hasattr(setting, "get_warehouse_location_map"):
+        try:
+            mapping.update(setting.get_warehouse_location_map() or {})
+        except Exception:
+            pass
+
+    if not mapping and setting.medusa_stock_location_id and setting.warehouse:
+        mapping[setting.warehouse] = setting.medusa_stock_location_id
+
+    return mapping
 
 
 def update_stock_on_stock_entry(doc, method=None):
+    """Doc-event hook: kick off an inventory sync if any line item is on Medusa."""
     if not is_medusa_enabled():
         return
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
     if not setting.sync_inventory:
         return
     for item in doc.items:
-        if frappe.db.get_value("Item", item.item_code, VARIANT_ID_FIELD):
-            frappe.enqueue("ecommerce_integrations.medusa.inventory.sync_inventory_to_medusa", queue="default", is_async=True)
+        if get_medusa_variant_id(item.item_code):
+            frappe.enqueue(
+                "ecommerce_integrations.medusa.inventory.sync_inventory_to_medusa",
+                queue="default",
+                is_async=True,
+            )
             break
 
 

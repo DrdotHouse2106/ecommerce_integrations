@@ -386,7 +386,7 @@ def validate_and_log(
             error_msg += f" ({entity_id})"
         error_msg += f": {', '.join(errors)}"
 
-        get_logger().error("Error occurred", persist=False)
+        get_logger("validate_and_log").error(error_msg, persist=False)
 
     return is_valid
 

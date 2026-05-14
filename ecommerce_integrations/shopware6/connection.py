@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import json
 import time
+import uuid
 from typing import Any
 from collections.abc import Callable
 
@@ -242,6 +243,36 @@ def _patch_client_timeout(client: Shopware6AdminAPIClientBase, timeout: int = 60
     client._get_session = _get_session_with_timeout
 
 
+def _attach_idempotency_key(client: Shopware6AdminAPIClientBase, key: str) -> None:
+    """Inject an ``sw-api-idempotency-key`` header into every request the
+    client makes.
+
+    Shopware honours this header on write endpoints (``POST /_action/sync``,
+    ``POST /category``, …) — a 504 after a successful server-side write means
+    the retry sees the same key and Shopware short-circuits instead of
+    replaying the write. The same key is reused across all retries of the
+    SAME call (we generate it once per ``temp_shopware_session`` invocation).
+    """
+    try:
+        # The base client builds headers in _get_headers; intercepting it lets
+        # us add our header on every flavour of request (GET/POST/PATCH/DELETE).
+        _orig_get_headers = client._get_headers
+
+        def _get_headers_with_idempotency(*args, **kwargs):
+            headers = _orig_get_headers(*args, **kwargs)
+            try:
+                headers["sw-api-idempotency-key"] = key
+            except Exception:
+                pass
+            return headers
+
+        client._get_headers = _get_headers_with_idempotency
+    except Exception:
+        # Header injection is best-effort. If the SDK internal changed shape,
+        # we still want the request to go out.
+        pass
+
+
 def temp_shopware_session(
     func: Callable = None,
     *,
@@ -249,6 +280,7 @@ def temp_shopware_session(
     initial_delay: float = DEFAULT_INITIAL_DELAY,
     backoff_factor: float = DEFAULT_BACKOFF_FACTOR,
     max_delay: float = DEFAULT_MAX_DELAY,
+    retry_writes: bool = True,
 ) -> Callable:
     """
     Decorator that provides a Shopware API client to the decorated function.
@@ -263,6 +295,11 @@ def temp_shopware_session(
         initial_delay: Initial delay in seconds before first retry (default: 2.0)
         backoff_factor: Multiplier for delay between retries (default: 2.0)
         max_delay: Maximum delay in seconds between retries (default: 30.0)
+        retry_writes: If True (default), retried calls reuse the same
+            ``sw-api-idempotency-key`` so Shopware can detect a successful
+            server-side write whose response was lost (504/timeout) and avoid
+            replaying it. Set to False on fail-fast write paths where the
+            caller does its own idempotency (e.g. external job-level dedup).
 
     Usage:
         @temp_shopware_session
@@ -292,6 +329,16 @@ def temp_shopware_session(
                 return None
 
             client = get_shopware_client()
+
+            # One idempotency key per decorated-function invocation. Reused
+            # across all retries of THIS call so Shopware can short-circuit
+            # a replayed write whose original response was lost. A retried
+            # call from a different worker / different invocation gets its
+            # own fresh key — different write, different key.
+            idempotency_key = uuid.uuid4().hex if retry_writes else None
+            if idempotency_key:
+                _attach_idempotency_key(client, idempotency_key)
+
             last_exception = None
             delay = initial_delay
 
@@ -321,8 +368,12 @@ def temp_shopware_session(
                     time.sleep(delay)
                     delay = min(delay * backoff_factor, max_delay)
 
-                    # Get a fresh client for retry (in case of connection issues)
+                    # Get a fresh client for retry (in case of connection issues),
+                    # but reuse the SAME idempotency key so Shopware can detect
+                    # a replay of a write whose response we lost.
                     client = get_shopware_client()
+                    if idempotency_key:
+                        _attach_idempotency_key(client, idempotency_key)
 
             # Should not reach here, but just in case
             if last_exception:
@@ -485,6 +536,13 @@ def process_webhook(event_type: str, data: dict[str, Any]) -> None:
     Args:
         event_type: Shopware event type (e.g., 'order.placed', 'product.written')
         data: Webhook payload data
+
+    Dedup strategy: every incoming webhook is funnelled through
+    :class:`WebhookEventQueue`, which holds a Redis lock per entity and a 60s
+    "already processed" hash. The dedup key is the ``sw-context-message-id``
+    request header — Shopware sets it once per webhook fire and keeps it stable
+    across retries, whereas the payload's ``updatedAt`` fields drift on retry
+    and would defeat a payload-hash-based key.
     """
     from ecommerce_integrations.shopware6.utils import create_shopware_log
 
@@ -500,31 +558,68 @@ def process_webhook(event_type: str, data: dict[str, Any]) -> None:
 
     handler = EVENT_HANDLERS.get(event_type)
 
-    if handler:
-        # Create log entry
-        log = create_shopware_log(
-            method=handler,
-            request_data=data,
-            status="Queued"
-        )
-
-        # Enqueue background job
-        frappe.enqueue(
-            method=handler,
-            queue="short",
-            timeout=300,
-            is_async=True,
-            payload=data,
-            request_id=log.name,
-        )
-    else:
-        # Log unknown event type
+    if not handler:
         create_shopware_log(
             method="webhook_handler",
             request_data=data,
             status="Skipped",
-            message=f"Unknown event type: {event_type}"
+            message=f"Unknown event type: {event_type}",
         )
+        return
+
+    # Pull dedup key from the request header (set by Shopware once per fire,
+    # stable across retries). Fall back to a synthesised key.
+    message_id: str | None = None
+    if frappe.request is not None:
+        try:
+            message_id = frappe.request.headers.get("sw-context-message-id")
+        except Exception:
+            message_id = None
+
+    # Pick out a stable entity_id for the per-entity lock. Different Shopware
+    # event payload shapes carry the id in different places.
+    entity_id = (
+        data.get("id")
+        or (data.get("data") or {}).get("id")
+        or ((data.get("payload") or [{}])[0].get("primaryKey") if isinstance(data.get("payload"), list) else None)
+        or "unknown"
+    )
+
+    timestamp = data.get("timestamp") or data.get("createdAt")
+    fallback_event_id = message_id or f"{event_type}:{entity_id}:{timestamp or ''}"
+
+    # Use the dedup primitives directly (not WebhookEventQueue.enqueue, which
+    # would process synchronously inside the HTTP request). We want to dedup
+    # at enqueue-time and dispatch to the worker pool.
+    from ecommerce_integrations.shopware6.webhook.event_queue import WebhookEventQueue
+
+    queue = WebhookEventQueue()
+    if queue._is_duplicate(str(entity_id), data, timestamp, event_id=fallback_event_id):
+        # Already saw this exact event recently — drop on the floor with a log.
+        create_shopware_log(
+            method="webhook_handler",
+            request_data=data,
+            status="Skipped",
+            message=f"Duplicate webhook (event_id={fallback_event_id})",
+        )
+        return
+
+    # Create log entry, then enqueue the real handler.
+    log = create_shopware_log(
+        method=handler,
+        request_data=data,
+        status="Queued",
+        message=f"event_id={fallback_event_id}",
+    )
+
+    frappe.enqueue(
+        method=handler,
+        queue="short",
+        timeout=300,
+        is_async=True,
+        payload=data,
+        request_id=log.name,
+    )
 
 
 # Re-export commonly used SDK classes for convenience

@@ -40,7 +40,8 @@ class WebhookEventQueue:
         event_type: str,
         entity_id: str,
         payload: dict[str, Any],
-        timestamp: str = None
+        timestamp: str = None,
+        event_id: str | None = None,
     ) -> bool:
         """
         Enqueue a webhook event for processing.
@@ -50,6 +51,9 @@ class WebhookEventQueue:
             entity_id: ID of the entity (order ID, product ID, etc.)
             payload: Full webhook payload
             timestamp: Event timestamp (for deduplication)
+            event_id: Explicit dedup key (typically the ``sw-context-message-id``
+                request header). Preferred over a payload hash because Shopware
+                retries change ``updatedAt`` fields in the body.
 
         Returns:
             True if event was enqueued, False if duplicate/already processed
@@ -62,14 +66,14 @@ class WebhookEventQueue:
         try:
             if lock.acquire(blocking=True, blocking_timeout=5):
                 # Check if this exact event was already processed
-                if self._is_duplicate(entity_id, payload, timestamp):
+                if self._is_duplicate(entity_id, payload, timestamp, event_id=event_id):
                     frappe.logger("shopware6").debug(
                         f"Duplicate webhook event skipped: {event_type} for {entity_id}"
                     )
                     return False
 
                 # Mark as being processed
-                self._mark_processing(entity_id, payload, timestamp)
+                self._mark_processing(entity_id, payload, timestamp, event_id=event_id)
 
                 # Process the event
                 self._process_event(event_type, entity_id, payload)
@@ -99,10 +103,11 @@ class WebhookEventQueue:
         self,
         entity_id: str,
         payload: dict[str, Any],
-        timestamp: str = None
+        timestamp: str = None,
+        event_id: str | None = None,
     ) -> bool:
         """Check if this event was already processed recently."""
-        event_hash = self._compute_event_hash(entity_id, payload, timestamp)
+        event_hash = self._compute_event_hash(entity_id, payload, timestamp, event_id=event_id)
         cache_key = f"shopware_webhook_processed:{event_hash}"
 
         processed_at = self.cache.get(cache_key)
@@ -112,16 +117,20 @@ class WebhookEventQueue:
             if elapsed < DEDUP_WINDOW:
                 return True
 
+        # Also mark this hash as processed (so subsequent retries within the
+        # window hit the cache above without re-running the handler).
+        self.cache.set(cache_key, now_datetime(), expires_in_sec=DEDUP_WINDOW)
         return False
 
     def _mark_processing(
         self,
         entity_id: str,
         payload: dict[str, Any],
-        timestamp: str = None
+        timestamp: str = None,
+        event_id: str | None = None,
     ) -> None:
         """Mark an event as being processed."""
-        event_hash = self._compute_event_hash(entity_id, payload, timestamp)
+        event_hash = self._compute_event_hash(entity_id, payload, timestamp, event_id=event_id)
         cache_key = f"shopware_webhook_processing:{event_hash}"
         self.cache.set(cache_key, now_datetime(), expires_in_sec=EVENT_LOCK_TIMEOUT)
 
@@ -135,15 +144,28 @@ class WebhookEventQueue:
         self,
         entity_id: str,
         payload: dict[str, Any],
-        timestamp: str = None
+        timestamp: str = None,
+        event_id: str | None = None,
     ) -> str:
-        """Compute a unique hash for the event."""
-        # Use entity_id + timestamp for deduplication
-        # If no timestamp, use a hash of the payload
-        if timestamp:
+        """Compute a stable dedup hash for the event.
+
+        Preference order:
+
+        1. **Explicit ``event_id``** — typically the ``sw-context-message-id``
+           request header that Shopware sets per webhook fire. This is the
+           only key that survives Shopware retries: the payload's ``updatedAt``
+           fields drift between retries and would otherwise produce a new
+           payload hash on every retry, defeating dedup.
+        2. ``entity_id:timestamp`` — stable enough when a timestamp is given.
+        3. Last-resort payload hash — used only when neither of the above
+           is available. Susceptible to retry-induced ``updatedAt`` drift.
+        """
+        if event_id:
+            data = f"{entity_id}:eid:{event_id}"
+        elif timestamp:
             data = f"{entity_id}:{timestamp}"
         else:
-            # Create a stable hash of the payload
+            # Create a stable hash of the payload (best-effort fallback).
             payload_str = json.dumps(payload, sort_keys=True, default=str)
             data = f"{entity_id}:{payload_str}"
 
@@ -170,7 +192,8 @@ def enqueue_webhook_event(
     event_type: str,
     entity_id: str,
     payload: dict[str, Any],
-    timestamp: str = None
+    timestamp: str = None,
+    event_id: str | None = None,
 ) -> bool:
     """
     Convenience function to enqueue a webhook event.
@@ -180,12 +203,13 @@ def enqueue_webhook_event(
         entity_id: Entity ID
         payload: Webhook payload
         timestamp: Event timestamp
+        event_id: Explicit dedup key (e.g. the ``sw-context-message-id`` header)
 
     Returns:
         True if enqueued successfully
     """
     queue = WebhookEventQueue()
-    return queue.enqueue(event_type, entity_id, payload, timestamp)
+    return queue.enqueue(event_type, entity_id, payload, timestamp, event_id=event_id)
 
 
 def is_event_processed(entity_id: str, within_seconds: int = DEDUP_WINDOW) -> bool:

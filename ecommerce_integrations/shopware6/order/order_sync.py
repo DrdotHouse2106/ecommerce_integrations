@@ -14,7 +14,11 @@ from frappe.utils import getdate, nowdate
 from lib_shopware6_api_base import Shopware6AdminAPIClientBase, Criteria
 
 from ecommerce_integrations.shopware6.connection import temp_shopware_session
-from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE
+from ecommerce_integrations.shopware6.constants import (
+    SETTING_DOCTYPE,
+    STATUS_SYNC_ENQUEUE_TIMEOUT,
+    ORDER_SYNC_LOCK_TIMEOUT,
+)
 from ecommerce_integrations.shopware6.utils import (
     get_logger,
     create_shopware_log,
@@ -326,7 +330,7 @@ def create_sales_order(order_data: dict[str, Any]) -> str:
             order_id=order_id,
             sales_order_name=so.name,
             queue="short",
-            timeout=60,
+            timeout=STATUS_SYNC_ENQUEUE_TIMEOUT,
             enqueue_after_commit=True,
         )
 
@@ -438,7 +442,7 @@ def sync_order_from_webhook(payload: dict[str, Any], request_id: str = None):
             update_shopware_log(request_id, status="Error", message="No order ID in webhook payload")
         return
 
-    lock = frappe.cache().lock(f"shopware_sync_order_{order_id}", timeout=120)
+    lock = frappe.cache().lock(f"shopware_sync_order_{order_id}", timeout=ORDER_SYNC_LOCK_TIMEOUT)
     if not lock.acquire(blocking=False):
         if request_id:
             update_shopware_log(request_id, status="Skipped", message=f"Sync already in progress for order {order_id}")
