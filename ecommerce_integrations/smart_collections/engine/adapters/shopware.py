@@ -64,6 +64,20 @@ class ShopwareCategoryAdapter(CategoryAdapter):
         return _with_client(self._find_matching_impl, collection, target)
 
     def _upsert_impl(self, client, collection, target) -> str:
+        link_only = bool(getattr(target, "link_only", 0))
+
+        # When the operator adopted an existing backend category with
+        # link_only=1, the intent is "use this category as-is — just
+        # link my items". Pushing the collection's title/description as
+        # a PATCH would rename a manually-curated Shopware category,
+        # which is exactly the destruction operators wanted to avoid.
+        # Skip the metadata PATCH; only ensure the sales-channel
+        # association is set so the category remains visible on the
+        # operator's target storefront.
+        if target.external_id and link_only:
+            self._set_sales_channel_assignments(client, target)
+            return target.external_id
+
         payload = {
             "name": collection.title,
             "active": bool(collection.is_active),

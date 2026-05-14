@@ -36,6 +36,14 @@ _LINK_BATCH_SIZE = 50
 @register(BACKEND_MEDUSA)
 class MedusaCategoryAdapter(CategoryAdapter):
     def upsert_category(self, collection, target) -> str:
+        link_only = bool(getattr(target, "link_only", 0))
+
+        # When the operator adopted an existing Medusa category with
+        # link_only=1, leave the backend metadata as-is — only link
+        # items. Mirrors the Shopware adapter's same-named guard.
+        if target.external_id and link_only:
+            return target.external_id
+
         handle = (collection.external_handle or "").strip() or collection.slug
         payload = {
             "name": collection.title,
