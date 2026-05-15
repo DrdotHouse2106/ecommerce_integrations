@@ -18,6 +18,9 @@ frappe.ui.form.on('Shopware Setting', {
 	},
 
 	refresh: function(frm) {
+		if (window.catalog_mirror_widget) {
+			window.catalog_mirror_widget.render(frm, 'Shopware');
+		}
 		if (window.smart_collections_widget) {
 			window.smart_collections_widget.render(frm, 'Shopware');
 		}

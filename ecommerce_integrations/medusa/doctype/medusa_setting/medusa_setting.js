@@ -15,6 +15,9 @@ frappe.ui.form.on('Medusa Setting', {
 	},
 
 	refresh: function(frm) {
+		if (window.catalog_mirror_widget) {
+			window.catalog_mirror_widget.render(frm, 'Medusa');
+		}
 		if (window.smart_collections_widget) {
 			window.smart_collections_widget.render(frm, 'Medusa');
 		}

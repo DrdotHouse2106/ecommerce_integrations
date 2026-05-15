@@ -17,6 +17,9 @@
   "sales_channels_section",
   "sales_channels",
   "fetch_sales_channels_btn",
+  "catalog_mirror_section",
+  "catalog_mirror_intro_html",
+  "catalog_mirror_html",
   "smart_collections_section",
   "smart_collections_intro_html",
   "smart_collections_html",
@@ -167,6 +170,21 @@
    "label": "Refresh Sales Channels"
   },
   {
+   "fieldname": "catalog_mirror_section",
+   "fieldtype": "Section Break",
+   "label": "Catalog Mirror",
+   "depends_on": "eval:doc.enable_medusa"
+  },
+  {
+   "fieldname": "catalog_mirror_intro_html",
+   "fieldtype": "HTML",
+   "options": "<div class=\"alert alert-info\"><p><strong>Catalog Mirror reflects the ERPNext Item Group tree 1:1 into Medusa's product-category tree.</strong> One Mirror per root Item Group. The Mirror creates / updates / re-parents Medusa categories so they match your ERP structure; the Item-to-Category linking happens automatically at product-export time based on each item's <code>item_group</code>.</p><p>Use this for your <strong>standard category structure</strong>. Use <em>Smart Collections</em> (below) for rule-based ad-hoc groupings (Sale, Bestseller, etc.) that don't follow the Item Group tree.</p><p>Browse all under <a href=\"/app/ecommerce-catalog-mirror?backend=Medusa\"><strong>Catalog Mirrors</strong></a>.</p></div>"
+  },
+  {
+   "fieldname": "catalog_mirror_html",
+   "fieldtype": "HTML"
+  },
+  {
    "fieldname": "smart_collections_section",
    "fieldtype": "Section Break",
    "label": "Smart Collections",
@@ -175,7 +193,7 @@
   {
    "fieldname": "smart_collections_intro_html",
    "fieldtype": "HTML",
-   "options": "<div class=\"alert alert-info\"><p><strong>Smart Collections drive Medusa channel visibility and product-category membership.</strong> Each collection's rules resolve to an item set per Sales Channel; the resulting Medusa category and the items it contains are managed by the sync.</p><p>Use the <em>Add Collection</em> button below to create one targeting this backend, or browse all collections under <a href=\"/app/ecommerce-smart-collection?targets.backend=Medusa\"><strong>Smart Collections</strong></a>.</p></div>"
+   "options": "<div class=\"alert alert-info\"><p><strong>Smart Collections are for rule-based ad-hoc groupings</strong> that don't follow the ERPNext Item Group tree — Sale, Bestseller, Black Friday, etc. Each collection's rules resolve to an item set; the Medusa category and the items it contains are managed by the sync.</p><p>For your standard category structure (one-to-one with Item Groups) use <em>Catalog Mirror</em> (above) instead.</p><p>Browse all under <a href=\"/app/ecommerce-smart-collection?targets.backend=Medusa\"><strong>Smart Collections</strong></a>.</p></div>"
   },
   {
    "fieldname": "smart_collections_html",

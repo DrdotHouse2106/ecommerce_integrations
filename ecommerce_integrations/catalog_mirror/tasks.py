@@ -80,6 +80,20 @@ def apply_mirror(
             skip_reason="mirror inactive",
         )
 
+    # Skip cleanly when the backend's master toggle is off. The session
+    # decorators return None silently in that case which corrupts the
+    # apply loop (it'd later try to use a None LiveCategoryNode and the
+    # worker crashes between the running-flip and the error-flip). Skip
+    # BEFORE claiming the row so the operator's UI doesn't blink to
+    # running and back.
+    if _is_backend_disabled(mirror.backend or ""):
+        return MirrorRunResult(
+            mirror=mirror_name,
+            backend=mirror.backend or "",
+            status="skipped",
+            skip_reason=f"{mirror.backend} integration is disabled",
+        )
+
     # Heartbeat: claim before any HTTP call so a crashed worker is
     # observable to recover_stale_mirrors within the heartbeat window.
     now = now_datetime()
@@ -157,9 +171,27 @@ def sync_due_mirrors() -> dict:
                     summary["error"] += 1
         except Exception as e:
             summary["error"] += 1
+            # Defensive: apply_mirror is supposed to record its own
+            # error state, but if it crashed before reaching that
+            # finally-block we'd leave the mirror stranded at 'running'.
+            # Force a terminal state so recover_stale_mirrors doesn't
+            # have to wait out the heartbeat window.
+            try:
+                frappe.db.set_value(
+                    _MIRROR_DOCTYPE, name,
+                    {
+                        "sync_status": "error",
+                        "last_error": f"crashed in sync_due_mirrors: {type(e).__name__}: {e}"[:500],
+                        "last_heartbeat_at": now_datetime(),
+                    },
+                    update_modified=False,
+                )
+                frappe.db.commit()
+            except Exception:
+                pass
             frappe.log_error(
                 title=f"Catalog Mirror sync failed: {name}",
-                message=str(e),
+                message=frappe.get_traceback(),
             )
     return summary
 
@@ -585,3 +617,29 @@ def _finish_log(
     if error is not None:
         update["traceback"] = error
     frappe.db.set_value(_LOG_DOCTYPE, log_name, update, update_modified=False)
+
+
+def _is_backend_disabled(backend: str) -> bool:
+    """Return True when the backend's master enable_* toggle is off.
+
+    Mirrors the same guard used by smart_collections.tasks. The session
+    decorators return None silently when disabled — without this check
+    the apply loop would crash mid-execution between the status-flip to
+    'running' and the terminal status-flip, leaving the mirror stranded
+    until recover_stale_mirrors sweeps it 30 minutes later.
+    """
+    try:
+        if backend == "Shopware":
+            return not bool(frappe.db.get_single_value(
+                "Shopware Setting", "enable_shopware",
+            ))
+        if backend == "Medusa":
+            return not bool(frappe.db.get_single_value(
+                "Medusa Setting", "enable_medusa",
+            ))
+    except Exception:
+        # Fresh install before settings doctype exists — treat as
+        # disabled so we never attempt a sync against unconfigured
+        # state.
+        return True
+    return False

@@ -286,3 +286,34 @@ def resolve_item_for_form(item_code: str) -> dict:
             item_code, BACKEND_MEDUSA,
         ).to_dict(),
     }
+
+
+@frappe.whitelist()
+def list_for_backend(backend: str) -> list[dict]:
+    """Return all Catalog Mirror docs for one backend, flat shape with
+    enough info to render a summary table on the Setting form widget."""
+    if backend not in (BACKEND_SHOPWARE, BACKEND_MEDUSA):
+        frappe.throw(_("Unknown backend: {0}").format(backend))
+
+    rows = frappe.db.sql(
+        """
+        SELECT
+            name,
+            title,
+            is_active,
+            root_item_group,
+            target_sales_channel,
+            target_sales_channel_data,
+            external_root_id,
+            orphan_policy,
+            sync_status,
+            last_synced_at,
+            last_error
+        FROM `tabEcommerce Catalog Mirror`
+        WHERE backend = %s
+        ORDER BY title ASC
+        """,
+        (backend,),
+        as_dict=True,
+    )
+    return rows
