@@ -184,19 +184,31 @@ class TestCustomerHandlers(ShopwareTestCase, IntegrationTestCase):
 
     ``customer.written`` is gated on ``sync_customers_from_shopware``;
     when disabled (the common case for B2B shops that only sync orders)
-    the handler must short-circuit before instantiating
-    ``ShopwareCustomer``."""
+    the handler must short-circuit before invoking ``sync_customer_by_id``.
+    """
 
     def test_customer_written_skipped_when_sync_disabled(self):
         """Idempotency / opt-out: with inbound customer sync disabled,
-        the handler must return True without constructing
-        ``ShopwareCustomer``. Patching the class itself would be a
-        no-op here — the construction is gated upstream."""
+        the handler returns True without invoking ``sync_customer_by_id``.
+        The construction-side gate is enforced upstream."""
         handler = _make_handler(sync_customers_from_shopware=False)
 
         result = handler.handle_customer_written(TEST_CUSTOMER_UUID, {"primaryKey": TEST_CUSTOMER_UUID})
 
         self.assertTrue(result)
+
+    def test_customer_written_delegates_to_sync_customer_by_id(self):
+        """When sync is enabled, the handler delegates to the canonical
+        ``sync_customer_by_id`` entry point with the customer UUID."""
+        handler = _make_handler(sync_customers_from_shopware=True)
+
+        with mock.patch(
+            "ecommerce_integrations.shopware6.customer.sync_customer_by_id"
+        ) as mock_sync:
+            result = handler.handle_customer_written(TEST_CUSTOMER_UUID, {"primaryKey": TEST_CUSTOMER_UUID})
+
+        self.assertTrue(result)
+        mock_sync.assert_called_once_with(TEST_CUSTOMER_UUID)
 
     def test_customer_deleted_with_no_linked_customer_is_noop(self):
         """A delete webhook for a customer never imported into ERPNext
@@ -213,18 +225,34 @@ class TestStockHandler(ShopwareTestCase, IntegrationTestCase):
 
     Gated on ``sync_inventory_from_shopware`` — most operators sync
     inventory in the opposite direction (ERP → Shopware via
-    ``inventory.py``), so the inbound path must short-circuit cleanly."""
+    ``inventory.py``), so the inbound path must short-circuit cleanly.
+    """
 
     def test_stock_changed_skipped_when_sync_disabled(self):
         """With inbound inventory sync disabled the handler returns True
-        without importing ``update_stock_from_shopware`` — important
-        because that symbol may not exist in every release and the
-        import would crash if attempted."""
+        without invoking ``handle_stock_webhook``."""
         handler = _make_handler(sync_inventory_from_shopware=False)
 
         result = handler.handle_stock_changed(TEST_PRODUCT_UUID, {"primaryKey": TEST_PRODUCT_UUID})
 
         self.assertTrue(result)
+
+    def test_stock_changed_delegates_to_handle_stock_webhook(self):
+        """When inventory sync is enabled the handler delegates to
+        ``handle_stock_webhook`` from the stock_importer module — that's
+        the canonical entry point that resolves product UUID → ERPNext
+        item code before triggering a stock sync."""
+        handler = _make_handler(sync_inventory_from_shopware=True)
+
+        with mock.patch(
+            "ecommerce_integrations.shopware6.import_handlers.stock_importer.handle_stock_webhook"
+        ) as mock_handler:
+            mock_handler.return_value = {"success": True}
+            payload = {"primaryKey": TEST_PRODUCT_UUID}
+            result = handler.handle_stock_changed(TEST_PRODUCT_UUID, payload)
+
+        self.assertTrue(result)
+        mock_handler.assert_called_once_with(payload)
 
 
 if __name__ == "__main__":

@@ -460,7 +460,7 @@ def _candidate_names(collection) -> list[str]:
     """Build an ordered list of category names to search Shopware for.
 
     Order is most-specific-first:
-      1. ``collection.title`` (e.g. "Produkte (Test GmbH)")
+      1. ``collection.title`` (e.g. "Produkte (yourshop.com)")
       2. ``collection.title`` without a trailing parenthesized brand tag
          (e.g. "Produkte")
       3. Values from ``Item Group`` rules — if the collection's rules

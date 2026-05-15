@@ -164,7 +164,7 @@ def _build_mirror_title(sc_title: str) -> str:
 
     Operators keep multiple SCs with the same Item Group umbrella
     distinguished by a parenthesised brand suffix (e.g. ``Produkte
-    (Test GmbH)``). We preserve the suffix so the Mirror list view
+    (yourshop.com)``). We preserve the suffix so the Mirror list view
     still surfaces the per-channel hint.
     """
     base = (sc_title or "").strip()

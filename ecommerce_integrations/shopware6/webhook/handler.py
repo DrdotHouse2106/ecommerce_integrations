@@ -269,10 +269,13 @@ class WebhookHandler:
         if not self.setting.sync_customers_from_shopware:
             return True
 
-        from ecommerce_integrations.shopware6.customer import ShopwareCustomer
+        # ``sync_customer_by_id`` is the canonical entry point — fetches
+        # the full customer payload from Shopware, then routes through
+        # ShopwareCustomer.sync_customer with the right sales-channel
+        # resolution and address-mapping logic.
+        from ecommerce_integrations.shopware6.customer import sync_customer_by_id
 
-        customer = ShopwareCustomer(customer_id=customer_id)
-        customer.sync()
+        sync_customer_by_id(customer_id)
         return True
 
     def handle_customer_deleted(
@@ -314,9 +317,16 @@ class WebhookHandler:
         if not self.setting.sync_inventory_from_shopware:
             return True
 
-        from ecommerce_integrations.shopware6.inventory import update_stock_from_shopware
+        # ``handle_stock_webhook`` is the canonical entry point — looks
+        # up the ERPNext item via the Shopware product UUID and routes
+        # through ``sync_stock_for_product``. The webhook handler does
+        # not need to know about the integration_item_code → item_code
+        # resolution.
+        from ecommerce_integrations.shopware6.import_handlers.stock_importer import (
+            handle_stock_webhook,
+        )
 
-        update_stock_from_shopware(product_id, payload)
+        handle_stock_webhook(payload)
         return True
 
 
