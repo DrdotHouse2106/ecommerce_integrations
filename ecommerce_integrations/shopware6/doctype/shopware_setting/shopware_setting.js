@@ -24,6 +24,25 @@ frappe.ui.form.on('Shopware Setting', {
 		if (window.smart_collections_widget) {
 			window.smart_collections_widget.render(frm, 'Shopware');
 		}
+		// Track A UX surfaces — health banner, safety mode, webhook widget,
+		// setup wizard. All four are no-ops on new (unsaved) forms.
+		if (window.ecom_health_banner) {
+			window.ecom_health_banner.render(frm, 'Shopware');
+		}
+		if (window.ecom_safety_mode) {
+			window.ecom_safety_mode.attach_button(frm, 'Shopware');
+		}
+		if (window.ecom_webhook_widget) {
+			window.ecom_webhook_widget.render(frm, 'Shopware');
+		}
+		if (window.shopware6_setup_wizard && !frm.is_new()) {
+			const wizard_label = __('🧙 Setup Wizard');
+			if (!frm.custom_buttons || !frm.custom_buttons[wizard_label]) {
+				frm.add_custom_button(wizard_label, function() {
+					window.shopware6_setup_wizard.open(frm);
+				}).addClass('btn-primary');
+			}
+		}
 		if (frm.fields_dict.fetch_sales_channels_btn && frm.fields_dict.fetch_sales_channels_btn.$input) {
 			frm.fields_dict.fetch_sales_channels_btn.$input.off('click').on('click', function() {
 				frm.call({

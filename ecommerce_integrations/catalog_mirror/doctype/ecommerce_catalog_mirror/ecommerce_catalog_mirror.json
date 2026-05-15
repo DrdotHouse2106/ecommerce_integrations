@@ -34,26 +34,28 @@
  "fields": [
   {
    "fieldname": "title",
-   "label": "Title",
+   "label": "Bezeichnung",
    "fieldtype": "Data",
    "reqd": 1,
    "in_list_view": 1,
-   "description": "User-facing label, e.g. 'Main Shop / Products'."
+   "description": "Eigene Bezeichnung für diesen Kategorie-Sync, z.B. 'Hauptshop / Produkte'. Nur zur internen Erkennung."
   },
   {
    "fieldname": "backend",
-   "label": "Backend",
+   "label": "Zielsystem",
    "fieldtype": "Select",
    "options": "Shopware\nMedusa",
    "reqd": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "description": "Shop-Plattform, in die die Kategorien gespiegelt werden."
   },
   {
    "fieldname": "is_active",
-   "label": "Active",
+   "label": "Aktiv (am Cron-Sync teilnehmen)",
    "fieldtype": "Check",
    "default": "1",
-   "in_list_view": 1
+   "in_list_view": 1,
+   "description": "Wenn aktiviert: der zeitgesteuerte Hintergrund-Job synchronisiert diesen Kategorie-Sync regelmäßig (Cron). Wenn deaktiviert: läuft nur, wenn manuell 'Jetzt synchronisieren' geklickt wird."
   },
   {
    "fieldname": "column_break_header",
@@ -61,38 +63,39 @@
   },
   {
    "fieldname": "target_sales_channel",
-   "label": "Target Sales Channel",
+   "label": "Storefront",
    "fieldtype": "Link",
    "options": "Shopware Sales Channel",
    "depends_on": "eval:doc.backend === 'Shopware'",
-   "description": "Shopware Sales Channel that owns this mirror. The sales-channel's navigationCategoryId is used as the live root when External Root ID is empty."
+   "description": "Shopware-Storefront, der diese Spiegelung zugeordnet ist. Wenn keine Backend-Wurzel-ID gesetzt ist, wird die Navigations-Kategorie der Storefront als Wurzel verwendet."
   },
   {
    "fieldname": "target_sales_channel_data",
-   "label": "Target Sales Channel (Medusa)",
+   "label": "Storefront (Medusa)",
    "fieldtype": "Data",
    "depends_on": "eval:doc.backend === 'Medusa'",
-   "description": "Medusa has no per-channel categorisation; this is informational."
+   "description": "Medusa kennt keine Kategorisierung pro Storefront — dieses Feld dient nur zur Information."
   },
   {
    "fieldname": "root_section",
    "fieldtype": "Section Break",
-   "label": "Root"
+   "label": "Wurzel",
+   "description": "Welche ERPNext-Artikelgruppe als Ausgangspunkt für die Spiegelung verwendet wird, und welche Backend-Kategorie ihr entspricht."
   },
   {
    "fieldname": "root_item_group",
-   "label": "Root Item Group",
+   "label": "Wurzel-Artikelgruppe",
    "fieldtype": "Link",
    "options": "Item Group",
    "reqd": 1,
-   "description": "Walk starts here. The Item Group's own catalog_mirror_skip flag is ignored at the root."
+   "description": "Die Spiegelung beginnt hier und folgt allen Unter-Artikelgruppen. Das 'Vom Kategorie-Sync ausnehmen'-Flag der Wurzel wird ignoriert."
   },
   {
    "fieldname": "external_root_id",
-   "label": "External Root ID",
+   "label": "Backend-Wurzel-Kategorie-ID",
    "fieldtype": "Data",
    "read_only_depends_on": "eval:!!doc.external_root_id",
-   "description": "Backend category UUID for the root. Pin manually to mirror against an existing backend category; otherwise auto-resolved from Target Sales Channel on first sync."
+   "description": "UUID der bestehenden Backend-Kategorie, die als Wurzel dient. Bleibt leer wenn neu angelegt werden soll — wird beim ersten Sync automatisch aus der Storefront ermittelt."
   },
   {
    "fieldname": "column_break_root",
@@ -100,71 +103,76 @@
   },
   {
    "fieldname": "sync_inactive_leaves",
-   "label": "Sync Inactive Leaves",
+   "label": "Leere Blatt-Kategorien synchronisieren",
    "fieldtype": "Check",
    "default": "0",
-   "description": "When unchecked, leaf Item Groups (is_group=0) with zero items are skipped."
+   "description": "Wenn deaktiviert: Blatt-Artikelgruppen ohne Artikel werden übersprungen. Wenn aktiviert: auch leere Blatt-Kategorien werden im Shop angelegt."
   },
   {
    "fieldname": "orphan_policy",
-   "label": "Orphan Policy",
+   "label": "Verwaiste Kategorien",
    "fieldtype": "Select",
    "options": "keep\ndelete\nreport",
    "default": "keep",
-   "description": "What to do with backend categories under the root that don't match any Item Group."
+   "description": "Was mit Backend-Kategorien unter der Wurzel passieren soll, denen keine ERPNext-Artikelgruppe (mehr) entspricht. <strong>Beibehalten</strong> = unverändert lassen. <strong>Nur melden</strong> = in der Vorschau auflisten, aber nicht löschen. <strong>Löschen (gefährlich)</strong> = automatisch im Shop löschen — Vorsicht bei manuell gepflegten Kategorien!"
   },
   {
    "fieldname": "templates_section",
    "fieldtype": "Section Break",
-   "label": "Naming",
-   "collapsible": 1
+   "label": "Namens-Vorlagen",
+   "collapsible": 1,
+   "description": "Optionale Jinja-Vorlagen, die bestimmen, wie ERPNext-Artikelgruppen im Shop benannt und beschrieben werden."
   },
   {
    "fieldname": "name_template",
-   "label": "Name Template",
+   "label": "Namens-Vorlage",
    "fieldtype": "Data",
    "default": "{{ item_group.item_group_name }}",
-   "description": "Jinja template rendered over the Item Group. The result becomes the backend category name."
+   "description": "Jinja-Template für den Kategorie-Namen im Backend. Default <code>{{ item_group.item_group_name }}</code> übernimmt den Artikelgruppen-Namen unverändert."
   },
   {
    "fieldname": "description_template",
-   "label": "Description Template",
+   "label": "Beschreibungs-Vorlage",
    "fieldtype": "Small Text",
-   "description": "Optional Jinja template for the backend category description."
+   "description": "Optionale Jinja-Vorlage für die Backend-Kategorie-Beschreibung."
   },
   {
    "fieldname": "overrides_section",
    "fieldtype": "Section Break",
-   "label": "Per-IG Overrides",
-   "collapsible": 1
+   "label": "Manuelle Zuordnungen pro Artikelgruppe",
+   "collapsible": 1,
+   "description": "Sonderfälle: einzelne Artikelgruppen einer bestimmten Backend-Kategorie zuordnen oder ganz vom Sync ausnehmen."
   },
   {
    "fieldname": "node_overrides",
-   "label": "Node Overrides",
+   "label": "Knoten-Überschreibungen",
    "fieldtype": "Table",
    "options": "Ecommerce Catalog Mirror Node Override",
-   "description": "Manual per-IG mappings (pin a specific backend UUID, or skip an IG entirely)."
+   "description": "Manuelle Zuordnungen pro Artikelgruppe (Backend-UUID fest verknüpfen oder Artikelgruppe komplett ausnehmen)."
   },
   {
    "fieldname": "status_section",
    "fieldtype": "Section Break",
-   "label": "Status",
-   "collapsible": 1
+   "label": "Status (informativ)",
+   "collapsible": 1,
+   "description": "Schreibgeschützte Status-Informationen zum letzten Sync. Nur zur Information."
   },
   {
    "fieldname": "sync_status",
-   "label": "Sync Status",
+   "label": "Status",
    "fieldtype": "Select",
    "options": "pending\nrunning\nok\nerror",
    "default": "pending",
    "in_list_view": 1,
-   "read_only": 1
+   "read_only": 1,
+   "description": "Aktueller Status des Syncs."
   },
   {
    "fieldname": "last_synced_at",
-   "label": "Last Synced At",
+   "label": "Letzte Synchronisation (informativ)",
    "fieldtype": "Datetime",
-   "read_only": 1
+   "read_only": 1,
+   "description": "Zeitpunkt des letzten erfolgreichen Sync-Laufs."
   },
   {
    "fieldname": "column_break_status",
@@ -172,17 +180,18 @@
   },
   {
    "fieldname": "last_heartbeat_at",
-   "label": "Last Heartbeat At",
+   "label": "Letzter Heartbeat (informativ)",
    "fieldtype": "Datetime",
    "read_only": 1,
    "hidden": 1,
-   "description": "Updated at the start of every sync attempt. recover_stale_mirrors sweeps rows stuck in 'running' past the heartbeat timeout."
+   "description": "Wird zu Beginn jedes Sync-Versuchs aktualisiert. Der Stale-Mirror-Recover entfernt Einträge, die zu lange im Status 'running' hängen."
   },
   {
    "fieldname": "last_error",
-   "label": "Last Error",
+   "label": "Letzte Fehlermeldung (informativ)",
    "fieldtype": "Small Text",
-   "read_only": 1
+   "read_only": 1,
+   "description": "Kurzfassung der letzten Fehlermeldung. Vollständiger Stacktrace im Ecommerce Integration Log."
   }
  ],
  "index_web_pages_for_search": 1,

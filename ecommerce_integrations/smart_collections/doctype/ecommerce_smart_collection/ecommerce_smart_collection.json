@@ -29,31 +29,33 @@
  "fields": [
   {
    "fieldname": "title",
-   "label": "Title",
+   "label": "Bezeichnung",
    "fieldtype": "Data",
    "reqd": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "description": "Anzeigename dieser Eigenen Kollektion, z.B. 'Sale 2026', 'Bestseller', 'Outdoor & Wasserdicht'."
   },
   {
    "fieldname": "slug",
-   "label": "Slug",
+   "label": "Kurzname (Slug)",
    "fieldtype": "Data",
    "unique": 1,
    "in_list_view": 1,
-   "description": "Internal identifier (Frappe document name). Channel-suffixed for uniqueness. Editable afterwards."
+   "description": "Interner Bezeichner (Frappe-Dokumentname). Wird mit dem Storefront-Suffix eindeutig gemacht. Nachträglich änderbar."
   },
   {
    "fieldname": "external_handle",
-   "label": "External Handle",
+   "label": "Backend-Handle (optional)",
    "fieldtype": "Data",
-   "description": "Optional. Backend handle (e.g. Medusa category handle / Shopware seoUrl). Falls back to slug. Set this if you want a shorter URL handle in the storefront than the channel-suffixed slug."
+   "description": "Optional: Handle/SEO-URL im Shop (z.B. Medusa-Category-Handle, Shopware-seoUrl). Wenn leer, wird der Kurzname verwendet. Setzen Sie diesen Wert, wenn Sie im Shop eine kürzere URL möchten."
   },
   {
    "fieldname": "is_active",
-   "label": "Active",
+   "label": "Aktiv (am Cron-Sync teilnehmen)",
    "fieldtype": "Check",
    "default": "0",
-   "in_list_view": 1
+   "in_list_view": 1,
+   "description": "<strong>Aktiv</strong>: Die Kollektion wird automatisch durch den zeitgesteuerten Sync (Cron) aktualisiert, sobald sich Regelergebnisse ändern. <strong>Inaktiv</strong>: Die Kollektion wird nur manuell über die Schaltfläche 'Jetzt synchronisieren' gepflegt."
   },
   {
    "fieldname": "column_break_header",
@@ -61,85 +63,91 @@
   },
   {
    "fieldname": "parent_collection",
-   "label": "Parent Collection",
+   "label": "Übergeordnete Kollektion (optional)",
    "fieldtype": "Link",
    "options": "Ecommerce Smart Collection",
-   "description": "Optional. Used by adapters that support nested categories."
+   "description": "Optional: Eltern-Kollektion für verschachtelte Kategorien (nur bei Backends, die das unterstützen)."
   },
   {
    "fieldname": "sort_order",
-   "label": "Sort Order",
+   "label": "Sortier-Reihenfolge",
    "fieldtype": "Int",
    "default": "0",
    "in_list_view": 1,
-   "description": "Lower values rank higher. Tie-breaker for the Shopware main-category conflict (spec §5.3)."
+   "description": "Kleinere Werte ranken höher. Entscheidet bei Konflikten, welche Kollektion eine Hauptkategorie 'gewinnt'."
   },
   {
    "fieldname": "allow_empty",
-   "label": "Allow Empty Collection",
+   "label": "Leere Kollektion erlauben",
    "fieldtype": "Check",
    "default": "0",
-   "description": "When unchecked (default), the adapter skips creating the backend category and emits a warning if the rules resolve to zero items."
+   "description": "Wenn deaktiviert (Standard): Wenn die Regeln keine Artikel ergeben, wird die Backend-Kategorie nicht angelegt und eine Warnung erscheint. Aktivieren, um auch leere Kollektionen anzulegen."
   },
   {
    "fieldname": "description_section",
    "fieldtype": "Section Break",
-   "label": "Description",
-   "collapsible": 1
+   "label": "Beschreibung",
+   "collapsible": 1,
+   "description": "Optionaler Beschreibungstext, der im Shop und für SEO verwendet wird."
   },
   {
    "fieldname": "description",
-   "label": "Description",
+   "label": "Beschreibung",
    "fieldtype": "Text",
-   "description": "Optional copy for storefront / SEO."
+   "description": "Optionaler Text für Storefront / SEO."
   },
   {
    "fieldname": "rule_section",
    "fieldtype": "Section Break",
-   "label": "Rules"
+   "label": "Regeln",
+   "description": "Definieren, welche Artikel automatisch in diese Kollektion fallen. Jede Zeile ist eine Regel — z.B. 'Artikelgruppe ist Schuhe' oder 'Marke enthält Nike'."
   },
   {
    "fieldname": "rule_combinator",
-   "label": "Rule Combinator",
+   "label": "Regel-Verknüpfung",
    "fieldtype": "Select",
    "options": "AND\nOR",
    "default": "AND",
-   "description": "Joins rule groups (rows sharing a non-zero group_id are OR'd within the group)."
+   "description": "<strong>AND</strong> verknüpft alle Regeln (alle müssen zutreffen). <strong>OR</strong> reicht aus, dass eine Regel zutrifft. OR-Gruppen sind über die Spalte 'OR Group' möglich (Zeilen mit gleicher OR-Group-Nummer werden mit OR kombiniert, die Gruppen untereinander dann nach diesem Kombinator)."
   },
   {
    "fieldname": "rules",
-   "label": "Rules",
+   "label": "Regeln",
    "fieldtype": "Table",
    "options": "Ecommerce Smart Collection Rule"
   },
   {
    "fieldname": "target_section",
    "fieldtype": "Section Break",
-   "label": "Sync Targets"
+   "label": "Sync-Ziele (pro Storefront)",
+   "description": "In welche Shops/Storefronts diese Kollektion synchronisiert wird. Pro Storefront eine Zeile anlegen."
   },
   {
    "fieldname": "targets",
-   "label": "Targets",
+   "label": "Ziele",
    "fieldtype": "Table",
    "options": "Ecommerce Smart Collection Target"
   },
   {
    "fieldname": "stats_section",
    "fieldtype": "Section Break",
-   "label": "Resolver Stats",
-   "collapsible": 1
+   "label": "Statistik (informativ)",
+   "collapsible": 1,
+   "description": "Schreibgeschützte Informationen zum letzten Auflösen der Regeln."
   },
   {
    "fieldname": "last_resolved_count",
-   "label": "Last Resolved Count",
+   "label": "Anzahl Artikel (zuletzt aufgelöst)",
    "fieldtype": "Int",
-   "read_only": 1
+   "read_only": 1,
+   "description": "Anzahl Artikel, die beim letzten Sync von den Regeln erfasst wurden."
   },
   {
    "fieldname": "last_resolved_at",
-   "label": "Last Resolved At",
+   "label": "Zuletzt aufgelöst (informativ)",
    "fieldtype": "Datetime",
-   "read_only": 1
+   "read_only": 1,
+   "description": "Zeitpunkt des letzten Regel-Durchlaufs."
   }
  ],
  "index_web_pages_for_search": 1,

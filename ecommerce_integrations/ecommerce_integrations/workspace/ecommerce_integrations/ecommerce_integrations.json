@@ -122,6 +122,14 @@
    "type": "DocType"
   },
   {
+   "color": "Orange",
+   "doc_view": "",
+   "label": "Catalog Mirror Dashboard",
+   "link_to": "catalog-mirror-dashboard",
+   "type": "Page",
+   "url": "/app/catalog-mirror-dashboard"
+  },
+  {
    "color": "Green",
    "doc_view": "List",
    "label": "Smart Collections",

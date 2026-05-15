@@ -56,10 +56,18 @@ doctype_js = {
 	"Medusa Setting": [
 		"public/js/smart_collections/setting_widget.js",
 		"public/js/catalog_mirror/setting_widget.js",
+		"public/js/common/health_banner.js",
+		"public/js/common/safety_mode.js",
+		"public/js/common/webhook_widget.js",
+		"public/js/medusa/setup_wizard.js",
 	],
 	"Shopware Setting": [
 		"public/js/smart_collections/setting_widget.js",
 		"public/js/catalog_mirror/setting_widget.js",
+		"public/js/common/health_banner.js",
+		"public/js/common/safety_mode.js",
+		"public/js/common/webhook_widget.js",
+		"public/js/shopware6/setup_wizard.js",
 	],
 }
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}

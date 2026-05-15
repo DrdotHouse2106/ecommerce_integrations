@@ -206,3 +206,344 @@ Status,Status
 Last Synced,Letzter Sync
 Open,Öffnen
 Loading…,Lädt …
+Catalog Mirror Dashboard,Katalog-Mirror Dashboard
+All Catalog Mirrors at a glance. Pick suggestions to link unmapped mirrors, then run Sync.,Alle Katalog-Mirror im Überblick. Vorschläge auswählen, um nicht verknüpfte Mirror zu verbinden, dann Sync ausführen.
+Sync all adopted,Alle verknüpften synchronisieren
+Preview all,Vorschau aller
+Refresh,Aktualisieren
+All backends,Alle Backends
+Backend,Backend
+Title,Titel
+Root Item Group,Wurzel-Artikelgruppe
+Storefront,Storefront
+Linked,Verknüpft
+Actions,Aktionen
+linked,verknüpft
+not linked,nicht verknüpft
+inactive,inaktiv
+Preview,Vorschau
+Sync now,Jetzt synchronisieren
+External Root ID,Externe Wurzel-ID
+Not linked yet — pick a suggestion below or open the mirror form.,Noch nicht verknüpft – Vorschlag unten auswählen oder Mirror-Formular öffnen.
+Last sync,Letzter Sync
+Last error,Letzter Fehler
+No automatic suggestions found for this root Item Group.,Keine automatischen Vorschläge für diese Wurzel-Artikelgruppe gefunden.
+{0} products,{0} Artikel
+Suggestions ({0}),Vorschläge ({0})
+Link & add only,Verknüpfen + nur Hinzufügen
+Link & full sync,Verknüpfen + Voll-Sync
+Sync this mirror now against the live backend?,Diesen Mirror jetzt gegen das Live-Backend synchronisieren?
+Linking…,Verknüpfe …
+Linked: {0},Verknüpft: {0}
+Building previews…,Vorschauen werden erstellt …
+Run Sync against every linked (adopted) mirror? Un-linked mirrors are skipped.,Sync für alle verknüpften Mirror ausführen? Nicht verknüpfte Mirror werden übersprungen.
+Enqueueing syncs…,Synchronisationen werden eingereiht …
+Enqueued: {0} · Skipped (not linked): {1} · Skipped (inactive): {2},Eingereiht: {0} · Übersprungen (nicht verknüpft): {1} · Übersprungen (inaktiv): {2}
+Status: {0} — created: {1}, updated: {2}, moved: {3}, deleted: {4},Status: {0} – erstellt: {1}, aktualisiert: {2}, verschoben: {3}, gelöscht: {4}
+Building preview…,Vorschau wird erstellt …
+Syncing…,Synchronisiere …
+Preview: {0},Vorschau: {0}
+not yet linked,noch nicht verknüpft
+Create,Erstellen
+Update,Aktualisieren
+Move,Verschieben
+Noop,Keine Änderung
+Orphan,Verwaiste
+Open the mirror form for the full tree-diff and Adopt controls.,Mirror-Formular öffnen für vollständige Baum-Diff- und Verknüpfungs-Steuerung.
+Open mirror,Mirror öffnen
+Preview all — combined summary,Vorschau aller – kombinierte Zusammenfassung
+Mirror,Mirror
+Error,Fehler
+Errors,Fehler
+No Catalog Mirrors configured yet.,Noch keine Katalog-Mirror eingerichtet.
+Catalog Mirror module not available — run bench migrate.,Katalog-Mirror-Modul nicht verfügbar – bench migrate ausführen.
+Verbunden — Bestellungen werden empfangen,Verbunden – Bestellungen werden empfangen
+Integration deaktiviert,Integration deaktiviert
+Schalte 'Enable Shopware' ein, um zu starten.,Schalte „Enable Shopware“ ein, um zu starten.
+Schalte 'Enable Medusa' ein, um zu starten.,Schalte „Enable Medusa“ ein, um zu starten.
+Konfigurationsproblem — Webhooks werden abgewiesen,Konfigurationsproblem – Webhooks werden abgewiesen
+Verbindungstest fehlgeschlagen,Verbindungstest fehlgeschlagen
+Setze ein Webhook Secret oder erlaube ungesignierte Webhooks (nur für lokale Entwicklung).,Setze ein Webhook Secret oder erlaube ungesignierte Webhooks (nur für lokale Entwicklung).
+Letzter Verbindungstest fehlgeschlagen. Bitte erneut testen.,Letzter Verbindungstest fehlgeschlagen. Bitte erneut testen.
+Achtung — Aufmerksamkeit erforderlich,Achtung – Aufmerksamkeit erforderlich
+Verbindung wurde länger nicht getestet,Verbindung wurde länger nicht getestet
+{0} Fehler in 24h,{0} Fehler in 24h
+Keine erfolgreichen Syncs in 7 Tagen,Keine erfolgreichen Syncs in 7 Tagen
+0 Fehler in 24h · {0} erfolgreiche Syncs,0 Fehler in 24h · {0} erfolgreiche Syncs
+Letzter Verbindungstest: {0},Letzter Verbindungstest: {0}
+Verbindung noch nicht getestet,Verbindung noch nicht getestet
+{0} Fehler in 24h · {1} erfolgreiche Syncs,{0} Fehler in 24h · {1} erfolgreiche Syncs
+Details,Details
+Aktualisieren,Aktualisieren
+Safety Mode,Safety Mode
+Details — Letzte Ereignisse ({0}),Details – Letzte Ereignisse ({0})
+Lädt …,Lädt …
+Keine Einträge gefunden.,Keine Einträge gefunden.
+Zeitpunkt,Zeitpunkt
+Methode,Methode
+Nachricht,Nachricht
+Status wird geladen …,Status wird geladen …
+Status nicht verfügbar.,Status nicht verfügbar.
+Status nicht verfügbar,Status nicht verfügbar
+Safety Mode ist nicht verfügbar.,Safety Mode ist nicht verfügbar.
+⛑ Safety Mode,⛑ Safety Mode
+Safety Mode aktivieren — {0},Safety Mode aktivieren – {0}
+Damit wird der automatische Versand gestoppt. Eingehende Webhooks bleiben aktiv.,Damit wird der automatische Versand gestoppt. Eingehende Webhooks bleiben aktiv.
+Empfohlen vor Datenmigrationen oder bei unsicherem Zustand.,Empfohlen vor Datenmigrationen oder bei unsicherem Zustand.
+Item-Push nach {0} aus,Item-Push nach {0} aus
+Item-Save-Updates aus,Item-Save-Updates aus
+Aktive Catalog Mirrors für {0} werden pausiert,Aktive Catalog Mirrors für {0} werden pausiert
+Aktivieren,Aktivieren
+Abbrechen,Abbrechen
+Safety Mode wird aktiviert …,Safety Mode wird aktiviert …
+Safety Mode aktiv. {0} Catalog Mirror(s) pausiert.,Safety Mode aktiv. {0} Catalog Mirror(s) pausiert.
+Safety Mode konnte nicht aktiviert werden.,Safety Mode konnte nicht aktiviert werden.
+Eingehende Webhooks,Eingehende Webhooks
+Empfange seit Kurzem,Empfange seit Kurzem
+Noch keine Webhooks empfangen,Noch keine Webhooks empfangen
+letzter Empfang: {0},letzter Empfang: {0}
+URL,URL
+Kopieren,Kopieren
+Secret,Secret
+Kein Secret gesetzt,Kein Secret gesetzt
+Hinweis anzeigen,Hinweis anzeigen
+Generieren,Generieren
+Events:,Events:
+Test Webhook,Test Webhook
+Doku öffnen,Doku öffnen
+Webhook-Daten werden geladen …,Webhook-Daten werden geladen …
+Webhook-Daten nicht verfügbar.,Webhook-Daten nicht verfügbar.
+Kein Webhook Secret,Kein Webhook Secret
+Öffne den Setup Wizard, um automatisch ein sicheres Secret zu erzeugen, oder trage manuell ein Secret im Webhook-Bereich ein.,Öffne den Setup Wizard, um automatisch ein sicheres Secret zu erzeugen, oder trage manuell ein Secret im Webhook-Bereich ein.
+Das Secret ist als Password-Feld gespeichert und kann nur über das Feld unten geändert werden.,Das Secret ist als Password-Feld gespeichert und kann nur über das Feld unten geändert werden.
+In Zwischenablage kopiert,In Zwischenablage kopiert
+Kopieren fehlgeschlagen,Kopieren fehlgeschlagen
+Test-Webhook wird gesendet …,Test-Webhook wird gesendet …
+Webhook Test — {0},Webhook Test – {0}
+Test erfolgreich.,Test erfolgreich.
+Test fehlgeschlagen.,Test fehlgeschlagen.
+🧙 Setup Wizard,🧙 Setup Wizard
+Verbindung,Verbindung
+Verbindung testen,Verbindung testen
+Synchronisations-Modus wählen,Synchronisations-Modus wählen
+Webhook einrichten,Webhook einrichten
+Shopware 6 einrichten — Schritt {0} von {1}: {2},Shopware 6 einrichten – Schritt {0} von {1}: {2}
+Medusa einrichten — Schritt {0} von {1}: {2},Medusa einrichten – Schritt {0} von {1}: {2}
+Trage deine Shopware Admin API Credentials ein. Du findest sie in Shopware: Einstellungen → System → Integrationen.,Trage deine Shopware Admin API Credentials ein. Du findest sie in Shopware: Einstellungen → System → Integrationen.
+Trage deine Medusa Admin-API Zugangsdaten ein. Du findest sie in deinem Medusa-Admin unter den API-Einstellungen.,Trage deine Medusa Admin-API Zugangsdaten ein. Du findest sie in deinem Medusa-Admin unter den API-Einstellungen.
+Shop URL,Shop URL
+Medusa URL,Medusa URL
+z. B. https://yourshop.com,z. B. https://yourshop.com
+z. B. https://api.yourshop.com,z. B. https://api.yourshop.com
+Authentifizierung,Authentifizierung
+Empfohlen: resource_owner (Integration mit Client ID + Client Secret).,Empfohlen: resource_owner (Integration mit Client ID + Client Secret).
+Client ID,Client ID
+Client Secret,Client Secret
+API Username,API Username
+API Password,API Password
+API Key,API Key
+Admin-API Schlüssel. Wird verschlüsselt gespeichert.,Admin-API Schlüssel. Wird verschlüsselt gespeichert.
+Weiter,Weiter
+Zurück,Zurück
+Erneut testen,Erneut testen
+Bitte Shop URL eingeben.,Bitte Shop URL eingeben.
+Bitte Medusa URL und API Key eingeben.,Bitte Medusa URL und API Key eingeben.
+Bitte zuerst eine erfolgreiche Verbindung herstellen.,Bitte zuerst eine erfolgreiche Verbindung herstellen.
+Verbindung wird getestet …,Verbindung wird getestet …
+Verbindung erfolgreich.,Verbindung erfolgreich.
+Verbindung erfolgreich. {0} Sales Channels gefunden.,Verbindung erfolgreich. {0} Sales Channels gefunden.
+Verbindung erfolgreich. {0} Produkte in Medusa gefunden.,Verbindung erfolgreich. {0} Produkte in Medusa gefunden.
+Verbindung fehlgeschlagen. Bitte URL und Zugangsdaten prüfen.,Verbindung fehlgeschlagen. Bitte URL und Zugangsdaten prüfen.
+Modus,Modus
+Empfang aus Shopware: Bestellungen, Kunden, Bestand kommen rein in ERPNext (sicher empfohlen für den Einstieg).,"Empfang aus Shopware: Bestellungen, Kunden, Bestand kommen rein in ERPNext (sicher empfohlen für den Einstieg)."
+Empfang aus Medusa: Bestellungen, Kunden, Bestand kommen rein in ERPNext (sicher empfohlen für den Einstieg).,"Empfang aus Medusa: Bestellungen, Kunden, Bestand kommen rein in ERPNext (sicher empfohlen für den Einstieg)."
+Empfang + manueller Versand: Empfang automatisch, Produkt-/Kategorie-Sync läuft nur wenn du auf "Sync starten" klickst.,"Empfang + manueller Versand: Empfang automatisch, Produkt-/Kategorie-Sync läuft nur wenn du auf „Sync starten“ klickst."
+Vollautomatisch (Fortgeschritten): Item-Saves pushen sofort nach Shopware, Catalog Mirror Cron läuft stündlich (mit Bedacht aktivieren).,"Vollautomatisch (Fortgeschritten): Item-Saves pushen sofort nach Shopware, Catalog Mirror Cron läuft stündlich (mit Bedacht aktivieren)."
+Vollautomatisch (Fortgeschritten): Item-Saves pushen sofort nach Medusa, Catalog Mirror Cron läuft stündlich (mit Bedacht aktivieren).,"Vollautomatisch (Fortgeschritten): Item-Saves pushen sofort nach Medusa, Catalog Mirror Cron läuft stündlich (mit Bedacht aktivieren)."
+In Shopware: Einstellungen → System → Webhooks → "Webhook hinzufügen". Klebe URL und Secret in die Felder. Wähle Events: {0}.,"In Shopware: Einstellungen → System → Webhooks → „Webhook hinzufügen“. Klebe URL und Secret in die Felder. Wähle Events: {0}."
+In deinem Medusa-Subscriber-Plugin: trage URL und Secret ein. Wähle Events: {0}.,In deinem Medusa-Subscriber-Plugin: trage URL und Secret ein. Wähle Events: {0}.
+In Shopware: Einstellungen → System → Webhooks → "Webhook hinzufügen".,"In Shopware: Einstellungen → System → Webhooks → „Webhook hinzufügen“."
+In Medusa Admin: aktiviere das Subscriber-Plugin und trage URL + Secret ein.,In Medusa Admin: aktiviere das Subscriber-Plugin und trage URL + Secret ein.
+Webhook URL,Webhook URL
+Webhook Secret,Webhook Secret
+Webhook URL kopieren,Webhook URL kopieren
+Secret kopieren,Secret kopieren
+Zeigen/verbergen,Zeigen/verbergen
+Neues Secret generieren,Neues Secret generieren
+Ein Secret ist bereits gesetzt. Du kannst es behalten oder hier neu generieren.,Ein Secret ist bereits gesetzt. Du kannst es behalten oder hier neu generieren.
+Kein Klartext-Secret verfügbar (bereits gespeichert).,Kein Klartext-Secret verfügbar (bereits gespeichert).
+Test läuft …,Test läuft …
+Erfolgreich.,Erfolgreich.
+Wenn du auf "Aktivieren" klickst, wird:,"Wenn du auf „Aktivieren“ klickst, wird:"
+Shopware-Integration eingeschaltet,Shopware-Integration eingeschaltet
+Medusa-Integration eingeschaltet,Medusa-Integration eingeschaltet
+"Modus ""{0}"" angewendet","Modus „{0}“ angewendet"
+Webhooks werden ab sofort verarbeitet,Webhooks werden ab sofort verarbeitet
+Aktivierung läuft …,Aktivierung läuft …
+Shopware-Integration aktiviert.,Shopware-Integration aktiviert.
+Medusa-Integration aktiviert.,Medusa-Integration aktiviert.
+Fehler,Fehler
+Aktivierung fehlgeschlagen.,Aktivierung fehlgeschlagen.
+Empfang aus Shopware,Empfang aus Shopware
+Empfang aus Medusa,Empfang aus Medusa
+Empfang + manueller Versand,Empfang + manueller Versand
+Vollautomatisch (Fortgeschritten),Vollautomatisch (Fortgeschritten)
+Test-Webhook erfolgreich empfangen.,Test-Webhook erfolgreich empfangen.
+Test-Webhook abgewiesen (HTTP {0}).,Test-Webhook abgewiesen (HTTP {0}).
+Test-Webhook fehlgeschlagen: {0},Test-Webhook fehlgeschlagen: {0}
+Shopware-Integration ist nicht aktiviert.,Shopware-Integration ist nicht aktiviert.
+Medusa-Integration ist nicht aktiviert.,Medusa-Integration ist nicht aktiviert.
+Catalog Mirror,Kategorie-Sync (ERP → Shop)
+Smart Collections,"Eigene Kollektionen (Sale\, Bestseller\, …)"
+Smart Collection,Eigene Kollektion
+Adopt,Mit bestehender Kategorie verknüpfen
+Adopt + Link Only,Verknüpfen ohne Inhalt zu überschreiben
+Preview Sync,Vorschau anzeigen
+Apply Live,Jetzt synchronisieren
+Run Live Sync,Jetzt live synchronisieren
+Channel Override,Manuelle Sichtbarkeit pro Item
+Sales Channel,Storefront
+Sales Channels,Storefronts
+Sync Status,Status
+External ID,Backend-ID
+Backend,Zielsystem
+Catalog Mirror Skip,Vom Kategorie-Sync ausnehmen
+Orphan Policy,Verwaiste Kategorien
+External Root Id,Backend-Wurzel-ID
+Link only (don't unlink existing),Nur hinzufügen\, nichts entfernen
+Webhook Secret,Webhook-Geheimcode
+Enable Shopware 6,Shopware-6-Integration aktivieren
+Enable Medusa,Medusa-Integration aktivieren
+Shop URL,Shop-URL
+Medusa URL,Medusa-URL
+API Key,API-Schlüssel
+Authentication Type,Authentifizierungs-Typ
+Client ID (Access Key ID),Client-ID (Access Key ID)
+Client Secret (Secret Access Key),Client-Secret (Secret Access Key)
+API Username,API-Benutzername
+API Password,API-Passwort
+Allow Unsigned Webhooks (Not Recommended),Unsignierte Webhooks zulassen (nicht empfohlen)
+Allow Unsigned Webhooks,Unsignierte Webhooks zulassen
+Refresh Sales Channels,Storefronts aktualisieren
+Available Sales Channels,Verfügbare Storefronts
+Default Customer,Standardkunde
+Customer Group,Kundengruppe
+Default Country,Standardland
+Fallback Billing Contact First Name,Ersatz-Vorname für Rechnungsadresse
+Company,Firma
+Cost Center,Kostenstelle
+Cash/Bank Account,Kassen-/Bankkonto
+Cash / Bank Account,Kassen-/Bankkonto
+Default Warehouse,Standard-Lager
+Warehouse,Standard-Lager
+Default Selling Price List,Standard-Verkaufspreisliste
+List Price / RRP Price List,UVP-/Streichpreisliste
+Default Price List Includes Tax (Gross),Standard-Preisliste enthält Brutto-Preise
+List Price Includes Tax (Gross),UVP-Preisliste enthält Brutto-Preise
+Price List Includes Tax,Preisliste enthält Brutto-Preise
+Import Prices as Net (B2B),Preise als Netto importieren (B2B)
+Import Prices as Net,Preise als Netto importieren (B2B)
+Default Tax Rate (%),Standard-MwSt.-Satz (%)
+Order Sync Frequency (Minutes),Bestell-Sync-Intervall (Minuten)
+Inventory Sync Frequency (Minutes),Bestand-Sync-Intervall (Minuten)
+Customer Sync Frequency (Minutes),Kunden-Sync-Intervall (Minuten)
+Payment Sync Frequency (Minutes),Zahlungs-Sync-Intervall (Minuten)
+Last Order Sync,Letzter Bestell-Sync (informativ)
+Last Inventory Sync,Letzter Bestand-Sync (informativ)
+Last Customer Sync,Letzter Kunden-Sync (informativ)
+Last Payment Sync,Letzter Zahlungs-Sync (informativ)
+Last Synced At,Letzte Synchronisation (informativ)
+Last Heartbeat At,Letzter Heartbeat (informativ)
+Last Error,Letzte Fehlermeldung (informativ)
+Sales Order Series,Nummernkreis Auftragsbestätigung
+Delivery Note Series,Nummernkreis Lieferschein
+Sales Invoice Series,Nummernkreis Rechnung
+Create Delivery Notes from Shopware shipments,Lieferscheine aus Shopware-Sendungen erstellen
+Create Delivery Notes from Fulfillments,Lieferscheine aus Medusa-Sendungen erstellen
+Auto-create Invoice after Shipment (Recommended),Rechnung automatisch bei Versand erstellen (empfohlen)
+Auto-create Invoice after Shipment,Rechnung automatisch bei Versand erstellen
+Create Sales Invoices for Paid Orders,Rechnungen für bezahlte Bestellungen erstellen
+Auto-send Invoice Email when Paid,Rechnung automatisch per E-Mail versenden
+Auto-send Invoice Email,Rechnung automatisch per E-Mail versenden
+Invoice Print Format,Druckformat Rechnung
+Invoice Email Template,E-Mail-Vorlage Rechnung
+Payment Method Mapping,Zahlungsart-Zuordnung
+Default Mode of Payment,Standard-Zahlungsart
+Default Sales Tax Account,Standard-Umsatzsteuerkonto
+Default Sales Tax Template,Standard-Steuertemplate
+Default Shipping Charges Account,Standardkonto Versandkosten
+Upload new ERPNext Items to Shopware,ERPNext-Artikel zu Shopware hochladen
+Upload ERPNext Items to Medusa,ERPNext-Artikel zu Medusa hochladen
+Update Shopware Item when ERPNext item is updated,Artikel-Änderungen automatisch nach Shopware übertragen
+Sync Item on Update,Artikel-Änderungen automatisch nach Medusa übertragen
+Sync new items as Active in Shopware,Neue Artikel direkt aktiv in Shopware veröffentlichen
+Sync New Items as Active,Neue Artikel direkt aktiv in Medusa veröffentlichen
+Export Parent Products as Inactive,Vorlage-Artikel (Eltern) inaktiv exportieren
+Discount Item,Artikel für Rabatte
+Shipping Item,Versand-Artikel
+Add Shipping as Line Item,Versandkosten als Auftragsposition erfassen
+Sync ERPNext stock levels to Shopware,ERPNext-Lagerbestände zu Shopware synchronisieren
+Sync Inventory to Medusa,Lagerbestände zu Medusa synchronisieren
+Sync Customers,Kunden aus Medusa synchronisieren
+Sync Payment Status,Zahlungs-Status synchronisieren
+Enable Bulk Sync Queue,Massen-Synchronisation aktivieren
+Bulk Mode Threshold,Schwellenwert Massen-Modus
+Batch Size,Stapelgröße
+Product Batch Size,Stapelgröße Artikel
+Image Batch Size,Stapelgröße Bilder
+Price Batch Size,Stapelgröße Preise
+Variant Batch Size,Stapelgröße Varianten
+Skip Category Sync on Complete Sync,Kategorie-Sync beim Komplett-Sync überspringen
+Category Sync Root,Wurzel-Artikelgruppe für Kategorie-Sync
+Skip Root Category,Wurzel-Kategorie nicht mitsynchronisieren
+Sync Empty Categories,Leere Kategorien synchronisieren
+Protected Shopware Category IDs,Geschützte Shopware-Kategorie-IDs
+Auto-detect jattr_* fields,jattr_*-Felder automatisch erkennen
+Field Mappings,Feld-Zuordnungen
+Checkout Field Mappings,Checkout-Feld-Zuordnungen
+Checkout Custom Fields,Checkout-Felder (Erweitert)
+Warehouse Mappings,Lager-Zuordnungen
+Shopware Warehouse Mapping,Lager-Zuordnung Shopware
+Medusa Stock Location ID,Medusa-Lagerort-ID
+Sync Stock Locations,Lagerorte aktualisieren
+Category Assignment Mode,Kategorie-Zuordnung
+Root Item Group,Wurzel-Artikelgruppe
+External Root ID,Backend-Wurzel-Kategorie-ID
+Target Sales Channel,Storefront
+Sync Inactive Leaves,Leere Blatt-Kategorien synchronisieren
+Name Template,Namens-Vorlage
+Description Template,Beschreibungs-Vorlage
+Node Overrides,Knoten-Überschreibungen
+Active,Aktiv (am Cron-Sync teilnehmen)
+Title,Bezeichnung
+Slug,Kurzname (Slug)
+External Handle,Backend-Handle (optional)
+Parent Collection,Übergeordnete Kollektion (optional)
+Sort Order,Sortier-Reihenfolge
+Allow Empty Collection,Leere Kollektion erlauben
+Rule Combinator,Regel-Verknüpfung
+Rules,Regeln
+Targets,Ziele
+Last Resolved Count,Anzahl Artikel (zuletzt aufgelöst)
+Last Resolved At,Zuletzt aufgelöst (informativ)
+Rule Type,Regel-Typ
+Field Key,Feldname
+Operator,Operator
+Value,Wert
+OR Group,OR-Gruppe
+Negate,Negieren (NICHT)
+Mode,Modus
+Notes,Notizen
+Enabled,Aktiv
+keep,Beibehalten
+report,Nur melden
+delete,Löschen (gefährlich)
+pin,Fest verknüpfen
+skip,Vom Sync ausnehmen
+include,Einschließen
+exclude,Ausschließen
+Setup,Einrichtung
+Connection,Verbindung
+Outbound,Ausgehend
+Inbound,Eingehend
+Advanced,Erweitert

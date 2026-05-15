@@ -18,16 +18,17 @@
    "fieldname": "backend",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Backend",
+   "label": "Zielsystem",
    "options": "Shopware\nMedusa",
-   "reqd": 1
+   "reqd": 1,
+   "description": "Shop-Plattform, für die diese Sichtbarkeit gilt."
   },
   {
-   "description": "Backend-specific Sales Channel UUID or ID. Stored as plain text because Shopware Sales Channel and Medusa Sales Channel are distinct doctypes.",
+   "description": "Storefront-UUID oder -ID im Zielsystem. Als Text gespeichert, weil Shopware-Storefront und Medusa-Storefront unterschiedliche Doctypes sind.",
    "fieldname": "sales_channel",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Sales Channel",
+   "label": "Storefront",
    "reqd": 1
   },
   {
@@ -39,22 +40,24 @@
    "fieldname": "mode",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Mode",
+   "label": "Modus",
    "options": "include\nexclude",
-   "reqd": 1
+   "reqd": 1,
+   "description": "<strong>Einschließen</strong> = Artikel zusätzlich in dieser Storefront sichtbar machen. <strong>Ausschließen</strong> = Artikel aus der Storefront ausschließen, auch wenn andere Regeln ihn einschließen würden."
   },
   {
    "default": "30 - All",
    "depends_on": "eval:doc.mode === 'include'",
    "fieldname": "visibility",
    "fieldtype": "Select",
-   "label": "Visibility",
-   "options": "30 - All\n20 - Linked\n10 - Search"
+   "label": "Sichtbarkeit",
+   "options": "30 - All\n20 - Linked\n10 - Search",
+   "description": "Nur relevant bei Modus 'Einschließen'. <strong>30 - All</strong> = überall sichtbar (Kategorien, Suche, Direktlink). <strong>20 - Linked</strong> = nur über Direktlink erreichbar. <strong>10 - Search</strong> = nur in der Suche auffindbar."
   },
   {
    "fieldname": "notes",
    "fieldtype": "Data",
-   "label": "Notes"
+   "label": "Notizen"
   }
  ],
  "index_web_pages_for_search": 1,

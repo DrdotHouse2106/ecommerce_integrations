@@ -7,6 +7,7 @@
  "field_order": [
   "enable_shopware",
   "column_break_enable",
+  "intro_html",
   "section_break_auth",
   "shop_url",
   "column_break_auth",
@@ -38,34 +39,6 @@
   "smart_collections_section",
   "smart_collections_intro_html",
   "smart_collections_html",
-  "erpnext_to_shopware_sync_section",
-  "upload_erpnext_items",
-  "update_shopware_item_on_update",
-  "column_break_sync",
-  "sync_new_item_as_active",
-  "export_parent_products_inactive",
-  "discount_item",
-  "shipping_section",
-  "add_shipping_as_item",
-  "shipping_item",
-  "column_break_shipping",
-  "shipping_info_html",
-  "category_sync_section",
-  "category_sync_root",
-  "skip_root_category",
-  "column_break_category_sync",
-  "sync_empty_categories",
-  "protected_shopware_categories",
-  "category_sync_info_html",
-  "price_handling_section",
-  "default_selling_price_list",
-  "default_price_list_includes_tax",
-  "list_price_price_list",
-  "list_price_includes_tax",
-  "import_prices_as_net",
-  "default_tax_rate",
-  "column_break_price_handling",
-  "price_handling_info_html",
   "section_break_order",
   "order_sync_frequency",
   "last_order_sync",
@@ -91,6 +64,34 @@
   "default_sales_tax_account",
   "column_break_default_tax",
   "default_shipping_charges_account",
+  "price_handling_section",
+  "default_selling_price_list",
+  "default_price_list_includes_tax",
+  "list_price_price_list",
+  "list_price_includes_tax",
+  "import_prices_as_net",
+  "default_tax_rate",
+  "column_break_price_handling",
+  "price_handling_info_html",
+  "shipping_section",
+  "add_shipping_as_item",
+  "shipping_item",
+  "column_break_shipping",
+  "shipping_info_html",
+  "erpnext_to_shopware_sync_section",
+  "upload_erpnext_items",
+  "update_shopware_item_on_update",
+  "column_break_sync",
+  "sync_new_item_as_active",
+  "export_parent_products_inactive",
+  "discount_item",
+  "category_sync_section",
+  "category_sync_root",
+  "skip_root_category",
+  "column_break_category_sync",
+  "sync_empty_categories",
+  "protected_shopware_categories",
+  "category_sync_info_html",
   "inventory_sync_section",
   "warehouse",
   "update_erpnext_stock_levels_to_shopware",
@@ -132,37 +133,46 @@
    "default": "0",
    "fieldname": "enable_shopware",
    "fieldtype": "Check",
-   "label": "Enable Shopware 6"
+   "label": "Shopware-6-Integration aktivieren",
+   "description": "Aktiviert die Verbindung zu Shopware. Deaktiviert: keine Synchronisation, keine Webhook-Verarbeitung. Erst aktivieren, wenn die Verbindung getestet wurde."
   },
   {
    "fieldname": "column_break_enable",
    "fieldtype": "Column Break"
   },
   {
+   "fieldname": "intro_html",
+   "fieldtype": "HTML",
+   "depends_on": "eval:!doc.enable_shopware",
+   "options": "<div class=\"alert alert-info\"><h4>Willkommen bei der Shopware-6-Integration</h4><p>Diese Einstellungen verbinden Ihren ERPNext-Mandanten mit einem Shopware-6-Shop. Bitte in dieser Reihenfolge vorgehen:</p><ol><li><strong>Verbindung</strong> – Shop-URL und Zugangsdaten eintragen, dann <em>Verbindung testen</em>.</li><li><strong>Storefronts</strong> – <em>Storefronts aktualisieren</em> klicken und gewünschte Kanäle aktivieren.</li><li><strong>Firma & Kunden</strong> – Standard-Firma, Standardkunde, Standardlager hinterlegen.</li><li><strong>Bestellungen</strong> – Nummernkreise und Belegautomatik einstellen.</li><li><strong>Produkt-Upload</strong> – erst <em>Vorschau anzeigen</em>, dann <em>Jetzt synchronisieren</em>.</li><li><strong>Integration aktivieren</strong> – ganz oben den Haken setzen.</li></ol><p>Alle gefährlichen Schalter (z.&nbsp;B. Produkt-Upload, automatische Rechnungserstellung) sind standardmäßig <strong>aus</strong>. Bitte jeden Schalter erst nach einem Trockenlauf einschalten.</p></div>"
+  },
+  {
    "collapsible": 1,
    "depends_on": "eval:doc.enable_shopware",
    "fieldname": "sales_channels_section",
    "fieldtype": "Section Break",
-   "label": "Sales Channels (Multi-Storefront)"
+   "label": "Storefronts (Verkaufskanäle)",
+   "description": "Liste aller in Shopware vorhandenen Storefronts. Pro Storefront kann separat festgelegt werden, ob ERPNext-Artikel dorthin synchronisiert werden."
   },
   {
-   "description": "Available Sales Channels fetched from Shopware. Click 'Refresh Sales Channels' to update.",
+   "description": "Aus Shopware abgerufene Storefronts. Über die Schaltfläche unten neu laden.",
    "fieldname": "sales_channels",
    "fieldtype": "Table",
-   "label": "Available Sales Channels",
+   "label": "Verfügbare Storefronts",
    "options": "Shopware Sales Channel"
   },
   {
    "depends_on": "eval:doc.enable_shopware",
    "fieldname": "fetch_sales_channels_btn",
    "fieldtype": "Button",
-   "label": "Refresh Sales Channels"
+   "label": "Storefronts aktualisieren"
   },
   {
    "fieldname": "catalog_mirror_section",
    "fieldtype": "Section Break",
-   "label": "Catalog Mirror",
-   "depends_on": "eval:doc.enable_shopware"
+   "label": "Kategorie-Sync (ERP → Shop)",
+   "depends_on": "eval:doc.enable_shopware",
+   "description": "Spiegelt den ERPNext-Artikelgruppen-Baum 1:1 in die Shopware-Kategorien. Ein Eintrag pro Storefront × Wurzel-Artikelgruppe."
   },
   {
    "fieldname": "catalog_mirror_intro_html",
@@ -176,8 +186,9 @@
   {
    "fieldname": "smart_collections_section",
    "fieldtype": "Section Break",
-   "label": "Smart Collections",
-   "depends_on": "eval:doc.enable_shopware"
+   "label": "Eigene Kollektionen (Sale, Bestseller, …)",
+   "depends_on": "eval:doc.enable_shopware",
+   "description": "Regelbasierte Kollektionen, die sich nicht aus dem Artikelgruppen-Baum ergeben (z.B. Sale, Bestseller, saisonale Aktionen)."
   },
   {
    "fieldname": "smart_collections_intro_html",
@@ -193,14 +204,15 @@
    "depends_on": "eval:doc.enable_shopware",
    "fieldname": "reconciliation_section",
    "fieldtype": "Section Break",
-   "label": "Complete Sync Settings"
+   "label": "Komplett-Sync (Erweitert)",
+   "description": "Optionen für den manuellen Komplett-Abgleich aller Daten. Diese Einstellungen werden nur beim Komplett-Sync verwendet, nicht beim laufenden Betrieb."
   },
   {
    "default": "0",
    "fieldname": "skip_category_sync_on_full_reconciliation",
    "fieldtype": "Check",
-   "label": "Skip Category Sync on Complete Sync",
-   "description": "When enabled, Complete Sync will skip Phase 1 (Category Sync) and only sync products. Useful when categories are already up-to-date."
+   "label": "Kategorie-Sync beim Komplett-Sync überspringen",
+   "description": "Wenn aktiviert, überspringt der Komplett-Sync Phase 1 (Kategorien) und synchronisiert nur die Artikel. Sinnvoll, wenn die Kategorien bereits aktuell sind."
   },
   {
    "collapsible": 1,
@@ -208,22 +220,23 @@
    "depends_on": "eval:doc.enable_shopware && doc.upload_erpnext_items",
    "fieldname": "bulk_sync_section",
    "fieldtype": "Section Break",
-   "label": "Bulk Sync Settings (Performance)"
+   "label": "Massen-Synchronisation (Performance)",
+   "description": "Schützt ERPNext vor Überlastung bei vielen Artikel-Änderungen in kurzer Zeit. Schnelle Änderungen werden gesammelt und in Stapeln verarbeitet."
   },
   {
    "default": "1",
-   "description": "Enable bulk sync queue to prevent ERPNext crashes during mass product updates. When enabled, rapid updates are queued and processed in batches.",
+   "description": "Empfohlen: aktiviert. Wenn viele Artikel kurz hintereinander geändert werden, werden die Änderungen in einer Warteschlange gesammelt und stapelweise an Shopware übertragen. Verhindert Lastspitzen und Timeouts.",
    "fieldname": "enable_bulk_sync",
    "fieldtype": "Check",
-   "label": "Enable Bulk Sync Queue"
+   "label": "Massen-Synchronisation aktivieren"
   },
   {
    "default": "5",
    "depends_on": "eval:doc.enable_bulk_sync",
-   "description": "Number of product updates within 2 seconds to trigger bulk mode",
+   "description": "Ab wie vielen Artikel-Änderungen innerhalb von 2 Sekunden in den Massen-Modus gewechselt wird.",
    "fieldname": "bulk_sync_threshold",
    "fieldtype": "Int",
-   "label": "Bulk Mode Threshold"
+   "label": "Schwellenwert Massen-Modus"
   },
   {
    "fieldname": "column_break_bulk_sync",
@@ -232,10 +245,10 @@
   {
    "default": "50",
    "depends_on": "eval:doc.enable_bulk_sync",
-   "description": "Number of products to process per batch",
+   "description": "Anzahl Artikel, die pro Stapel verarbeitet werden.",
    "fieldname": "bulk_sync_batch_size",
    "fieldtype": "Int",
-   "label": "Batch Size"
+   "label": "Stapelgröße"
   },
   {
    "depends_on": "eval:doc.enable_bulk_sync",
@@ -246,14 +259,15 @@
   {
    "fieldname": "section_break_auth",
    "fieldtype": "Section Break",
-   "label": "Connection Settings"
+   "label": "Verbindung",
+   "description": "Zugangsdaten zur Shopware-Admin-API. Nach dem Eintragen über die Schaltfläche oben rechts die Verbindung testen."
   },
   {
-   "description": "Your Shopware 6 shop URL, e.g., myshop.shopware.store",
+   "description": "Vollständige Adresse Ihres Shopware-6-Shops, z.B. https://yourshop.example.com (mit https://, ohne abschließenden Schrägstrich).",
    "fieldname": "shop_url",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Shop URL",
+   "label": "Shop-URL",
    "mandatory_depends_on": "eval:doc.enable_shopware"
   },
   {
@@ -262,24 +276,25 @@
   },
   {
    "default": "resource_owner",
-   "description": "resource_owner: Use Integration credentials (client_id/secret)<br>user_credentials: Use username/password",
+   "description": "Empfohlen: <strong>resource_owner</strong> – nutzt eine Shopware-Integration (Client-ID + Secret).<br>Alternative: <strong>user_credentials</strong> – nutzt Admin-Benutzername und -Passwort (nicht empfohlen).",
    "fieldname": "grant_type",
    "fieldtype": "Select",
-   "label": "Authentication Type",
+   "label": "Authentifizierungs-Typ",
    "options": "resource_owner\nuser_credentials"
   },
   {
    "depends_on": "eval:doc.grant_type=='resource_owner'",
    "fieldname": "section_break_integration",
    "fieldtype": "Section Break",
-   "label": "Integration Credentials (Admin > Settings > System > Integrations)"
+   "label": "Integration-Zugangsdaten (Shopware Admin > Einstellungen > System > Integrationen)",
+   "description": "In Shopware unter Einstellungen → System → Integrationen eine neue Integration anlegen und Client-ID + Secret hier eintragen."
   },
   {
    "depends_on": "eval:doc.grant_type=='resource_owner'",
-   "description": "Access Key ID from Shopware Integration",
+   "description": "Zugriffsschlüssel-ID (Access Key ID) der Shopware-Integration.",
    "fieldname": "client_id",
    "fieldtype": "Data",
-   "label": "Client ID (Access Key ID)",
+   "label": "Client-ID (Access Key ID)",
    "mandatory_depends_on": "eval:doc.enable_shopware && doc.grant_type=='resource_owner'"
   },
   {
@@ -288,24 +303,25 @@
   },
   {
    "depends_on": "eval:doc.grant_type=='resource_owner'",
-   "description": "Secret Access Key from Shopware Integration",
+   "description": "Geheimer Zugriffsschlüssel (Secret Access Key) der Shopware-Integration. Wird verschlüsselt gespeichert.",
    "fieldname": "client_secret",
    "fieldtype": "Password",
-   "label": "Client Secret (Secret Access Key)",
+   "label": "Client-Secret (Secret Access Key)",
    "mandatory_depends_on": "eval:doc.enable_shopware && doc.grant_type=='resource_owner'"
   },
   {
    "depends_on": "eval:doc.grant_type=='user_credentials'",
    "fieldname": "section_break_user_credentials",
    "fieldtype": "Section Break",
-   "label": "User Credentials (Admin > Settings > System > Users)"
+   "label": "Benutzer-Zugangsdaten (Shopware Admin > Einstellungen > System > Benutzer)",
+   "description": "Nur verwenden, wenn keine Integration angelegt werden kann. Sicherer ist die Integration oben."
   },
   {
    "depends_on": "eval:doc.grant_type=='user_credentials'",
-   "description": "Admin username for API access",
+   "description": "Admin-Benutzername für den API-Zugriff.",
    "fieldname": "api_username",
    "fieldtype": "Data",
-   "label": "API Username",
+   "label": "API-Benutzername",
    "mandatory_depends_on": "eval:doc.enable_shopware && doc.grant_type=='user_credentials'"
   },
   {
@@ -314,30 +330,31 @@
   },
   {
    "depends_on": "eval:doc.grant_type=='user_credentials'",
-   "description": "Admin password for API access",
+   "description": "Admin-Passwort für den API-Zugriff. Wird verschlüsselt gespeichert.",
    "fieldname": "api_password",
    "fieldtype": "Password",
-   "label": "API Password",
+   "label": "API-Passwort",
    "mandatory_depends_on": "eval:doc.enable_shopware && doc.grant_type=='user_credentials'"
   },
   {
    "collapsible": 1,
    "fieldname": "section_break_webhook",
    "fieldtype": "Section Break",
-   "label": "Webhook Settings"
+   "label": "Webhooks (Eingehende Ereignisse)",
+   "description": "Webhooks erlauben Shopware, ERPNext über Ereignisse (z.B. neue Bestellung) sofort zu informieren — schneller als der reguläre Abruf."
   },
   {
-   "description": "Secret key to validate incoming webhooks. REQUIRED for production use.",
+   "description": "Geheimcode zur Prüfung eingehender Webhooks. Im produktiven Einsatz ZWINGEND erforderlich. Den gleichen Wert auch in Shopware bei der Webhook-Konfiguration eintragen.",
    "fieldname": "webhook_secret",
    "fieldtype": "Password",
-   "label": "Webhook Secret"
+   "label": "Webhook-Geheimcode"
   },
   {
    "default": "0",
-   "description": "SECURITY WARNING: Enable only for development/testing. In production, always configure a webhook_secret.",
+   "description": "SICHERHEITSWARNUNG: Nur für lokale Tests aktivieren. Im Live-Betrieb IMMER deaktiviert lassen und stattdessen einen Webhook-Geheimcode setzen — sonst kann jede Person mit der URL Daten einschleusen.",
    "fieldname": "allow_unsigned_webhooks",
    "fieldtype": "Check",
-   "label": "Allow Unsigned Webhooks (Not Recommended)"
+   "label": "Unsignierte Webhooks zulassen (nicht empfohlen)"
   },
   {
    "fieldname": "column_break_webhook",
@@ -346,59 +363,63 @@
   {
    "fieldname": "webhook_url_info",
    "fieldtype": "HTML",
-   "label": "Webhook URL Info",
-   "options": "<p class=\"text-muted\">Configure webhooks in Shopware Admin under Settings > Extensions > Webhooks.<br>Use the following URL pattern:<br><code>/api/method/ecommerce_integrations.shopware6.connection.webhook_handler</code><br><br><strong>Note:</strong> Webhooks require Shopware Evolve Edition. For other editions, install the <a href=\"https://github.com/TubaApollo/shopware6-erpnext-webhook\" target=\"_blank\">ERPNext Webhook Plugin</a>.</p>"
+   "label": "Webhook-URL",
+   "options": "<p class=\"text-muted\">Webhooks im Shopware-Admin konfigurieren unter <em>Einstellungen → Erweiterungen → Webhooks</em>.<br>Folgende URL eintragen:<br><code>/api/method/ecommerce_integrations.shopware6.connection.webhook_handler</code><br><br><strong>Hinweis:</strong> Webhooks erfordern die Shopware Evolve Edition. Für andere Editionen das <a href=\"https://github.com/TubaApollo/shopware6-erpnext-webhook\" target=\"_blank\">ERPNext Webhook Plugin</a> installieren.</p>"
   },
   {
    "fieldname": "customer_settings_section",
    "fieldtype": "Section Break",
-   "label": "Customer Settings"
+   "label": "Kunden",
+   "description": "Wie eingehende Shopware-Bestellungen Kunden in ERPNext zugeordnet werden. Der Standardkunde wird verwendet, wenn ein Gast bestellt oder kein bestehender Kunde gefunden wird."
   },
   {
-   "description": "Used for guest orders or when customer sync fails",
+   "description": "Wird verwendet für Gast-Bestellungen oder wenn die Kunden-Synchronisation fehlschlägt.",
    "fieldname": "default_customer",
    "fieldtype": "Link",
-   "label": "Default Customer",
+   "label": "Standardkunde",
    "options": "Customer"
   },
   {
    "default": "Billing",
    "fieldname": "fallback_billing_first_name",
    "fieldtype": "Data",
-   "label": "Fallback Billing Contact First Name",
-   "description": "Used when Shopware sends no first name for the billing contact. Default 'Billing' (English neutral)."
+   "label": "Ersatz-Vorname für Rechnungsadresse",
+   "description": "Wird verwendet, wenn Shopware keinen Vornamen für die Rechnungsadresse mitsendet. Standard: 'Billing' (sprachneutral)."
   },
   {
    "fieldname": "column_break_customer",
    "fieldtype": "Column Break"
   },
   {
-   "description": "Customer Group for synced Shopware customers",
+   "description": "Kundengruppe, der aus Shopware übernommene Kunden zugeordnet werden.",
    "fieldname": "customer_group",
    "fieldtype": "Link",
-   "label": "Customer Group",
+   "label": "Kundengruppe",
    "mandatory_depends_on": "eval:doc.enable_shopware",
    "options": "Customer Group"
   },
   {
    "fieldname": "company_dependent_settings_section",
    "fieldtype": "Section Break",
-   "label": "Company Settings"
+   "label": "Firma & Buchhaltung",
+   "description": "Auf welche Firma, welches Konto und welche Kostenstelle Shopware-Bestellungen gebucht werden."
   },
   {
    "fieldname": "company",
    "fieldtype": "Link",
-   "label": "Company",
+   "label": "Firma",
    "mandatory_depends_on": "eval:doc.enable_shopware",
-   "options": "Company"
+   "options": "Company",
+   "description": "ERPNext-Firma, auf die Shopware-Bestellungen gebucht werden."
   },
   {
    "fieldname": "cash_bank_account",
    "fieldtype": "Link",
-   "label": "Cash/Bank Account",
+   "label": "Kassen-/Bankkonto",
    "mandatory_depends_on": "eval:doc.enable_shopware",
    "options": "Account",
-   "link_filters": "[[\"Account\",\"account_type\",\"in\",[\"Bank\",\"Cash\"]],[\"Account\",\"is_group\",\"=\",0]]"
+   "link_filters": "[[\"Account\",\"account_type\",\"in\",[\"Bank\",\"Cash\"]],[\"Account\",\"is_group\",\"=\",0]]",
+   "description": "Konto, auf das Zahlungen aus Shopware verbucht werden."
   },
   {
    "fieldname": "column_break_company",
@@ -407,60 +428,62 @@
   {
    "fieldname": "cost_center",
    "fieldtype": "Link",
-   "label": "Cost Center",
+   "label": "Kostenstelle",
    "mandatory_depends_on": "eval:doc.enable_shopware",
-   "options": "Cost Center"
+   "options": "Cost Center",
+   "description": "Kostenstelle für Erlöse aus Shopware-Bestellungen."
   },
   {
    "fieldname": "price_handling_section",
    "fieldtype": "Section Break",
-   "label": "Price Handling (B2B/B2C)"
+   "label": "Preise (B2B / B2C)",
+   "description": "Welche Preisliste an Shopware übertragen wird, und wie mit Brutto-/Netto-Preisen umgegangen wird. Wichtig: B2B-Shops arbeiten typischerweise mit Netto-Preisen, B2C-Shops mit Brutto-Preisen."
   },
   {
-   "description": "Default price list for product export. Used as base price for channel-specific adjustments and as fallback when no channel price list is set.",
+   "description": "Standard-Preisliste für den Produkt-Export. Wird als Basis für storefront-spezifische Preise verwendet und als Fallback, wenn keine Preisliste pro Storefront hinterlegt ist.",
    "fieldname": "default_selling_price_list",
    "fieldtype": "Link",
-   "label": "Default Selling Price List",
+   "label": "Standard-Verkaufspreisliste",
    "options": "Price List"
   },
   {
    "default": "0",
    "depends_on": "default_selling_price_list",
-   "description": "Enable if the Default Price List contains gross prices (including tax). Prices will be converted to net before syncing to Shopware.",
+   "description": "Aktivieren, wenn die Standard-Preisliste Brutto-Preise (inkl. MwSt.) enthält. Die Preise werden vor der Synchronisation zu Shopware in Netto umgerechnet.",
    "fieldname": "default_price_list_includes_tax",
    "fieldtype": "Check",
-   "label": "Default Price List Includes Tax (Gross)"
+   "label": "Standard-Preisliste enthält Brutto-Preise"
   },
   {
    "depends_on": "default_selling_price_list",
-   "description": "Price list containing original/UVP prices. If an item has a higher price in this list than its selling price, the UVP is sent as strikethrough price (listPrice) to Shopware.",
+   "description": "Preisliste mit UVP / Streichpreisen. Wenn ein Artikel hier einen höheren Preis hat als in der Verkaufspreisliste, wird der UVP als durchgestrichener Preis (listPrice) an Shopware übertragen.",
    "fieldname": "list_price_price_list",
    "fieldtype": "Link",
-   "label": "List Price / RRP Price List",
+   "label": "UVP-/Streichpreisliste",
    "options": "Price List"
   },
   {
    "default": "0",
    "depends_on": "list_price_price_list",
-   "description": "Enable if the List Price / RRP Price List contains gross prices (including tax). Prices will be converted to net before sending to Shopware.",
+   "description": "Aktivieren, wenn die UVP-Preisliste Brutto-Preise enthält. Die Preise werden vor dem Senden an Shopware in Netto umgerechnet.",
    "fieldname": "list_price_includes_tax",
    "fieldtype": "Check",
-   "label": "List Price Includes Tax (Gross)"
+   "label": "UVP-Preisliste enthält Brutto-Preise"
   },
   {
    "default": "1",
-   "description": "Import prices from Shopware as net prices (excluding VAT). Enable for B2B. Disable for B2C to keep gross prices.",
+   "description": "Empfohlen für B2B: Preise aus Shopware werden als Netto-Preise gespeichert. Wenn deaktiviert (B2C), bleiben sie als Brutto-Preise (inkl. MwSt.) erhalten.",
    "fieldname": "import_prices_as_net",
    "fieldtype": "Check",
-   "label": "Import Prices as Net (B2B)"
+   "label": "Preise als Netto importieren (B2B)"
   },
   {
    "default": "19",
    "depends_on": "eval:doc.import_prices_as_net",
-   "description": "Default VAT rate for price conversion when tax rate cannot be determined from order data (German standard: 19%)",
+   "description": "Standard-MwSt.-Satz für die Brutto/Netto-Umrechnung, wenn der konkrete Satz aus den Bestelldaten nicht ermittelt werden kann. Deutschland: 19 % (Regel), 7 % (ermäßigt).",
    "fieldname": "default_tax_rate",
    "fieldtype": "Float",
-   "label": "Default Tax Rate (%)"
+   "label": "Standard-MwSt.-Satz (%)"
   },
   {
    "fieldname": "column_break_price_handling",
@@ -475,42 +498,47 @@
   {
    "fieldname": "section_break_order",
    "fieldtype": "Section Break",
-   "label": "Order Sync Settings"
+   "label": "Bestellungen (Eingang aus Shopware)",
+   "description": "Wie oft Bestellungen aus Shopware abgeholt werden und welche Nummernkreise für Aufträge, Lieferscheine und Rechnungen verwendet werden."
   },
   {
    "default": "60",
-   "description": "How often to sync orders from Shopware (in minutes)",
+   "description": "Wie oft Bestellungen aus Shopware geholt werden (in Minuten). Kleinere Werte = aktueller, aber mehr Last.",
    "fieldname": "order_sync_frequency",
    "fieldtype": "Select",
-   "label": "Order Sync Frequency (Minutes)",
+   "label": "Bestell-Sync-Intervall (Minuten)",
    "options": "5\n10\n15\n30\n60"
   },
   {
    "fieldname": "last_order_sync",
    "fieldtype": "Datetime",
    "hidden": 1,
-   "label": "Last Order Sync",
-   "read_only": 1
+   "label": "Letzter Bestell-Sync (informativ)",
+   "read_only": 1,
+   "description": "Zeitpunkt des letzten erfolgreichen Bestellungs-Abrufs. Nur zur Information."
   },
   {
    "fieldname": "sales_order_series",
    "fieldtype": "Select",
-   "label": "Sales Order Series",
-   "mandatory_depends_on": "eval:doc.enable_shopware"
+   "label": "Nummernkreis Auftragsbestätigung",
+   "mandatory_depends_on": "eval:doc.enable_shopware",
+   "description": "Nummernkreis, aus dem Auftragsbestätigungen für Shopware-Bestellungen vergeben werden."
   },
   {
    "depends_on": "eval:doc.sync_delivery_note==1",
    "fieldname": "delivery_note_series",
    "fieldtype": "Select",
-   "label": "Delivery Note Series",
-   "mandatory_depends_on": "eval:doc.sync_delivery_note"
+   "label": "Nummernkreis Lieferschein",
+   "mandatory_depends_on": "eval:doc.sync_delivery_note",
+   "description": "Nummernkreis für Lieferscheine, die aus Shopware-Sendungen erstellt werden."
   },
   {
    "depends_on": "eval:doc.sync_sales_invoice==1",
    "fieldname": "sales_invoice_series",
    "fieldtype": "Select",
-   "label": "Sales Invoice Series",
-   "mandatory_depends_on": "eval:doc.sync_sales_invoice"
+   "label": "Nummernkreis Rechnung",
+   "mandatory_depends_on": "eval:doc.sync_sales_invoice",
+   "description": "Nummernkreis für Rechnungen, die aus Shopware-Zahlungen erstellt werden."
   },
   {
    "fieldname": "column_break_order",
@@ -520,50 +548,52 @@
    "default": "0",
    "fieldname": "sync_delivery_note",
    "fieldtype": "Check",
-   "label": "Create Delivery Notes from Shopware shipments"
+   "label": "Lieferscheine aus Shopware-Sendungen erstellen",
+   "description": "Wenn aktiviert: Sobald in Shopware eine Sendung erstellt wird, legt ERPNext automatisch einen Lieferschein an. Deaktiviert: Lieferscheine müssen manuell erstellt werden."
   },
   {
    "default": "1",
    "fieldname": "auto_create_invoice_on_shipment",
    "fieldtype": "Check",
-   "label": "Auto-create Invoice after Shipment (Recommended)",
-   "description": "German law compliant: Create Sales Invoice automatically when Delivery Note is submitted. Invoice date = shipping date (Lieferdatum)."
+   "label": "Rechnung automatisch bei Versand erstellen (empfohlen)",
+   "description": "Konform mit deutschem Recht: erstellt automatisch eine Rechnung, sobald der Lieferschein gebucht wird. Rechnungsdatum = Versanddatum (Lieferdatum). WICHTIG: Wenn deaktiviert, müssen Sie Rechnungen manuell erstellen."
   },
   {
    "default": "0",
    "fieldname": "sync_sales_invoice",
    "fieldtype": "Check",
-   "label": "Create Sales Invoices for Paid Orders",
-   "description": "Creates a Sales Invoice when an order payment is confirmed in Shopware."
+   "label": "Rechnungen für bezahlte Bestellungen erstellen",
+   "description": "Erstellt eine Rechnung, sobald die Zahlung in Shopware bestätigt ist. Bei Versandhandel mit Vorkasse: oft die zweite Stufe nach 'Rechnung bei Versand'."
   },
   {
    "default": "0",
    "depends_on": "eval:doc.sync_sales_invoice",
    "fieldname": "auto_send_invoice_email",
    "fieldtype": "Check",
-   "label": "Auto-send Invoice Email when Paid",
-   "description": "Automatically send invoice PDF to customer when payment is confirmed"
+   "label": "Rechnung automatisch per E-Mail versenden",
+   "description": "Verschickt die Rechnung als PDF an die Kunden-E-Mail-Adresse, sobald die Zahlung bestätigt ist. Vor dem Aktivieren das Druckformat und ggf. die Vorlage prüfen."
   },
   {
    "depends_on": "eval:doc.auto_send_invoice_email",
    "fieldname": "invoice_print_format",
    "fieldtype": "Link",
-   "label": "Invoice Print Format",
+   "label": "Druckformat Rechnung",
    "options": "Print Format",
-   "description": "Print Format to use for invoice PDF attachment."
+   "description": "Druckformat, das für den PDF-Anhang der Rechnung verwendet wird."
   },
   {
    "depends_on": "eval:doc.auto_send_invoice_email",
    "fieldname": "invoice_email_template",
    "fieldtype": "Link",
-   "label": "Invoice Email Template",
+   "label": "E-Mail-Vorlage Rechnung",
    "options": "Email Template",
-   "description": "Optional email template. If not set, a default German message is used."
+   "description": "Optionale E-Mail-Vorlage. Ohne Auswahl wird ein neutraler deutscher Standardtext verwendet."
   },
   {
    "fieldname": "payment_method_mapping_section",
    "fieldtype": "Section Break",
-   "label": "Payment Method Mapping"
+   "label": "Zahlungsart-Zuordnung",
+   "description": "Welche Shopware-Zahlart welcher ERPNext-Zahlungsart entspricht (z.B. Stripe → Stripe-Konto, PayPal → PayPal-Konto). Ohne Zuordnung wird die Standard-Zahlungsart unten verwendet."
   },
   {
    "fieldname": "payment_method_mapping_info_html",
@@ -581,25 +611,27 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Used when no mapping above resolves to a valid Mode of Payment.",
+   "description": "Wird verwendet, wenn keine der obigen Zuordnungen passt. Ohne Auswahl wird die ERPNext-Standardzahlart verwendet.",
    "fieldname": "default_mode_of_payment",
    "fieldtype": "Link",
-   "label": "Default Mode of Payment",
+   "label": "Standard-Zahlungsart",
    "options": "Mode of Payment"
   },
   {
    "fieldname": "section_break_tax",
-   "fieldtype": "Section Break"
+   "fieldtype": "Section Break",
+   "label": "MwSt.-Konten",
+   "description": "Auf welche ERPNext-Konten die in Shopware berechnete Mehrwertsteuer gebucht wird."
   },
   {
    "fieldname": "html_tax_info",
    "fieldtype": "HTML",
-   "options": "Map Shopware Tax Rates / Shipping Charges to ERPNext Accounts"
+   "options": "<p class=\"text-muted\">Shopware-MwSt.-Sätze und Versandkosten den passenden ERPNext-Konten zuordnen.</p>"
   },
   {
    "fieldname": "taxes",
    "fieldtype": "Table",
-   "label": "Shopware Tax Accounts",
+   "label": "Shopware-MwSt.-Konten",
    "options": "Shopware Tax Account"
   },
   {
@@ -608,10 +640,10 @@
    "hide_border": 1
   },
   {
-   "description": "Fallback account when no specific tax mapping is found",
+   "description": "Auffangkonto, wenn für einen MwSt.-Satz keine spezifische Zuordnung gefunden wird.",
    "fieldname": "default_sales_tax_account",
    "fieldtype": "Link",
-   "label": "Default Sales Tax Account",
+   "label": "Standard-Umsatzsteuerkonto",
    "options": "Account",
    "link_filters": "[[\"Account\",\"account_type\",\"=\",\"Tax\"],[\"Account\",\"is_group\",\"=\",0]]"
   },
@@ -620,32 +652,33 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Fallback account for shipping charges",
+   "description": "Konto, auf das Versandkosten aus Shopware-Bestellungen gebucht werden.",
    "fieldname": "default_shipping_charges_account",
    "fieldtype": "Link",
-   "label": "Default Shipping Charges Account",
+   "label": "Standardkonto Versandkosten",
    "options": "Account",
    "link_filters": "[[\"Account\",\"account_type\",\"=\",\"Income Account\"],[\"Account\",\"is_group\",\"=\",0]]"
   },
   {
    "fieldname": "erpnext_to_shopware_sync_section",
    "fieldtype": "Section Break",
-   "label": "ERPNext to Shopware Sync"
+   "label": "Produkt-Upload (ERPNext → Shopware)",
+   "description": "Ob und wie Artikel von ERPNext zu Shopware übertragen werden. ACHTUNG: Mit diesen Einstellungen können bestehende Shopware-Daten überschrieben werden. Vor dem Aktivieren immer einen Trockenlauf durchführen."
   },
   {
    "default": "0",
    "fieldname": "upload_erpnext_items",
    "fieldtype": "Check",
-   "label": "Upload new ERPNext Items to Shopware",
-   "description": "Enables the outbound push: every new Item and every Item save will queue a sync to Shopware. WARNING: if you currently edit product copy directly in Shopware, those changes will be overwritten on the next ERPNext save. Run a Complete Sync (Dry Run) first to see what would be pushed."
+   "label": "ERPNext-Artikel zu Shopware hochladen",
+   "description": "GEFÄHRLICH: Aktiviert den Outbound-Sync. Jeder neue Artikel und jede Artikel-Änderung wird zu Shopware übertragen. WARNUNG: Wenn Sie Produkttexte direkt in Shopware pflegen, werden diese beim nächsten ERPNext-Speichern überschrieben. Bitte zuerst einen Komplett-Sync als Trockenlauf ausführen, um die Auswirkungen zu sehen."
   },
   {
    "default": "0",
    "depends_on": "eval:doc.upload_erpnext_items",
    "fieldname": "update_shopware_item_on_update",
    "fieldtype": "Check",
-   "label": "Update Shopware Item when ERPNext item is updated",
-   "description": "Pushes Item edits to Shopware on every save. Disable to control sync manually via 'Full Resync' on each Item."
+   "label": "Artikel-Änderungen automatisch nach Shopware übertragen",
+   "description": "Wenn aktiviert: jede Artikel-Änderung wird sofort zu Shopware gesendet. Wenn deaktiviert: Synchronisation nur manuell pro Artikel über die Schaltfläche 'Jetzt synchronisieren'. Wer Texte oft in Shopware nachpflegt, sollte diesen Schalter ausschalten."
   },
   {
    "fieldname": "column_break_sync",
@@ -655,42 +688,43 @@
    "default": "0",
    "fieldname": "sync_new_item_as_active",
    "fieldtype": "Check",
-   "label": "Sync new items as Active in Shopware"
+   "label": "Neue Artikel direkt aktiv in Shopware veröffentlichen",
+   "description": "Wenn aktiviert: neu hochgeladene Artikel sind sofort im Shop sichtbar. Wenn deaktiviert (empfohlen): Artikel werden als inaktiv angelegt und müssen in Shopware manuell freigegeben werden."
   },
   {
    "default": "1",
    "fieldname": "export_parent_products_inactive",
    "fieldtype": "Check",
-   "label": "Export Parent Products as Inactive",
-   "description": "When enabled, template items (has_variants=1) will be exported as inactive to Shopware. Only variant products will be visible in the shop listing."
+   "label": "Vorlage-Artikel (Eltern) inaktiv exportieren",
+   "description": "Empfohlen: aktiviert. Vorlage-Artikel mit Varianten werden in Shopware inaktiv angelegt; nur die Varianten sind im Shop sichtbar. Verhindert doppelte Treffer in der Produktliste."
   },
   {
    "fieldname": "discount_item",
    "fieldtype": "Link",
-   "label": "Discount Item",
+   "label": "Artikel für Rabatte",
    "options": "Item",
-   "description": "ERPNext Item to use for Shopware discounts/promotions. This item will be added with negative amount when promotions are applied."
+   "description": "Dummy-Artikel (z.B. 'RABATT'), über den Promo-Rabatte aus Shopware in den Auftrag eingefügt werden. Wird mit negativem Betrag erfasst."
   },
   {
    "fieldname": "shipping_section",
    "fieldtype": "Section Break",
-   "label": "Shipping Costs",
-   "description": "Configure how shipping costs from Shopware are handled in ERPNext"
+   "label": "Versandkosten",
+   "description": "Wie Versandkosten aus Shopware-Bestellungen in ERPNext erfasst werden. Empfohlen: als separate Position über einen Dienstleistungs-Artikel (z.B. 'VERSAND')."
   },
   {
    "default": "1",
    "fieldname": "add_shipping_as_item",
    "fieldtype": "Check",
-   "label": "Add Shipping as Line Item",
-   "description": "Add shipping costs as a separate line item in Sales Order. Required to transfer shipping costs from Shopware."
+   "label": "Versandkosten als Auftragsposition erfassen",
+   "description": "Empfohlen: aktiviert. Fügt Versandkosten als eigene Position in den Auftrag ein. Voraussetzung, damit Versandkosten aus Shopware übernommen werden."
   },
   {
    "depends_on": "eval:doc.add_shipping_as_item",
    "fieldname": "shipping_item",
    "fieldtype": "Link",
-   "label": "Shipping Item",
+   "label": "Versand-Artikel",
    "options": "Item",
-   "description": "ERPNext item code for shipping (e.g., VERSAND or SHIPPING). This item will be added when shipping costs exist."
+   "description": "ERPNext-Artikel für Versandkosten (z.B. 'VERSAND' oder 'SHIPPING'). Wird als Position eingefügt, sobald Versandkosten anfallen."
   },
   {
    "fieldname": "column_break_shipping",
@@ -705,24 +739,25 @@
   {
    "fieldname": "category_sync_section",
    "fieldtype": "Section Break",
-   "label": "Category Sync Settings",
+   "label": "Kategorie-Sync (Alt-Einstellungen)",
    "collapsible": 1,
-   "depends_on": "eval:doc.upload_erpnext_items"
+   "depends_on": "eval:doc.upload_erpnext_items",
+   "description": "Alte globale Kategorie-Sync-Einstellungen. Für neue Setups bitte den modernen Kategorie-Sync (oben) verwenden. Diese Werte werden nur als Fallback genutzt."
   },
   {
    "fieldname": "category_sync_root",
    "fieldtype": "Link",
-   "label": "Category Sync Root",
+   "label": "Wurzel-Artikelgruppe für Kategorie-Sync",
    "options": "Item Group",
    "default": "Products",
-   "description": "Root category for Shopware sync. All subcategories under this will be synced."
+   "description": "Wurzelkategorie für den Shopware-Sync. Alle Unterkategorien darunter werden synchronisiert."
   },
   {
    "fieldname": "skip_root_category",
    "fieldtype": "Check",
-   "label": "Skip Root Category",
+   "label": "Wurzel-Kategorie nicht mitsynchronisieren",
    "default": "1",
-   "description": "If checked, the root category itself won't be synced to Shopware (only its children)"
+   "description": "Wenn aktiviert: die Wurzelkategorie selbst wird nicht in Shopware angelegt — nur ihre Kinder."
   },
   {
    "fieldname": "column_break_category_sync",
@@ -731,15 +766,15 @@
   {
    "fieldname": "sync_empty_categories",
    "fieldtype": "Check",
-   "label": "Sync Empty Categories",
+   "label": "Leere Kategorien synchronisieren",
    "default": "1",
-   "description": "Sync categories even if they have no products assigned"
+   "description": "Wenn aktiviert: Auch Kategorien ohne zugeordnete Artikel werden zu Shopware übertragen."
   },
   {
    "fieldname": "protected_shopware_categories",
    "fieldtype": "Small Text",
-   "label": "Protected Shopware Category IDs",
-   "description": "Shopware category IDs (one per line) that should never be deleted during orphan cleanup. These categories and all their descendants are protected. Use this for categories managed directly in Shopware (not synced from ERPNext)."
+   "label": "Geschützte Shopware-Kategorie-IDs",
+   "description": "Shopware-Kategorie-IDs (eine pro Zeile), die nie automatisch gelöscht werden — auch nicht wenn sie 'verwaist' wirken. Diese Kategorien und ihre Unterkategorien sind geschützt. Sinnvoll für Kategorien, die direkt in Shopware gepflegt werden."
   },
   {
    "fieldname": "category_sync_info_html",
@@ -753,21 +788,22 @@
    "depends_on": "eval:doc.upload_erpnext_items",
    "fieldname": "reconciliation_batch_section",
    "fieldtype": "Section Break",
-   "label": "Reconciliation Batch Sizes"
+   "label": "Stapelgrößen beim Komplett-Sync",
+   "description": "Wie viele Datensätze pro Durchlauf verarbeitet werden. Größere Werte = schneller, aber mehr RAM-Bedarf. Standard ist meist passend."
   },
   {
    "default": "50",
-   "description": "Products per batch during reconciliation",
+   "description": "Anzahl Artikel pro Stapel beim Komplett-Sync.",
    "fieldname": "product_batch_size",
    "fieldtype": "Int",
-   "label": "Product Batch Size"
+   "label": "Stapelgröße Artikel"
   },
   {
    "default": "50",
-   "description": "Images per batch during image sync",
+   "description": "Anzahl Bilder pro Stapel beim Bild-Sync.",
    "fieldname": "image_batch_size",
    "fieldtype": "Int",
-   "label": "Image Batch Size"
+   "label": "Stapelgröße Bilder"
   },
   {
    "fieldname": "column_break_batch",
@@ -775,32 +811,32 @@
   },
   {
    "default": "500",
-   "description": "Prices per batch during price sync",
+   "description": "Anzahl Preise pro Stapel beim Preis-Sync.",
    "fieldname": "price_batch_size",
    "fieldtype": "Int",
-   "label": "Price Batch Size"
+   "label": "Stapelgröße Preise"
   },
   {
    "default": "10",
-   "description": "Variant templates per batch",
+   "description": "Anzahl Vorlage-Artikel mit Varianten pro Stapel.",
    "fieldname": "variant_batch_size",
    "fieldtype": "Int",
-   "label": "Variant Batch Size"
+   "label": "Stapelgröße Varianten"
   },
   {
    "collapsible": 1,
    "depends_on": "eval:doc.upload_erpnext_items",
    "fieldname": "field_mapping_section",
    "fieldtype": "Section Break",
-   "label": "Product Field Mappings",
-   "description": "Configure which ERPNext Item fields are synced to Shopware products"
+   "label": "Feld-Zuordnungen (Erweitert)",
+   "description": "Welche ERPNext-Artikel-Felder zu Shopware übertragen werden — und ob als Custom Field (nicht filterbar) oder als Property (filterbar im Shop)."
   },
   {
    "fieldname": "product_field_mappings",
    "fieldtype": "Table",
-   "label": "Field Mappings",
+   "label": "Feld-Zuordnungen",
    "options": "Shopware Field Mapping",
-   "description": "Map ERPNext Item fields to Shopware product fields (Custom Fields or Properties)"
+   "description": "ERPNext-Artikel-Felder auf Shopware-Produkt-Felder abbilden (Custom Field oder Eigenschaft)."
   },
   {
    "fieldname": "column_break_field_mapping",
@@ -810,8 +846,8 @@
    "default": "1",
    "fieldname": "auto_detect_jattr",
    "fieldtype": "Check",
-   "label": "Auto-detect jattr_* fields",
-   "description": "Automatically sync all jattr_* custom fields as Shopware Properties (filterable)"
+   "label": "jattr_*-Felder automatisch erkennen",
+   "description": "Synchronisiert alle benutzerdefinierten jattr_*-Felder automatisch als Shopware-Eigenschaften (filterbar)."
   },
   {
    "fieldname": "field_mapping_info_html",
@@ -822,13 +858,14 @@
   {
    "fieldname": "inventory_sync_section",
    "fieldtype": "Section Break",
-   "label": "Inventory Sync"
+   "label": "Bestand (Lager-Sync)",
+   "description": "Wie ERPNext-Lagerbestände zu Shopware übertragen werden. Bei mehreren Lagern bitte die Zuordnungstabelle unten ausfüllen."
   },
   {
-   "description": "Default warehouse for stock operations",
+   "description": "Standard-Lager, aus dem Bestände gemeldet werden, wenn keine spezifische Lager-Zuordnung greift.",
    "fieldname": "warehouse",
    "fieldtype": "Link",
-   "label": "Default Warehouse",
+   "label": "Standard-Lager",
    "mandatory_depends_on": "eval:doc.enable_shopware",
    "options": "Warehouse"
   },
@@ -836,15 +873,17 @@
    "default": "0",
    "fieldname": "update_erpnext_stock_levels_to_shopware",
    "fieldtype": "Check",
-   "label": "Sync ERPNext stock levels to Shopware"
+   "label": "ERPNext-Lagerbestände zu Shopware synchronisieren",
+   "description": "GEFÄHRLICH: Wenn aktiviert, überschreibt ERPNext die Bestände in Shopware periodisch. Nur aktivieren, wenn ERPNext das führende System für Bestände ist. Falls Sie Bestand auch direkt in Shopware pflegen, würde diese Pflege überschrieben."
   },
   {
    "default": "60",
    "depends_on": "eval:doc.update_erpnext_stock_levels_to_shopware",
    "fieldname": "inventory_sync_frequency",
    "fieldtype": "Select",
-   "label": "Inventory Sync Frequency (Minutes)",
-   "options": "5\n10\n15\n30\n60"
+   "label": "Bestand-Sync-Intervall (Minuten)",
+   "options": "5\n10\n15\n30\n60",
+   "description": "Wie oft ERPNext-Bestände zu Shopware übertragen werden."
   },
   {
    "fieldname": "column_break_inventory",
@@ -854,29 +893,41 @@
    "depends_on": "eval:doc.update_erpnext_stock_levels_to_shopware",
    "fieldname": "shopware_warehouse_mapping",
    "fieldtype": "Table",
-   "label": "Shopware Warehouse Mapping",
-   "options": "Shopware Warehouse Mapping"
+   "label": "Lager-Zuordnung Shopware",
+   "options": "Shopware Warehouse Mapping",
+   "description": "ERPNext-Lager auf Shopware-Lagerorte abbilden. Erforderlich bei Mehr-Lager-Setups."
   },
   {
    "fieldname": "last_inventory_sync",
    "fieldtype": "Datetime",
    "hidden": 1,
-   "label": "Last Inventory Sync",
-   "read_only": 1
+   "label": "Letzter Bestand-Sync (informativ)",
+   "read_only": 1,
+   "description": "Zeitpunkt des letzten erfolgreichen Bestand-Syncs. Nur zur Information."
   },
   {
    "fieldname": "checkout_fields_section",
    "fieldtype": "Section Break",
-   "label": "Checkout Custom Fields",
+   "label": "Checkout-Felder (Erweitert)",
    "collapsible": 1,
-   "description": "Map Shopware checkout custom fields to ERPNext fields or service items. Add rows for each custom field you want to process during order sync."
+   "description": "Wie Shopware-Checkout-Felder (Custom Fields aus dem Bestellprozess) auf ERPNext abgebildet werden. Pro Feld eine Zeile anlegen."
   },
   {
    "fieldname": "checkout_fields",
    "fieldtype": "Table",
-   "label": "Checkout Field Mappings",
+   "label": "Checkout-Feld-Zuordnungen",
    "options": "Ecommerce Checkout Field",
-   "description": "Configure which checkout custom fields to process and how to map them"
+   "description": "Welche Checkout-Felder verarbeitet und wie sie abgebildet werden."
+  },
+  {
+   "fieldname": "checkout_fields_info_section",
+   "fieldtype": "Section Break",
+   "hide_border": 1
+  },
+  {
+   "fieldname": "checkout_fields_info_html",
+   "fieldtype": "HTML",
+   "options": "<div class=\"alert alert-info\"><p><strong>Checkout-Felder</strong> erlauben, im Shopware-Checkout zusätzliche Eingaben (z.B. Lieferdatum, Wunschtermin, Bestell-Referenz) zu erfassen und in ERPNext zu spiegeln.</p><p>Pro Feld eine Zeile mit Custom-Field-Name aus Shopware und Ziel-Feld in ERPNext anlegen.</p></div>"
   }
  ],
  "index_web_pages_for_search": 1,

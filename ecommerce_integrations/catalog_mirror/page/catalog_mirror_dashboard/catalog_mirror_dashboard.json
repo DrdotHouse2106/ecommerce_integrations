@@ -1,0 +1,29 @@
+{
+ "content": null,
+ "creation": "2026-05-15 00:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-05-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Catalog Mirror",
+ "name": "catalog-mirror-dashboard",
+ "owner": "Administrator",
+ "page_name": "catalog-mirror-dashboard",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Shopware Admin"
+  },
+  {
+   "role": "Medusa Admin"
+  }
+ ],
+ "script": null,
+ "standard": "Yes",
+ "style": null,
+ "system_page": 0,
+ "title": "Catalog Mirror Dashboard"
+}

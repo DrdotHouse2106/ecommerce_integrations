@@ -13,7 +13,7 @@
  "fields": [
   {
    "fieldname": "item_group",
-   "label": "Item Group",
+   "label": "Artikelgruppe",
    "fieldtype": "Link",
    "options": "Item Group",
    "reqd": 1,
@@ -22,25 +22,25 @@
   },
   {
    "fieldname": "external_id",
-   "label": "External ID",
+   "label": "Backend-ID",
    "fieldtype": "Data",
    "in_list_view": 1,
    "columns": 4,
-   "description": "Backend UUID for this Item Group. Required when mode=pin."
+   "description": "UUID der Backend-Kategorie für diese Artikelgruppe. Erforderlich bei Modus 'Fest verknüpfen'."
   },
   {
    "fieldname": "mode",
-   "label": "Mode",
+   "label": "Modus",
    "fieldtype": "Select",
    "options": "pin\nskip",
    "default": "pin",
    "in_list_view": 1,
    "columns": 2,
-   "description": "pin = use this UUID as-is. skip = exclude this Item Group from the mirror."
+   "description": "<strong>pin</strong> = Diese Backend-ID fest verwenden (Mit bestehender Kategorie verknüpfen). <strong>skip</strong> = Diese Artikelgruppe vom Kategorie-Sync ausnehmen."
   },
   {
    "fieldname": "notes",
-   "label": "Notes",
+   "label": "Notizen",
    "fieldtype": "Data",
    "columns": 3
   }

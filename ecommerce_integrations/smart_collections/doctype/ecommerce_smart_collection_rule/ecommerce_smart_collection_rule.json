@@ -15,20 +15,21 @@
  "fields": [
   {
    "fieldname": "rule_type",
-   "label": "Rule Type",
+   "label": "Regel-Typ",
    "fieldtype": "Select",
    "options": "Item Group\nEcommerce Property\nManufacturer\nItem Field\nStock\nBrand",
    "reqd": 1,
    "in_list_view": 1,
-   "columns": 2
+   "columns": 2,
+   "description": "Worauf sich die Regel bezieht: <strong>Item Group</strong> (Artikelgruppe), <strong>Ecommerce Property</strong> (Eigenschaft), <strong>Manufacturer</strong> (Hersteller), <strong>Item Field</strong> (Artikel-Feld), <strong>Stock</strong> (Bestand), <strong>Brand</strong> (Marke)."
   },
   {
    "fieldname": "field_key",
-   "label": "Field Key",
+   "label": "Feldname",
    "fieldtype": "Data",
    "in_list_view": 1,
    "columns": 2,
-   "description": "Property name (Ecommerce Property) or Item field (Item Field). Empty for Item Group / Manufacturer / Brand / Stock."
+   "description": "Name der Eigenschaft (Ecommerce Property) oder des Artikel-Feldes (Item Field). Leer lassen bei Item Group / Manufacturer / Brand / Stock."
   },
   {
    "fieldname": "operator",
@@ -37,31 +38,32 @@
    "options": "equals\nnot_equals\nin\nnot_in\ndescends_from\ncontains\nregex\nis_set\nis_empty",
    "reqd": 1,
    "in_list_view": 1,
-   "columns": 2
+   "columns": 2,
+   "description": "Vergleichsoperator: <strong>equals</strong> = ist genau, <strong>not_equals</strong> = ist nicht, <strong>in</strong> = ist einer aus (kommagetrennt), <strong>not_in</strong> = ist keiner aus, <strong>descends_from</strong> = ist untergeordnet von (für Artikelgruppen-Baum), <strong>contains</strong> = enthält, <strong>regex</strong> = passt auf regulären Ausdruck, <strong>is_set</strong> = ist gesetzt, <strong>is_empty</strong> = ist leer."
   },
   {
    "fieldname": "value",
-   "label": "Value",
+   "label": "Wert",
    "fieldtype": "Small Text",
    "in_list_view": 1,
    "columns": 3,
-   "description": "Single value or comma-separated for in/not_in. Ignored for is_set/is_empty."
+   "description": "Einzelner Wert, oder kommagetrennt für 'in' / 'not_in'. Wird bei 'is_set' / 'is_empty' ignoriert."
   },
   {
    "fieldname": "group_id",
-   "label": "OR Group",
+   "label": "OR-Gruppe",
    "fieldtype": "Int",
    "default": "0",
    "columns": 1,
-   "description": "Rules sharing the same OR Group are combined with OR. Different OR Groups combine via the parent's rule_combinator."
+   "description": "Regeln mit derselben OR-Gruppen-Nummer (außer 0) werden mit OR verknüpft. Unterschiedliche OR-Gruppen werden über die Regel-Verknüpfung der Eigenen Kollektion kombiniert."
   },
   {
    "fieldname": "negate",
-   "label": "Negate",
+   "label": "Negieren (NICHT)",
    "fieldtype": "Check",
    "default": "0",
    "columns": 1,
-   "description": "Inverts this rule's match. Note: NULL handling is strict — a NULL value never matches, so NOT(rule) is not the same as the operator's negation when the property is unset."
+   "description": "Kehrt die Regel um. Hinweis: NULL-Behandlung ist streng — ein nicht gesetzter Wert passt nie, daher ist NICHT(Regel) nicht identisch mit der Operator-Verneinung, wenn die Eigenschaft fehlt."
   }
  ],
  "index_web_pages_for_search": 0,

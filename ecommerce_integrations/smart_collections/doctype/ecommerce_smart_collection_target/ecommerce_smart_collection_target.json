@@ -19,7 +19,7 @@
  "fields": [
   {
    "fieldname": "backend",
-   "label": "Backend",
+   "label": "Zielsystem",
    "fieldtype": "Select",
    "options": "Medusa\nShopware",
    "reqd": 1,
@@ -28,75 +28,78 @@
   },
   {
    "fieldname": "sales_channel",
-   "label": "Sales Channel",
+   "label": "Storefront",
    "fieldtype": "Data",
    "reqd": 1,
    "in_list_view": 1,
    "columns": 3,
-   "description": "Backend-specific Sales Channel id or name. Resolved against the channel doctype of the chosen backend at sync time."
+   "description": "Storefront-ID oder -Name im Zielsystem. Wird beim Sync gegen die Storefront-Tabelle des gewählten Backends aufgelöst."
   },
   {
    "fieldname": "enabled",
-   "label": "Enabled",
+   "label": "Aktiv",
    "fieldtype": "Check",
    "default": "1",
    "in_list_view": 1,
-   "columns": 1
+   "columns": 1,
+   "description": "Wenn deaktiviert, wird dieses Sync-Ziel übersprungen."
   },
   {
    "fieldname": "visibility",
-   "label": "Visibility",
+   "label": "Sichtbarkeit",
    "fieldtype": "Select",
    "options": "All (30)\nLinked Only (20)\nSearch Only (10)\nHidden (0)",
    "default": "All (30)",
    "columns": 2,
-   "description": "Shopware-only knob. Medusa treats anything other than ``Hidden (0)`` as visible."
+   "description": "Shopware-Schalter. <strong>30 - All</strong> = überall sichtbar. <strong>20 - Linked</strong> = nur über Direktlink. <strong>10 - Search</strong> = nur in der Suche. <strong>0 - Hidden</strong> = nicht sichtbar. Medusa behandelt alles außer 'Hidden' als sichtbar."
   },
   {
    "fieldname": "link_only",
-   "label": "Link only (don't unlink existing)",
+   "label": "Nur hinzufügen, nichts entfernen",
    "fieldtype": "Check",
    "default": "0",
-   "description": "When set, the sync only ADDS items to this backend category. Items already in the backend that aren't in the resolved set are left alone. Use this when adopting a manually-curated category."
+   "description": "Wenn aktiviert: Der Sync fügt nur Artikel zur Backend-Kategorie hinzu. Artikel, die bereits dort sind aber nicht ins Regelergebnis passen, bleiben unangetastet. Sinnvoll beim Verknüpfen mit einer manuell gepflegten Kategorie."
   },
   {
    "fieldname": "external_id",
-   "label": "External ID",
+   "label": "Backend-ID",
    "fieldtype": "Data",
    "read_only": 1,
    "in_list_view": 1,
    "columns": 2,
-   "description": "Backend Category id, set after the first successful sync."
+   "description": "ID der Backend-Kategorie. Wird nach dem ersten erfolgreichen Sync automatisch gefüllt."
   },
   {
    "fieldname": "sync_status",
-   "label": "Sync Status",
+   "label": "Status",
    "fieldtype": "Select",
    "options": "pending\nrunning\nok\nerror",
    "default": "pending",
    "in_list_view": 1,
-   "columns": 1
+   "columns": 1,
+   "description": "Aktueller Sync-Status dieses Ziels."
   },
   {
    "fieldname": "last_synced_at",
-   "label": "Last Synced At",
+   "label": "Letzte Synchronisation (informativ)",
    "fieldtype": "Datetime",
-   "read_only": 1
+   "read_only": 1,
+   "description": "Zeitpunkt des letzten erfolgreichen Syncs für dieses Ziel."
   },
   {
    "fieldname": "last_heartbeat_at",
-   "label": "Last Heartbeat At",
+   "label": "Letzter Heartbeat (informativ)",
    "fieldtype": "Datetime",
    "read_only": 1,
    "hidden": 1,
-   "description": "Updated at the start of every sync attempt. recover_stale_targets sweeps rows stuck in 'running' past the heartbeat timeout."
+   "description": "Wird zu Beginn jedes Sync-Versuchs aktualisiert. Der Stale-Target-Recover entfernt Einträge, die zu lange im Status 'running' hängen."
   },
   {
    "fieldname": "last_error",
-   "label": "Last Error",
+   "label": "Letzte Fehlermeldung (informativ)",
    "fieldtype": "Small Text",
    "read_only": 1,
-   "description": "Short message; full traceback lands in Ecommerce Integration Log."
+   "description": "Kurzfassung; vollständiger Stacktrace im Ecommerce Integration Log."
   }
  ],
  "index_web_pages_for_search": 0,
