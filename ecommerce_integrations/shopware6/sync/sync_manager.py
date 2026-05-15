@@ -129,7 +129,7 @@ class SyncManager:
     Core Principle: ERPNext is ALWAYS the source of truth.
     """
 
-    def __init__(self, log_name: str = None):
+    def __init__(self, log_name: str | None = None):
         self.setting = frappe.get_cached_doc(SETTING_DOCTYPE)
         self.logger = get_logger("SyncManager")
         self._log_name = log_name
@@ -1070,7 +1070,7 @@ def full_reconciliation_no_brainer(
     sync_images: bool = True,
     sync_stock: bool = False,
     dry_run: bool = False,
-    category_root: str = None,
+    category_root: str | None = None,
     cleanup_orphan_categories: bool = True,
     # Skip options for granular control
     skip_categories: bool = False,
@@ -1079,7 +1079,7 @@ def full_reconciliation_no_brainer(
     skip_variants: bool = False,
     skip_prices: bool = False,
     skip_cleanup: bool = False,
-    log_name: str = None,
+    log_name: str | None = None,
     sync_generation: int | None = None,
 ) -> dict[str, Any]:
     """
@@ -1240,7 +1240,7 @@ def enqueue_full_reconciliation_no_brainer(
     sync_images: bool = True,
     sync_stock: bool = False,
     dry_run: bool = False,
-    category_root: str = None,
+    category_root: str | None = None,
     cleanup_orphan_categories: bool = True,
     # Skip options for granular control
     skip_categories: bool = False,

@@ -298,7 +298,7 @@ def _ensure_customer_contact(customer: str, order_customer: dict[str, Any]) -> N
             create_customer_contact(customer, order_customer)
 
 
-def sync_customer_from_webhook(payload: dict[str, Any], request_id: str = None):
+def sync_customer_from_webhook(payload: dict[str, Any], request_id: str | None = None):
     """Handle customer sync from Shopware webhook."""
     logger = get_logger("sync_customer_from_webhook")
 

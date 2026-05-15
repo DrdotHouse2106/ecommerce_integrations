@@ -57,7 +57,7 @@ class ShopwareOrder:
             order.sync()
     """
 
-    def __init__(self, order_id: str, sales_order_name: str = None):
+    def __init__(self, order_id: str, sales_order_name: str | None = None):
         """
         Initialize ShopwareOrder.
 
@@ -419,7 +419,7 @@ def _create_invoice_if_paid(
             create_sales_invoice(sales_order, transaction, setting)
 
 
-def sync_order_from_webhook(payload: dict[str, Any], request_id: str = None):
+def sync_order_from_webhook(payload: dict[str, Any], request_id: str | None = None):
     """
     Handle order sync from Shopware webhook.
 
@@ -503,7 +503,7 @@ def update_order_custom_fields(
     sales_order_name: str,
     shopware_order_id: str,
     webhook_custom_fields: dict[str, Any],
-    request_id: str = None
+    request_id: str | None = None
 ) -> None:
     """
     Update custom fields on an existing Sales Order.
@@ -565,7 +565,7 @@ def update_order_custom_fields(
             update_shopware_log(request_id, status="Error", exception=str(e))
 
 
-def update_order_status(payload: dict[str, Any], request_id: str = None):
+def update_order_status(payload: dict[str, Any], request_id: str | None = None):
     """
     Handle order state change from Shopware webhook.
 

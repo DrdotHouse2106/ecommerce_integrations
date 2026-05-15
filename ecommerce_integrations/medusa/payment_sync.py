@@ -12,7 +12,7 @@ from ecommerce_integrations.medusa.constants import API_ORDERS, ORDER_ID_FIELD, 
 from ecommerce_integrations.medusa.utils import create_medusa_log, is_medusa_enabled, update_medusa_log
 
 
-def sync_payment_for_order(entity_id: str = None, payload: dict = None, event_type: str = ""):
+def sync_payment_for_order(entity_id: str | None = None, payload: dict | None = None, event_type: str = ""):
 	"""Handle payment status change for a single order (webhook-triggered).
 
 	The ``payload`` kwarg is accepted for parity with the webhook handler but

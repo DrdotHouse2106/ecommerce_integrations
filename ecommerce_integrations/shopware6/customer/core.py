@@ -67,7 +67,7 @@ class ShopwareCustomer(EcommerceCustomer):
         self.setting = frappe.get_doc(SETTING_DOCTYPE)
         super().__init__(customer_id, CUSTOMER_ID_FIELD, MODULE_NAME)
 
-    def sync_customer(self, customer: dict[str, Any], sales_channel_id: str = None) -> None:
+    def sync_customer(self, customer: dict[str, Any], sales_channel_id: str | None = None) -> None:
         """Create Customer in ERPNext using Shopware's Customer dict."""
 
         first_name = customer.get("firstName", "") or ""
@@ -144,7 +144,7 @@ class ShopwareCustomer(EcommerceCustomer):
         customer_name: str,
         shopware_address: dict[str, Any],
         address_type: str = "Billing",
-        email: str = None,
+        email: str | None = None,
         is_also_shipping: bool = False,
     ) -> None:
         """Create customer address using Shopware address data.
@@ -257,7 +257,7 @@ class ShopwareCustomer(EcommerceCustomer):
         customer_name: str,
         shopware_address: dict[str, Any],
         address_type: str = "Billing",
-        email: str = None,
+        email: str | None = None,
         is_also_shipping: bool = False,
     ) -> None:
         """Update existing address or create new one based on Shopware address ID.
@@ -382,8 +382,8 @@ class ShopwareCustomer(EcommerceCustomer):
     def create_or_update_billing_contact(
         self,
         billing_email: str,
-        customer_data: dict[str, Any] = None,
-        billing_name: str = None,
+        customer_data: dict[str, Any] | None = None,
+        billing_name: str | None = None,
     ) -> str | None:
         """
         Create or update a Billing Contact for this customer.

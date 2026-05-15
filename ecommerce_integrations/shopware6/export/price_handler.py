@@ -63,7 +63,7 @@ def _batch_delete_prices(client, price_ids: list[str], batch_size: int = 100, lo
     return deleted
 
 
-def get_item_price(item_code: str, price_list: str = None) -> float:
+def get_item_price(item_code: str, price_list: str | None = None) -> float:
     """
     Get the selling price for an item.
 
@@ -109,7 +109,7 @@ def get_item_price(item_code: str, price_list: str = None) -> float:
     return flt(item_price) if item_price else 0.0
 
 
-def get_channel_price(item_code: str, sales_channel, setting, tax_rate: float = None) -> float:
+def get_channel_price(item_code: str, sales_channel, setting, tax_rate: float | None = None) -> float:
     """
     Get the NET price for an item in a specific sales channel.
 
@@ -243,7 +243,7 @@ def _get_list_price_payload(
 def build_price_payload(
     net_price: float,
     tax_rate: float = 19.0,
-    currency_id: str = None,
+    currency_id: str | None = None,
     list_price_payload: dict[str, Any] | None = None
 ) -> list[dict[str, Any]]:
     """
@@ -386,7 +386,7 @@ def sync_bulk_prices(client, item_codes: list[str]) -> dict[str, bool]:
     return results
 
 
-def update_item_price_in_shopware(item_code: str = None, doc=None) -> dict[str, Any]:
+def update_item_price_in_shopware(item_code: str | None = None, doc=None) -> dict[str, Any]:
     """
     Update price for a single item in Shopware.
 
@@ -424,7 +424,7 @@ def update_item_price_in_shopware(item_code: str = None, doc=None) -> dict[str, 
 def force_sync_single_product_price(
     client,
     item_code: str,
-    price_list: str = None,
+    price_list: str | None = None,
     force: bool = True
 ) -> dict[str, Any]:
     """
@@ -585,7 +585,7 @@ def force_sync_single_product_price(
 
 
 @frappe.whitelist()
-def force_reconcile_single_price(item_code: str, price_list: str = None) -> dict[str, Any]:
+def force_reconcile_single_price(item_code: str, price_list: str | None = None) -> dict[str, Any]:
     """
     Whitelist wrapper for force_sync_single_product_price.
 
@@ -609,7 +609,7 @@ def force_sync_all_prices(
     client,
     limit: int = 100,
     offset: int = 0,
-    price_list: str = None,
+    price_list: str | None = None,
     dry_run: bool = False
 ) -> dict[str, Any]:
     """
@@ -815,7 +815,7 @@ def force_sync_all_prices(
 @frappe.whitelist()
 def enqueue_force_sync_all_prices(
     batch_size: int = 500,
-    price_list: str = None,
+    price_list: str | None = None,
     dry_run: bool = False
 ) -> dict[str, Any]:
     """
@@ -867,7 +867,7 @@ def enqueue_force_sync_all_prices(
 def _run_force_price_sync_batched(
     batch_size: int,
     total: int,
-    price_list: str = None,
+    price_list: str | None = None,
     dry_run: bool = False
 ):
     """
@@ -1056,8 +1056,8 @@ def _log_failed_items_to_db(failed_ids: list[str], operation: str, error_msg: st
 
 
 def force_sync_prices_batch(
-    price_list: str = None,
-    progress_callback: callable = None
+    price_list: str | None = None,
+    progress_callback: callable | None = None
 ) -> dict[str, Any]:
     """
     Batch-sync all prices using Shopware Sync API (5-10x faster).

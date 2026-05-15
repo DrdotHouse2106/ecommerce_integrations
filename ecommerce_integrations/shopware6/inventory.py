@@ -195,7 +195,7 @@ def _send_stock_updates(client: Shopware6AdminAPIClientBase, updates: list[dict]
     client.request_post("_action/sync", sync_payload, update_header_fields=HEADER_index_asynchronously)
 
 
-def _batch_get_stock_qty(item_codes: list, warehouse: str = None) -> dict:
+def _batch_get_stock_qty(item_codes: list, warehouse: str | None = None) -> dict:
     """Fetch stock quantities for multiple items in a single query.
 
     Returns:
@@ -230,7 +230,7 @@ def _batch_get_stock_qty(item_codes: list, warehouse: str = None) -> dict:
     return {row.item_code: flt(row.qty) for row in rows}
 
 
-def get_stock_qty(item_code: str, warehouse: str = None) -> float:
+def get_stock_qty(item_code: str, warehouse: str | None = None) -> float:
     """
     Get actual stock quantity for an item.
 

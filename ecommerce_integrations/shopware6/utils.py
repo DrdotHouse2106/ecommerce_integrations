@@ -121,7 +121,7 @@ def retry_on_gateway_error(
 def execute_with_retry(
     func: Callable,
     args: tuple = (),
-    kwargs: dict = None,
+    kwargs: dict | None = None,
     max_retries: int = 3,
     initial_delay: float = 2.0,
     backoff_factor: float = 2.0,
@@ -687,7 +687,7 @@ class ShopwareLogger:
         logger.error("Sync failed", exception=e)
     """
 
-    def __init__(self, method: str = None):
+    def __init__(self, method: str | None = None):
         """
         Initialize logger with optional method name.
 
@@ -706,7 +706,7 @@ class ShopwareLogger:
         """
         self._logger.debug(f"[{self.method}] {message}" if self.method else message)
 
-    def info(self, message: str, persist: bool = False, request_data: dict[str, Any] = None):
+    def info(self, message: str, persist: bool = False, request_data: dict[str, Any] | None = None):
         """
         Log info message, optionally persist to Shopware Log.
 
@@ -724,7 +724,7 @@ class ShopwareLogger:
                 request_data=request_data,
             )
 
-    def warning(self, message: str, persist: bool = False, request_data: dict[str, Any] = None):
+    def warning(self, message: str, persist: bool = False, request_data: dict[str, Any] | None = None):
         """
         Log warning message, optionally persist to Shopware Log.
 
@@ -745,10 +745,10 @@ class ShopwareLogger:
     def error(
         self,
         message: str,
-        exception: Exception = None,
+        exception: Exception | None = None,
         persist: bool = True,
-        request_data: dict[str, Any] = None,
-        response_data: dict[str, Any] = None,
+        request_data: dict[str, Any] | None = None,
+        response_data: dict[str, Any] | None = None,
         rollback: bool = False,
     ):
         """
@@ -779,8 +779,8 @@ class ShopwareLogger:
     def success(
         self,
         message: str,
-        request_data: dict[str, Any] = None,
-        response_data: dict[str, Any] = None,
+        request_data: dict[str, Any] | None = None,
+        response_data: dict[str, Any] | None = None,
     ):
         """
         Log successful operation to Shopware Log.
@@ -802,7 +802,7 @@ class ShopwareLogger:
     def queued(
         self,
         message: str,
-        request_data: dict[str, Any] = None,
+        request_data: dict[str, Any] | None = None,
     ) -> "frappe.Document":
         """
         Log queued operation to Shopware Log and return the log document.
@@ -827,10 +827,10 @@ class ShopwareLogger:
     def update_log(
         self,
         log_name: str,
-        status: str = None,
-        message: str = None,
-        response_data: dict[str, Any] = None,
-        exception: Exception = None,
+        status: str | None = None,
+        message: str | None = None,
+        response_data: dict[str, Any] | None = None,
+        exception: Exception | None = None,
     ):
         """
         Update an existing Shopware Log entry.
@@ -851,7 +851,7 @@ class ShopwareLogger:
         )
 
 
-def get_logger(method: str = None) -> ShopwareLogger:
+def get_logger(method: str | None = None) -> ShopwareLogger:
     """
     Get a ShopwareLogger instance.
 

@@ -392,7 +392,7 @@ def sync_single_item(item_code):
 
 
 @frappe.whitelist()
-def search_products(query: str, top_k: int = 10, filters: dict = None):
+def search_products(query: str, top_k: int = 10, filters: dict | None = None):
     """Search products using semantic similarity"""
     require_rag_admin()
     settings = get_rag_settings()

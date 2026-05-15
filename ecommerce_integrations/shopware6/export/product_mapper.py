@@ -587,7 +587,7 @@ def build_channel_prices(
     setting,
     client,
     tax_rate: float = 19.0,
-    currency_id: str = None
+    currency_id: str | None = None
 ) -> list[dict[str, Any]]:
     """
     Build multi-channel prices array with Shopware Rules.

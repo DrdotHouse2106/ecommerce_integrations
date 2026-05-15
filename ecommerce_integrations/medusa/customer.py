@@ -38,7 +38,7 @@ class MedusaCustomer:
         """Fetch full customer data from Medusa API (fallback when payload not enriched)."""
         return medusa_request(session, base_url, "GET", f"{API_CUSTOMERS}/{self.medusa_id}")
 
-    def sync_to_erpnext(self, medusa_data: dict = None):
+    def sync_to_erpnext(self, medusa_data: dict | None = None):
         """Create or update ERPNext Customer from Medusa data.
 
         ``medusa_data`` should be the customer object itself (id, email, addresses, ...).
@@ -283,7 +283,7 @@ def _extract_customer(payload) -> dict | None:
     return None
 
 
-def sync_customer_by_id(entity_id: str = None, payload: dict = None, event_type: str = ""):
+def sync_customer_by_id(entity_id: str | None = None, payload: dict | None = None, event_type: str = ""):
     """Entry point for webhook-triggered customer sync.
 
     Accepts either a payload (enriched form) or a bare entity_id (legacy form
@@ -313,7 +313,7 @@ def sync_customer_by_id(entity_id: str = None, payload: dict = None, event_type:
         frappe.log_error(f"Medusa customer sync failed: {medusa_id}", str(e))
 
 
-def handle_customer_deleted(entity_id: str = None, payload: dict = None, event_type: str = ""):
+def handle_customer_deleted(entity_id: str | None = None, payload: dict | None = None, event_type: str = ""):
     """Disable the ERPNext customer mirror when the Medusa customer is deleted.
 
     We do not actually delete the Customer doctype because it may be referenced

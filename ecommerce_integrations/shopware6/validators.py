@@ -364,7 +364,7 @@ def validate_and_log(
     validator_func,
     data: dict[str, Any],
     entity_type: str,
-    entity_id: str = None
+    entity_id: str | None = None
 ) -> bool:
     """
     Validate data and log any errors.

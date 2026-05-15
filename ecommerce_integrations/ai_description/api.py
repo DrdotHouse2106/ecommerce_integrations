@@ -84,7 +84,7 @@ def generate_description_for_item(item_code: str) -> dict:
 
 
 @frappe.whitelist()
-def generate_descriptions_batch(item_codes: str = None) -> dict:
+def generate_descriptions_batch(item_codes: str | None = None) -> dict:
     """
     Generate AI descriptions for multiple items
 

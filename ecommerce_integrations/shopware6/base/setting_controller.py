@@ -251,7 +251,7 @@ def get_shopware_setting() -> ShopwareSettingController:
     return frappe.get_cached_doc(SETTING_DOCTYPE)
 
 
-def get_setting_value(field: str, default: any = None) -> any:
+def get_setting_value(field: str, default: any | None = None) -> any:
     """
     Get a specific setting value.
 

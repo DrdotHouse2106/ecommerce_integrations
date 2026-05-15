@@ -54,7 +54,7 @@ class ShopwareProductUploader:
             uploader.upload()
     """
 
-    def __init__(self, item_code: str, shopware_id: str = None):
+    def __init__(self, item_code: str, shopware_id: str | None = None):
         """
         Initialize ShopwareProductUploader.
 

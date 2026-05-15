@@ -30,7 +30,7 @@ class MedusaOrder:
         )
         return result.get("order", {})
 
-    def sync(self, order_data: dict = None) -> str:
+    def sync(self, order_data: dict | None = None) -> str:
         if self.is_synced():
             return self.sales_order_name
         if order_data is None:
@@ -71,7 +71,7 @@ def _extract_order(payload) -> dict | None:
     return None
 
 
-def sync_order(entity_id: str = None, payload: dict = None, event_type: str = ""):
+def sync_order(entity_id: str | None = None, payload: dict | None = None, event_type: str = ""):
     """Entry point for webhook- and scheduler-triggered order sync.
 
     Accepts either an enriched ``payload`` (with an embedded ``order`` object)

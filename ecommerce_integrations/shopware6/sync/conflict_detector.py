@@ -367,7 +367,7 @@ class ConflictDetector:
 
 
 def detect_all_conflicts(
-    item_codes: list[str] = None,
+    item_codes: list[str] | None = None,
     limit: int = 100
 ) -> dict[str, Any]:
     """

@@ -377,7 +377,7 @@ def sync_property_groups_from_shopware(client, limit: int = 500) -> dict[str, An
 
 
 @frappe.whitelist()
-def import_properties_from_shopware(item_code: str, shopware_id: str = None) -> dict[str, Any]:
+def import_properties_from_shopware(item_code: str, shopware_id: str | None = None) -> dict[str, Any]:
     """
     Import properties for a specific product from Shopware.
 

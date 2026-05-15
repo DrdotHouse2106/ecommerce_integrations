@@ -51,7 +51,7 @@ _logger = get_logger("reconciliation")
 @temp_shopware_session
 def sync_all_categories_to_shopware(
     client,
-    root_category: str = None,
+    root_category: str | None = None,
     skip_root: bool = False,
     sync_empty_categories: bool = True,
     dry_run: bool = False,
@@ -661,13 +661,13 @@ def full_reconciliation(
     dry_run: bool = False,
     sync_images: bool = False,
     include_unlinked: bool = False,
-    category_root: str = None,
+    category_root: str | None = None,
     skip_root_category: bool = False,
     sync_empty_categories: bool = True,
     cleanup_orphaned_categories: bool = False,
     cleanup_orphaned_variants: bool = True,
     sync_surcharge: bool = True,
-    skip_category_sync: bool = None
+    skip_category_sync: bool | None = None
 ) -> dict[str, Any]:
     """
     DEPRECATED: Use sync_manager.enqueue_full_reconciliation_no_brainer() instead.
@@ -939,7 +939,7 @@ def _cleanup_all_orphaned_variants(client) -> dict[str, Any]:
 @temp_shopware_session
 def cleanup_orphaned_shopware_categories(
     client,
-    root_category: str = None,
+    root_category: str | None = None,
     dry_run: bool = True
 ) -> dict[str, Any]:
     """
@@ -1471,9 +1471,9 @@ def enqueue_full_reconciliation_with_categories(
     dry_run: bool = False,
     sync_images: bool = False,
     include_unlinked: bool = False,
-    category_root: str = None,
-    skip_root_category: bool = None,
-    sync_empty_categories: bool = None,
+    category_root: str | None = None,
+    skip_root_category: bool | None = None,
+    sync_empty_categories: bool | None = None,
     cleanup_orphaned_categories: bool = False
 ) -> dict[str, Any]:
     """
@@ -1543,7 +1543,7 @@ def _run_batch_reconciliation(
     batch_size: int = 50,
     sync_images: bool = True,
     compare_categories: bool = True,
-    log_name: str = None
+    log_name: str | None = None
 ):
     """
     Internal batch reconciliation runner.
@@ -1674,8 +1674,8 @@ def _run_batch_reconciliation(
 def enqueue_force_sync_all_images_parallel(
     batch_size: int = 100,
     workers: int = 4,
-    item_group: str = None,
-    parent_item: str = None,
+    item_group: str | None = None,
+    parent_item: str | None = None,
     start_batch: int = 1,
 ) -> dict[str, Any]:
     """
@@ -1753,7 +1753,7 @@ def _run_parallel_image_sync(
     workers: int,
     total: int,
     base_conditions: str,
-    query_params: list = None,
+    query_params: list | None = None,
     start_batch: int = 1,
 ):
     """
@@ -2573,7 +2573,7 @@ def enqueue_force_sync_all_variants(
     dry_run: bool = False,
     sync_prices: bool = True,
     price_list: str = "Standard-Vertrieb",
-    brand: str = None,
+    brand: str | None = None,
     start_batch: int = 1
 ) -> dict[str, Any]:
     """
@@ -2667,7 +2667,7 @@ def _run_force_variant_sync_batched(
     dry_run: bool = False,
     sync_prices: bool = True,
     price_list: str = "Standard-Vertrieb",
-    brand: str = None,
+    brand: str | None = None,
     start_batch: int = 1
 ):
     """

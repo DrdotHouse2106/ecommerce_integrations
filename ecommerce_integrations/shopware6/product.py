@@ -471,7 +471,7 @@ def get_item_code(shopware_item: dict[str, Any]) -> str | None:
     return None
 
 
-def sync_product_from_webhook(payload: dict[str, Any], request_id: str = None):
+def sync_product_from_webhook(payload: dict[str, Any], request_id: str | None = None):
     """
     Handle product sync from Shopware webhook.
 

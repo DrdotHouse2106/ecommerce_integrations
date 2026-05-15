@@ -39,7 +39,7 @@ class WebhookEventQueue:
         event_type: str,
         entity_id: str,
         payload: dict[str, Any],
-        timestamp: str = None,
+        timestamp: str | None = None,
         event_id: str | None = None,
     ) -> bool:
         """
@@ -102,7 +102,7 @@ class WebhookEventQueue:
         self,
         entity_id: str,
         payload: dict[str, Any],
-        timestamp: str = None,
+        timestamp: str | None = None,
         event_id: str | None = None,
     ) -> bool:
         """Check if this event was already processed recently."""
@@ -125,7 +125,7 @@ class WebhookEventQueue:
         self,
         entity_id: str,
         payload: dict[str, Any],
-        timestamp: str = None,
+        timestamp: str | None = None,
         event_id: str | None = None,
     ) -> None:
         """Mark an event as being processed."""
@@ -133,7 +133,7 @@ class WebhookEventQueue:
         cache_key = f"shopware_webhook_processing:{event_hash}"
         self.cache.set(cache_key, now_datetime(), expires_in_sec=EVENT_LOCK_TIMEOUT)
 
-    def _mark_completed(self, entity_id: str, timestamp: str = None) -> None:
+    def _mark_completed(self, entity_id: str, timestamp: str | None = None) -> None:
         """Mark an event as completed."""
         # Use a simple key for deduplication
         cache_key = f"shopware_webhook_completed:{entity_id}"
@@ -143,7 +143,7 @@ class WebhookEventQueue:
         self,
         entity_id: str,
         payload: dict[str, Any],
-        timestamp: str = None,
+        timestamp: str | None = None,
         event_id: str | None = None,
     ) -> str:
         """Compute a stable dedup hash for the event.
@@ -191,7 +191,7 @@ def enqueue_webhook_event(
     event_type: str,
     entity_id: str,
     payload: dict[str, Any],
-    timestamp: str = None,
+    timestamp: str | None = None,
     event_id: str | None = None,
 ) -> bool:
     """
@@ -233,7 +233,7 @@ def is_event_processed(entity_id: str, within_seconds: int = DEDUP_WINDOW) -> bo
     return False
 
 
-def clear_event_cache(entity_id: str = None) -> None:
+def clear_event_cache(entity_id: str | None = None) -> None:
     """
     Clear event cache for testing/debugging.
 

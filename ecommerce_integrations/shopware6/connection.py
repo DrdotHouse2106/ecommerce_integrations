@@ -273,7 +273,7 @@ def _attach_idempotency_key(client: Shopware6AdminAPIClientBase, key: str) -> No
 
 
 def temp_shopware_session(
-    func: Callable = None,
+    func: Callable | None = None,
     *,
     max_retries: int = DEFAULT_MAX_RETRIES,
     initial_delay: float = DEFAULT_INITIAL_DELAY,

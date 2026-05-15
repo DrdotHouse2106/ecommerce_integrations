@@ -32,7 +32,7 @@ from ecommerce_integrations.ai_description.services.logging import (
 def get_settings():
     """Get AI Description Settings singleton"""
     return frappe.get_single("AI Description Setting")
-def get_gemini_client(max_tokens_override: int = None):
+def get_gemini_client(max_tokens_override: int | None = None):
     """
     Get configured Gemini client and generation config
 
@@ -669,7 +669,7 @@ def _process_multi_batch(item_codes: list, settings, batch_num: int, total_batch
 def run_full_batch_generation(
     limit: int = 1000,
     products_per_request: int = 20,
-    item_group: str = None
+    item_group: str | None = None
 ) -> dict:
     """
     Run full batch generation for all pending items.

@@ -580,7 +580,7 @@ def _bulk_delete_product_media(client, product_media_ids: list[str], media_ids: 
     return pm_deleted, media_deleted
 
 
-def clear_product_images_in_shopware(client, shopware_product_id: str, item_code: str = None) -> int:
+def clear_product_images_in_shopware(client, shopware_product_id: str, item_code: str | None = None) -> int:
     """
     Delete all images from a Shopware product.
 

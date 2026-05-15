@@ -23,7 +23,7 @@ def _map_address_fields(
     shopware_address: dict[str, Any],
     customer_name: str,
     address_type: str,
-    email: str = None,
+    email: str | None = None,
     is_also_shipping: bool = False,
 ) -> dict[str, Any]:
     """Map Shopware address fields to ERPNext Address fields.

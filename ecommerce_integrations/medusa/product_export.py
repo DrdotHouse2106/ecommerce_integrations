@@ -977,7 +977,7 @@ def _find_item_code_by_handle(handle: str, variant_of_map: dict) -> str:
     return ""
 
 
-def _batch_assign_attributes(session, base_url, created_products: list, attr_value_maps: dict, variant_of_map: dict = None):
+def _batch_assign_attributes(session, base_url, created_products: list, attr_value_maps: dict, variant_of_map: dict | None = None):
     """Assign attribute values to newly created products via plugin batch-assign endpoint.
 
     Uses POST /admin/plugin/attributes/batch-assign with the assignments format.
@@ -1084,7 +1084,7 @@ def _sync_product_extras(session, base_url, products, variant_image_maps, sale_p
 		_sync_channel_prices_batch(session, base_url, channel_prices)
 
 
-def _save_medusa_ids(product: dict, variant_of_map: dict = None):
+def _save_medusa_ids(product: dict, variant_of_map: dict | None = None):
     """Persist Medusa product/variant IDs into ``tabEcommerce Item``.
 
     Writes one row per ERPNext item involved (template + each variant)
@@ -1171,7 +1171,7 @@ def _save_medusa_ids(product: dict, variant_of_map: dict = None):
         frappe.db.rollback()
         raise
 
-def _find_in_product_map(product: dict, lookup_map: dict, default=None, variant_of_map: dict = None):
+def _find_in_product_map(product: dict, lookup_map: dict, default=None, variant_of_map: dict | None = None):
     """Find data in a map keyed by item_code, matching via variant SKU -> template lookup."""
     for variant in product.get("variants", []):
         sku = variant.get("sku")

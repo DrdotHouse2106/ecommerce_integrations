@@ -136,7 +136,7 @@ def send_invoice_email(sales_invoice_name: str, setting) -> bool:
         return False
 
 
-def handle_transaction_state_change(payload: dict[str, Any], request_id: str = None, retry_count: int = 0):
+def handle_transaction_state_change(payload: dict[str, Any], request_id: str | None = None, retry_count: int = 0):
     """
     Handle order transaction state change from Shopware webhook.
 
@@ -294,7 +294,7 @@ def handle_transaction_state_change(payload: dict[str, Any], request_id: str = N
         raise
 
 
-def create_payment_entry_for_order(sales_order_name: str, transaction_id: str = None) -> str | None:
+def create_payment_entry_for_order(sales_order_name: str, transaction_id: str | None = None) -> str | None:
     """
     Create a Payment Entry for a Sales Order that has been paid.
 
@@ -371,7 +371,7 @@ def _create_payment_against_invoice(
     invoice_name: str,
     sales_order: "frappe.Document",
     setting,
-    transaction_id: str = None
+    transaction_id: str | None = None
 ) -> str | None:
     """Create Payment Entry against a Sales Invoice."""
     from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
@@ -423,7 +423,7 @@ def _create_payment_against_invoice(
 def _create_advance_payment(
     sales_order: "frappe.Document",
     setting,
-    transaction_id: str = None
+    transaction_id: str | None = None
 ) -> str | None:
     """
     Create an advance Payment Entry against a Sales Order.

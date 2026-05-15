@@ -18,8 +18,8 @@ SCHEDULED_SYNC_LOCK_TIMEOUT_SECONDS = 15 * 60
 
 
 def build_order_criteria(
-    from_date: str = None,
-    to_date: str = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
     limit: int = 100
 ) -> Criteria:
     """
@@ -73,8 +73,8 @@ def build_order_criteria(
 
 @frappe.whitelist()
 def sync_orders_from_shopware(
-    from_date: str = None,
-    to_date: str = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
     limit: int = 100
 ) -> dict[str, int]:
     """

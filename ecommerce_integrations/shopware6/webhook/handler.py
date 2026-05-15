@@ -53,7 +53,7 @@ class WebhookHandler:
         event_type: str,
         entity_id: str,
         payload: dict[str, Any],
-        request_id: str = None
+        request_id: str | None = None
     ) -> bool:
         """
         Handle a webhook event.
@@ -109,7 +109,7 @@ class WebhookHandler:
         self,
         order_id: str,
         payload: dict[str, Any],
-        request_id: str = None
+        request_id: str | None = None
     ) -> bool:
         """Handle new order placement."""
         from ecommerce_integrations.shopware6.order import sync_order_from_webhook
@@ -121,7 +121,7 @@ class WebhookHandler:
         self,
         order_id: str,
         payload: dict[str, Any],
-        request_id: str = None
+        request_id: str | None = None
     ) -> bool:
         """Handle order update."""
         from ecommerce_integrations.shopware6.order import sync_order_from_webhook
@@ -138,7 +138,7 @@ class WebhookHandler:
         self,
         order_id: str,
         payload: dict[str, Any],
-        request_id: str = None
+        request_id: str | None = None
     ) -> bool:
         """Handle order deletion."""
         # Find linked Sales Order
@@ -165,7 +165,7 @@ class WebhookHandler:
         self,
         order_id: str,
         payload: dict[str, Any],
-        request_id: str = None
+        request_id: str | None = None
     ) -> bool:
         """Handle order status change."""
         from ecommerce_integrations.shopware6.order import update_order_status
@@ -177,7 +177,7 @@ class WebhookHandler:
         self,
         transaction_id: str,
         payload: dict[str, Any],
-        request_id: str = None
+        request_id: str | None = None
     ) -> bool:
         """Handle payment status change."""
         from ecommerce_integrations.shopware6.order import update_order_status
@@ -189,7 +189,7 @@ class WebhookHandler:
         self,
         delivery_id: str,
         payload: dict[str, Any],
-        request_id: str = None
+        request_id: str | None = None
     ) -> bool:
         """Handle delivery status change."""
         # Get order ID from payload
@@ -221,7 +221,7 @@ class WebhookHandler:
         self,
         product_id: str,
         payload: dict[str, Any],
-        request_id: str = None
+        request_id: str | None = None
     ) -> bool:
         """Handle product create/update."""
         if not self.setting.sync_products_from_shopware:
@@ -237,7 +237,7 @@ class WebhookHandler:
         self,
         product_id: str,
         payload: dict[str, Any],
-        request_id: str = None
+        request_id: str | None = None
     ) -> bool:
         """Handle product deletion."""
         # Find linked ERPNext Item
@@ -263,7 +263,7 @@ class WebhookHandler:
         self,
         customer_id: str,
         payload: dict[str, Any],
-        request_id: str = None
+        request_id: str | None = None
     ) -> bool:
         """Handle customer create/update."""
         if not self.setting.sync_customers_from_shopware:
@@ -279,7 +279,7 @@ class WebhookHandler:
         self,
         customer_id: str,
         payload: dict[str, Any],
-        request_id: str = None
+        request_id: str | None = None
     ) -> bool:
         """Handle customer deletion."""
         # Find linked ERPNext Customer
@@ -308,7 +308,7 @@ class WebhookHandler:
         self,
         product_id: str,
         payload: dict[str, Any],
-        request_id: str = None
+        request_id: str | None = None
     ) -> bool:
         """Handle stock level change."""
         if not self.setting.sync_inventory_from_shopware:
@@ -324,7 +324,7 @@ def handle_webhook_event(
     event_type: str,
     entity_id: str,
     payload: dict[str, Any],
-    request_id: str = None
+    request_id: str | None = None
 ) -> bool:
     """
     Convenience function to handle a webhook event.

@@ -481,8 +481,8 @@ def upload_category_media(client, category_id: str, image_path: str) -> str | No
 def get_or_create_category(
     client,
     category_name: str,
-    parent_id: str = None,
-    item_group_data: dict[str, Any] = None
+    parent_id: str | None = None,
+    item_group_data: dict[str, Any] | None = None
 ) -> str | None:
     """
     Get existing or create/update Category in Shopware.
@@ -1347,7 +1347,7 @@ def sync_item_group_to_shopware(client, item_group_name: str) -> bool:
 def bulk_sync_categories(
     client,
     item_groups: list[dict[str, Any]],
-    root_parent_id: str = None
+    root_parent_id: str | None = None
 ) -> dict[str, Any]:
     """
     Bulk sync categories to Shopware using Sync API.
@@ -1551,7 +1551,7 @@ def _build_category_payload(
     cat_id: str,
     category_name: str,
     parent_id: str,
-    item_group_data: dict[str, Any] = None,
+    item_group_data: dict[str, Any] | None = None,
     is_update: bool = False
 ) -> dict[str, Any]:
     """
@@ -1652,7 +1652,7 @@ def bulk_sync_category_images(
     return stats
 
 
-def sync_category_order_by_priority(client, parent_category_id: str = None, recursive: bool = True) -> dict[str, Any]:
+def sync_category_order_by_priority(client, parent_category_id: str | None = None, recursive: bool = True) -> dict[str, Any]:
     """
     Synchronize category order in Shopware based on ERPNext shopware_priority.
 
@@ -1772,7 +1772,7 @@ def sync_category_order_by_priority(client, parent_category_id: str = None, recu
         }
 
 
-def _collect_descendant_parents(parent_id: str, children_by_parent: dict, result: list[str], visited: set = None):
+def _collect_descendant_parents(parent_id: str, children_by_parent: dict, result: list[str], visited: set | None = None):
     """Recursively collect all descendant parent IDs."""
     if visited is None:
         visited = set()
