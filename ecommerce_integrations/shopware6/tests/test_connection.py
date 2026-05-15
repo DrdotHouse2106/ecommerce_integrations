@@ -2,11 +2,11 @@
 Tests for Shopware 6 Connection Module
 """
 
-import unittest
-from unittest.mock import patch, MagicMock
-import json
-import hmac
 import hashlib
+import hmac
+import json
+import unittest
+from unittest.mock import MagicMock, patch
 
 from ecommerce_integrations.shopware6.tests.utils import (
     ShopwareTestCase,
@@ -146,7 +146,7 @@ class TestRetryLogic(ShopwareTestCase):
                 self.response = MagicMock()
                 self.response.status_code = 502
 
-        error = MockHTTPError()
+        MockHTTPError()
         # Note: is_retriable_error checks for specific error patterns
         # The actual implementation may vary
         self.assertTrue("502" in str(502))
@@ -159,7 +159,7 @@ class TestRetryLogic(ShopwareTestCase):
                 self.response = MagicMock()
                 self.response.status_code = 503
 
-        error = MockHTTPError()
+        MockHTTPError()
         self.assertTrue("503" in str(503))
 
     def test_is_retriable_error_504(self):
@@ -170,7 +170,7 @@ class TestRetryLogic(ShopwareTestCase):
                 self.response = MagicMock()
                 self.response.status_code = 504
 
-        error = MockHTTPError()
+        MockHTTPError()
         self.assertTrue("504" in str(504))
 
     def test_is_retriable_error_400_not_retriable(self):

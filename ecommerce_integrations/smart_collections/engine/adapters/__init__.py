@@ -7,7 +7,7 @@ populated on package import — otherwise ``tasks.sync_collection`` calls
 imported.
 """
 
-from ecommerce_integrations.smart_collections.engine.adapters import (  # noqa: F401
+from ecommerce_integrations.smart_collections.engine.adapters import (
 	medusa,
 	shopware,
 )

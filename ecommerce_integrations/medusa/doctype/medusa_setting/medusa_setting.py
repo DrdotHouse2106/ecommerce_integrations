@@ -37,7 +37,9 @@ class MedusaSetting(Document):
 	@frappe.whitelist()
 	def test_connection(self):
 		from ecommerce_integrations.medusa.connection import test_connection
+		from ecommerce_integrations.medusa.services.access import require_medusa_admin
 
+		require_medusa_admin()
 		result = test_connection()
 		if result.get("success"):
 			frappe.msgprint(
@@ -56,7 +58,9 @@ class MedusaSetting(Document):
 	@frappe.whitelist()
 	def fetch_sales_channels(self):
 		from ecommerce_integrations.medusa.connection import get_medusa_session, medusa_request
+		from ecommerce_integrations.medusa.services.access import require_medusa_admin
 
+		require_medusa_admin()
 		session, base_url = get_medusa_session()
 		try:
 			result = medusa_request(session, base_url, "GET", "/admin/sales-channels", params={"limit": 100})
@@ -102,7 +106,9 @@ class MedusaSetting(Document):
 		Also fetches existing locations and maps by name.
 		"""
 		from ecommerce_integrations.medusa.connection import get_medusa_session, medusa_request
+		from ecommerce_integrations.medusa.services.access import require_medusa_admin
 
+		require_medusa_admin()
 		session, base_url = get_medusa_session()
 		try:
 			result = medusa_request(session, base_url, "GET", "/admin/stock-locations", params={"limit": 100})

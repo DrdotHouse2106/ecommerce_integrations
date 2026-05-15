@@ -12,27 +12,26 @@ Both importers are disabled by default and must be enabled via Shopware Settings
 
 from ecommerce_integrations.shopware6.import_handlers.property_importer import (
     PropertyImporter,
+    batch_import_properties,
     import_properties_from_shopware,
     sync_property_groups_from_shopware,
-    batch_import_properties,
 )
-
 from ecommerce_integrations.shopware6.import_handlers.stock_importer import (
     StockImporter,
+    handle_stock_webhook,
     import_stock_from_shopware,
     sync_stock_for_product,
-    handle_stock_webhook,
 )
 
 __all__ = [
     # Property import
     "PropertyImporter",
-    "import_properties_from_shopware",
-    "sync_property_groups_from_shopware",
-    "batch_import_properties",
     # Stock import
     "StockImporter",
-    "import_stock_from_shopware",
-    "sync_stock_for_product",
+    "batch_import_properties",
     "handle_stock_webhook",
+    "import_properties_from_shopware",
+    "import_stock_from_shopware",
+    "sync_property_groups_from_shopware",
+    "sync_stock_for_product",
 ]

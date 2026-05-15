@@ -11,8 +11,8 @@ Key improvements over sequential upload:
 """
 
 import time
-from typing import Any
 from dataclasses import dataclass, field
+from typing import Any
 
 import frappe
 from frappe.utils import flt
@@ -20,17 +20,19 @@ from frappe.utils import flt
 # CRITICAL: ShopwareAPIError inherits from BaseException, NOT Exception!
 from lib_shopware6_api_base.conf_shopware6_api_base_classes import ShopwareAPIError
 
-from ecommerce_integrations.shopware6.constants import (
-    MODULE_NAME,
-    SETTING_DOCTYPE,
-    ITEM_SELLING_RATE_FIELD,
-    PRODUCT_CUSTOM_FIELDS_MAP,
-)
-from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
-from ecommerce_integrations.shopware6.export.utils import generate_uuid
-from ecommerce_integrations.shopware6.export.product_mapper import get_product_visibilities, get_actual_variant_values
 from ecommerce_integrations.shopware6.base.cache_manager import get_cache
-
+from ecommerce_integrations.shopware6.constants import (
+    ITEM_SELLING_RATE_FIELD,
+    MODULE_NAME,
+    PRODUCT_CUSTOM_FIELDS_MAP,
+    SETTING_DOCTYPE,
+)
+from ecommerce_integrations.shopware6.export.product_mapper import (
+    get_actual_variant_values,
+    get_product_visibilities,
+)
+from ecommerce_integrations.shopware6.export.utils import generate_uuid
+from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
 
 # Maximum products per sync request (Shopware limit is ~500, but 100 is safer)
 BATCH_SIZE = 100
@@ -485,7 +487,7 @@ class BatchProductUploader:
 
         # Track products with categories for batch sync (to remove old categories)
         products_with_categories = []
-        
+
         # Extract actual payloads for API call, removing internal markers
         api_payloads = []
         for p in upsert_payloads:
@@ -577,7 +579,7 @@ class BatchProductUploader:
                 "item_code": "batch_sync",
                 "error": str(e)[:500]
             })
-            self.logger.error(f"Batch sync failed: {str(e)}", exception=e)
+            self.logger.error(f"Batch sync failed: {e!s}", exception=e)
 
         return result
 
@@ -1312,7 +1314,10 @@ class BatchProductUploader:
             if value:
                 custom_fields[shopware_field] = cstr(value).strip()
 
-        from ecommerce_integrations.property_utils import shopware_custom_field_name, coerce_custom_field_value
+        from ecommerce_integrations.property_utils import (
+            coerce_custom_field_value,
+            shopware_custom_field_name,
+        )
 
         for prop in (item_data.get("_shopware_properties") or []):
             if prop.get("property_type") == "Custom Field" and prop.get("property_value"):
@@ -1579,7 +1584,7 @@ class BatchProductUploader:
 
         # Track templates with categories for batch sync (to remove old categories)
         products_with_categories = []
-        
+
         # Extract actual payloads for API call, removing internal markers
         api_payloads = []
         for p in upsert_payloads:
@@ -1655,7 +1660,7 @@ class BatchProductUploader:
                 "item_code": "batch_template_sync",
                 "error": str(e)[:500]
             })
-            self.logger.error(f"Template batch sync failed: {str(e)}")
+            self.logger.error(f"Template batch sync failed: {e!s}")
 
         return result
 
@@ -2454,7 +2459,7 @@ class BatchProductUploader:
                 "item_code": "batch_variant_sync",
                 "error": str(e)[:500]
             })
-            self.logger.error(f"Variant batch sync failed: {str(e)}")
+            self.logger.error(f"Variant batch sync failed: {e!s}")
 
         return result
 

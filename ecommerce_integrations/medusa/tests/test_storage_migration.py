@@ -27,7 +27,6 @@ from ecommerce_integrations.smart_collections.engine.adapters.medusa import (
 	_items_to_medusa_product_ids,
 )
 
-
 # Placeholders (per the generic-plugin rule — no real identifiers).
 TEMPLATE_CODE = "ITEM-TPL-TEST-001"
 VARIANT_CODE_A = "ITEM-TPL-TEST-001-A"

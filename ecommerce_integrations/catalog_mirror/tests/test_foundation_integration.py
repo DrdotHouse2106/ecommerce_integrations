@@ -12,14 +12,16 @@ the registry, and exercises both ``apply_mirror(dry_run=True)`` and
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import frappe
 from frappe.tests import IntegrationTestCase
 
 from ecommerce_integrations.catalog_mirror.engine.adapters.base import (
+    _REGISTRY,
     CatalogAdapter,
     LiveCategoryNode,
     NodeMatch,
-    _REGISTRY,
 )
 from ecommerce_integrations.catalog_mirror.engine.preview import (
     MirrorPreviewPlan,
@@ -78,7 +80,7 @@ class _InMemoryAdapter(CatalogAdapter):
     """
 
     backend = "Shopware"
-    _NODES: dict[str, dict] = {}
+    _NODES: ClassVar[dict[str, dict]] = {}
     _next_id: int = 0
 
     @classmethod

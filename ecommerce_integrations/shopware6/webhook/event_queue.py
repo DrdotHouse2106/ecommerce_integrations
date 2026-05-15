@@ -5,15 +5,14 @@ Handles event queuing and deduplication to prevent race conditions
 when multiple webhooks arrive for the same entity.
 """
 
-from typing import Any
 import hashlib
 import json
+from typing import Any
 
 import frappe
 from frappe.utils import now_datetime, time_diff_in_seconds
 
 from ecommerce_integrations.shopware6.utils import get_logger
-
 
 # Event processing timeout in seconds (prevents stuck events)
 EVENT_LOCK_TIMEOUT = 30

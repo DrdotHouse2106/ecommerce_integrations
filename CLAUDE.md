@@ -38,6 +38,8 @@ ecommerce_integrations/
   ecommerce_integrations/   # cross-channel doctypes, notifications, branding, print formats
   shopware6/                # Shopware 6 integration (orders, products, inventory, prices)
   medusa/                   # Medusa v2 integration (orders, products, customers, payments)
+  catalog_mirror/           # 1:1 IG-tree → backend-category-tree mirror (Shopware + Medusa)
+  smart_collections/        # rule-based item groupings; pushes onto channels/categories
   shopify/    amazon/    unicommerce/    zenoti/   # upstream-maintained
   rag/                      # vector search export (Pinecone)
   ai_description/           # AI product description generator (Gemini)
@@ -49,6 +51,22 @@ ecommerce_integrations/
 ```
 
 Cross-channel concerns (channel branding, channel-aware notifications, generic ecommerce custom fields, the integration log doctype) live under `ecommerce_integrations/ecommerce_integrations/`. Anything channel-specific lives under `<channel>/`.
+
+Key cross-channel doctypes worth knowing about:
+
+- `ecommerce_integrations/doctype/ecommerce_item/` — canonical ERP→backend
+  external-ID mapping table (`integration='shopware'|'medusa'|...`).
+  Reads/writes for Medusa IDs go here, not `Item.medusa_product_id`
+  (that custom field is dropped by `drop_medusa_item_custom_fields`).
+- `ecommerce_integrations/doctype/ecommerce_channel_override/` — child
+  table referenced by `Item.ecommerce_channel_overrides`. One row per
+  (backend, sales_channel) with `mode=include`/`exclude` — fed into the
+  unified resolver in `catalog_mirror/resolver.py`.
+- `Item Group.shopware_category_id` / `medusa_category_id` /
+  `catalog_mirror_skip` — custom fields added by
+  `patches/setup_catalog_mirror`. The two `*_category_id` columns are
+  the Catalog Mirror's persistent IG→backend-category lookup; the skip
+  flag opts an IG (and its subtree) out of every mirror walk.
 
 The Shopware 6 module is the architectural reference — the Medusa module mirrors its patterns (class-based sync objects, decorator-driven session management, bulk queue, doc event hooks).
 
@@ -62,6 +80,14 @@ The Shopware 6 module is the architectural reference — the Medusa module mirro
 - **Property-Setter-driven for naming series.** Adding a series option uses a Property Setter so the change survives ERPNext upgrades.
 
 If a patch only applies to one operator's installation, keep it in your own private bench, not in `patches/`.
+
+Notable patches in the integration branch (full intent lives in each file's module docstring):
+
+- `migrate_medusa_ids_to_ecommerce_item` — backfills `tabEcommerce Item` rows for every Medusa-tagged Item, sourcing IDs from the legacy `Item.medusa_product_id` / `Item.medusa_variant_id` custom columns. Verifies row counts before declaring success.
+- `drop_medusa_item_custom_fields` — removes the legacy `Item.medusa_product_id` / `Item.medusa_variant_id` custom fields once the backfill above has produced an `Ecommerce Item` row for every source row. Self-guarding: skips if rows are still missing.
+- `setup_catalog_mirror` — installs the `Item Group` custom fields the Catalog Mirror depends on: `shopware_category_id`, `medusa_category_id`, `catalog_mirror_skip`.
+- `add_item_ecommerce_channel_overrides` — installs the `Item.ecommerce_channel_overrides` table custom field pointing at the `Ecommerce Channel Override` child doctype.
+- `migrate_shopware_umbrellas_to_catalog_mirror` — detects the legacy "single-rule Item-Group Smart Collection per sales channel" pattern, creates the equivalent Catalog Mirror doc and disables the SC's Shopware target (non-destructively — a breadcrumb on `last_error` records the migration so rollback is one click).
 
 ## Hooks
 
@@ -119,6 +145,8 @@ The integration branch tracks upstream's v16 line. `upstream/version-16` is stab
 - **Defaults email/print copy to German.** Field defaults like "Sehr geehrte Damen und Herren" come pre-filled on `Ecommerce Channel Branding` because the primary user base is German Shopware 6 / Medusa shops. Defaults are user-editable.
 - **Uses Chrome PDF generator for ecommerce print formats.** wkhtmltopdf fails inside containers that can't resolve their own hostname; Frappe v16 ships an in-process Chrome generator. The patch `set_chrome_pdf_generator` switches the four shipped formats to Chrome on `bench migrate`. This is one of the v16-only features the plugin relies on.
 - **Routes invoices through `Ecommerce Sales Invoice` notification.** Fires only when `doc.ecommerce_source` is set, so non-ecommerce invoices aren't affected.
+- **Ships a per-item Channel Override mechanism** (`Item.ecommerce_channel_overrides` table, child doctype `Ecommerce Channel Override`) that wins over Catalog Mirror and Smart Collections in the visibility resolver. `mode=exclude` is a hard veto on a channel for that item; `mode=include` injects a channel neither layer produced. Backend-scoped per row.
+- **Stores ERP→backend external IDs in `tabEcommerce Item`** (canonical, `integration='shopware'|'medusa'`) **AND on `Item Group.shopware_category_id` / `medusa_category_id`** (for Catalog Mirror's IG→category tree mapping). The two storage locations are not duplicates: `tabEcommerce Item` maps Items, the IG custom fields map category nodes.
 
 ## Things this plugin deliberately does not do
 

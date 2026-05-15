@@ -12,7 +12,6 @@ repeated save updates in place rather than accumulating versions.
 import frappe
 from frappe.utils import now_datetime
 
-
 _SNAPSHOT_DOCTYPE = "Ecommerce Smart Collection Snapshot"
 
 

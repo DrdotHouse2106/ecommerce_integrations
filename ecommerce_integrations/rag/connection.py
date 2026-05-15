@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe import _
 
 
 def get_rag_settings():
@@ -15,7 +16,7 @@ def get_pinecone_client():
     settings = get_rag_settings()
 
     if not settings.pinecone_api_key:
-        frappe.throw("Pinecone API Key not configured")
+        frappe.throw(_("Pinecone API Key not configured"))
 
     return Pinecone(api_key=settings.get_password("pinecone_api_key"))
 
@@ -31,7 +32,7 @@ def get_pinecone_index():
     existing_indexes = [idx.name for idx in pc.list_indexes()]
 
     if index_name not in existing_indexes:
-        frappe.throw(f"Pinecone index '{index_name}' does not exist. Please create it first.")
+        frappe.throw(_("Pinecone index '{0}' does not exist. Please create it first.").format(index_name))
 
     # Get the index
     if settings.pinecone_environment:

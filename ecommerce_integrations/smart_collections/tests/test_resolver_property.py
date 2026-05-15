@@ -13,7 +13,6 @@ from ecommerce_integrations.smart_collections.tests.test_helpers import (
     make_item,
 )
 
-
 _SYS = "SCPropTest_System"
 _MAT = "SCPropTest_Material"
 

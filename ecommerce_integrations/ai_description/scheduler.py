@@ -7,8 +7,9 @@ Scheduler functions for AI Description batch processing
 Called hourly by Frappe's scheduler.
 """
 
-import frappe
 from datetime import datetime, timedelta
+
+import frappe
 
 
 def process_batch_descriptions():

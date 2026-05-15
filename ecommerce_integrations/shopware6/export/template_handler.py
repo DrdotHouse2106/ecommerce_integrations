@@ -8,35 +8,35 @@ Creates the parent product with configuratorSettings for variant options.
 from typing import Any
 
 import frappe
+from lib_shopware6_api_base import HEADER_index_asynchronously
 
 from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCTYPE
-from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
-from ecommerce_integrations.shopware6.export.utils import generate_uuid, get_shopware_document_id
-from ecommerce_integrations.shopware6.export.product_mapper import (
-    map_erpnext_item_to_shopware,
-    get_tax_id_by_rate,
-    get_or_create_manufacturer,
-    get_or_create_delivery_time,
-    get_cached_currency_id,
-    get_cached_sales_channel_id,
-    get_actual_variant_values,
-    get_product_visibilities,
-)
 from ecommerce_integrations.shopware6.export.category_handler import (
+    clear_product_categories,
     sync_all_item_categories,
     sync_category_hierarchy,
-    clear_product_categories,
-)
-from ecommerce_integrations.shopware6.export.property_handler import (
-    get_or_create_property_group,
-    get_or_create_variant_option,
-    get_or_create_property_option,
-    get_template_item_attributes,
-    get_item_properties,
-    clear_product_properties,
 )
 from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
-from lib_shopware6_api_base import HEADER_index_asynchronously
+from ecommerce_integrations.shopware6.export.product_mapper import (
+    get_actual_variant_values,
+    get_cached_currency_id,
+    get_cached_sales_channel_id,
+    get_or_create_delivery_time,
+    get_or_create_manufacturer,
+    get_product_visibilities,
+    get_tax_id_by_rate,
+    map_erpnext_item_to_shopware,
+)
+from ecommerce_integrations.shopware6.export.property_handler import (
+    clear_product_properties,
+    get_item_properties,
+    get_or_create_property_group,
+    get_or_create_property_option,
+    get_or_create_variant_option,
+    get_template_item_attributes,
+)
+from ecommerce_integrations.shopware6.export.utils import generate_uuid, get_shopware_document_id
+from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
 
 
 def _delete_and_recreate_product(client, product_id: str, product_payload: dict, item_code: str) -> None:
@@ -116,7 +116,7 @@ def clear_product_configurator_settings(client, product_id: str) -> bool:
         True if successful
     """
     import time
-    
+
     try:
         response = client.request_get(
             f"product/{product_id}?associations[configuratorSettings][]"
@@ -130,15 +130,15 @@ def clear_product_configurator_settings(client, product_id: str) -> bool:
         # Delete each configurator setting with retry logic
         deleted_count = 0
         error_count = 0
-        
+
         for setting in configurator_settings:
             setting_id = setting.get("id")
             if not setting_id:
                 continue
-                
+
             max_retries = 3
             retry_delay = 0.5  # seconds
-            
+
             for attempt in range(max_retries):
                 try:
                     client.request_delete(
@@ -146,10 +146,10 @@ def clear_product_configurator_settings(client, product_id: str) -> bool:
                     )
                     deleted_count += 1
                     break  # Success, exit retry loop
-                    
+
                 except BaseException as e:
                     error_str = str(e)
-                    
+
                     # Ignore 404 errors - setting already deleted/doesn't exist
                     if "404" in error_str or "Not Found" in error_str:
                         frappe.logger().debug(
@@ -157,7 +157,7 @@ def clear_product_configurator_settings(client, product_id: str) -> bool:
                         )
                         deleted_count += 1
                         break
-                    
+
                     # Handle 500 errors with retry
                     elif "500" in error_str or "Internal Server Error" in error_str:
                         if attempt < max_retries - 1:
@@ -175,7 +175,7 @@ def clear_product_configurator_settings(client, product_id: str) -> bool:
                             )
                             error_count += 1
                             break
-                    
+
                     # Other errors
                     else:
                         get_logger().error(
@@ -452,7 +452,7 @@ def upload_template_item_to_shopware(client, template_item) -> str | None:
     except Exception as e:
         create_shopware_log(
             status="Error",
-            message=f"Failed to upload template {template_item.name}: {str(e)}",
+            message=f"Failed to upload template {template_item.name}: {e!s}",
             exception=str(e),
             method="upload_template_item_to_shopware",
             rollback=True

@@ -6,10 +6,10 @@ import unittest
 from unittest.mock import patch
 
 from ecommerce_integrations.shopware6.order.order_mapper import (
-    extract_checkout_field_value,
-    get_payment_method_info,
     calculate_delivery_date,
+    extract_checkout_field_value,
     extract_order_currency,
+    get_payment_method_info,
 )
 from ecommerce_integrations.shopware6.tests.utils import (
     ShopwareTestCase,
@@ -62,7 +62,7 @@ class TestOrderMapper(ShopwareTestCase):
         """Test extracting payment method from transaction."""
         order_data = create_sample_order_data()
 
-        method_name, erpnext_mode, status = get_payment_method_info(order_data)
+        method_name, _erpnext_mode, status = get_payment_method_info(order_data)
 
         # ``payment_method_name`` prefers Shopware's ``shortName`` over the
         # display name, because the configurable mapping in Shopware Setting
@@ -74,7 +74,7 @@ class TestOrderMapper(ShopwareTestCase):
         """Test payment method info with no transactions."""
         order_data = {"transactions": []}
 
-        method_name, erpnext_mode, status = get_payment_method_info(order_data)
+        method_name, _erpnext_mode, status = get_payment_method_info(order_data)
 
         self.assertIsNone(method_name)
         self.assertEqual(status, "Unpaid")

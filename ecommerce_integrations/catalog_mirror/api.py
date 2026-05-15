@@ -30,7 +30,6 @@ from ecommerce_integrations.catalog_mirror.constants import (
     ORPHAN_REPORT,
 )
 
-
 _MIRROR_DOCTYPE = "Ecommerce Catalog Mirror"
 _OVERRIDE_DOCTYPE = "Ecommerce Catalog Mirror Node Override"
 _KNOWN_ORPHAN_ACTIONS = (ORPHAN_KEEP, ORPHAN_DELETE, ORPHAN_REPORT, "adopt")
@@ -292,6 +291,11 @@ def resolve_item_for_form(item_code: str) -> dict:
 def list_for_backend(backend: str) -> list[dict]:
     """Return all Catalog Mirror docs for one backend, flat shape with
     enough info to render a summary table on the Setting form widget."""
+    # SECURITY: read permission on the Mirror doctype gates the
+    # whole listing — without this any authenticated user can
+    # enumerate which Item Groups are mirrored to which backend.
+    if not frappe.has_permission(_MIRROR_DOCTYPE, "read"):
+        frappe.throw(_("Not permitted to read Catalog Mirrors"))
     if backend not in (BACKEND_SHOPWARE, BACKEND_MEDUSA):
         frappe.throw(_("Unknown backend: {0}").format(backend))
 

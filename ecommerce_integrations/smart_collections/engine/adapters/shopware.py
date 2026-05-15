@@ -18,7 +18,11 @@ import frappe
 
 from ecommerce_integrations.shopware6.connection import temp_shopware_session
 from ecommerce_integrations.shopware6.constants import MODULE_NAME as SHOPWARE_MODULE
-from ecommerce_integrations.smart_collections.constants import BACKEND_SHOPWARE
+from ecommerce_integrations.smart_collections.constants import (
+    BACKEND_SHOPWARE,
+    VISIBILITY_DEFAULT,
+    VISIBILITY_LEVELS,
+)
 from ecommerce_integrations.smart_collections.engine.adapters.base import (
     AdapterError,
     CategoryAdapter,
@@ -26,13 +30,6 @@ from ecommerce_integrations.smart_collections.engine.adapters.base import (
     LiveCategoryState,
     register,
 )
-
-
-from ecommerce_integrations.smart_collections.constants import (
-    VISIBILITY_DEFAULT,
-    VISIBILITY_LEVELS,
-)
-
 
 _LINK_BATCH_SIZE = 50
 

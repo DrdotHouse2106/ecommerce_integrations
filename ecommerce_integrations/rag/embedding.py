@@ -2,6 +2,8 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe import _
+
 from .connection import get_rag_settings
 
 
@@ -12,7 +14,7 @@ def get_openai_client():
     settings = get_rag_settings()
 
     if not settings.openai_api_key:
-        frappe.throw("OpenAI API Key not configured")
+        frappe.throw(_("OpenAI API Key not configured"))
 
     return OpenAI(api_key=settings.get_password("openai_api_key"))
 
@@ -24,7 +26,7 @@ def get_google_client():
     settings = get_rag_settings()
 
     if not settings.google_api_key:
-        frappe.throw("Google API Key not configured")
+        frappe.throw(_("Google API Key not configured"))
 
     client = genai.Client(api_key=settings.get_password("google_api_key"))
     return client
@@ -94,8 +96,7 @@ def _generate_local_embedding(text: str) -> list:
 
     except ImportError:
         frappe.throw(
-            "sentence-transformers not installed. "
-            "Install with: pip install sentence-transformers"
+            _("sentence-transformers not installed. Install with: pip install sentence-transformers")
         )
 
 
@@ -193,8 +194,7 @@ def _generate_local_embeddings_batch(texts: list) -> list:
 
     except ImportError:
         frappe.throw(
-            "sentence-transformers not installed. "
-            "Install with: pip install sentence-transformers"
+            _("sentence-transformers not installed. Install with: pip install sentence-transformers")
         )
 
 

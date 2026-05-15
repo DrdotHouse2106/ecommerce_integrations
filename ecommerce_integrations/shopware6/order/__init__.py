@@ -6,20 +6,9 @@ Modular structure following Shopify best practices.
 """
 
 # Main order sync class and functions
-from ecommerce_integrations.shopware6.order.order_sync import (
-    ShopwareOrder,
-    sync_order_by_id,
-    create_sales_order,
-    sync_order_from_webhook,
-    update_order_status,
-    update_order_custom_fields,
-)
-
-# Order mapping utilities
-from ecommerce_integrations.shopware6.order.order_mapper import (
-    extract_checkout_field_value,
-    get_payment_method_info,
-    calculate_delivery_date,
+# Delivery handling
+from ecommerce_integrations.shopware6.order.delivery_handler import (
+    create_delivery_note,
 )
 
 # Line item handling
@@ -27,9 +16,19 @@ from ecommerce_integrations.shopware6.order.line_item_handler import (
     add_order_item,
 )
 
-# Tax handling
-from ecommerce_integrations.shopware6.order.tax_handler import (
-    add_order_taxes,
+# Order mapping utilities
+from ecommerce_integrations.shopware6.order.order_mapper import (
+    calculate_delivery_date,
+    extract_checkout_field_value,
+    get_payment_method_info,
+)
+from ecommerce_integrations.shopware6.order.order_sync import (
+    ShopwareOrder,
+    create_sales_order,
+    sync_order_by_id,
+    sync_order_from_webhook,
+    update_order_custom_fields,
+    update_order_status,
 )
 
 # Payment handling
@@ -39,9 +38,11 @@ from ecommerce_integrations.shopware6.order.payment_handler import (
     verify_payment_status_from_shopware,
 )
 
-# Delivery handling
-from ecommerce_integrations.shopware6.order.delivery_handler import (
-    create_delivery_note,
+# Scheduled sync functions
+from ecommerce_integrations.shopware6.order.scheduled_sync import (
+    scheduled_order_sync,
+    sync_old_orders,
+    sync_orders_from_shopware,
 )
 
 # Checkout fields and service items
@@ -49,40 +50,38 @@ from ecommerce_integrations.shopware6.order.service_items import (
     process_checkout_fields,
 )
 
-# Scheduled sync functions
-from ecommerce_integrations.shopware6.order.scheduled_sync import (
-    sync_orders_from_shopware,
-    scheduled_order_sync,
-    sync_old_orders,
+# Tax handling
+from ecommerce_integrations.shopware6.order.tax_handler import (
+    add_order_taxes,
 )
 
 __all__ = [
     # Main class
     "ShopwareOrder",
-    # Sync functions
-    "sync_order_by_id",
-    "create_sales_order",
-    "sync_order_from_webhook",
-    "update_order_status",
-    "update_order_custom_fields",
-    # Mapping
-    "extract_checkout_field_value",
-    "get_payment_method_info",
-    "calculate_delivery_date",
     # Line items
     "add_order_item",
     # Taxes
     "add_order_taxes",
-    # Payment
-    "create_sales_invoice",
-    "make_payment_entry_against_sales_invoice",
-    "verify_payment_status_from_shopware",
+    "calculate_delivery_date",
     # Delivery
     "create_delivery_note",
+    # Payment
+    "create_sales_invoice",
+    "create_sales_order",
+    # Mapping
+    "extract_checkout_field_value",
+    "get_payment_method_info",
+    "make_payment_entry_against_sales_invoice",
     # Checkout fields / service items
     "process_checkout_fields",
-    # Scheduled
-    "sync_orders_from_shopware",
     "scheduled_order_sync",
     "sync_old_orders",
+    # Sync functions
+    "sync_order_by_id",
+    "sync_order_from_webhook",
+    # Scheduled
+    "sync_orders_from_shopware",
+    "update_order_custom_fields",
+    "update_order_status",
+    "verify_payment_status_from_shopware",
 ]

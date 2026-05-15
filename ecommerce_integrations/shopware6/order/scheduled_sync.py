@@ -6,8 +6,7 @@ Scheduled jobs for order synchronization.
 
 
 import frappe
-from frappe.utils import nowdate, add_days
-
+from frappe.utils import add_days, nowdate
 from lib_shopware6_api_base import Criteria, RangeFilter
 
 from ecommerce_integrations.shopware6.connection import get_shopware_client
@@ -198,6 +197,7 @@ def sync_old_orders():
     Called hourly by scheduler.
     """
     from frappe.utils import cint, get_datetime
+
     from ecommerce_integrations.shopware6.order.order_sync import create_sales_order
 
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)

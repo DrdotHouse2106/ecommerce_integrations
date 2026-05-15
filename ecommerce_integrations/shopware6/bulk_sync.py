@@ -316,14 +316,13 @@ def process_product_batch(item_codes: list[str]):
     Uses Shopware Sync API for simple items (100+ products per request).
     Templates and variants still use sequential processing due to dependencies.
     """
+    from ecommerce_integrations.shopware6.connection import get_shopware_client
+    from ecommerce_integrations.shopware6.export.batch_uploader import BatchProductUploader
     from ecommerce_integrations.shopware6.product_export import (
         upload_template_item_to_shopware,
     )
-    from ecommerce_integrations.shopware6.export.batch_uploader import BatchProductUploader
-    from ecommerce_integrations.shopware6.connection import get_shopware_client
 
-    settings = get_bulk_sync_settings()
-    batch_size = settings["batch_size"]
+    get_bulk_sync_settings()
     logger = get_logger("process_product_batch")
 
     processed = []

@@ -16,12 +16,12 @@ import frappe
 
 from ecommerce_integrations.shopware6.connection import temp_shopware_session
 from ecommerce_integrations.shopware6.constants import (
-    SETTING_DOCTYPE,
-    ORDER_ID_FIELD,
-    STATUS_SYNC_ENQUEUE_TIMEOUT,
     INVOICE_CREATE_ENQUEUE_TIMEOUT,
+    ORDER_ID_FIELD,
+    SETTING_DOCTYPE,
+    STATUS_SYNC_ENQUEUE_TIMEOUT,
 )
-from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
+from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
 
 
 def is_shopware_enabled() -> bool:
@@ -289,7 +289,7 @@ def create_invoice_from_delivery_note(
         create_shopware_log(
             status="Error",
             method="create_invoice_from_delivery_note",
-            message=f"Failed to create invoice from DN {delivery_note_name}: {str(e)}"
+            message=f"Failed to create invoice from DN {delivery_note_name}: {e!s}"
         )
         return None
 
@@ -480,12 +480,13 @@ def on_sales_order_submit(doc, method=None):
         setting = frappe.get_cached_doc(SETTING_DOCTYPE)
 
         # Fetch current order data from Shopware
+        from shopware6_api_client import Criteria
+
+        from ecommerce_integrations.shopware6.connection import temp_shopware_session
         from ecommerce_integrations.shopware6.order.order_sync import (
             _create_delivery_note_if_shipped,
             _create_invoice_if_paid,
         )
-        from ecommerce_integrations.shopware6.connection import temp_shopware_session
-        from shopware6_api_client import Criteria
 
         @temp_shopware_session
         def fetch_order_data(client, order_id):

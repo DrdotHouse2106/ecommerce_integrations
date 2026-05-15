@@ -178,3 +178,31 @@ Edit Channel Overrides,Channel-Overrides bearbeiten
 Resolver not yet available — run bench migrate,Resolver nicht verfügbar — bitte bench migrate ausführen
 include,einschließen
 exclude,ausschließen
+Medusa URL and API Key must be configured in Medusa Setting,Medusa-URL und API-Key müssen in den Medusa-Einstellungen konfiguriert sein
+Medusa integration is not enabled,Medusa-Integration ist nicht aktiviert
+Empty payload,Leere Nutzlast
+Invalid webhook signature,Ungültige Webhook-Signatur
+Webhook signature validation required. Configure webhook_secret in Medusa Setting.,Webhook-Signaturprüfung erforderlich. webhook_secret in den Medusa-Einstellungen konfigurieren.
+No customer found for Medusa order {0},Kein Kunde gefunden für Medusa-Bestellung {0}
+Could not fetch Medusa order {0},Medusa-Bestellung {0} konnte nicht abgerufen werden
+Unknown backend: {0},Unbekanntes Backend: {0}
+Not permitted to preview this collection,Keine Berechtigung zur Vorschau dieser Smart Collection
+Not a Smart Collection target,Kein Smart-Collection-Ziel
+Not permitted to sync this collection,Keine Berechtigung zur Synchronisation dieser Smart Collection
+Not permitted to read Smart Collections,Keine Berechtigung zum Lesen von Smart Collections
+Pinecone API Key not configured,Pinecone API-Key nicht konfiguriert
+Pinecone index '{0}' does not exist. Please create it first.,Pinecone-Index '{0}' existiert nicht. Bitte zuerst anlegen.
+OpenAI API Key not configured,OpenAI API-Key nicht konfiguriert
+Google API Key not configured,Google API-Key nicht konfiguriert
+sentence-transformers not installed. Install with: pip install sentence-transformers,sentence-transformers ist nicht installiert. Mit "pip install sentence-transformers" installieren.
+AI Description Generation is not enabled,KI-Beschreibungsgenerierung ist nicht aktiviert
+Gemini API Key not configured,Gemini API-Key nicht konfiguriert
+google-genai package not installed. Install with: pip install google-genai,google-genai-Paket ist nicht installiert. Mit "pip install google-genai" installieren.
+Collection,Smart Collection
+State,Zustand
+Items,Artikel
+Visibility,Sichtbarkeit
+Status,Status
+Last Synced,Letzter Sync
+Open,Öffnen
+Loading…,Lädt …

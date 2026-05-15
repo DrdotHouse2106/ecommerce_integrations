@@ -9,25 +9,25 @@ from typing import Any
 
 import frappe
 from frappe.utils import cstr
+from lib_shopware6_api_base import HEADER_index_asynchronously
 
 from ecommerce_integrations.ecommerce_integrations.ecommerce_custom_fields import PROP_IS_SURCHARGE
-from ecommerce_integrations.shopware6.constants import (
-    SHOPWARE_CUSTOM_FIELD_SET_NAME,
-    PRODUCT_CUSTOM_FIELDS_MAP,
-    WEIGHT_TO_ERPNEXT_UOM_MAP,
-)
 from ecommerce_integrations.property_utils import (
+    coerce_custom_field_value,
     get_ecommerce_properties,
     shopware_custom_field_name,
-    coerce_custom_field_value,
 )
 from ecommerce_integrations.shopware6.base.cache_manager import get_cache
+from ecommerce_integrations.shopware6.constants import (
+    PRODUCT_CUSTOM_FIELDS_MAP,
+    SHOPWARE_CUSTOM_FIELD_SET_NAME,
+    WEIGHT_TO_ERPNEXT_UOM_MAP,
+)
 from ecommerce_integrations.shopware6.export.utils import (
     generate_uuid,
-    get_field_mappings_cached,
     get_component_for_field_type,
+    get_field_mappings_cached,
 )
-from lib_shopware6_api_base import HEADER_index_asynchronously
 
 
 def build_custom_fields_from_mappings() -> list[dict[str, Any]]:
@@ -41,7 +41,7 @@ def build_custom_fields_from_mappings() -> list[dict[str, Any]]:
     custom_fields = []
     position = 1
 
-    for erpnext_field, config in mappings.items():
+    for _erpnext_field, config in mappings.items():
         if config['mapping_type'] == 'Custom Field':
             custom_fields.append({
                 "id": generate_uuid(f"custom_field_{config['shopware_field']}"),
@@ -117,7 +117,7 @@ def ensure_shopware_custom_field_set(client) -> str | None:
         frappe.logger().info(f"Created Shopware custom field set: {SHOPWARE_CUSTOM_FIELD_SET_NAME}")
         return set_id
 
-    except Exception as e:
+    except Exception:
         get_logger().error("Failed to create/get Shopware custom field set", persist=False)
         return None
 
@@ -642,7 +642,7 @@ def ensure_surcharge_property(item_code: str) -> bool:
         )
         return True
 
-    except Exception as e:
+    except Exception:
         get_logger().error("Error occurred", persist=False)
         return False
 
@@ -704,7 +704,7 @@ def sync_surcharge_properties_batch(limit: int = 500) -> dict[str, Any]:
             item_doc.save(ignore_permissions=True)
             stats["added"] += 1
 
-        except Exception as e:
+        except Exception:
             stats["errors"] += 1
             get_logger().error("Error occurred", persist=False)
 
@@ -850,7 +850,7 @@ def cleanup_orphaned_shopware_properties(client, dry_run: bool = True) -> dict[s
             "type": "general",
             "error": str(e)
         })
-        frappe.logger("shopware6").error(f"Property cleanup failed: {str(e)}")
+        frappe.logger("shopware6").error(f"Property cleanup failed: {e!s}")
 
     return stats
 
@@ -913,6 +913,7 @@ def cleanup_orphaned_properties_batch(client) -> dict[str, Any]:
         Dict with {"success": bool, "statistics": dict}
     """
     import time
+
     from ecommerce_integrations.shopware6.utils import get_logger as _get_logger
     logger = _get_logger("cleanup_orphaned_properties_batch")
 

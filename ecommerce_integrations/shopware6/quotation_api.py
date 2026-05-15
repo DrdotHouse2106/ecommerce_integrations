@@ -29,13 +29,25 @@ def get_quotations_by_shopware_customer(shopware_customer_id: str):
     if not customer_name:
         return []
 
+    # SECURITY: Permission check — without this, any authenticated user
+    # who knows a Shopware customer UUID can enumerate that customer's
+    # quotations. Enforce that the caller may read the underlying Customer
+    # doc; Quotation rows are further filtered by Frappe's permission
+    # query layer through ``ignore_permissions=False`` (the default).
+    if not frappe.has_permission("Customer", "read", doc=customer_name):
+        frappe.throw(
+            _("Not permitted to read quotations for this customer"),
+            frappe.PermissionError,
+        )
+
     # Get quotations for this customer (party_name is the field in Quotation)
     quotations = frappe.get_all(
         "Quotation",
         filters={"party_name": customer_name, "quotation_to": "Customer"},
         fields=["name", "transaction_date", "valid_till", "grand_total", "status", "currency"],
         order_by="transaction_date desc",
-        limit_page_length=50
+        limit_page_length=50,
+        ignore_permissions=False,
     )
 
     return quotations

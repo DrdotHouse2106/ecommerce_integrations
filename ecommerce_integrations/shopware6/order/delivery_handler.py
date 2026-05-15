@@ -8,6 +8,8 @@ from typing import Any
 
 import frappe
 
+from ecommerce_integrations.shopware6.utils import get_logger
+
 
 def create_delivery_note(
     sales_order: str,

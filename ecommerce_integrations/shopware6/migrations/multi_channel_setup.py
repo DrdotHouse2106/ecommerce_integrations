@@ -37,8 +37,11 @@ def execute():
 
 def create_custom_fields():
     """Create custom fields for Item, Sales Order, and Customer."""
+    from frappe.custom.doctype.custom_field.custom_field import (
+        create_custom_fields as frappe_create_custom_fields,
+    )
+
     from ecommerce_integrations.shopware6.custom_fields import CUSTOM_FIELDS
-    from frappe.custom.doctype.custom_field.custom_field import create_custom_fields as frappe_create_custom_fields
 
     try:
         frappe_create_custom_fields(CUSTOM_FIELDS, update=True)

@@ -41,6 +41,7 @@ the row forever.
 """
 
 import frappe
+from frappe import _
 from frappe.utils import add_to_date, now_datetime
 
 from ecommerce_integrations.smart_collections.channel_visibility import (
@@ -62,7 +63,6 @@ from ecommerce_integrations.smart_collections.engine.preview import (
 )
 from ecommerce_integrations.smart_collections.engine.resolver import resolve
 
-
 _LOG_DOCTYPE = "Ecommerce Integration Log"
 _COLLECTION_DOCTYPE = "Ecommerce Smart Collection"
 _TARGET_DOCTYPE = "Ecommerce Smart Collection Target"
@@ -80,7 +80,7 @@ _HEARTBEAT_TIMEOUT_MIN = 30
 def sync_collection_now(collection: str) -> dict:
     """Whitelisted entry — used by the form button on a Smart Collection."""
     if not frappe.has_permission(_COLLECTION_DOCTYPE, "write", doc=collection):
-        frappe.throw("Not permitted to sync this collection")
+        frappe.throw(_("Not permitted to sync this collection"))
     return sync_collection(collection)
 
 
@@ -213,7 +213,7 @@ def recover_stale_targets() -> dict:
             },
             update_modified=False,
         )
-    frappe.db.commit()  # noqa: SLF001 — release the recovered rows so the next sync can claim them
+    frappe.db.commit()
     return {"recovered": len(stale)}
 
 
@@ -232,7 +232,7 @@ def _sync_target(coll, target, items: set[str]) -> dict:
         },
         update_modified=False,
     )
-    frappe.db.commit()  # noqa: SLF001 — heartbeat must be visible cross-process
+    frappe.db.commit()
 
     log_name = _start_log(coll, target)
     try:
@@ -280,7 +280,7 @@ def _sync_target(coll, target, items: set[str]) -> dict:
         # Commit the final state before the next target starts so a
         # crash mid-run can't leave an "ok" target with stale linked
         # rows (Reliability finding R14).
-        frappe.db.commit()  # noqa: SLF001 — per-target finalisation
+        frappe.db.commit()
 
         _finish_log(
             log_name,
@@ -324,7 +324,7 @@ def _record_failure(coll, target, log_name, exc, short_msg: str) -> dict:
         },
         update_modified=False,
     )
-    frappe.db.commit()  # noqa: SLF001 — persist failure before next target
+    frappe.db.commit()
     _finish_log(log_name, status="Error", error=str(exc))
     return {
         "target_idx": target.idx,

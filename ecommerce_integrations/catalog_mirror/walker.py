@@ -34,7 +34,7 @@ class ErpTreeNode:
     is_group: int
     has_items: bool = False
     catalog_mirror_skip: int = 0
-    children: list["ErpTreeNode"] = field(default_factory=list)
+    children: list[ErpTreeNode] = field(default_factory=list)
 
     def iter_descendants(self):
         """Pre-order traversal yielding every node in this subtree."""

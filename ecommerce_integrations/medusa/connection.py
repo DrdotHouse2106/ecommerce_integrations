@@ -7,6 +7,7 @@ import time
 
 import frappe
 import requests
+from frappe import _
 
 from ecommerce_integrations.medusa.constants import SETTING_DOCTYPE
 
@@ -145,7 +146,7 @@ def get_medusa_session() -> tuple:
     """Return (requests.Session, base_url) configured with Medusa API Key auth."""
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
     if not setting.medusa_url or not setting.api_key:
-        frappe.throw("Medusa URL and API Key must be configured in Medusa Setting")
+        frappe.throw(_("Medusa URL and API Key must be configured in Medusa Setting"))
 
     base_url = setting.medusa_url.rstrip("/")
     api_key = setting.get_password("api_key")
@@ -195,9 +196,9 @@ def temp_medusa_session(func):
 
         if _is_method:
             # Insert session, base_url after self
-            call_args = (args[0], session, base_url) + args[1:]
+            call_args = (args[0], session, base_url, *args[1:])
         else:
-            call_args = (session, base_url) + args
+            call_args = (session, base_url, *args)
 
         try:
             for attempt in range(max_retries + 1):
@@ -278,6 +279,9 @@ def medusa_request_all(session, base_url, path, data_key, page_size=100, **kwarg
 @frappe.whitelist()
 def test_connection():
     """Test the Medusa API connection. Returns product count on success."""
+    from ecommerce_integrations.medusa.services.access import require_medusa_admin
+
+    require_medusa_admin()
     session, base_url = get_medusa_session()
     try:
         result = medusa_request(session, base_url, "GET", "/admin/products", params={"limit": 1})

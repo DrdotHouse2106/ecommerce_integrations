@@ -8,44 +8,70 @@ from frappe.utils import cstr
 from ecommerce_integrations.ecommerce_integrations.media import is_image_url
 from ecommerce_integrations.medusa.attribute_sync import (
     ensure_attributes_exist as _ensure_attributes_exist,
+)
+from ecommerce_integrations.medusa.attribute_sync import (
     get_category_map as _get_category_map,
+)
+from ecommerce_integrations.medusa.attribute_sync import (
     get_or_build_attribute_map as _get_or_build_attribute_map,
+)
+from ecommerce_integrations.medusa.attribute_sync import (
     resolve_attribute_values as _resolve_attribute_values,
+)
+from ecommerce_integrations.medusa.attribute_sync import (
     transliterate as _transliterate,
 )
-from ecommerce_integrations.medusa.price_sync import (
-    get_or_create_channel_price_list as _get_or_create_channel_price_list,
-    get_or_create_sale_price_list as _get_or_create_sale_price_list,
-    sku_to_variant_id as _sku_to_variant_id,
-    sync_channel_prices as _sync_channel_prices,
-    sync_channel_prices_batch as _sync_channel_prices_batch,
-    sync_sale_prices as _sync_sale_prices,
-    sync_sale_prices_batch as _sync_sale_prices_batch,
-    upsert_price_list_entries as _upsert_price_list_entries,
+from ecommerce_integrations.medusa.connection import (
+    medusa_request,
+    medusa_request_all,
+    temp_medusa_session,
 )
-from ecommerce_integrations.medusa.variant_image_sync import (
-    associate_variant_images as _associate_variant_images,
-    collect_variant_image_jobs as _collect_variant_image_jobs,
-    run_variant_image_jobs as _run_variant_image_jobs,
-)
-from ecommerce_integrations.medusa.connection import medusa_request, medusa_request_all, optional_session, temp_medusa_session
 from ecommerce_integrations.medusa.constants import (
-    API_FEATURE_FLAGS, API_INDEX_SYNC, API_INDEX_DETAILS, API_PRODUCTS, API_PRODUCTS_BATCH,
-    API_PRODUCT_VARIANTS, MODULE_NAME as MEDUSA_MODULE, SETTING_DOCTYPE,
+    API_FEATURE_FLAGS,
+    API_INDEX_DETAILS,
+    API_PRODUCT_VARIANTS,
+    API_PRODUCTS,
+    API_PRODUCTS_BATCH,
+    SETTING_DOCTYPE,
 )
+from ecommerce_integrations.medusa.constants import (
+    MODULE_NAME as MEDUSA_MODULE,
+)
+from ecommerce_integrations.medusa.price_sync import (
+    sync_channel_prices as _sync_channel_prices,
+)
+from ecommerce_integrations.medusa.price_sync import (
+    sync_channel_prices_batch as _sync_channel_prices_batch,
+)
+from ecommerce_integrations.medusa.price_sync import (
+    sync_sale_prices as _sync_sale_prices,
+)
+from ecommerce_integrations.medusa.price_sync import (
+    sync_sale_prices_batch as _sync_sale_prices_batch,
+)
+from ecommerce_integrations.medusa.services.access import require_medusa_admin
 from ecommerce_integrations.medusa.utils import (
     clear_medusa_mapping,
     clear_medusa_mapping_by_product_id,
     create_medusa_log,
     erpnext_price_to_medusa,
     get_medusa_mapping,
-    get_medusa_product_id as _lookup_medusa_product_id,
-    get_medusa_variant_id as _lookup_medusa_variant_id,
     is_medusa_enabled,
     is_smart_collections_only,
     log_error,
-    update_medusa_log,
     upsert_medusa_mapping,
+)
+from ecommerce_integrations.medusa.utils import (
+    get_medusa_product_id as _lookup_medusa_product_id,
+)
+from ecommerce_integrations.medusa.variant_image_sync import (
+    associate_variant_images as _associate_variant_images,
+)
+from ecommerce_integrations.medusa.variant_image_sync import (
+    collect_variant_image_jobs as _collect_variant_image_jobs,
+)
+from ecommerce_integrations.medusa.variant_image_sync import (
+    run_variant_image_jobs as _run_variant_image_jobs,
 )
 from ecommerce_integrations.property_utils import get_ecommerce_properties
 
@@ -306,7 +332,7 @@ class MedusaProductExporter:
         if self.item.has_variants and not any(getattr(self.item, f, None) for f in ai_field_names):
             first_variant = frappe.db.get_value(
                 "Item", {"variant_of": self.item_code, "disabled": 0, "ai_short_description": ["is", "set"]},
-                ai_field_names + ["seo_title", "seo_meta_description", "seo_keywords"],
+                [*ai_field_names, "seo_title", "seo_meta_description", "seo_keywords"],
                 as_dict=True,
             )
             if first_variant:
@@ -1171,6 +1197,7 @@ def enqueue_full_sync(sync_categories=1, sync_products=1, sync_prices=1, sync_st
 	finishes) and replaced by the new one. Uses a generation counter so
 	each sync knows if a newer one has been enqueued.
 	"""
+	require_medusa_admin()
 	if not is_medusa_enabled():
 		return {"success": False, "message": "Medusa integration is not enabled"}
 
@@ -1660,6 +1687,7 @@ def ensure_index_fresh(max_age_minutes: int = 60):
 	"""Safety-net: trigger an index sync if last_synced_at is older than
 	max_age_minutes. Covers worker-crash cases where the finally-block
 	trigger in run_full_sync couldn't fire."""
+	require_medusa_admin()
 	if not is_medusa_enabled():
 		return
 	try:
@@ -1725,6 +1753,7 @@ def _run_debounced_index_sync(strategy: str = "full", delay_seconds: int = 60):
 @frappe.whitelist()
 def sync_categories(category_root=None, dry_run=0):
 	"""Sync ERPNext Item Groups as Medusa product categories."""
+	require_medusa_admin()
 	if not is_medusa_enabled():
 		return {"total": 0, "synced": 0, "errors": 0}
 	return _sync_categories_to_medusa(category_root=category_root, dry_run=int(dry_run))
@@ -1785,6 +1814,7 @@ def _sync_categories_to_medusa(session, base_url, category_root=None, dry_run=0)
 @frappe.whitelist()
 def enqueue_force_price_sync():
 	"""Enqueue re-push of all prices to Medusa."""
+	require_medusa_admin()
 	if not is_medusa_enabled():
 		return {"success": False, "message": "Medusa integration is not enabled"}
 

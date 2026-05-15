@@ -8,7 +8,7 @@ Setting goes through small mocks so the suite runs on any clean site.
 import os
 import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from ecommerce_integrations.shopware6.tests.utils import ShopwareTestCase
 

@@ -3,9 +3,11 @@
 
 import frappe
 from frappe.utils import now_datetime
-from .connection import get_pinecone_index, get_rag_settings
-from .embedding import generate_embedding, generate_embeddings_batch, build_product_text
+
 from ecommerce_integrations.rag.services import create_rag_log, require_rag_admin
+
+from .connection import get_pinecone_index, get_rag_settings
+from .embedding import build_product_text, generate_embedding, generate_embeddings_batch
 
 
 def upload_item_to_rag(item_code: str):
@@ -115,7 +117,7 @@ def upload_items_batch_to_rag(item_codes: list):
 
         # Create vectors for Pinecone
         vectors = []
-        for item, embedding, text in zip(items, embeddings, texts):
+        for item, embedding, text in zip(items, embeddings, texts, strict=False):
             vectors.append({
                 "id": item.item_code,
                 "values": embedding,

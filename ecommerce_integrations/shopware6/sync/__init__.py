@@ -25,29 +25,28 @@ Usage:
 
 from ecommerce_integrations.shopware6.sync.conflict_detector import (
     ConflictDetector,
-    ConflictStrategy,
     ConflictReport,
+    ConflictStrategy,
     FieldDifference,
     detect_all_conflicts,
 )
-
 from ecommerce_integrations.shopware6.sync.sync_manager import (
     SyncManager,
-    quick_reconciliation,
-    full_reconciliation_no_brainer,
     enqueue_full_reconciliation_no_brainer,
+    full_reconciliation_no_brainer,
+    quick_reconciliation,
 )
 
 __all__ = [
     # Conflict detection
     "ConflictDetector",
-    "ConflictStrategy",
     "ConflictReport",
+    "ConflictStrategy",
     "FieldDifference",
-    "detect_all_conflicts",
     # Sync manager
     "SyncManager",
-    "quick_reconciliation",
-    "full_reconciliation_no_brainer",
+    "detect_all_conflicts",
     "enqueue_full_reconciliation_no_brainer",
+    "full_reconciliation_no_brainer",
+    "quick_reconciliation",
 ]

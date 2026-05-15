@@ -16,8 +16,12 @@ them but continue.
 import frappe
 
 from ecommerce_integrations.medusa.connection import medusa_request, optional_session
-from ecommerce_integrations.medusa.constants import API_CATEGORIES, MODULE_NAME as MEDUSA_MODULE
+from ecommerce_integrations.medusa.constants import API_CATEGORIES
+from ecommerce_integrations.medusa.constants import MODULE_NAME as MEDUSA_MODULE
 from ecommerce_integrations.smart_collections.constants import BACKEND_MEDUSA
+from ecommerce_integrations.smart_collections.doctype.ecommerce_smart_collection.ecommerce_smart_collection import (
+    slugify,
+)
 from ecommerce_integrations.smart_collections.engine.adapters.base import (
     AdapterError,
     CategoryAdapter,
@@ -25,10 +29,6 @@ from ecommerce_integrations.smart_collections.engine.adapters.base import (
     LiveCategoryState,
     register,
 )
-from ecommerce_integrations.smart_collections.doctype.ecommerce_smart_collection.ecommerce_smart_collection import (
-    slugify,
-)
-
 
 _LINK_BATCH_SIZE = 50
 

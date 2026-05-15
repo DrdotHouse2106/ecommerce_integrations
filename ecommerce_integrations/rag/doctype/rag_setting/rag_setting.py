@@ -4,6 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
+
 from ecommerce_integrations.rag.services.access import require_rag_admin
 
 

@@ -9,9 +9,9 @@ Provides warehouse mapping, tax account mapping, and common settings access.
 import frappe
 
 from ecommerce_integrations.controllers.setting import (
-    SettingController,
     ERPNextWarehouse,
     IntegrationWarehouse,
+    SettingController,
 )
 from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE
 

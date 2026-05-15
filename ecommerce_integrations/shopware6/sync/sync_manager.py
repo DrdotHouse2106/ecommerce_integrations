@@ -24,21 +24,21 @@ Usage:
     result = manager.full_reconciliation_no_brainer()
 """
 
-from typing import Any, Callable
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import now, cint
-
-from ecommerce_integrations.shopware6.connection import get_shopware_client
-from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCTYPE
-from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log, update_shopware_log
+from frappe.utils import cint, now
 
 # CRITICAL: ShopwareAPIError inherits from BaseException, NOT Exception!
 # We must catch it explicitly alongside Exception in all error handlers.
 from lib_shopware6_api_base.conf_shopware6_api_base_classes import ShopwareAPIError
 
+from ecommerce_integrations.shopware6.connection import get_shopware_client
+from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCTYPE
+from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger, update_shopware_log
 
 # Generation counter — newer reconciliation runs supersede in-flight older ones.
 SHOPWARE_RECONCILE_GENERATION_KEY = "shopware6_reconcile_generation"
@@ -148,9 +148,7 @@ class SyncManager:
         Returns:
             dict with sync result
         """
-        from ecommerce_integrations.shopware6.export.product_uploader import (
-            sync_item_if_changed
-        )
+        from ecommerce_integrations.shopware6.export.product_uploader import sync_item_if_changed
 
         result = sync_item_if_changed(item_code, force=False)
 
@@ -457,9 +455,7 @@ class SyncManager:
 
     def _sync_all_categories(self, client, dry_run: bool) -> dict[str, Any]:
         """Sync all categories from ERPNext to Shopware."""
-        from ecommerce_integrations.shopware6.export.reconciliation import (
-            sync_all_categories_to_shopware
-        )
+        from ecommerce_integrations.shopware6.export.reconciliation import sync_all_categories_to_shopware
 
         category_root = getattr(self.setting, 'category_sync_root', 'Products') or 'Products'
 
@@ -479,7 +475,7 @@ class SyncManager:
     ) -> dict[str, Any]:
         """Sync all products from ERPNext to Shopware with batch logging."""
         from ecommerce_integrations.shopware6.export.product_uploader import upload_erpnext_item_to_shopware
-        
+
         stats = {
             "total": 0,
             "synced": 0,
@@ -488,7 +484,7 @@ class SyncManager:
             "errors": [],  # List of error dicts for detailed reporting
             "error_count": 0
         }
-        
+
         # Get all linked items
         ecom_items = frappe.get_all(
             "Ecommerce Item",
@@ -496,22 +492,21 @@ class SyncManager:
             fields=["erpnext_item_code", "integration_item_code", "has_variants"],
             limit=limit if limit > 0 else 0
         )
-        
+
         stats["total"] = len(ecom_items)
         batch_size = 50
         batch_num = 0
-        
+
         self.logger.info(f"Starting product sync: {stats['total']} products")
-        
+
         for i in range(0, len(ecom_items), batch_size):
             batch = ecom_items[i:i + batch_size]
             batch_num += 1
             batch_success = 0
             batch_errors = 0
-            batch_start_time = frappe.utils.now()
-            
+
             self.logger.info(f"Processing batch {batch_num}/{(len(ecom_items) + batch_size - 1) // batch_size}: Items {i+1}-{min(i+batch_size, len(ecom_items))}")
-            
+
             for item_data in batch:
                 try:
                     if not dry_run:
@@ -541,7 +536,7 @@ class SyncManager:
                     else:
                         batch_success += 1
                         stats["synced"] += 1
-                        
+
                 except Exception as e:
                     batch_errors += 1
                     stats["error_count"] += 1
@@ -553,21 +548,21 @@ class SyncManager:
                         "traceback": tb[:1500] if tb else None  # Include traceback for debugging
                     }
                     stats["errors"].append(error_entry)
-                    self.logger.error(f"Exception syncing {item_data.erpnext_item_code}: {str(e)}", exception=e)
+                    self.logger.error(f"Exception syncing {item_data.erpnext_item_code}: {e!s}", exception=e)
 
                     # Create individual error log in DB
                     create_shopware_log(
                         status="Error",
                         method="SyncManager._sync_all_products",
-                        message=f"Exception syncing {item_data.erpnext_item_code}: {str(e)}",
+                        message=f"Exception syncing {item_data.erpnext_item_code}: {e!s}",
                         request_data=error_entry,
                         traceback=tb
                     )
-            
+
             # Create batch summary log in DB
             batch_summary = f"Batch {batch_num}: Processed {len(batch)} items - Success: {batch_success}, Errors: {batch_errors}"
             self.logger.info(batch_summary)
-            
+
             if not dry_run:
                 create_shopware_log(
                     status="Success" if batch_errors == 0 else "Partial Success",
@@ -581,7 +576,7 @@ class SyncManager:
                         "items": [item.erpnext_item_code for item in batch]
                     }
                 )
-            
+
             # Ensure DB connection after each batch
             try:
                 frappe.db.sql("SELECT 1")
@@ -590,14 +585,12 @@ class SyncManager:
                     frappe.connect()
                 except Exception:
                     pass
-        
+
         return stats
 
     def _sync_all_variants(self, client, dry_run: bool) -> dict[str, Any]:
         """Sync all variant products with batch logging."""
-        from ecommerce_integrations.shopware6.export.template_handler import (
-            upload_template_item_to_shopware
-        )
+        from ecommerce_integrations.shopware6.export.template_handler import upload_template_item_to_shopware
 
         stats = {"synced": 0, "errors": 0, "error_details": []}
 
@@ -607,10 +600,10 @@ class SyncManager:
             filters={"integration": MODULE_NAME, "has_variants": 1},
             fields=["erpnext_item_code", "integration_item_code"]
         )
-        
+
         batch_size = 10
         batch_num = 0
-        
+
         self.logger.info(f"Starting variant sync: {len(template_items)} templates")
 
         for i in range(0, len(template_items), batch_size):
@@ -618,9 +611,9 @@ class SyncManager:
             batch_num += 1
             batch_success = 0
             batch_errors = 0
-            
+
             self.logger.info(f"Processing variant batch {batch_num}: Templates {i+1}-{min(i+batch_size, len(template_items))}")
-            
+
             for template in batch:
                 try:
                     if not dry_run:
@@ -633,14 +626,14 @@ class SyncManager:
                     stats["errors"] += 1
                     # Get full traceback for better debugging
                     tb = frappe.get_traceback()
-                    error_msg = f"Failed to sync template {template.erpnext_item_code}: {str(e)}"
+                    error_msg = f"Failed to sync template {template.erpnext_item_code}: {e!s}"
                     stats["error_details"].append({
                         "item": template.erpnext_item_code,
                         "error": str(e),
                         "traceback": tb[:1000] if tb else None  # Limit traceback length
                     })
                     self.logger.error(error_msg, exception=e)
-                    
+
                     # Individual error log
                     if not dry_run:
                         create_shopware_log(
@@ -650,7 +643,7 @@ class SyncManager:
                             request_data={"template": template.erpnext_item_code},
                             traceback=frappe.get_traceback()
                         )
-            
+
             # Batch summary log
             if not dry_run:
                 batch_summary = f"Variant Batch {batch_num}: {batch_success} success, {batch_errors} errors"
@@ -682,8 +675,10 @@ class SyncManager:
         Returns:
             Dict with batch sync results for templates, simple items, and variants
         """
-        from ecommerce_integrations.shopware6.export.batch_uploader import BatchProductUploader
-        from ecommerce_integrations.shopware6.export.batch_uploader import get_all_item_codes_by_type
+        from ecommerce_integrations.shopware6.export.batch_uploader import (
+            BatchProductUploader,
+            get_all_item_codes_by_type,
+        )
         from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
         from ecommerce_integrations.shopware6.utils import get_shopware_document_id
 
@@ -818,8 +813,8 @@ class SyncManager:
         if use_batch and not dry_run:
             # BATCH MODE: Use Sync API for 5-10x speedup
             from ecommerce_integrations.shopware6.export.price_handler import (
+                delete_broken_price_rules_batch,
                 force_sync_prices_batch,
-                delete_broken_price_rules_batch
             )
 
             self.logger.info("Using Batch Sync for prices (Sync API - 5-10x faster)")
@@ -846,9 +841,7 @@ class SyncManager:
             }
         else:
             # SEQUENTIAL MODE: Original behavior (for dry_run or explicit disable)
-            from ecommerce_integrations.shopware6.export.price_handler import (
-                force_sync_all_prices
-            )
+            from ecommerce_integrations.shopware6.export.price_handler import force_sync_all_prices
 
             return force_sync_all_prices(
                 limit=limit if limit > 0 else 10000,
@@ -862,7 +855,7 @@ class SyncManager:
         if use_batch:
             # BATCH MODE: Use Sync API for faster deletion
             from ecommerce_integrations.shopware6.export.template_handler import (
-                cleanup_all_orphaned_variants_batch
+                cleanup_all_orphaned_variants_batch,
             )
 
             self.logger.info("Using Batch Sync for orphan variant cleanup")
@@ -880,9 +873,7 @@ class SyncManager:
             }
         else:
             # SEQUENTIAL MODE: Original behavior
-            from ecommerce_integrations.shopware6.export.template_handler import (
-                cleanup_orphaned_variants
-            )
+            from ecommerce_integrations.shopware6.export.template_handler import cleanup_orphaned_variants
 
             stats = {"deleted": 0, "errors": 0, "error_details": []}
 
@@ -911,7 +902,7 @@ class SyncManager:
     def _cleanup_orphan_categories(self, client) -> dict[str, Any]:
         """Delete categories in Shopware that don't exist in ERPNext."""
         from ecommerce_integrations.shopware6.export.reconciliation import (
-            cleanup_orphaned_shopware_categories
+            cleanup_orphaned_shopware_categories,
         )
 
         category_root = getattr(self.setting, 'category_sync_root', 'Products')
@@ -930,7 +921,7 @@ class SyncManager:
         if use_batch:
             # BATCH MODE: Use Sync API for faster deletion
             from ecommerce_integrations.shopware6.export.property_handler import (
-                cleanup_orphaned_properties_batch
+                cleanup_orphaned_properties_batch,
             )
 
             self.logger.info("Using Batch Sync for orphan property cleanup")
@@ -951,7 +942,7 @@ class SyncManager:
         else:
             # SEQUENTIAL MODE: Original behavior
             from ecommerce_integrations.shopware6.export.property_handler import (
-                cleanup_orphaned_shopware_properties
+                cleanup_orphaned_shopware_properties,
             )
 
             result = cleanup_orphaned_shopware_properties(client, dry_run=False)

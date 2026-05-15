@@ -4,8 +4,8 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from ecommerce_integrations.ai_description.services.access import require_ai_admin
 
+from ecommerce_integrations.ai_description.services.access import require_ai_admin
 
 # Default system prompt for structured product descriptions
 DEFAULT_SYSTEM_PROMPT = """You create structured product descriptions for an online shop.

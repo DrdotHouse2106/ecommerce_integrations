@@ -69,8 +69,6 @@ def get_inventory_levels_of_group_warehouse(warehouse: str, integration: str):
 		.having(Max(bin.modified) > Max(ecommerce_item.inventory_synced_on))
 	).run(as_dict=True)
 
-	data = query.run(as_dict=1)
-
 	# add warehouse as group warehouse for sending to integrations
 	for item in data:
 		item.warehouse = warehouse

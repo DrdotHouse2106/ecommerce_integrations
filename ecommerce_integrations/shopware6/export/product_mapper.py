@@ -10,9 +10,9 @@ from typing import Any
 import frappe
 from frappe.utils import flt
 
-from ecommerce_integrations.shopware6.constants import ITEM_SELLING_RATE_FIELD
 # Note: Internal functions - client is passed from caller
 from ecommerce_integrations.shopware6.base.cache_manager import get_cache
+from ecommerce_integrations.shopware6.constants import ITEM_SELLING_RATE_FIELD
 from ecommerce_integrations.shopware6.export.utils import generate_uuid
 from ecommerce_integrations.shopware6.utils import get_logger
 
@@ -517,10 +517,10 @@ def get_product_visibilities(item, setting) -> list[dict[str, Any]] | None:
     # and Smart Collections with Variant A precedence (highest visibility
     # wins per channel). See ecommerce_integrations/catalog_mirror/resolver.py.
     if getattr(item, 'shopware_use_item_group_channels', True):
+        from ecommerce_integrations.catalog_mirror.constants import BACKEND_SHOPWARE
         from ecommerce_integrations.catalog_mirror.resolver import (
             channels_for_item,
         )
-        from ecommerce_integrations.catalog_mirror.constants import BACKEND_SHOPWARE
         entries = channels_for_item(item.name, BACKEND_SHOPWARE)
         if entries:
             return [

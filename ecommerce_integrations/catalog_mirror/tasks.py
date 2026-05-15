@@ -50,7 +50,6 @@ from ecommerce_integrations.catalog_mirror.walker import (
     walk_erpnext_tree,
 )
 
-
 _MIRROR_DOCTYPE = "Ecommerce Catalog Mirror"
 _LOG_DOCTYPE = "Ecommerce Integration Log"
 _HEARTBEAT_TIMEOUT_MIN = 30
@@ -106,7 +105,7 @@ def apply_mirror(
         },
         update_modified=False,
     )
-    frappe.db.commit()  # noqa: SLF001 — heartbeat must be visible cross-process
+    frappe.db.commit()
 
     log_name = _start_log(mirror)
     try:
@@ -122,7 +121,7 @@ def apply_mirror(
             },
             update_modified=False,
         )
-        frappe.db.commit()  # noqa: SLF001 — finalise before next mirror
+        frappe.db.commit()
         _finish_log(
             log_name,
             status="Success",
@@ -226,7 +225,7 @@ def recover_stale_mirrors() -> dict:
             },
             update_modified=False,
         )
-    frappe.db.commit()  # noqa: SLF001 — release recovered rows
+    frappe.db.commit()
     return {"recovered": len(stale)}
 
 
@@ -579,7 +578,7 @@ def _record_failure(mirror, log_name, exc, short_msg: str) -> MirrorRunResult:
         },
         update_modified=False,
     )
-    frappe.db.commit()  # noqa: SLF001 — persist failure before next mirror
+    frappe.db.commit()
     _finish_log(log_name, status="Error", error=str(exc))
     return MirrorRunResult(
         mirror=mirror.name,

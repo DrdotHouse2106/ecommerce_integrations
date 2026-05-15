@@ -14,11 +14,13 @@ Features:
 - Multi-item batch generation (multiple products per API call for efficiency)
 """
 
-import frappe
 import json
 import re
 import time
-from typing import Dict, List
+
+import frappe
+from frappe import _
+
 from ecommerce_integrations.ai_description.services.logging import (
     create_ai_description_log,
     mark_ai_description_log_failed,
@@ -45,17 +47,16 @@ def get_gemini_client(max_tokens_override: int = None):
         from google.genai import types
     except ImportError:
         frappe.throw(
-            "google-genai package not installed. "
-            "Install with: pip install google-genai"
+            _("google-genai package not installed. Install with: pip install google-genai")
         )
 
     settings = get_settings()
 
     if not settings.enabled:
-        frappe.throw("AI Description Generation is not enabled")
+        frappe.throw(_("AI Description Generation is not enabled"))
 
     if not settings.gemini_api_key:
-        frappe.throw("Gemini API Key not configured")
+        frappe.throw(_("Gemini API Key not configured"))
 
     api_key = settings.get_password("gemini_api_key")
     client = genai.Client(api_key=api_key)
@@ -277,7 +278,7 @@ def build_user_prompt(settings, item) -> str:
     return template
 
 
-def build_batch_user_prompt(items: List[Dict]) -> str:
+def build_batch_user_prompt(items: list[dict]) -> str:
     """Build user prompt for multiple products"""
     prompt_parts = ["## Product Data\n\nCreate descriptions for the following products:\n"]
 
@@ -356,7 +357,7 @@ def update_item_with_description(item, result: dict, settings):
         settings: AI Description Settings
     """
     if "error" in result:
-        frappe.logger().error(f"AI Description: Result contains error, not updating item")
+        frappe.logger().error("AI Description: Result contains error, not updating item")
         return False
 
     # Handle both document and item_code
@@ -504,7 +505,7 @@ def generate_descriptions_multi_batch(item_codes: list, products_per_request: in
             )
 
         except Exception as e:
-            error_msg = f"Batch {batch_num} failed: {str(e)}"
+            error_msg = f"Batch {batch_num} failed: {e!s}"
             frappe.logger().error(f"AI Multi-Batch: {error_msg}")
             results["errors"].append(error_msg)
             results["failed"] += len(batch)
@@ -561,7 +562,7 @@ def _process_multi_batch(item_codes: list, settings, batch_num: int, total_batch
             })
         except Exception as e:
             result["failed"] += 1
-            result["errors"].append(f"{item_code}: {str(e)}")
+            result["errors"].append(f"{item_code}: {e!s}")
             result["items"].append({"item_code": item_code, "success": False, "error": str(e)})
 
     if not items_data:
@@ -628,7 +629,7 @@ def _process_multi_batch(item_codes: list, settings, batch_num: int, total_batch
                     result["items"].append({"item_code": item_code, "success": True})
                 except Exception as e:
                     result["failed"] += 1
-                    result["errors"].append(f"{item_code}: Update failed - {str(e)}")
+                    result["errors"].append(f"{item_code}: Update failed - {e!s}")
                     result["items"].append({"item_code": item_code, "success": False, "error": str(e)})
             else:
                 # Item not in response - try to find by partial match
@@ -641,7 +642,7 @@ def _process_multi_batch(item_codes: list, settings, batch_num: int, total_batch
                             result["items"].append({"item_code": item_code, "success": True})
                             found = True
                             break
-                        except Exception as e:
+                        except Exception:
                             pass
 
                 if not found:
@@ -681,8 +682,6 @@ def run_full_batch_generation(
     Returns:
         dict with processing results
     """
-    settings = get_settings()
-
     # Build filters
     filters = {
         "ai_description_generated": 0,

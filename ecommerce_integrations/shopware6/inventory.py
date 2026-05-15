@@ -9,10 +9,9 @@ from typing import Any
 import frappe
 from frappe import _
 from frappe.utils import flt, now_datetime
-
 from lib_shopware6_api_base import (
-    Shopware6AdminAPIClientBase,
     HEADER_index_asynchronously,
+    Shopware6AdminAPIClientBase,
 )
 
 from ecommerce_integrations.shopware6.connection import get_shopware_client

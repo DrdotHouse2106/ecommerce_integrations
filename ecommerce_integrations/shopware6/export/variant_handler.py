@@ -9,32 +9,32 @@ Creates variants as child products linked to the parent product.
 import frappe
 
 from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCTYPE
-from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
-from ecommerce_integrations.shopware6.export.utils import generate_uuid, get_shopware_document_id
-from ecommerce_integrations.shopware6.export.product_mapper import (
-    map_erpnext_item_to_shopware,
-    get_tax_id_by_rate,
-    get_or_create_delivery_time,
-    get_cached_currency_id,
-    get_cached_sales_channel_id,
-    get_product_visibilities,
-    build_channel_prices,
-)
-from ecommerce_integrations.shopware6.export.property_handler import (
-    get_or_create_property_group,
-    get_or_create_variant_option,
-    get_or_create_property_option,
-    get_variant_attribute_values,
-    get_item_properties,
-    get_item_custom_fields,
-    clear_product_properties,
-    clear_product_options,
+from ecommerce_integrations.shopware6.export.category_handler import (
+    clear_product_categories,
+    sync_all_item_categories,
 )
 from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
-from ecommerce_integrations.shopware6.export.category_handler import (
-    sync_all_item_categories,
-    clear_product_categories,
+from ecommerce_integrations.shopware6.export.product_mapper import (
+    build_channel_prices,
+    get_cached_currency_id,
+    get_cached_sales_channel_id,
+    get_or_create_delivery_time,
+    get_product_visibilities,
+    get_tax_id_by_rate,
+    map_erpnext_item_to_shopware,
 )
+from ecommerce_integrations.shopware6.export.property_handler import (
+    clear_product_options,
+    clear_product_properties,
+    get_item_custom_fields,
+    get_item_properties,
+    get_or_create_property_group,
+    get_or_create_property_option,
+    get_or_create_variant_option,
+    get_variant_attribute_values,
+)
+from ecommerce_integrations.shopware6.export.utils import generate_uuid, get_shopware_document_id
+from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
 
 
 def upload_variant_item_to_shopware(client, variant_item) -> str | None:
@@ -68,9 +68,7 @@ def upload_variant_item_to_shopware(client, variant_item) -> str | None:
     parent_id = get_shopware_document_id("Item", variant_item.variant_of)
     if not parent_id:
         # Parent not synced yet, sync it first
-        from ecommerce_integrations.shopware6.export.template_handler import (
-            upload_template_item_to_shopware
-        )
+        from ecommerce_integrations.shopware6.export.template_handler import upload_template_item_to_shopware
         parent_item = frappe.get_doc("Item", variant_item.variant_of)
         parent_id = upload_template_item_to_shopware(client, parent_item)
 
@@ -280,7 +278,7 @@ def upload_variant_item_to_shopware(client, variant_item) -> str | None:
     except Exception as e:
         create_shopware_log(
             status="Error",
-            message=f"Failed to upload variant {variant_item.name}: {str(e)}",
+            message=f"Failed to upload variant {variant_item.name}: {e!s}",
             exception=str(e),
             method="upload_variant_item_to_shopware",
             rollback=True

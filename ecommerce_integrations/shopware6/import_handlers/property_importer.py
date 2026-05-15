@@ -27,8 +27,8 @@ from typing import Any
 
 import frappe
 
-from ecommerce_integrations.shopware6.connection import temp_shopware_session, get_shopware_client
-from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE, MODULE_NAME
+from ecommerce_integrations.shopware6.connection import get_shopware_client, temp_shopware_session
+from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCTYPE
 from ecommerce_integrations.shopware6.utils import get_logger
 
 
@@ -289,6 +289,9 @@ def sync_property_groups_from_shopware(client, limit: int = 500) -> dict[str, An
     Returns:
         dict with sync statistics
     """
+    from ecommerce_integrations.shopware6.services.access import require_shopware_admin
+
+    require_shopware_admin()
     importer = PropertyImporter()
 
     if not importer.is_import_enabled():
@@ -369,7 +372,7 @@ def sync_property_groups_from_shopware(client, limit: int = 500) -> dict[str, An
         return {
             "success": False,
             "statistics": stats,
-            "message": f"Property sync failed: {str(e)}"
+            "message": f"Property sync failed: {e!s}"
         }
 
 
@@ -385,6 +388,9 @@ def import_properties_from_shopware(item_code: str, shopware_id: str = None) -> 
     Returns:
         dict with import statistics
     """
+    from ecommerce_integrations.shopware6.services.access import require_item_write_permission
+
+    require_item_write_permission(item_code)
     importer = PropertyImporter()
 
     if not importer.is_import_enabled():
@@ -428,6 +434,9 @@ def batch_import_properties(client, limit: int = 100, dry_run: bool = False) -> 
     Returns:
         dict with batch statistics
     """
+    from ecommerce_integrations.shopware6.services.access import require_shopware_admin
+
+    require_shopware_admin()
     importer = PropertyImporter()
 
     # Skip the enabled check for dry_run (allows previewing even when disabled)

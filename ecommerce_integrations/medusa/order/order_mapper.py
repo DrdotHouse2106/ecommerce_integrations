@@ -1,8 +1,11 @@
 """Map Medusa order JSON to ERPNext Sales Order dict."""
 import frappe
+from frappe import _
+
 from ecommerce_integrations.ecommerce_integrations.checkout_utils import process_checkout_fields
 from ecommerce_integrations.ecommerce_integrations.ecommerce_custom_fields import STOREFRONT_MEDUSA
-from ecommerce_integrations.medusa.constants import CUSTOMER_ID_FIELD, MODULE_NAME as MEDUSA_MODULE, ORDER_ID_FIELD
+from ecommerce_integrations.medusa.constants import CUSTOMER_ID_FIELD, ORDER_ID_FIELD
+from ecommerce_integrations.medusa.constants import MODULE_NAME as MEDUSA_MODULE
 from ecommerce_integrations.medusa.payment_method_mapping import (
     extract_provider_id,
     resolve_mode_of_payment,
@@ -100,7 +103,7 @@ def _resolve_customer(order: dict, setting) -> str:
             return customer_name
     if setting.default_customer:
         return setting.default_customer
-    frappe.throw(f"No customer found for Medusa order {order.get('id')}")
+    frappe.throw(_("No customer found for Medusa order {0}").format(order.get("id")))
 
 
 def _map_line_items(items: list, setting) -> list:

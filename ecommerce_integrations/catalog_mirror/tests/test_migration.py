@@ -29,7 +29,6 @@ from ecommerce_integrations.patches.migrate_shopware_umbrellas_to_catalog_mirror
     execute as migrate_execute,
 )
 
-
 _MIRROR_DOCTYPE = "Ecommerce Catalog Mirror"
 _SC_DOCTYPE = "Ecommerce Smart Collection"
 

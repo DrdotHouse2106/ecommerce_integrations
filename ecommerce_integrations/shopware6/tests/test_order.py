@@ -2,7 +2,7 @@
 order/delivery_handler and order/scheduled_sync."""
 
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from ecommerce_integrations.shopware6.tests.utils import ShopwareTestCase
 

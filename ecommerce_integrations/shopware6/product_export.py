@@ -19,68 +19,65 @@ For new code, import directly from the export module:
 """
 
 # Re-export everything from the new modules
+import frappe
+from frappe import _
+
+# Cache management
+from ecommerce_integrations.shopware6.base.cache_manager import clear_shopware_cache
+from ecommerce_integrations.shopware6.constants import ROOT_ITEM_GROUPS
 from ecommerce_integrations.shopware6.export import (
     # Main class
     ShopwareProductUploader,
-    # Upload functions
-    upload_erpnext_item_to_shopware,
-    upload_template_item_to_shopware,
-    upload_variant_item_to_shopware,
-    sync_all_variants,
-    # Categories
-    sync_category_hierarchy,
-    sync_all_item_categories,
-    get_or_create_category,
-    sync_item_group_to_shopware,
-    rename_category_in_shopware,
-    sync_product_images_to_shopware,
-    upload_media_to_shopware,
-    # Prices
-    sync_product_price,
-    sync_bulk_prices,
-    update_item_price_in_shopware,
-    get_item_price,
-    # Mapper
-    map_erpnext_item_to_shopware,
-    get_tax_id_by_rate,
-    get_or_create_manufacturer,
+    cleanup_orphaned_shopware_categories,
+    enqueue_full_reconciliation,
+    enqueue_full_reconciliation_with_categories,
+    ensure_shopware_custom_field_set,
+    full_reconciliation,
+    # Utils
+    generate_uuid,
     get_cached_currency_id,
     get_cached_sales_channel_id,
+    get_field_mappings,
+    get_item_custom_fields,
+    get_item_price,
+    get_item_properties,
+    get_or_create_category,
+    get_or_create_manufacturer,
     # Properties
     get_or_create_property_group,
     get_or_create_property_option,
-    get_item_properties,
-    get_item_custom_fields,
-    ensure_shopware_custom_field_set,
-    # Utils
-    generate_uuid,
-    sanitize_filename,
     get_shopware_document_id,
-    get_field_mappings,
+    get_tax_id_by_rate,
+    # Mapper
+    map_erpnext_item_to_shopware,
+    reconcile_all_to_shopware,
+    reconcile_erpnext_with_shopware,
+    rename_category_in_shopware,
+    sanitize_filename,
     # Reconciliation
     sync_all_categories_to_shopware,
-    reconcile_erpnext_with_shopware,
-    reconcile_all_to_shopware,
-    full_reconciliation,
-    enqueue_full_reconciliation,
-    enqueue_full_reconciliation_with_categories,
-    cleanup_orphaned_shopware_categories,
+    sync_all_item_categories,
+    sync_all_variants,
+    sync_bulk_prices,
+    # Categories
+    sync_category_hierarchy,
+    sync_item_group_to_shopware,
+    sync_product_images_to_shopware,
+    # Prices
+    sync_product_price,
+    update_item_price_in_shopware,
+    # Upload functions
+    upload_erpnext_item_to_shopware,
+    upload_media_to_shopware,
+    upload_template_item_to_shopware,
+    upload_variant_item_to_shopware,
 )
 
 # Additional re-exports for bulk_sync.py compatibility
 from ecommerce_integrations.shopware6.export.property_handler import (
     get_or_create_variant_option,
 )
-
-# Cache management
-from ecommerce_integrations.shopware6.base.cache_manager import clear_shopware_cache
-
-from ecommerce_integrations.shopware6.constants import ROOT_ITEM_GROUPS
-
-import frappe
-from frappe import _
 from ecommerce_integrations.shopware6.utils import require_item_write_permission
-
 
 # ============================================================================
 # Backwards-compatible wrapper functions for external callers
@@ -129,8 +126,8 @@ def sync_template_with_variants_to_shopware(template_item_code: str) -> dict:
     Returns:
         dict with success status and synced variants count
     """
-    from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
     from ecommerce_integrations.shopware6.connection import get_shopware_client
+    from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
 
     require_item_write_permission(template_item_code)
     logger = get_logger("sync_template_with_variants")
@@ -179,8 +176,8 @@ def sync_category_to_shopware(item_group_name: str) -> dict:
     Returns:
         dict with success status and message
     """
-    from ecommerce_integrations.shopware6.utils import get_logger
     from ecommerce_integrations.shopware6.connection import get_shopware_client
+    from ecommerce_integrations.shopware6.utils import get_logger
     frappe.only_for("System Manager")
 
     logger = get_logger("sync_category_to_shopware")
@@ -218,55 +215,55 @@ def sync_category_to_shopware(item_group_name: str) -> dict:
 __all__ = [
     # Main class
     "ShopwareProductUploader",
-    # Upload functions
-    "upload_erpnext_item_to_shopware",
-    "upload_template_item_to_shopware",
-    "upload_variant_item_to_shopware",
-    "sync_all_variants",
-    # Categories
-    "sync_category_hierarchy",
-    "sync_all_item_categories",
-    "get_or_create_category",
-    "sync_item_group_to_shopware",
-    "rename_category_in_shopware",
-    # Images
-    "sync_product_images_to_shopware",
-    "upload_media_to_shopware",
-    # Prices
-    "sync_product_price",
-    "sync_bulk_prices",
-    "update_item_price_in_shopware",
-    "get_item_price",
-    # Mapper
-    "map_erpnext_item_to_shopware",
-    "get_tax_id_by_rate",
-    "get_or_create_manufacturer",
+    "cleanup_orphaned_shopware_categories",
+    # Cache
+    "clear_shopware_cache",
+    "enqueue_full_reconciliation",
+    "enqueue_full_reconciliation_with_categories",
+    "ensure_shopware_custom_field_set",
+    "full_reconciliation",
+    # Utils
+    "generate_uuid",
     "get_cached_currency_id",
     "get_cached_sales_channel_id",
+    "get_field_mappings",
+    "get_item_custom_fields",
+    "get_item_price",
+    "get_item_properties",
+    "get_or_create_category",
+    "get_or_create_manufacturer",
     # Properties
     "get_or_create_property_group",
     "get_or_create_property_option",
     "get_or_create_variant_option",
-    "get_item_properties",
-    "get_item_custom_fields",
-    "ensure_shopware_custom_field_set",
-    # Utils
-    "generate_uuid",
-    "sanitize_filename",
     "get_shopware_document_id",
-    "get_field_mappings",
+    "get_tax_id_by_rate",
+    # Mapper
+    "map_erpnext_item_to_shopware",
+    "reconcile_all_to_shopware",
+    "reconcile_erpnext_with_shopware",
+    "rename_category_in_shopware",
+    "sanitize_filename",
     # Reconciliation
     "sync_all_categories_to_shopware",
-    "reconcile_erpnext_with_shopware",
-    "reconcile_all_to_shopware",
-    "full_reconciliation",
-    "enqueue_full_reconciliation",
-    "enqueue_full_reconciliation_with_categories",
-    "cleanup_orphaned_shopware_categories",
-    # Cache
-    "clear_shopware_cache",
+    "sync_all_item_categories",
+    "sync_all_variants",
+    "sync_bulk_prices",
+    # Categories
+    "sync_category_hierarchy",
+    "sync_category_to_shopware",
+    "sync_item_group_to_shopware",
     # Backwards-compatible wrappers
     "sync_item_to_shopware",
+    # Images
+    "sync_product_images_to_shopware",
+    # Prices
+    "sync_product_price",
     "sync_template_with_variants_to_shopware",
-    "sync_category_to_shopware",
+    "update_item_price_in_shopware",
+    # Upload functions
+    "upload_erpnext_item_to_shopware",
+    "upload_media_to_shopware",
+    "upload_template_item_to_shopware",
+    "upload_variant_item_to_shopware",
 ]

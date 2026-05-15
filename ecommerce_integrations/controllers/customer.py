@@ -1,7 +1,8 @@
+from time import perf_counter
+
 import frappe
 from frappe import _
 from frappe.utils.nestedset import get_root_of
-from time import perf_counter
 
 
 class EcommerceCustomer:

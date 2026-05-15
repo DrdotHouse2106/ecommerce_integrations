@@ -5,10 +5,10 @@ sync_customers is enabled and enough time has elapsed.
 """
 
 import frappe
-from frappe.utils import now_datetime, time_diff_in_seconds, add_days
+from frappe.utils import add_days, now_datetime, time_diff_in_seconds
 
 from ecommerce_integrations.medusa.connection import medusa_request, temp_medusa_session
-from ecommerce_integrations.medusa.constants import API_CUSTOMERS, CUSTOMER_ID_FIELD, SETTING_DOCTYPE
+from ecommerce_integrations.medusa.constants import API_CUSTOMERS, SETTING_DOCTYPE
 from ecommerce_integrations.medusa.customer import MedusaCustomer
 from ecommerce_integrations.medusa.utils import is_medusa_enabled
 

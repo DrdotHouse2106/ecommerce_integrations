@@ -21,9 +21,9 @@ Features:
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
-from frappe.utils import flt
 
 import frappe
+from frappe.utils import flt
 
 from ecommerce_integrations.shopware6.constants import ITEM_SELLING_RATE_FIELD
 
@@ -296,9 +296,6 @@ class ConflictDetector:
                 sw_categories.add(cat_name)
 
         if erp_categories != sw_categories:
-            missing_in_sw = erp_categories - sw_categories
-            extra_in_sw = sw_categories - erp_categories
-
             report.differences.append(FieldDifference(
                 field_name="categories",
                 erpnext_value=sorted(erp_categories) if erp_categories else [],
@@ -384,8 +381,8 @@ def detect_all_conflicts(
         dict with conflict statistics and details
     """
     from ecommerce_integrations.shopware6.connection import get_shopware_client
-    from ecommerce_integrations.shopware6.export.reconciliation import get_shopware_products_batch
     from ecommerce_integrations.shopware6.constants import MODULE_NAME
+    from ecommerce_integrations.shopware6.export.reconciliation import get_shopware_products_batch
 
     detector = ConflictDetector()
     client = get_shopware_client()

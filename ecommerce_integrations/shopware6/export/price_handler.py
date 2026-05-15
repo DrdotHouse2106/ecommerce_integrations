@@ -9,13 +9,13 @@ from typing import Any
 
 import frappe
 from frappe.utils import flt
-
-from ecommerce_integrations.shopware6.connection import temp_shopware_session, get_shopware_client
-from ecommerce_integrations.shopware6.constants import ITEM_SELLING_RATE_FIELD, MODULE_NAME, SETTING_DOCTYPE
 from lib_shopware6_api_base import HEADER_index_asynchronously
-from ecommerce_integrations.shopware6.export.utils import get_shopware_document_id
+
+from ecommerce_integrations.shopware6.connection import get_shopware_client, temp_shopware_session
+from ecommerce_integrations.shopware6.constants import ITEM_SELLING_RATE_FIELD, MODULE_NAME, SETTING_DOCTYPE
 from ecommerce_integrations.shopware6.export.product_mapper import get_cached_currency_id
-from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
+from ecommerce_integrations.shopware6.export.utils import get_shopware_document_id
+from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
 from ecommerce_integrations.shopware6.validators import validate_before_destructive_operation
 
 
@@ -598,6 +598,9 @@ def force_reconcile_single_price(item_code: str, price_list: str = None) -> dict
     Returns:
         Dict with sync result
     """
+    from ecommerce_integrations.shopware6.services.access import require_item_write_permission
+
+    require_item_write_permission(item_code)
     return force_sync_single_product_price(item_code=item_code, price_list=price_list)
 
 
@@ -828,6 +831,9 @@ def enqueue_force_sync_all_prices(
     """
     from frappe.utils import cint, now
 
+    from ecommerce_integrations.shopware6.services.access import require_shopware_admin
+
+    require_shopware_admin()
     # Get batch size from settings if not provided
     if not batch_size:
         setting = frappe.get_cached_doc(SETTING_DOCTYPE)

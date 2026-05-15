@@ -3,14 +3,15 @@ Tests for Shopware 6 Data Validators
 """
 
 import unittest
-from ecommerce_integrations.shopware6.validators import (
-    ShopwareDataValidator,
-)
+
 from ecommerce_integrations.shopware6.tests.utils import (
     ShopwareTestCase,
+    create_sample_customer_data,
     create_sample_order_data,
     create_sample_product_data,
-    create_sample_customer_data,
+)
+from ecommerce_integrations.shopware6.validators import (
+    ShopwareDataValidator,
 )
 
 

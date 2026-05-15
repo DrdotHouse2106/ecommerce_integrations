@@ -18,8 +18,10 @@ from ecommerce_integrations.controllers.scheduling import need_to_run
 from ecommerce_integrations.medusa.connection import medusa_request, temp_medusa_session
 from ecommerce_integrations.medusa.constants import (
     API_INVENTORY_LEVELS_BATCH,
-    MODULE_NAME as MEDUSA_MODULE,
     SETTING_DOCTYPE,
+)
+from ecommerce_integrations.medusa.constants import (
+    MODULE_NAME as MEDUSA_MODULE,
 )
 from ecommerce_integrations.medusa.utils import (
     get_medusa_variant_id,

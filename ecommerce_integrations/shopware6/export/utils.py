@@ -47,7 +47,7 @@ def sanitize_filename(filename: str) -> str:
 
 
 # Re-export from main utils for backwards compatibility
-from ecommerce_integrations.shopware6.utils import get_shopware_document_id  # noqa: F401
+from ecommerce_integrations.shopware6.utils import get_shopware_document_id
 
 
 def get_setting():

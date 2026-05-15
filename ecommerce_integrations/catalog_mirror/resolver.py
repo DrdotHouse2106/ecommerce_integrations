@@ -44,7 +44,6 @@ from ecommerce_integrations.catalog_mirror.constants import (
     KNOWN_BACKENDS,
 )
 
-
 _MIRROR_DOCTYPE = "Ecommerce Catalog Mirror"
 _SC_DOCTYPE = "Ecommerce Smart Collection"
 _SC_TARGET_DOCTYPE = "Ecommerce Smart Collection Target"

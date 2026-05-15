@@ -8,7 +8,6 @@ from frappe.tests.utils import FrappeTestCase
 
 from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE
 
-
 # Deterministic 32-char hex UUIDs used by validator and dispatch tests.
 # The slot numbers carry no meaning beyond making collisions obvious in
 # debug output (``…010001`` = order, ``…020001`` = customer, etc.).

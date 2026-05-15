@@ -3,6 +3,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
+
 from ecommerce_integrations.shopware6.services.access import require_shopware_admin
 from ecommerce_integrations.shopware6.utils import get_logger
 
@@ -257,9 +258,7 @@ class ShopwareSetting(Document):
         Returns:
             Number of rules created/verified
         """
-        from ecommerce_integrations.shopware6.export.rule_handler import (
-            get_or_create_sales_channel_rule
-        )
+        from ecommerce_integrations.shopware6.export.rule_handler import get_or_create_sales_channel_rule
 
         rules_count = 0
         for sc in self.sales_channels:

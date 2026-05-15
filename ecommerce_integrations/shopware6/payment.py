@@ -9,15 +9,16 @@ Handles payment-related events from Shopware:
 from typing import Any
 
 import frappe
+from frappe import _
 from frappe.utils import nowdate
 
 from ecommerce_integrations.shopware6.constants import (
-    SETTING_DOCTYPE,
     PAYMENT_STATE_MAP,
+    SETTING_DOCTYPE,
 )
 from ecommerce_integrations.shopware6.utils import (
-    update_shopware_log,
     get_logger,
+    update_shopware_log,
 )
 
 
@@ -376,7 +377,7 @@ def _create_payment_against_invoice(
     from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
     try:
-        si = frappe.get_doc("Sales Invoice", invoice_name)
+        frappe.get_doc("Sales Invoice", invoice_name)
 
         # Get mode of payment from Sales Order
         mode_of_payment = (
@@ -488,6 +489,14 @@ def manually_create_payment_entry(sales_order_name: str) -> dict[str, Any]:
     Returns:
         dict with status and message
     """
+    # SECURITY: writing a Payment Entry from this endpoint requires
+    # write permission on the underlying Sales Order. Without this
+    # guard any authenticated user can create payments against any SO.
+    if not frappe.has_permission("Sales Order", "write", doc=sales_order_name):
+        frappe.throw(
+            _("Not permitted to create payments for this Sales Order"),
+            frappe.PermissionError,
+        )
     try:
         result = create_payment_entry_for_order(sales_order_name)
 

@@ -14,6 +14,7 @@ RATE LIMITING:
 
 import frappe
 from frappe import _
+
 from ecommerce_integrations.ai_description.services import (
     clamp_limit,
     get_item_with_permission,
@@ -100,8 +101,9 @@ def generate_descriptions_batch(item_codes: str = None) -> dict:
     require_ai_admin()
 
     import json
-    from .gemini import generate_descriptions_batch as batch_generate
+
     from .doctype.ai_description_setting.ai_description_setting import get_settings
+    from .gemini import generate_descriptions_batch as batch_generate
 
     settings = get_settings()
 

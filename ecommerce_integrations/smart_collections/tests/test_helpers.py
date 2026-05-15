@@ -143,7 +143,6 @@ def cleanup_test_data(prefixes: tuple[str, ...] = ("TItem", "TGroup")) -> None:
     # because it really is a child table). One DELETE per doctype using the
     # actual link field — N+1 per-row deletes added up fast on CI runs that
     # died mid-teardown.
-    prefix_filter = [("like", f"{p}%") for p in prefixes][0] if prefixes else None
     for child_doctype, link_field in (
         ("Item Manufacturer", "item_code"),
         ("Item Ecommerce Property", "parent"),

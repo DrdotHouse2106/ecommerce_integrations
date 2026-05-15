@@ -10,40 +10,38 @@ from typing import Any
 import frappe
 from frappe import _
 from frappe.utils import getdate, nowdate
+from lib_shopware6_api_base import Criteria, Shopware6AdminAPIClientBase
 
-from lib_shopware6_api_base import Shopware6AdminAPIClientBase, Criteria
-
+from ecommerce_integrations.ecommerce_integrations.ecommerce_custom_fields import STOREFRONT_SHOPWARE
 from ecommerce_integrations.shopware6.connection import temp_shopware_session
 from ecommerce_integrations.shopware6.constants import (
+    ORDER_SYNC_LOCK_TIMEOUT,
     SETTING_DOCTYPE,
     STATUS_SYNC_ENQUEUE_TIMEOUT,
-    ORDER_SYNC_LOCK_TIMEOUT,
-)
-from ecommerce_integrations.shopware6.utils import (
-    get_logger,
-    create_shopware_log,
-    update_shopware_log,
-    format_shopware_datetime,
 )
 from ecommerce_integrations.shopware6.customer import (
-    get_customer_from_shopware_order,
     ensure_customer_has_address,
+    get_customer_from_shopware_order,
 )
-from ecommerce_integrations.shopware6.product import create_items_if_not_exist
-
+from ecommerce_integrations.shopware6.order.delivery_handler import create_delivery_note
+from ecommerce_integrations.shopware6.order.line_item_handler import add_order_item, add_shipping_costs
 from ecommerce_integrations.shopware6.order.order_mapper import (
-    get_payment_method_info,
     calculate_delivery_date,
     extract_order_currency,
+    get_payment_method_info,
     get_tax_template,
 )
-from ecommerce_integrations.shopware6.order.line_item_handler import add_order_item, add_shipping_costs
-from ecommerce_integrations.shopware6.order.tax_handler import add_order_taxes
-from ecommerce_integrations.ecommerce_integrations.ecommerce_custom_fields import STOREFRONT_SHOPWARE
-from ecommerce_integrations.shopware6.order.service_items import process_checkout_fields
-from ecommerce_integrations.shopware6.order.delivery_handler import create_delivery_note
 from ecommerce_integrations.shopware6.order.payment_handler import (
     create_sales_invoice,
+)
+from ecommerce_integrations.shopware6.order.service_items import process_checkout_fields
+from ecommerce_integrations.shopware6.order.tax_handler import add_order_taxes
+from ecommerce_integrations.shopware6.product import create_items_if_not_exist
+from ecommerce_integrations.shopware6.utils import (
+    create_shopware_log,
+    format_shopware_datetime,
+    get_logger,
+    update_shopware_log,
 )
 
 
@@ -200,7 +198,7 @@ def create_sales_order(order_data: dict[str, Any]) -> str:
         if not customer:
             # Re-raise if we can't find the customer
             raise
-    
+
     # Ensure customer has address (important for PayPal orders where address may be missing initially)
     ensure_customer_has_address(customer, order_data)
 
@@ -618,7 +616,9 @@ def update_order_status(payload: dict[str, Any], request_id: str = None):
 
                         # If payment is now "Paid" and auto-invoice is enabled, trigger verification
                         if erpnext_status == "Paid":
-                            from ecommerce_integrations.shopware6.order.payment_handler import verify_payment_status_from_shopware
+                            from ecommerce_integrations.shopware6.order.payment_handler import (
+                                verify_payment_status_from_shopware,
+                            )
                             verify_payment_status_from_shopware(order_id, sales_order)
 
                 if request_id:

@@ -25,7 +25,6 @@ from ecommerce_integrations.shopware6.utils import get_logger
 from .mapping import _map_address_fields, map_shopware_salutation
 from .vat import trigger_vat_id_check
 
-
 CUSTOMER_SYNC_LOCK_TIMEOUT_SECONDS = 10 * 60
 CUSTOMER_SYNC_LOCK_PREFIX = "shopware6_customer_sync"
 

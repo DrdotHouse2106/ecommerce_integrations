@@ -9,7 +9,6 @@ from ecommerce_integrations.smart_collections.tests.test_helpers import (
     make_item,
 )
 
-
 _TEST_MANUFACTURER = "TestMfr-Smart-A"
 _TEST_OTHER_MFR = "TestMfr-Smart-B"
 

@@ -5,7 +5,7 @@ Input validation for Shopware data to ensure data integrity
 and provide clear error messages.
 """
 
-from typing import Any
+from typing import Any, ClassVar
 
 import frappe
 
@@ -26,11 +26,11 @@ class ShopwareDataValidator:
     """
 
     # Required fields for different entity types
-    ORDER_REQUIRED_FIELDS = ["id", "orderNumber", "orderCustomer"]
-    CUSTOMER_REQUIRED_FIELDS = ["id", "email"]
-    PRODUCT_REQUIRED_FIELDS = ["id", "productNumber"]
-    CATEGORY_REQUIRED_FIELDS = ["id", "name"]
-    WEBHOOK_REQUIRED_FIELDS = ["source", "data"]
+    ORDER_REQUIRED_FIELDS: ClassVar[list[str]] = ["id", "orderNumber", "orderCustomer"]
+    CUSTOMER_REQUIRED_FIELDS: ClassVar[list[str]] = ["id", "email"]
+    PRODUCT_REQUIRED_FIELDS: ClassVar[list[str]] = ["id", "productNumber"]
+    CATEGORY_REQUIRED_FIELDS: ClassVar[list[str]] = ["id", "name"]
+    WEBHOOK_REQUIRED_FIELDS: ClassVar[list[str]] = ["source", "data"]
 
     @classmethod
     def validate_order(cls, order_data: dict[str, Any]) -> tuple[bool, list[str]]:

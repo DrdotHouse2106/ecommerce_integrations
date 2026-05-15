@@ -14,31 +14,31 @@ from frappe import _
 
 # Note: get_shopware_client is imported inside upload() method to avoid circular imports
 from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCTYPE
-from ecommerce_integrations.shopware6.utils import get_logger
-from ecommerce_integrations.shopware6.export.utils import generate_uuid, get_shopware_document_id
+from ecommerce_integrations.shopware6.export.category_handler import (
+    clear_product_categories,
+    sync_all_item_categories,
+)
+from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
 from ecommerce_integrations.shopware6.export.product_mapper import (
-    map_erpnext_item_to_shopware,
-    get_tax_id_by_rate,
-    get_or_create_manufacturer,
-    get_or_create_delivery_time,
+    build_channel_prices,
     get_cached_currency_id,
     get_cached_sales_channel_id,
+    get_or_create_delivery_time,
+    get_or_create_manufacturer,
     get_product_visibilities,
-    build_channel_prices,
-)
-from ecommerce_integrations.shopware6.export.category_handler import (
-    sync_all_item_categories,
-    clear_product_categories,
+    get_tax_id_by_rate,
+    map_erpnext_item_to_shopware,
 )
 from ecommerce_integrations.shopware6.export.property_handler import (
+    clear_product_properties,
     ensure_shopware_custom_field_set,
     get_item_custom_fields,
     get_item_properties,
     get_or_create_property_group,
     get_or_create_property_option,
-    clear_product_properties,
 )
-from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
+from ecommerce_integrations.shopware6.export.utils import generate_uuid, get_shopware_document_id
+from ecommerce_integrations.shopware6.utils import get_logger
 
 
 class ShopwareProductUploader:
@@ -102,14 +102,14 @@ class ShopwareProductUploader:
         # Check if template item
         if item.has_variants:
             from ecommerce_integrations.shopware6.export.template_handler import (
-                upload_template_item_to_shopware
+                upload_template_item_to_shopware,
             )
             return upload_template_item_to_shopware(client, item)
 
         # Check if variant item
         if item.variant_of:
             from ecommerce_integrations.shopware6.export.variant_handler import (
-                upload_variant_item_to_shopware
+                upload_variant_item_to_shopware,
             )
             return upload_variant_item_to_shopware(client, item)
 
@@ -335,11 +335,11 @@ class ShopwareProductUploader:
                             pass
                 except Exception:
                     pass
-                
+
                 # Log payload for debugging
                 logger = get_logger("product_uploader")
                 logger.debug(f"PATCH payload for {product_id}: categories={payload.get('categories', [])}")
-                
+
                 try:
                     patch_result = client.request_patch(f"product/{product_id}", payload)
                     logger.debug(f"PATCH result for {product_id}: {patch_result if patch_result else 'None'}")
@@ -524,11 +524,11 @@ def sync_item_if_changed(item_code: str, force: bool = False) -> dict:
             f"product/{uploader.shopware_id}?associations[categories]={{}}&associations[media]={{}}&associations[cover][associations][media]={{}}"
         )
         shopware_data = response.get("data", {})
-    except Exception as e:
+    except Exception:
         # Product doesn't exist in Shopware - re-create
         result["shopware_id"] = uploader.upload()
         result["synced"] = True
-        result["message"] = f"Product recreated (was missing in Shopware)"
+        result["message"] = "Product recreated (was missing in Shopware)"
         return result
 
     # Compare states
@@ -564,8 +564,8 @@ def batch_sync_if_changed(item_codes: list, force: bool = False) -> dict:
     from ecommerce_integrations.shopware6.connection import get_shopware_client
     from ecommerce_integrations.shopware6.export.batch_uploader import BatchProductUploader
     from ecommerce_integrations.shopware6.export.reconciliation import (
-        get_shopware_products_batch,
         compare_item_with_shopware,
+        get_shopware_products_batch,
     )
     from ecommerce_integrations.shopware6.export.utils import get_shopware_document_id
 

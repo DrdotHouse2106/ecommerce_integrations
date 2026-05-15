@@ -22,21 +22,22 @@ Usage:
 """
 
 from typing import Any
-from frappe.utils import flt, now, cint, create_batch
 
 import frappe
+from frappe.utils import cint, create_batch, flt, now
 
 from ecommerce_integrations.shopware6.connection import (
-    temp_shopware_session,
     get_shopware_client,
+    temp_shopware_session,
 )
 from ecommerce_integrations.shopware6.constants import (
+    ITEM_SELLING_RATE_FIELD,
     MODULE_NAME,
     ROOT_ITEM_GROUPS,
     SETTING_DOCTYPE,
-    ITEM_SELLING_RATE_FIELD,
 )
-from ecommerce_integrations.shopware6.utils import create_shopware_log, update_shopware_log, get_logger
+from ecommerce_integrations.shopware6.services.access import require_shopware_admin
+from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger, update_shopware_log
 
 # Module-level logger for generic logging
 _logger = get_logger("reconciliation")
@@ -75,10 +76,11 @@ def sync_all_categories_to_shopware(
     Returns:
         dict: Sync results with statistics
     """
+    require_shopware_admin()
     from ecommerce_integrations.shopware6.export.category_handler import (
-        sync_category_hierarchy,
         bulk_sync_categories,
         bulk_sync_category_images,
+        sync_category_hierarchy,
     )
 
     # Parse string parameters from frontend
@@ -385,12 +387,13 @@ def _compare_custom_fields(erpnext_item, shopware_data: dict[str, Any]) -> dict 
         Dict with differing fields or None if in sync.
     """
     from frappe.utils import cstr
-    from ecommerce_integrations.shopware6.constants import PRODUCT_CUSTOM_FIELDS_MAP
+
     from ecommerce_integrations.property_utils import (
+        coerce_custom_field_value,
         get_ecommerce_properties,
         shopware_custom_field_name,
-        coerce_custom_field_value,
     )
+    from ecommerce_integrations.shopware6.constants import PRODUCT_CUSTOM_FIELDS_MAP
 
     expected = {}
 
@@ -638,6 +641,7 @@ def reconcile_all_to_shopware(
 
     Can be called from frontend without client parameter.
     """
+    require_shopware_admin()
     return reconcile_erpnext_with_shopware(
         limit=cint(limit),
         dry_run=_parse_bool(dry_run),
@@ -702,13 +706,13 @@ def full_reconciliation(
     sync_surcharge = _parse_bool(sync_surcharge)
 
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
-    
+
     # If skip_category_sync not explicitly set, use setting value
     if skip_category_sync is None:
         skip_category_sync = getattr(setting, 'skip_category_sync_on_full_reconciliation', False)
     else:
         skip_category_sync = _parse_bool(skip_category_sync)
-    
+
     if not category_root:
         category_root = getattr(setting, 'category_sync_root', 'Products') or 'Products'
 
@@ -952,6 +956,7 @@ def cleanup_orphaned_shopware_categories(
     Returns:
         Cleanup results with statistics
     """
+    require_shopware_admin()
     dry_run = _parse_bool(dry_run)
 
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
@@ -988,7 +993,6 @@ def cleanup_orphaned_shopware_categories(
             }
 
         shopware_root_id = root_cats[0].get("id")
-        shopware_root_path = root_cats[0].get("path") or ""
 
         frappe.logger("shopware6").info(
             f"Found Shopware root category '{root_category}' with ID {shopware_root_id}"
@@ -1123,6 +1127,7 @@ def cleanup_orphaned_shopware_products(
     Returns:
         Cleanup results with statistics
     """
+    require_shopware_admin()
     dry_run = _parse_bool(dry_run)
     batch_size = cint(batch_size) or 100
 
@@ -1363,6 +1368,7 @@ def enqueue_cleanup_orphaned_products(
     Returns:
         Job enqueue status
     """
+    require_shopware_admin()
     dry_run = _parse_bool(dry_run)
     batch_size = cint(batch_size) or 100
 
@@ -1386,7 +1392,7 @@ def enqueue_cleanup_orphaned_products(
     return {
         "success": True,
         "job_name": job_name,
-        "message": f"Orphaned products cleanup enqueued" + (" (DRY RUN)" if dry_run else "")
+        "message": "Orphaned products cleanup enqueued" + (" (DRY RUN)" if dry_run else "")
     }
 
 
@@ -1687,6 +1693,7 @@ def enqueue_force_sync_all_images_parallel(
     Returns:
         Dict with job info
     """
+    require_shopware_admin()
     batch_size = cint(batch_size) or 100
     workers = min(cint(workers) or 4, 8)  # Cap at 8 workers
     start_batch = cint(start_batch) or 1
@@ -1768,8 +1775,9 @@ def _run_parallel_image_sync(
     import queue
     import threading
     import traceback
-    from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
+
     from ecommerce_integrations.shopware6.base.cache_manager import get_cache, reset_thread_cache
+    from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
 
     query_params = query_params or []
 
@@ -1961,7 +1969,7 @@ def _run_parallel_image_sync(
         _logger.info(f"[parallel_image_sync] Loading batch {batch_num + 1}/{num_batches} (offset={offset})")
 
         try:
-            sql_params = tuple(query_params) + (batch_size, offset)
+            sql_params = (*tuple(query_params), batch_size, offset)
             items = frappe.db.sql(f"""
                 SELECT ei.erpnext_item_code, ei.integration_item_code
                 FROM `tabEcommerce Item` ei
@@ -2260,10 +2268,11 @@ def force_sync_all_variants(
     Returns:
         Dict with sync statistics
     """
+    require_shopware_admin()
     from ecommerce_integrations.shopware6.export.batch_uploader import BatchProductUploader
     from ecommerce_integrations.shopware6.export.template_handler import (
-        upload_template_item_to_shopware,
         clear_product_configurator_settings,
+        upload_template_item_to_shopware,
     )
 
     logger = get_logger("force_sync_all_variants")
@@ -2421,10 +2430,11 @@ def force_sync_single_template_variants(
     Returns:
         Dict with sync statistics
     """
+    require_shopware_admin()
     from ecommerce_integrations.shopware6.export.batch_uploader import BatchProductUploader
     from ecommerce_integrations.shopware6.export.template_handler import (
-        upload_template_item_to_shopware,
         clear_product_configurator_settings,
+        upload_template_item_to_shopware,
     )
     from ecommerce_integrations.shopware6.export.utils import get_shopware_document_id
 
@@ -2507,13 +2517,17 @@ def force_sync_single_template_variants(
             stats["failed"] = result.failed
             for err in result.errors:
                 stats["errors"].append(f"{err.get('item_code', '?')}: {err.get('error', '')[:100]}")
-            
+
             # Step 4: Sync images if requested
             if sync_images and result.success > 0:
                 logger.info(f"Syncing images for {result.success} variants...")
-                from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
-                from ecommerce_integrations.shopware6.export.utils import get_shopware_document_id as get_sw_id
-                
+                from ecommerce_integrations.shopware6.export.image_handler import (
+                    sync_product_images_to_shopware,
+                )
+                from ecommerce_integrations.shopware6.export.utils import (
+                    get_shopware_document_id as get_sw_id,
+                )
+
                 images_synced = 0
                 for variant_code in erpnext_variants:
                     try:
@@ -2524,7 +2538,7 @@ def force_sync_single_template_variants(
                             images_synced += 1
                     except Exception as img_err:
                         logger.warning(f"Image sync failed for {variant_code}: {img_err}")
-                
+
                 stats["images_synced"] = images_synced
                 logger.info(f"Images synced for {images_synced} variants")
         else:
@@ -2576,6 +2590,7 @@ def enqueue_force_sync_all_variants(
     Returns:
         Dict with job info
     """
+    require_shopware_admin()
     # Use batch size from settings if not provided
     if not batch_size:
         setting = frappe.get_cached_doc(SETTING_DOCTYPE)
@@ -2671,19 +2686,20 @@ def _run_force_variant_sync_batched(
         start_batch: Start from this batch number (1-based, for resuming interrupted syncs)
     """
     import time
+
     from ecommerce_integrations.shopware6.export.batch_uploader import BatchProductUploader
-    from ecommerce_integrations.shopware6.export.template_handler import (
-        upload_template_item_to_shopware,
-        clear_product_configurator_settings,
-    )
     from ecommerce_integrations.shopware6.export.image_handler import sync_product_images_to_shopware
+    from ecommerce_integrations.shopware6.export.template_handler import (
+        clear_product_configurator_settings,
+        upload_template_item_to_shopware,
+    )
     from ecommerce_integrations.shopware6.export.utils import get_shopware_document_id as get_sw_id
 
     # Get chunk settings (configurable via Shopware Setting)
     variant_chunk_size, variant_chunk_delay = _get_variant_chunk_settings()
 
     stats = {"templates_processed": 0, "variants_deleted": 0, "variants_synced": 0, "prices_synced": 0, "images_synced": 0, "failed": 0, "errors": []}
-    
+
     def _ensure_db_connection():
         """Ensure database connection is active."""
         try:
@@ -2724,13 +2740,13 @@ def _run_force_variant_sync_batched(
                 message="Could not connect to Shopware"
             )
             return
-        
+
         # Initialize BatchProductUploader once for better performance
         uploader = BatchProductUploader()
 
         # Get templates - with optional brand filter
         _ensure_db_connection()
-        
+
         # Include disabled items - they will be synced with active=false
         if brand:
             # Get template codes filtered by brand
@@ -2778,14 +2794,14 @@ def _run_force_variant_sync_batched(
 
             # Ensure connections are active at start of each batch
             _ensure_db_connection()
-            
+
             # Refresh Shopware client periodically to avoid token expiry
             if batch_num > 0 and batch_num % 5 == 0:
                 client = _get_fresh_client()
                 if not client:
                     _logger.error("[Force Variant Sync] Lost Shopware connection, aborting")
                     break
-            
+
             for ecom_item in batch:
                 template_code = ecom_item.erpnext_item_code
                 parent_shopware_id = ecom_item.integration_item_code
@@ -2934,7 +2950,7 @@ def _run_force_variant_sync_batched(
                     f"Variants synced: {stats['variants_synced']}, "
                     f"Prices: {stats['prices_synced']}, Images: {stats['images_synced']}, Failed: {stats['failed']}",
         )
-    
+
     except Exception as outer_error:
         # Catch any unhandled exception at the outer level
         _logger.error(f"[Force Variant Sync] FATAL ERROR: {outer_error}")

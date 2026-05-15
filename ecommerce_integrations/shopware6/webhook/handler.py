@@ -12,7 +12,6 @@ from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCT
 from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
 from ecommerce_integrations.shopware6.validators import ShopwareDataValidator
 
-
 # Webhook event type to handler mapping
 EVENT_HANDLERS = {
     # Order events

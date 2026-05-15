@@ -13,8 +13,6 @@ Shopware shouldn't produce them.
 
 from __future__ import annotations
 
-import frappe
-
 from ecommerce_integrations.catalog_mirror.constants import BACKEND_SHOPWARE
 from ecommerce_integrations.catalog_mirror.engine.adapters.base import (
     AdapterError,
@@ -24,7 +22,6 @@ from ecommerce_integrations.catalog_mirror.engine.adapters.base import (
     register,
 )
 from ecommerce_integrations.shopware6.connection import temp_shopware_session
-
 
 _TREE_PAGE_SIZE = 200
 _MATCH_LIMIT = 25

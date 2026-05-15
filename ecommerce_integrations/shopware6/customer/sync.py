@@ -10,7 +10,6 @@ from typing import Any
 
 import frappe
 from frappe import _
-
 from lib_shopware6_api_base import Criteria, Shopware6AdminAPIClientBase
 
 from ecommerce_integrations.shopware6.connection import (
@@ -469,6 +468,9 @@ def create_customer_from_shopware_data(customer_data: dict[str, Any]) -> str:
 @frappe.whitelist()
 def sync_customers_from_shopware(limit: int = 100) -> dict[str, int]:
     """Manually sync customers from Shopware."""
+    from ecommerce_integrations.shopware6.services.access import require_shopware_admin
+
+    require_shopware_admin()
     client = get_shopware_client()
 
     criteria = _build_customer_criteria(limit=int(limit))

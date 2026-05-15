@@ -13,7 +13,6 @@ broken Link.
 
 import frappe
 
-
 DEFAULT_MODE_OF_PAYMENT = "Invoice"
 
 

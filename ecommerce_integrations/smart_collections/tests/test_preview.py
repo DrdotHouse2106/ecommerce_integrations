@@ -16,16 +16,17 @@ without a live Shopware/Medusa backend; the DB is real per the
 plugin's testing rule.
 """
 
+from typing import ClassVar
 from unittest.mock import patch
 
 import frappe
 from frappe.tests import IntegrationTestCase
 
 from ecommerce_integrations.smart_collections.engine.adapters.base import (
+    _REGISTRY,
     CategoryAdapter,
     CategoryMatch,
     LiveCategoryState,
-    _REGISTRY,
 )
 from ecommerce_integrations.smart_collections.engine.preview import (
     CollectionSyncPlan,
@@ -43,7 +44,7 @@ class _StubAdapter(CategoryAdapter):
 
     backend = "Medusa"
     _stub_state: LiveCategoryState = LiveCategoryState(exists=False)
-    _stub_matches: list[CategoryMatch] = []
+    _stub_matches: ClassVar[list[CategoryMatch]] = []
 
     def upsert_category(self, collection, target) -> str:
         return "stub-ext"

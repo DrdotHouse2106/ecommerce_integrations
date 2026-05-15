@@ -5,18 +5,16 @@ test nothing, since the cache manager's contract *is* the Redis wrapping.
 Each test cleans its own keys under the ``test_cache_manager`` prefix.
 """
 
-import frappe
 from frappe.tests import IntegrationTestCase
 
 from ecommerce_integrations.shopware6.base.cache_manager import ShopwareCacheManager
-
 
 _TEST_TYPE = "test_cache_manager"
 
 
 class TestShopwareCacheManager(IntegrationTestCase):
 	def setUp(self):
-		# One scan per suite via setUp would mean 9 × full-keyspace scans;
+		# One scan per suite via setUp would mean 9x full-keyspace scans;
 		# rely on tearDown's invalidate_all (cheap SCAN over a small set)
 		# and only seed when something is left over from a crashed run.
 		ShopwareCacheManager().invalidate_all(_TEST_TYPE)

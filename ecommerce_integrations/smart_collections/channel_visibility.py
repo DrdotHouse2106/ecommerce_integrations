@@ -25,7 +25,6 @@ from ecommerce_integrations.smart_collections.constants import (
 )
 from ecommerce_integrations.smart_collections.engine.resolver import resolve
 
-
 _CACHE_KEY_PREFIX = "smart_collections_visibility_index:"
 _CACHE_TTL_SEC = 300
 

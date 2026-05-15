@@ -12,21 +12,21 @@ import hmac
 import json
 import time
 import uuid
-from typing import Any
 from collections.abc import Callable
+from typing import Any
 
 import frappe
 from frappe import _
 
 # Import Shopware SDK
 from lib_shopware6_api_base import (
-    Shopware6AdminAPIClientBase,
     ConfShopware6ApiBase,
+    ContainsFilter,
     Criteria,
     EqualsFilter,
-    RangeFilter,
-    ContainsFilter,
     MultiFilter,
+    RangeFilter,
+    Shopware6AdminAPIClientBase,
 )
 from lib_shopware6_api_base.conf_shopware6_api_base_classes import ShopwareAPIError
 
@@ -77,7 +77,6 @@ from ecommerce_integrations.shopware6.utils import (
     is_retriable_error,
     require_shopware_admin,
 )
-
 
 # Retry configuration for gateway errors
 DEFAULT_MAX_RETRIES = 3
@@ -142,8 +141,8 @@ def _patch_client_binary_upload(client: Shopware6AdminAPIClientBase):
     This patch intercepts POST requests with bytes payload and sends them correctly
     using httpx's `content` parameter with raw bytes.
     """
-    from lib_shopware6_api_base.lib_shopware6_admin_client import HttpMethod
     import httpx
+    from lib_shopware6_api_base.lib_shopware6_admin_client import HttpMethod
 
     _orig_request = client._request
 
@@ -502,7 +501,7 @@ def webhook_handler():
         try:
             data = json.loads(frappe.request.data)
         except json.JSONDecodeError as e:
-            from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
+            from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
             create_shopware_log(
                 method="webhook_handler",
                 request_data={"payload_length": len(frappe.request.data or b"")},
@@ -624,17 +623,17 @@ def process_webhook(event_type: str, data: dict[str, Any]) -> None:
 
 # Re-export commonly used SDK classes for convenience
 __all__ = [
+    "ConfShopware6ApiBase",
+    "ContainsFilter",
+    "Criteria",
+    "EqualsFilter",
+    "MultiFilter",
+    "RangeFilter",
+    "Shopware6AdminAPIClientBase",
+    "ShopwareAPIError",
     "get_shopware_client",
     "temp_shopware_session",
     "test_connection",
     "test_shopware_connection",
     "webhook_handler",
-    "Shopware6AdminAPIClientBase",
-    "ConfShopware6ApiBase",
-    "Criteria",
-    "EqualsFilter",
-    "RangeFilter",
-    "ContainsFilter",
-    "MultiFilter",
-    "ShopwareAPIError",
 ]

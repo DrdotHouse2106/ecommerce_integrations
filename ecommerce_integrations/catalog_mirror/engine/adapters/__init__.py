@@ -9,7 +9,7 @@ The Medusa adapter is a stub for Phase 1 — concrete implementation
 lands in Phase 5.
 """
 
-from ecommerce_integrations.catalog_mirror.engine.adapters import (  # noqa: F401
+from ecommerce_integrations.catalog_mirror.engine.adapters import (
     medusa,
     shopware,
 )

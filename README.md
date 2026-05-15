@@ -70,6 +70,28 @@ AI-powered product search and FAQ generation for shop assistants:
 3. Enable FAQ and description sync
 
 
+### Catalog Mirror & Smart Collections
+
+Backend category placement is split across two complementary modules.
+
+**Catalog Mirror** keeps a 1:1 mirror of the ERPNext Item Group tree
+under one root in the backend (Shopware or Medusa). One mirror per
+(backend, root Item Group) pair; renames, moves and new IGs propagate
+on the next sync. Use this whenever the storefront's standard category
+structure should track ERPNext. See `docs/catalog_mirror.md`.
+
+**Smart Collections** are rule-based ad-hoc groupings — `Sale`,
+`Bestseller`, themed listings — that do not follow the Item Group tree.
+A collection's rules resolve to a set of items, and each enabled target
+pushes those items onto a sales channel (Shopware) or product category
+(Medusa). See `docs/smart_collections.md`.
+
+Per-item exceptions live on `Item.ecommerce_channel_overrides`; an
+`exclude` row wins over both modules, an `include` row injects a
+channel that neither would have produced. See `docs/multi_shop_setup.md`
+for the resolver precedence rules.
+
+
 ### Installation
 
 **For Shopware6 / Medusa / RAG users (this fork):**

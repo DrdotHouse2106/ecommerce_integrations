@@ -9,11 +9,11 @@ from typing import Any
 import frappe
 
 from ecommerce_integrations.shopware6.constants import (
-    SETTING_DOCTYPE,
     PAYMENT_STATE_MAP,
+    SETTING_DOCTYPE,
     STATUS_SYNC_ENQUEUE_TIMEOUT,
 )
-from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
+from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
 
 
 def create_sales_invoice(
@@ -78,7 +78,7 @@ def create_sales_invoice(
 
         return si.name
 
-    except Exception as e:
+    except Exception:
         get_logger().error("Error occurred", persist=False)
         return None
 
@@ -129,7 +129,7 @@ def make_payment_entry_against_sales_invoice(
 
         return payment_entry.name
 
-    except Exception as e:
+    except Exception:
         get_logger().error("Error occurred", persist=False)
         return None
 
@@ -259,7 +259,7 @@ def verify_payment_status_from_shopware(order_id: str, sales_order_name: str):
         if new_status not in ("Failed", "Cancelled"):
             _mark_order_ready(sales_order_name)
 
-    except Exception as e:
+    except Exception:
         get_logger().error("Error occurred", persist=False)
 
 

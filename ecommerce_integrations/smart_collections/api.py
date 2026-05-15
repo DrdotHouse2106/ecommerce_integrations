@@ -19,8 +19,13 @@ def list_for_backend(backend: str) -> list[dict]:
     The shape is flat (one row per target) so the JS can render it as a
     table grouped by ``sales_channel`` without a second round-trip.
     """
+    # SECURITY: read permission on the collection doctype gates the whole
+    # view — without this any authenticated user can enumerate
+    # smart-collection / sales-channel mappings.
+    if not frappe.has_permission("Ecommerce Smart Collection", "read"):
+        frappe.throw(_("Not permitted to read Smart Collections"))
     if backend not in KNOWN_BACKENDS:
-        frappe.throw(f"Unknown backend: {backend!r}")
+        frappe.throw(_("Unknown backend: {0}").format(repr(backend)))
 
     rows = frappe.db.sql(
         """
@@ -62,7 +67,7 @@ def preview(collection: str) -> dict:
     from ecommerce_integrations.smart_collections.engine.resolver import dry_run
 
     if not frappe.has_permission("Ecommerce Smart Collection", "read", doc=collection):
-        frappe.throw("Not permitted to preview this collection")
+        frappe.throw(_("Not permitted to preview this collection"))
     return dry_run(frappe.get_doc("Ecommerce Smart Collection", collection))
 
 
@@ -141,7 +146,7 @@ def toggle_target(target_id: str, enabled: int) -> None:
     """
     target = frappe.get_doc("Ecommerce Smart Collection Target", target_id)
     if target.parenttype != "Ecommerce Smart Collection":
-        frappe.throw("Not a Smart Collection target")
+        frappe.throw(_("Not a Smart Collection target"))
     parent = frappe.get_doc(target.parenttype, target.parent)
     parent.check_permission("write")
     target.db_set("enabled", 1 if int(enabled) else 0, update_modified=True)

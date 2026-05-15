@@ -5,7 +5,6 @@ import unicodedata
 
 from frappe.model.document import Document
 
-
 _GERMAN_UMLAUT_MAP = str.maketrans(
     {
         "ä": "ae",

@@ -31,8 +31,8 @@ from typing import Any
 import frappe
 from frappe.utils import flt
 
-from ecommerce_integrations.shopware6.connection import temp_shopware_session, get_shopware_client
-from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE, MODULE_NAME
+from ecommerce_integrations.shopware6.connection import get_shopware_client, temp_shopware_session
+from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCTYPE
 from ecommerce_integrations.shopware6.utils import get_logger
 
 
@@ -246,6 +246,9 @@ def import_stock_from_shopware(
     Returns:
         dict with import statistics
     """
+    from ecommerce_integrations.shopware6.services.access import require_shopware_admin
+
+    require_shopware_admin()
     importer = StockImporter()
 
     if not importer.is_import_enabled():
@@ -330,6 +333,9 @@ def sync_stock_for_product(item_code: str, dry_run: bool = False) -> dict[str, A
     Returns:
         dict with sync result
     """
+    from ecommerce_integrations.shopware6.services.access import require_item_write_permission
+
+    require_item_write_permission(item_code)
     importer = StockImporter()
 
     if not importer.is_import_enabled():

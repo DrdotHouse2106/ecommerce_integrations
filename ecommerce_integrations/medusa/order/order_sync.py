@@ -1,5 +1,7 @@
 """Sync Medusa orders to ERPNext Sales Orders."""
 import frappe
+from frappe import _
+
 from ecommerce_integrations.medusa.connection import medusa_request, temp_medusa_session
 from ecommerce_integrations.medusa.constants import API_ORDERS, ORDER_ID_FIELD, SETTING_DOCTYPE
 from ecommerce_integrations.medusa.customer import MedusaCustomer
@@ -34,7 +36,7 @@ class MedusaOrder:
         if order_data is None:
             order_data = self.fetch_order()
         if not order_data:
-            frappe.throw(f"Could not fetch Medusa order {self.order_id}")
+            frappe.throw(_("Could not fetch Medusa order {0}").format(self.order_id))
 
         # Sync customer first so the lookup in the mapper succeeds.
         # Prefer the embedded customer object when available (skips an API round-trip).

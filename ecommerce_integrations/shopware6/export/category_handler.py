@@ -14,23 +14,23 @@ import frappe
 import requests
 from frappe.utils import get_files_path
 
+# CRITICAL: ShopwareAPIError inherits from BaseException, NOT Exception!
+from lib_shopware6_api_base.conf_shopware6_api_base_classes import ShopwareAPIError
+
+from ecommerce_integrations.shopware6.base.cache_manager import get_cache
 from ecommerce_integrations.shopware6.connection import temp_shopware_session
 from ecommerce_integrations.shopware6.constants import (
+    CATEGORY_FAQ_FIELDS_MAP,
     ROOT_ITEM_GROUPS,
     SHOPWARE_CATEGORY_CUSTOM_FIELD_SET_NAME,
     SHOPWARE_CATEGORY_PRIORITY,
-    CATEGORY_FAQ_FIELDS_MAP,
 )
-from ecommerce_integrations.shopware6.base.cache_manager import get_cache
 from ecommerce_integrations.shopware6.export.utils import (
     generate_uuid,
-    sanitize_filename,
     get_item_group_hierarchy,
+    sanitize_filename,
 )
-from ecommerce_integrations.shopware6.utils import get_logger, create_shopware_log
-
-# CRITICAL: ShopwareAPIError inherits from BaseException, NOT Exception!
-from lib_shopware6_api_base.conf_shopware6_api_base_classes import ShopwareAPIError
+from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
 
 
 def ensure_category_custom_field_set(client) -> str | None:
@@ -126,7 +126,7 @@ def ensure_category_custom_field_set(client) -> str | None:
         cache.set("category_custom_field_set", SHOPWARE_CATEGORY_CUSTOM_FIELD_SET_NAME, set_id)
         return set_id
 
-    except BaseException as e:
+    except BaseException:
         get_logger().error("Failed to ensure category custom field set", persist=False)
         return None
 
@@ -473,7 +473,7 @@ def upload_category_media(client, category_id: str, image_path: str) -> str | No
 
         return media_id
 
-    except BaseException as e:
+    except BaseException:
         get_logger().error("Failed to upload category media", persist=False)
         return None
 
@@ -819,7 +819,7 @@ def clear_product_categories(client, product_id: str) -> bool:
             }
         }
 
-        result = client.request_post("_action/sync", sync_payload)
+        client.request_post("_action/sync", sync_payload)
         frappe.logger().debug(f"Cleared categories from product {product_id}")
         return True
 
@@ -860,7 +860,13 @@ def _clear_product_categories_fallback(client, product_id: str) -> bool:
 @temp_shopware_session
 def debug_get_item_categories(client, item_code: str) -> dict:
     """Debug function to see what categories would be synced for an item."""
-    from ecommerce_integrations.shopware6.export.category_handler import get_all_item_categories, sync_category_hierarchy
+    from ecommerce_integrations.shopware6.export.category_handler import (
+        get_all_item_categories,
+        sync_category_hierarchy,
+    )
+    from ecommerce_integrations.shopware6.services.access import require_shopware_admin
+
+    require_shopware_admin()
 
     result = {
         "item_code": item_code,
@@ -894,6 +900,9 @@ def debug_clear_product_categories(client, product_id: str) -> dict:
     Debug function to test clearing product categories.
     Returns detailed information about what happened.
     """
+    from ecommerce_integrations.shopware6.services.access import require_shopware_admin
+
+    require_shopware_admin()
     result = {
         "product_id": product_id,
         "categories_before": [],
@@ -987,6 +996,9 @@ def force_resync_category_image(client, item_group_name: str) -> bool:
     Returns:
         True if successful
     """
+    from ecommerce_integrations.shopware6.services.access import require_shopware_admin
+
+    require_shopware_admin()
     try:
         # Find category in Shopware
         response = client.request_post(
@@ -1063,7 +1075,7 @@ def force_resync_category_image(client, item_group_name: str) -> bool:
         # Create new media
         try:
             client.request_post("media", {"id": fresh_media_id, "mediaFolderId": folder_id})
-        except Exception as e:
+        except Exception:
             get_logger().error("Failed to create media", persist=False)
             return False
 
@@ -1075,7 +1087,7 @@ def force_resync_category_image(client, item_group_name: str) -> bool:
                 content_type="octet-stream",
                 additional_query_params={"extension": ext, "fileName": unique_filename}
             )
-        except Exception as e:
+        except Exception:
             get_logger().error("Failed to upload media content", persist=False)
             return False
 
@@ -1083,7 +1095,7 @@ def force_resync_category_image(client, item_group_name: str) -> bool:
         try:
             client.request_patch(f"category/{cat_id}", {"mediaId": fresh_media_id})
             frappe.logger().info(f"Assigned new media {fresh_media_id} to category {item_group_name}")
-        except Exception as e:
+        except Exception:
             get_logger().error("Failed to assign media to category", persist=False)
             return False
 
@@ -1932,6 +1944,9 @@ def sync_all_category_orders(client) -> dict[str, Any]:
     Returns:
         Dict with sync results
     """
+    from ecommerce_integrations.shopware6.services.access import require_shopware_admin
+
+    require_shopware_admin()
     return sync_category_order_by_priority(client, parent_category_id=None)
 
 
@@ -1950,6 +1965,9 @@ def migrate_add_priority_custom_field(client) -> dict[str, Any]:
     Returns:
         Dict with migration result
     """
+    from ecommerce_integrations.shopware6.services.access import require_shopware_admin
+
+    require_shopware_admin()
     logger = get_logger("migrate_priority_field")
 
     try:
@@ -2002,7 +2020,7 @@ def migrate_add_priority_custom_field(client) -> dict[str, Any]:
 
         client.request_post("custom-field", field_payload)
 
-        logger.info(f"Successfully added priority custom field to category custom field set")
+        logger.info("Successfully added priority custom field to category custom field set")
 
         return {
             "success": True,

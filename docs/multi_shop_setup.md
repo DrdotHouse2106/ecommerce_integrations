@@ -80,12 +80,33 @@ Filter Mode: Exclude
 
 ## Visibility Priorities
 
-Products are assigned to channels in this priority order:
+Products are assigned to channels by the unified resolver in
+`catalog_mirror/resolver.py`. Three layers contribute, in precedence
+order:
 
-1. **Item Override**: Per-item channel assignment (highest priority)
-2. **Item Group Mapping + Brand Filter**: Category + brand combination
-3. **Item Group Mapping**: Category only
-4. **Default Channel**: Fallback for unmapped products
+1. **Per-Item Channel Override** — rows on
+   `Item.ecommerce_channel_overrides` (highest priority).
+   `mode=exclude` is a hard veto on a channel for that item;
+   `mode=include` injects a channel neither lower layer produced.
+   See `catalog_mirror.md` for details.
+2. **Catalog Mirror** — any active mirror whose `root_item_group`
+   is an ancestor of the item's IG contributes its
+   `target_sales_channel` at visibility `30 - All` plus the
+   IG-ancestor chain as category placements. See `catalog_mirror.md`.
+3. **Smart Collections** — any active collection whose rules match
+   the item contributes the channel + visibility from each enabled
+   target row. See `smart_collections.md`.
+
+Channel dedup: on a tie within a channel, highest visibility wins.
+When no layer contributes a channel, the resolver falls back to the
+default Sales Channel configured on `Shopware Setting`
+(`sales_channels[is_default=1]`). Medusa has no equivalent fallback
+— an empty channel list is the correct signal there.
+
+The legacy "Item Group Mapping + Manufacturer Filter" mechanism
+described above still works for sites that configure it on
+`Shopware Setting`, but new installs should reach for Catalog Mirror
++ Smart Collections instead.
 
 ## After Setup
 

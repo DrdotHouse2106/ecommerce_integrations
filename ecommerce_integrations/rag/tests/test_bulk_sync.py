@@ -10,7 +10,6 @@ and API keys, so we don't exercise it here. These tests cover:
   losing the item codes they were given.
 """
 
-import frappe
 from frappe.tests import IntegrationTestCase
 
 from ecommerce_integrations.rag import bulk_sync

@@ -25,19 +25,20 @@ from ecommerce_integrations.shopware6.constants import (
     MODULE_NAME,
     SETTING_DOCTYPE,
 )
-from ecommerce_integrations.shopware6.export.utils import (
-    get_shopware_document_id,
-)
 from ecommerce_integrations.shopware6.export.property_handler import (
     get_or_create_property_group as _get_or_create_property_group,
+)
+from ecommerce_integrations.shopware6.export.property_handler import (
     get_or_create_property_option as _get_or_create_property_option,
+)
+from ecommerce_integrations.shopware6.export.utils import (
+    get_shopware_document_id,
 )
 from ecommerce_integrations.shopware6.services.access import (
     require_item_write_permission,
     require_shopware_admin,
 )
 from ecommerce_integrations.shopware6.utils import get_logger
-
 
 # Prefix for JTL attribute custom fields
 JATTR_PREFIX = "jattr_"

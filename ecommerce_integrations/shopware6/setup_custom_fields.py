@@ -9,7 +9,6 @@ Run via:
 
 import frappe
 
-
 # Only the NEW Multi-Storefront fields
 MULTI_STOREFRONT_FIELDS = {
     "Item": [

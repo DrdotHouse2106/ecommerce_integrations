@@ -5,12 +5,17 @@ Delegates to shared checkout_utils for common logic.
 Adds Shopware-specific service item detection from line items.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ecommerce_integrations.ecommerce_integrations.checkout_utils import (
-    process_checkout_fields as _process_fields,
     add_service_item,
 )
+from ecommerce_integrations.ecommerce_integrations.checkout_utils import (
+    process_checkout_fields as _process_fields,
+)
+
+if TYPE_CHECKING:
+    import frappe
 
 
 def process_checkout_fields(

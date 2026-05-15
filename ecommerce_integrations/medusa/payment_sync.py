@@ -5,7 +5,6 @@ Optionally creates Sales Invoices for paid orders.
 """
 
 import frappe
-from frappe.utils import flt
 
 from ecommerce_integrations.controllers.scheduling import need_to_run
 from ecommerce_integrations.medusa.connection import medusa_request, temp_medusa_session
@@ -192,11 +191,14 @@ def sync_payment_status():
 	if not need_to_run(SETTING_DOCTYPE, "payment_sync_frequency", "last_payment_sync"):
 		return
 
-	open_orders = frappe.db.sql("""
-		SELECT so.name, so.{order_id_field} as medusa_order_id
+	# SAFE: ORDER_ID_FIELD is a hardcoded module-level constant ("medusa_order_id"),
+	# not user input. f-string interpolation here is identifier substitution
+	# (column name), not value substitution, so %s placeholders are not applicable.
+	open_orders = frappe.db.sql(f"""
+		SELECT so.name, so.{ORDER_ID_FIELD} as medusa_order_id
 		FROM `tabSales Order` so
-		WHERE so.{order_id_field} IS NOT NULL
-		AND so.{order_id_field} != ''
+		WHERE so.{ORDER_ID_FIELD} IS NOT NULL
+		AND so.{ORDER_ID_FIELD} != ''
 		AND so.docstatus = 1
 		AND so.status NOT IN ('Cancelled', 'Closed')
 		AND NOT EXISTS (
@@ -208,7 +210,7 @@ def sync_payment_status():
 		)
 		ORDER BY so.creation DESC
 		LIMIT 50
-	""".format(order_id_field=ORDER_ID_FIELD), as_dict=True)
+	""", as_dict=True)
 
 	synced = 0
 	for order in open_orders:

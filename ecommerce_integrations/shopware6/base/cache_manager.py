@@ -15,8 +15,10 @@ Replaces the following global caches from product_export.py:
 - Redis caches for currency, sales_channel, image_hash, field_mappings
 """
 
-from typing import Any
+from typing import Any, ClassVar
+
 import frappe
+
 from ecommerce_integrations.shopware6.utils import require_shopware_admin
 
 
@@ -64,7 +66,7 @@ class ShopwareCacheManager:
     REDIS_PREFIX = "shopware6:cache:"
 
     # Default TTL values (in seconds)
-    DEFAULT_TTL = {
+    DEFAULT_TTL: ClassVar[dict[str, int]] = {
         "property_group": 3600,      # 1 hour
         "property_option": 3600,     # 1 hour
         "category": 3600,            # 1 hour
@@ -331,6 +333,7 @@ class ShopwareCacheManager:
 # Thread-local storage for cache instances
 # This ensures each thread gets its own cache instance with its own frappe.cache() context
 import threading
+
 _thread_local = threading.local()
 
 
@@ -356,7 +359,7 @@ def get_cache() -> ShopwareCacheManager:
 def reset_thread_cache():
     """
     Reset the cache instance for the current thread.
-    
+
     Call this after frappe.destroy() in thread cleanup to ensure
     a fresh cache instance is created on the next get_cache() call.
     """

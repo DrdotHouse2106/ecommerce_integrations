@@ -1,5 +1,4 @@
 """Install custom fields for Medusa integration on ERPNext DocTypes."""
-import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 from ecommerce_integrations.ecommerce_integrations.ecommerce_custom_fields import (

@@ -22,6 +22,7 @@ import hmac
 import json
 
 import frappe
+from frappe import _
 
 from ecommerce_integrations.medusa.constants import SETTING_DOCTYPE
 from ecommerce_integrations.medusa.utils import create_medusa_log, is_medusa_enabled, update_medusa_log
@@ -44,11 +45,11 @@ def handle_medusa_event():
     repeats so a retry of a webhook we've already processed is a no-op.
     """
     if not is_medusa_enabled():
-        frappe.throw("Medusa integration is not enabled", frappe.AuthenticationError)
+        frappe.throw(_("Medusa integration is not enabled"), frappe.AuthenticationError)
 
     payload = frappe.request.get_data(as_text=True)
     if not payload:
-        frappe.throw("Empty payload", frappe.ValidationError)
+        frappe.throw(_("Empty payload"), frappe.ValidationError)
 
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
     webhook_secret = setting.get_password("webhook_secret") if setting.webhook_secret else None
@@ -62,7 +63,7 @@ def handle_medusa_event():
             hashlib.sha256,
         ).hexdigest()
         if not hmac.compare_digest(signature, expected):
-            frappe.throw("Invalid webhook signature", frappe.AuthenticationError)
+            frappe.throw(_("Invalid webhook signature"), frappe.AuthenticationError)
     else:
         # No secret -> only accept if explicitly opted in.
         allow_unsigned = bool(getattr(setting, "allow_unsigned_webhooks", False))
@@ -73,8 +74,7 @@ def handle_medusa_event():
                 "allow_unsigned_webhooks for local development."
             )
             frappe.throw(
-                "Webhook signature validation required. Configure webhook_secret "
-                "in Medusa Setting.",
+                _("Webhook signature validation required. Configure webhook_secret in Medusa Setting."),
                 frappe.AuthenticationError,
             )
 

@@ -21,13 +21,13 @@
 		let html = '<div class="smart-collections-summary">';
 		Object.keys(groups).sort().forEach(function(channel) {
 			html += `<h5 style="margin-top:1em">${frappe.utils.escape_html(channel)}</h5>`;
-			let cols = '<th>Collection</th>'
-				+ '<th style="width:90px">State</th>'
-				+ '<th style="width:90px">Items</th>';
-			if (show_visibility) cols += '<th style="width:90px">Visibility</th>';
-			cols += '<th style="width:120px">Status</th>'
-				+ '<th style="width:160px">Last Synced</th>'
-				+ '<th style="width:60px">Open</th>';
+			let cols = `<th>${__('Collection')}</th>`
+				+ `<th style="width:90px">${__('State')}</th>`
+				+ `<th style="width:90px">${__('Items')}</th>`;
+			if (show_visibility) cols += `<th style="width:90px">${__('Visibility')}</th>`;
+			cols += `<th style="width:120px">${__('Status')}</th>`
+				+ `<th style="width:160px">${__('Last Synced')}</th>`
+				+ `<th style="width:60px">${__('Open')}</th>`;
 			html += `<table class="table table-sm" style="margin-bottom:0">`
 				+ `<thead><tr>${cols}</tr></thead><tbody>`;
 			groups[channel].forEach(function(row) {
@@ -139,7 +139,7 @@
 		`;
 
 		function reload() {
-			wrap.$wrapper.html(header + '<div class="sc-body text-muted small">Loading…</div>');
+			wrap.$wrapper.html(header + `<div class="sc-body text-muted small">${__('Loading…')}</div>`);
 			wrap.$wrapper.find('.sc-add-btn').on('click', function() {
 				open_create_dialog(backend, channels, function(name) {
 					reload();

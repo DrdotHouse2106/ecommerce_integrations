@@ -7,17 +7,6 @@ from typing import Any
 
 import frappe
 
-# Re-exported for backwards compatibility — callers still import these names
-# from ``shopware6.utils`` rather than reaching into ``shopware6.services.access``.
-from ecommerce_integrations.shopware6.services.access import (  # noqa: F401
-    require_item_write_permission,
-    require_shopware_admin,
-)
-from ecommerce_integrations.shopware6.services.log_sanitizer import (
-    sanitize_shopware_log_data,
-    sanitize_shopware_log_text,
-)
-
 from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_integration_log.ecommerce_integration_log import (
     create_log,
 )
@@ -26,6 +15,16 @@ from ecommerce_integrations.shopware6.constants import (
     SETTING_DOCTYPE,
 )
 
+# Re-exported for backwards compatibility — callers still import these names
+# from ``shopware6.utils`` rather than reaching into ``shopware6.services.access``.
+from ecommerce_integrations.shopware6.services.access import (
+    require_item_write_permission,
+    require_shopware_admin,
+)
+from ecommerce_integrations.shopware6.services.log_sanitizer import (
+    sanitize_shopware_log_data,
+    sanitize_shopware_log_text,
+)
 
 # Gateway error codes that should trigger a retry
 RETRIABLE_ERROR_MESSAGES = (
@@ -203,7 +202,7 @@ def create_shopware_log(
 ) -> "frappe.Document":
     """
     Create a log entry for Shopware sync operations using shared Ecommerce Integration Log.
-    
+
     This function now uses the shared logging infrastructure from ecommerce_integration_log
     to maintain consistency with other integrations (Shopify, Unicommerce).
 
@@ -252,7 +251,7 @@ def update_shopware_log(
     """
     try:
         log = frappe.get_doc("Ecommerce Integration Log", log_name)
-        
+
         if status:
             log.status = status
         if response_data:
@@ -263,7 +262,7 @@ def update_shopware_log(
             log.traceback = sanitize_shopware_log_text(
                 frappe.get_traceback() if not isinstance(exception, str) else str(exception)
             )
-            
+
         log.save(ignore_permissions=True)
         frappe.db.commit()
     except Exception as e:
@@ -578,31 +577,31 @@ def map_country_code(shopware_country_iso: str) -> str | None:
 def map_state_from_shopware(country_state_data: dict[str, Any], country_name: str) -> str | None:
     """
     Map Shopware countryState to ERPNext state name.
-    
+
     Shopware countryState has:
     - shortCode: e.g. "DE-NW" for Nordrhein-Westfalen
     - name: Display name e.g. "Nordrhein-Westfalen"
-    
+
     Args:
         country_state_data: Shopware countryState object
         country_name: ERPNext country name (e.g. "Germany")
-    
+
     Returns:
         ERPNext state name if found
     """
     if not country_state_data or not isinstance(country_state_data, dict):
         return None
-    
+
     # Get the state code (e.g., "DE-NW" -> "NW") or name
     short_code = country_state_data.get("shortCode", "")
     state_name = country_state_data.get("name", "") or (country_state_data.get("translated") or {}).get("name", "")
-    
+
     # Extract state code from shortCode (e.g., "DE-NW" -> "NW")
     if short_code and "-" in short_code:
         state_code = short_code.split("-")[-1]
     else:
         state_code = short_code
-    
+
     # State doctype/table is optional in some deployments. If unavailable,
     # fall back to the Shopware state name to avoid repeated query exceptions.
     if not frappe.db.table_exists("State"):
@@ -625,7 +624,7 @@ def map_state_from_shopware(country_state_data: dict[str, Any], country_name: st
         )
         if state:
             return state
-    
+
     # Try to find by name
     if state_name and country_name and has_state_name:
         state = frappe.db.get_value(
@@ -635,7 +634,7 @@ def map_state_from_shopware(country_state_data: dict[str, Any], country_name: st
         )
         if state:
             return state
-        
+
     if state_name and country_name:
         # Also try just matching by name field (works even without state_name field).
         state = frappe.db.get_value(
@@ -645,11 +644,11 @@ def map_state_from_shopware(country_state_data: dict[str, Any], country_name: st
         )
         if state:
             return state
-    
+
     # Last resort: return the display name as-is if states exist for this country
     if state_name:
         return state_name
-    
+
     return None
 
 

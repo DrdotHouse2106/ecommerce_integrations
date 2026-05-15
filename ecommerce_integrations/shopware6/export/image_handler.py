@@ -23,9 +23,9 @@ from ecommerce_integrations.shopware6.utils import get_logger
 
 def _is_safe_url(url: str) -> bool:
     """Block requests to internal/private networks (SSRF protection)."""
-    from urllib.parse import urlparse
     import ipaddress
     import socket
+    from urllib.parse import urlparse
 
     try:
         parsed = urlparse(url)
@@ -84,7 +84,7 @@ def get_product_media_folder_id(client) -> str | None:
 
         return None
 
-    except BaseException as e:
+    except BaseException:
         get_logger().error("Failed to get Product Media folder", persist=False)
         return None
 
@@ -153,7 +153,7 @@ def get_file_content_and_type(file_url: str) -> tuple[bytes | None, str | None, 
                         ext = os.path.splitext(file_doc.file_name)[1].lstrip('.') or 'jpg'
                         return content, mime_type, ext
                 except Exception as e:
-                    get_logger().error(f"Failed to get content from external storage for {file_url}: {str(e)}", persist=False)
+                    get_logger().error(f"Failed to get content from external storage for {file_url}: {e!s}", persist=False)
             return None, None, None
 
         # Local file — validate path stays within allowed directories
@@ -188,7 +188,7 @@ def get_file_content_and_type(file_url: str) -> tuple[bytes | None, str | None, 
         return None, None, None
 
     except Exception as e:
-        get_logger().error(f"Failed to get file content for {file_url}: {str(e)}", persist=False)
+        get_logger().error(f"Failed to get file content for {file_url}: {e!s}", persist=False)
         return None, None, None
 
 
@@ -405,7 +405,7 @@ def upload_media_to_shopware(client, file_url: str, item_code: str, position: in
         except BaseException as e:
             error_str = str(e).lower()
             if "already exists" not in error_str and "updatecommand" not in error_str:
-                get_logger().error(f"Failed to create media for {item_code}: {str(e)}", persist=False)
+                get_logger().error(f"Failed to create media for {item_code}: {e!s}", persist=False)
                 return None
 
         # Try URL-based upload first (much faster - Shopware fetches directly)
@@ -417,7 +417,7 @@ def upload_media_to_shopware(client, file_url: str, item_code: str, position: in
             # URL-based failed, fall back to binary
 
         # Binary upload fallback (for private files or if URL-based failed)
-        file_content, mime_type, extension = get_file_content_and_type(file_url)
+        file_content, _mime_type, extension = get_file_content_and_type(file_url)
         if not file_content:
             get_logger().warning(f"Could not read file {file_url} for item {item_code}", persist=False)
             return None
@@ -432,13 +432,13 @@ def upload_media_to_shopware(client, file_url: str, item_code: str, position: in
         except BaseException as e:
             error_str = str(e).lower()
             if "already exists" not in error_str and "duplicate" not in error_str:
-                get_logger().error(f"Failed to upload file for {item_code}: {str(e)}", persist=False)
+                get_logger().error(f"Failed to upload file for {item_code}: {e!s}", persist=False)
                 return None
 
         return media_id
 
     except BaseException as e:
-        get_logger().error(f"Failed to upload media for {item_code}: {str(e)}", persist=False)
+        get_logger().error(f"Failed to upload media for {item_code}: {e!s}", persist=False)
         return None
     finally:
         # Explicit memory cleanup for binary content

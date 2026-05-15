@@ -9,8 +9,8 @@ import unittest
 from unittest.mock import patch
 
 from ecommerce_integrations.shopware6.tests.utils import (
-	ShopwareTestCase,
 	TEST_ORDER_UUID,
+	ShopwareTestCase,
 )
 
 
@@ -50,6 +50,7 @@ class TestEventHandlerDispatchTable(unittest.TestCase):
 		# Every value should be a plain identifier — they're looked up via
 		# ``getattr(self, handler_name)`` on the WebhookHandler instance.
 		import re
+
 		from ecommerce_integrations.shopware6.webhook.handler import EVENT_HANDLERS
 
 		ident = re.compile(r"^[a-z_][a-z0-9_]*$")

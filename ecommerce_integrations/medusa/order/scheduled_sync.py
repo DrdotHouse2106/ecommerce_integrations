@@ -5,7 +5,7 @@ sync if enough time has elapsed (controlled by order_sync_frequency).
 """
 
 import frappe
-from frappe.utils import now_datetime, time_diff_in_seconds, add_days
+from frappe.utils import add_days, now_datetime, time_diff_in_seconds
 
 from ecommerce_integrations.medusa.connection import medusa_request, temp_medusa_session
 from ecommerce_integrations.medusa.constants import API_ORDERS, ORDER_ID_FIELD, SETTING_DOCTYPE

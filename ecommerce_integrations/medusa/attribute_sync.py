@@ -23,7 +23,6 @@ from ecommerce_integrations.medusa.connection import (
 	optional_session,
 )
 
-
 _UMLAUT_MAP = str.maketrans({
 	"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss",
 	"Ä": "ae", "Ö": "oe", "Ü": "ue",

@@ -9,8 +9,9 @@ to attach channel-specific prices to products.
 
 import frappe
 
-from ecommerce_integrations.shopware6.export.utils import generate_uuid
 from ecommerce_integrations.shopware6.base.cache_manager import get_cache
+from ecommerce_integrations.shopware6.export.utils import generate_uuid
+from ecommerce_integrations.shopware6.utils import get_logger
 
 
 def get_or_create_sales_channel_rule(
@@ -92,7 +93,7 @@ def get_or_create_sales_channel_rule(
 
         return rule_id
 
-    except Exception as e:
+    except Exception:
         get_logger().error("Error occurred", persist=False)
         return None
 

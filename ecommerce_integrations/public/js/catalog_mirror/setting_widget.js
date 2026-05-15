@@ -68,7 +68,7 @@
 		const fields = [
 			{
 				fieldname: 'title', fieldtype: 'Data', label: __('Title'), reqd: 1,
-				description: __('Operator-facing label. Example: "Test.Shop / Produkte".'),
+				description: __('Operator-facing label. Example: "yourshop.com / Produkte".'),
 			},
 			{
 				fieldname: 'root_item_group', fieldtype: 'Link', label: __('Root Item Group'),

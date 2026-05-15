@@ -41,7 +41,6 @@ from ecommerce_integrations.medusa.connection import (
 )
 from ecommerce_integrations.medusa.constants import API_CATEGORIES
 
-
 _TREE_PAGE_SIZE = 200
 _MATCH_LIMIT = 25
 _FIELDS = "id,name,handle,description,is_active,parent_category_id"
