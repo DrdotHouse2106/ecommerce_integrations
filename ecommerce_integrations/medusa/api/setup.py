@@ -20,7 +20,6 @@ from frappe.utils.data import add_to_date, get_datetime
 from ecommerce_integrations.medusa.constants import MODULE_NAME, SETTING_DOCTYPE
 from ecommerce_integrations.medusa.services.access import require_medusa_admin
 
-
 WEBHOOK_ENDPOINT_PATH = (
     "/api/method/ecommerce_integrations.medusa.webhook_handler.handle_medusa_event"
 )

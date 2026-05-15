@@ -23,7 +23,6 @@ from frappe.utils.data import add_to_date, get_datetime
 from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCTYPE
 from ecommerce_integrations.shopware6.services.access import require_shopware_admin
 
-
 WEBHOOK_ENDPOINT_PATH = (
     "/api/method/ecommerce_integrations.shopware6.connection.webhook_handler"
 )
