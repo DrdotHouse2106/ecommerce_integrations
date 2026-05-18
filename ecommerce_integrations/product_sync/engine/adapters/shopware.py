@@ -904,23 +904,36 @@ class ShopwareProductAdapter(ProductAdapter):
         if isinstance(prices, list) and prices:
             first = prices[0] or {}
             try:
+                # Always read gross so we match the canonical's basis.
                 base = round(float(first.get("gross") or first.get("net") or 0), 4)
             except (TypeError, ValueError):
                 base = 0.0
             currency = _ns(first.get("currencyId"))
+
+        # Tax rate from the product's ``tax`` association (Shopware
+        # returns ``{taxRate: 19.0, ...}``). Falls back to 19 % so a
+        # missing association doesn't force a spurious hash mismatch
+        # on installs where Shopware didn't include the association.
+        tax_rate_pct = 19.0
+        tax = merged.get("tax")
+        if isinstance(tax, dict):
+            raw = tax.get("taxRate")
+            if raw is not None:
+                try:
+                    tax_rate_pct = float(raw)
+                except (TypeError, ValueError):
+                    pass
 
         # Channel-tier prices live in the ``prices`` association
         # (rule-based price tiers) — Phase 5 will reconcile these
         # against ERP price lists. For now we emit an empty list, which
         # matches what ``_canonical_pricing`` does on the ERP side when
         # the sync has no per-channel overrides configured.
-        # TODO: when sync.price_strategy = channel_price_list with
-        # per-channel rows, expand the live ``prices`` rules and emit
-        # one channel_prices entry per matched rule.
         return {
             "currency": currency,
             "base_price": base,
             "channel_prices": [],
+            "tax_rate_pct": round(tax_rate_pct, 4),
         }
 
     def _live_inventory(self, merged: dict[str, Any]) -> dict[str, Any]:
@@ -1007,15 +1020,23 @@ class ShopwareProductAdapter(ProductAdapter):
         return {"template": _ns(tax_id)}
 
     def _live_categories(self, merged: dict[str, Any]) -> dict[str, Any]:
-        # ERP side hashes the Item Group name, not its backend id;
-        # category-tree drift is the Catalog Mirror's job, not this
-        # adapter's. We emit an empty string so the hash compares
-        # against the ERP "no IG set" case correctly; the apply step
-        # re-resolves the backend category-id from the IG mapping at
-        # push time.
-        # TODO: when sync.match_categories_by_name is enabled, walk
-        # the categories association and emit the first IG name match.
-        return {"item_group": ""}
+        """Live category UUIDs Shopware reports for this product.
+
+        Mirrors the shape ``_canonical_categories`` produces on the ERP
+        side: ``{"item_group": <name-or-empty>, "ids": [<uuid>, …]}``.
+        The ``ids`` list is what we actually hash for parity. ``item_group``
+        stays empty here because Shopware doesn't carry the ERP-side IG
+        name — only its own category UUIDs.
+        """
+        ids: list[str] = []
+        for c in merged.get("categories") or []:
+            if isinstance(c, dict) and c.get("id"):
+                ids.append(c["id"])
+        if not ids:
+            for raw in merged.get("categoryIds") or []:
+                if raw:
+                    ids.append(str(raw))
+        return {"item_group": "", "ids": sorted(set(ids))}
 
 
 # ─── Module-level helpers ────────────────────────────────────────────

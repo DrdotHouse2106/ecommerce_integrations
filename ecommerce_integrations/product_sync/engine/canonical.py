@@ -269,10 +269,86 @@ def _canonical_pricing(item, sync, ctx=None) -> dict[str, Any]:
             })
         channel_prices.sort(key=lambda d: d["channel_id"])
 
+    # Resolve tax rate per item (item template wins, then sync default,
+    # else 19 % German fallback). Stored in the canonical so a
+    # mass tax-rate change re-hashes everything correctly.
+    tax_rate_pct = 0.0
+    for row in (getattr(item, "taxes", None) or []):
+        tpl = (getattr(row, "item_tax_template", "") or "").strip()
+        if not tpl:
+            continue
+        try:
+            t = frappe.get_cached_doc("Item Tax Template", tpl)
+            for sub in (t.taxes or []):
+                rate = getattr(sub, "tax_rate", None)
+                if rate is not None:
+                    tax_rate_pct = float(rate)
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+        if tax_rate_pct:
+            break
+    if not tax_rate_pct and getattr(sync, "tax_template", ""):
+        try:
+            t = frappe.get_cached_doc("Item Tax Template", sync.tax_template)
+            for sub in (t.taxes or []):
+                rate = getattr(sub, "tax_rate", None)
+                if rate is not None:
+                    tax_rate_pct = float(rate)
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+    if not tax_rate_pct:
+        tax_rate_pct = 19.0  # German default — same as payload builder
+
+    # Normalise to gross so canonical + live hash on the same basis.
+    # Tax-mode is per-Price-List in real installs (one B2B net list +
+    # one B2C gross list is common). Resolution order:
+    #
+    # 1. ``Price List.custom_price_includes_tax`` — the custom field
+    #    installed by ``add_price_list_tax_flag``. Wins per Item Price.
+    # 2. ``Shopware Setting.default_price_list_includes_tax`` — global
+    #    fallback. Used when ``price_strategy=item_standard_rate``
+    #    (no Price List is involved) or when the per-list flag is unset.
+    erp_is_gross = False
+    resolved_list = None
+    if strategy == "channel_price_list":
+        # Pick the same list the base price came from (matches the
+        # ``_price()`` lookup above).
+        resolved_list = (
+            getattr(sync, "price_list_override", None) or ""
+        )
+    if resolved_list:
+        try:
+            pl_flag = frappe.db.get_value(
+                "Price List", resolved_list, "custom_price_includes_tax",
+            )
+            if pl_flag is not None:
+                erp_is_gross = bool(int(pl_flag or 0))
+                resolved_list = "_resolved"  # mark as found
+        except Exception:  # noqa: BLE001
+            resolved_list = None
+    if resolved_list != "_resolved":
+        # Either no PL involved or per-PL flag absent — global default.
+        try:
+            setting = frappe.get_single("Shopware Setting")
+            erp_is_gross = bool(int(
+                getattr(setting, "default_price_list_includes_tax", 0) or 0,
+            ))
+        except Exception:  # noqa: BLE001
+            pass
+
+    base_net = _normalize_float(base or 0)
+    if erp_is_gross:
+        gross_price = base_net
+    else:
+        gross_price = _normalize_float(base_net * (1.0 + tax_rate_pct / 100.0))
+
     return {
         "currency": _norm_str(currency),
-        "base_price": _normalize_float(base or 0),
+        "base_price": gross_price,
         "channel_prices": channel_prices,
+        "tax_rate_pct": _normalize_float(tax_rate_pct),
     }
 
 
@@ -493,13 +569,44 @@ def _canonical_taxes(item, sync) -> dict[str, Any]:
 
 
 def _canonical_categories(item, sync) -> dict[str, Any]:
-    """Item Group of this Item — the Catalog Mirror is responsible
-    for mapping it to a backend category id at apply time. For hash
-    purposes we just hash the IG name; a category re-mapping in
-    Catalog Mirror leaves the Item's hash unchanged (the IG name
-    didn't change), but the apply step still re-pushes because the
-    backend category id is read fresh."""
-    return {"item_group": _norm_str(getattr(item, "item_group", ""))}
+    """Backend-category UUIDs the apply step would push.
+
+    Reads ``Item Group.shopware_category_id`` / ``medusa_category_id``
+    (whichever matches the Sync's backend) — the same lookup the
+    payload builder does at apply time. Hashing the UUIDs (not the
+    IG name) means:
+
+    - When the mapping exists and is correct, the hash matches what
+      Shopware reports back via the live-side canonical.
+    - When no mapping exists yet, ``ids`` is ``[]`` — the apply step
+      also skips the ``categories`` field in that case, so the hash
+      reflects "we'd push nothing for categories" and the differ
+      doesn't flap forever.
+
+    The IG name is kept under a sibling key so the preview UI can
+    still show "would link to <name>" without re-reading the Item.
+    """
+    ig_name = _norm_str(getattr(item, "item_group", ""))
+    backend = (getattr(sync, "backend", "") or "").strip()
+    ids: list[str] = []
+    if ig_name and backend:
+        try:
+            import frappe
+            field = (
+                "shopware_category_id" if backend == "Shopware"
+                else "medusa_category_id" if backend == "Medusa"
+                else None
+            )
+            if field:
+                # ``frappe.get_meta`` cache means this is a cheap check.
+                meta = frappe.get_meta("Item Group")
+                if any(f.fieldname == field for f in meta.fields):
+                    cat_id = frappe.db.get_value("Item Group", ig_name, field)
+                    if cat_id:
+                        ids = [cat_id]
+        except Exception:  # noqa: BLE001 — never crash the hash builder
+            pass
+    return {"item_group": ig_name, "ids": ids}
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────

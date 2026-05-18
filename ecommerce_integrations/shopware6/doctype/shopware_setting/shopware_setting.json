@@ -10,6 +10,7 @@
   "intro_html",
   "section_break_auth",
   "shop_url",
+  "image_public_base_url",
   "column_break_auth",
   "grant_type",
   "section_break_integration",
@@ -294,6 +295,12 @@
    "in_list_view": 1,
    "label": "Shop-URL",
    "mandatory_depends_on": "eval:doc.enable_shopware"
+  },
+  {
+   "description": "Public base URL Shopware can use to fetch product images from this ERPNext install. Leave empty when the site URL itself is reachable from Shopware. Useful for setups where ERPNext lives on an internal host but a reverse proxy / CDN exposes /file/* paths externally. Example: https://files.yourshop.example.com",
+   "fieldname": "image_public_base_url",
+   "fieldtype": "Data",
+   "label": "Public image base URL (Shopware media fetch)"
   },
   {
    "fieldname": "column_break_auth",

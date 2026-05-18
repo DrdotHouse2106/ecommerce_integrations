@@ -420,15 +420,21 @@ def _diff_proposed_against_live(
             )
         )
 
-    # Categories: compare live.category_ids (raw) to mapping resolved at
-    # apply time; Phase-2 emits a coarse hint.
-    prop_categories = (proposed.get("categories") or {}).get("item_group", "")
-    if prop_categories and prop_categories not in (live.category_ids or []):
+    # Categories: compare the resolved UUIDs that canonical emits to the
+    # live UUIDs from Shopware. Only emit a diff when the operator has
+    # actually mapped the IG (``ids`` non-empty) and the set differs.
+    # When mapping is missing the apply step does NOT push the
+    # ``categories`` field — emitting a "would change" diff there
+    # would lie to the operator.
+    cat_section = proposed.get("categories") or {}
+    prop_cat_ids = sorted(set(cat_section.get("ids") or []))
+    live_cat_ids = sorted(set(live.category_ids or []))
+    if prop_cat_ids and prop_cat_ids != live_cat_ids:
         diffs.append(
             FieldDiff(
-                field="categories.item_group",
-                current=", ".join(live.category_ids or [])[:200] or None,
-                proposed=prop_categories,
+                field="categories",
+                current=", ".join(live_cat_ids)[:200] or None,
+                proposed=", ".join(prop_cat_ids)[:200] or None,
                 change_kind="modified",
             )
         )

@@ -66,23 +66,43 @@ def build_shopware_payload(
         payload["visibilities"] = visibilities
 
     # Pricing: single base-price for the system default currency.
-    # Phase-5 keeps this simple — Phase-5.1 adds per-channel prices
-    # via the Shopware Rule engine (using sync.auto_create_shopware_rules).
+    # ERPNext stores either net or gross prices depending on the
+    # Setting's ``default_price_list_includes_tax`` flag; we read it
+    # and convert so Shopware receives BOTH ``gross`` and ``net``
+    # correctly. Sending equal gross/net (the old bug) caused 19 %
+    # price drops on every push.
     if int(getattr(sync, "sync_pricing", 0) or 0):
         base_price = pricing.get("base_price")
         currency_code = pricing.get("currency") or _default_currency()
         if base_price is not None:
             currency_id = _resolve_shopware_currency_id(currency_code)
             if currency_id:
-                # Shopware wants gross + net. Without a tax-template
-                # resolved, set both equal and `linked=True` — Shopware
-                # will recompute net based on the product's taxId.
-                payload["price"] = [{
+                tax_rate_pct = _resolve_tax_rate_pct(sync, item=item)
+                erp_is_gross = _erp_prices_are_gross()
+                gross, net = _compute_gross_net(
+                    float(base_price),
+                    tax_rate_pct,
+                    erp_is_gross=erp_is_gross,
+                )
+                price_row: dict[str, Any] = {
                     "currencyId": currency_id,
-                    "gross": float(base_price),
-                    "net": float(base_price),
+                    "gross": gross,
+                    "net": net,
+                    # ``linked=True`` makes Shopware re-derive one side
+                    # from the other whenever its product taxId changes,
+                    # so a future tax update on the storefront stays
+                    # consistent without a re-push.
                     "linked": True,
-                }]
+                }
+                payload["price"] = [price_row]
+
+                # Push the Shopware Tax UUID when we can resolve it
+                # from the Sync's tax_template. Without this Shopware
+                # falls back to the storefront's default tax which may
+                # not match the rate we computed gross from.
+                tax_id = _resolve_shopware_tax_id(tax_rate_pct)
+                if tax_id:
+                    payload["taxId"] = tax_id
 
     # Categories: link the product to its Item-Group's backend category
     # (written by Catalog Mirror on its own apply). When the mapping is
@@ -93,9 +113,20 @@ def build_shopware_payload(
     if category_ids:
         payload["categories"] = [{"id": cid} for cid in category_ids]
 
-    # TODO Phase-5.1: tax_id from sync.tax_template ↔ Shopware tax-rate mapping
-    # TODO Phase-5.1: images — currently URL-only (no binary), needs
-    #   evaluation of internal_host_patterns + binary fallback
+    # Images: Shopware wants ``media: [{media: {url, mediaFolderId}}]``
+    # for products that should reference externally-hosted media. We
+    # resolve canonical's relative ``/file/...`` URLs to absolute URLs
+    # via the ``image_public_base_url`` Setting (or the site's own
+    # ``frappe.utils.get_url()`` as a fallback). When neither yields a
+    # URL Shopware can reach, we SKIP the field entirely — Shopware's
+    # POST semantics treat a missing array as "leave alone", so we
+    # don't accidentally clear the existing media.
+    if int(getattr(sync, "sync_images", 0) or 0):
+        image_payload = _build_shopware_media(canonical.get("images") or [])
+        if image_payload:
+            payload["media"] = image_payload
+
+    # TODO Phase-5.1: per-channel prices via Shopware Rule engine
     # TODO Phase-5.1: properties (brand, manufacturer, attributes)
     return payload
 
@@ -271,3 +302,195 @@ def _slugify(s: str) -> str:
     don't send one, but explicit-slug helps with idempotent upserts."""
     import re
     return re.sub(r"[^a-z0-9]+", "-", (s or "").lower()).strip("-") or "product"
+
+
+# ─── Tax + image helpers (Shopware-specific) ─────────────────────────
+
+
+def _resolve_tax_rate_pct(sync, item=None) -> float:
+    """Tax rate (%) the price computation should use.
+
+    Resolution order — narrowest-scope wins, exactly the same order
+    ERPNext itself uses on Sales Invoices:
+
+    1. ``Item.taxes[0].item_tax_template`` — per-item override.
+       Catches mixed-rate catalogues (e.g. books at 7 % alongside
+       other goods at 19 %).
+    2. ``Sync.tax_template`` — operator-set default for the Sync.
+    3. ``Shopware Setting.default_tax_rate`` — legacy fallback for
+       installs that still carry the column (a recent cleanup
+       removed the field on new installs).
+    4. ``19.0`` — German standard rate.
+
+    Returns a percentage (19.0, not 0.19). Never raises.
+    """
+    template_name = ""
+
+    # 1. Item-level template wins.
+    if item is not None:
+        for row in (getattr(item, "taxes", None) or []):
+            tpl = (getattr(row, "item_tax_template", "") or "").strip()
+            if tpl:
+                template_name = tpl
+                break
+
+    # 2. Sync-level default.
+    if not template_name:
+        template_name = (getattr(sync, "tax_template", "") or "").strip()
+
+    if template_name:
+        try:
+            tpl = frappe.get_cached_doc("Item Tax Template", template_name)
+            for row in (tpl.taxes or []):
+                rate = getattr(row, "tax_rate", None)
+                if rate is not None:
+                    return float(rate)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # 3. Setting-level legacy fallback.
+    try:
+        setting = frappe.get_single("Shopware Setting")
+        legacy = getattr(setting, "default_tax_rate", None)
+        if legacy is not None and float(legacy) > 0:
+            return float(legacy)
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 4. German standard.
+    return 19.0
+
+
+def _erp_prices_are_gross() -> bool:
+    """True when the ERP price list contains gross prices.
+
+    Reads ``Shopware Setting.default_price_list_includes_tax``. The
+    decision drives gross/net derivation in :func:`_compute_gross_net`.
+    """
+    try:
+        setting = frappe.get_single("Shopware Setting")
+        return bool(int(getattr(setting, "default_price_list_includes_tax", 0) or 0))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _compute_gross_net(
+    base_price: float, tax_rate_pct: float, *, erp_is_gross: bool,
+) -> tuple[float, float]:
+    """Return ``(gross, net)`` rounded to 4 decimals.
+
+    Shopware wants both numbers explicitly. The tax_rate_pct decides
+    the conversion factor; ``erp_is_gross`` decides which side ERPNext
+    already has.
+    """
+    factor = 1.0 + (tax_rate_pct / 100.0)
+    if erp_is_gross:
+        gross = base_price
+        net = base_price / factor if factor else base_price
+    else:
+        net = base_price
+        gross = base_price * factor
+    return round(gross, 4), round(net, 4)
+
+
+def _resolve_shopware_tax_id(tax_rate_pct: float) -> str | None:
+    """Look up the Shopware ``tax.id`` UUID for a given tax rate.
+
+    Shopware ships a Tax entity per rate ("19 %", "7 %", …). The
+    product references one of them. We cache the rate→id map for an
+    hour so this is a single cold lookup per sync run, not per item.
+
+    Returns ``None`` on lookup failure — caller leaves ``taxId`` off
+    the payload and Shopware uses the storefront's default tax.
+    """
+    if tax_rate_pct is None or tax_rate_pct <= 0:
+        return None
+    cache_key = f"_psync_shopware_tax_id:{tax_rate_pct:.2f}"
+    cached = frappe.cache().get_value(cache_key)
+    if cached:
+        return cached or None
+    try:
+        from ecommerce_integrations.shopware6.connection import temp_shopware_session
+
+        @temp_shopware_session
+        def _lookup(client):
+            resp = client.request_post(
+                "search/tax",
+                payload={
+                    "limit": 1,
+                    "filter": [{
+                        "type": "equals",
+                        "field": "taxRate",
+                        "value": tax_rate_pct,
+                    }],
+                },
+            )
+            data = (resp or {}).get("data") or []
+            if data:
+                return (data[0].get("id") or "").strip() or None
+            return None
+
+        value = _lookup()
+        if value:
+            frappe.cache().set_value(cache_key, value, expires_in_sec=3600)
+        return value
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _build_shopware_media(images: list[dict]) -> list[dict]:
+    """Translate canonical's image list into Shopware ``media`` format.
+
+    Each entry becomes ``{"media": {"url": <absolute>, "filename": …}}``
+    so Shopware fetches the binary from the supplied URL on its side.
+
+    URL resolution:
+
+    1. ``Shopware Setting.image_public_base_url`` — operator-set public
+       base (e.g. CDN or reverse-proxy URL). When set, all relative
+       URLs are prefixed here.
+    2. ``frappe.utils.get_url()`` — the site's own base URL. Only
+       useful when Shopware can reach the ERP host.
+    3. If the canonical URL is already absolute, pass through unchanged.
+
+    When none of the above produces a URL Shopware could reach, the
+    function returns ``[]`` — callers omit the ``media`` field entirely
+    so Shopware keeps existing media (POST semantics treat missing
+    arrays as "leave alone").
+    """
+    if not images:
+        return []
+    public_base = ""
+    try:
+        setting = frappe.get_single("Shopware Setting")
+        public_base = (getattr(setting, "image_public_base_url", "") or "").strip()
+    except Exception:  # noqa: BLE001
+        pass
+    if not public_base:
+        try:
+            public_base = (frappe.utils.get_url() or "").strip()
+        except Exception:  # noqa: BLE001
+            public_base = ""
+    public_base = public_base.rstrip("/")
+
+    out: list[dict] = []
+    for img in images:
+        raw_url = (img.get("url") or "").strip()
+        if not raw_url:
+            continue
+        if raw_url.startswith(("http://", "https://")):
+            absolute = raw_url
+        elif public_base:
+            absolute = public_base + (raw_url if raw_url.startswith("/") else "/" + raw_url)
+        else:
+            # No way to resolve — skip rather than push a broken ref.
+            continue
+        # Filename hint helps Shopware name the imported media nicely.
+        filename = absolute.rsplit("/", 1)[-1] or "image"
+        out.append({
+            "media": {
+                "url": absolute,
+                "filename": filename,
+            },
+        })
+    return out
