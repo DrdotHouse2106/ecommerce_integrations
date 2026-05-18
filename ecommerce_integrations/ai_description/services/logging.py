@@ -14,12 +14,20 @@ def truncate_for_log(value: str, limit: int) -> str:
 
 
 def create_ai_description_log(item: str, model_used: str, prompt_used: str):
-    """Create a pending AI description log entry."""
+    """Create a pending AI description log entry.
+
+    ``AI Description Log.item`` is a Link to Item, but the multi-batch
+    code path passes synthetic labels like ``BATCH-3-of-12`` here so
+    the run is grouped per-batch in the log. We skip link-validation
+    so the batch label stays as-is — real per-item generations still
+    pass a valid Item code which validates normally.
+    """
     log = frappe.new_doc("AI Description Log")
     log.item = item
     log.status = "Pending"
     log.model_used = model_used
     log.prompt_used = truncate_for_log(prompt_used, MAX_PROMPT_LOG_LENGTH)
+    log.flags.ignore_links = True
     log.insert(ignore_permissions=True)
     return log
 
