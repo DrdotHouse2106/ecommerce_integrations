@@ -435,6 +435,37 @@ def generate_descriptions_batch(item_codes: list) -> dict:
     return results
 
 
+def _is_rate_limit_error(exc: BaseException) -> bool:
+    """Detect Gemini 429 / RESOURCE_EXHAUSTED in an exception."""
+    msg = str(exc) or ""
+    if "RESOURCE_EXHAUSTED" in msg or "exceeded your current quota" in msg:
+        return True
+    if "429" in msg and ("rate" in msg.lower() or "quota" in msg.lower()):
+        return True
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    return code == 429
+
+
+def _extract_retry_delay_seconds(exc: BaseException) -> float | None:
+    """Parse the ``retryDelay`` hint Gemini puts on 429 responses.
+
+    Returns ``None`` when no hint is present.
+    """
+    msg = str(exc) or ""
+    m = re.search(r"retryDelay['\"]?\s*[:=]\s*['\"]?(\d+)s", msg)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+_RATE_LIMIT_BACKOFF_SCHEDULE = (60.0, 120.0, 240.0, 480.0, 900.0)
+_RATE_LIMIT_BACKOFF_MAX = 1800.0  # cap individual sleeps at 30 min
+_RATE_LIMIT_GIVE_UP_AFTER = len(_RATE_LIMIT_BACKOFF_SCHEDULE)
+
+
 def generate_descriptions_multi_batch(item_codes: list, products_per_request: int = 20) -> dict:
     """
     Generate descriptions for multiple items using multi-product API calls.
@@ -463,7 +494,8 @@ def generate_descriptions_multi_batch(item_codes: list, products_per_request: in
         "failed": 0,
         "batches_processed": 0,
         "items": [],
-        "errors": []
+        "errors": [],
+        "aborted_reason": None,
     }
 
     # Split into batches
@@ -472,51 +504,80 @@ def generate_descriptions_multi_batch(item_codes: list, products_per_request: in
 
     frappe.logger().info(f"AI Multi-Batch: Processing {len(item_codes)} items in {total_batches} batches of up to {products_per_request}")
 
-    for batch_num, batch in enumerate(batches, 1):
+    batch_iter = enumerate(batches, 1)
+    while True:
+        try:
+            batch_num, batch = next(batch_iter)
+        except StopIteration:
+            break
+
         batch_start = time.time()
 
         try:
-            batch_result = _process_multi_batch(batch, settings, batch_num, total_batches)
-
-            results["success"] += batch_result["success"]
-            results["failed"] += batch_result["failed"]
-            results["batches_processed"] += 1
-            results["items"].extend(batch_result.get("items", []))
-
-            if batch_result.get("errors"):
-                results["errors"].extend(batch_result["errors"])
-
-            batch_time = time.time() - batch_start
-            frappe.logger().info(f"AI Multi-Batch: Batch {batch_num}/{total_batches} completed in {batch_time:.1f}s - {batch_result['success']} success, {batch_result['failed']} failed")
-
-            # Commit after each batch
-            frappe.db.commit()
-
-            # Progress update
-            frappe.publish_realtime(
-                "ai_description_progress",
-                {
-                    "batch": batch_num,
-                    "total_batches": total_batches,
-                    "items_processed": results["success"] + results["failed"],
-                    "total_items": len(item_codes)
-                },
-                user=frappe.session.user
+            batch_result, rate_limited_attempts = _process_multi_batch_with_backoff(
+                batch, settings, batch_num, total_batches
             )
-
+        except _GeminiRateLimitGaveUp as gaveup:
+            # Repeated 429s — stop the run entirely rather than burn through
+            # the remaining batches generating empty Failed logs. The remaining
+            # items are reported as skipped so the caller can resume tomorrow.
+            error_msg = f"Aborted after repeated rate-limit hits: {gaveup}"
+            frappe.logger().warning(f"AI Multi-Batch: {error_msg}")
+            results["errors"].append(error_msg)
+            results["aborted_reason"] = "rate_limit"
+            # Current batch + all remaining ones go down as skipped
+            remaining = [batch] + [b for _, b in batch_iter]
+            for skipped_batch in remaining:
+                results["failed"] += len(skipped_batch)
+                for item_code in skipped_batch:
+                    results["items"].append({
+                        "item_code": item_code,
+                        "success": False,
+                        "error": "skipped_rate_limit",
+                    })
+            break
         except Exception as e:
             error_msg = f"Batch {batch_num} failed: {e!s}"
             frappe.logger().error(f"AI Multi-Batch: {error_msg}")
             results["errors"].append(error_msg)
             results["failed"] += len(batch)
-
-            # Log failed items
             for item_code in batch:
                 results["items"].append({
                     "item_code": item_code,
                     "success": False,
-                    "error": error_msg
+                    "error": error_msg,
                 })
+            continue
+
+        results["success"] += batch_result["success"]
+        results["failed"] += batch_result["failed"]
+        results["batches_processed"] += 1
+        results["items"].extend(batch_result.get("items", []))
+
+        if batch_result.get("errors"):
+            results["errors"].extend(batch_result["errors"])
+
+        batch_time = time.time() - batch_start
+        suffix = f" (after {rate_limited_attempts} backoff retr{'y' if rate_limited_attempts == 1 else 'ies'})" if rate_limited_attempts else ""
+        frappe.logger().info(
+            f"AI Multi-Batch: Batch {batch_num}/{total_batches} completed in {batch_time:.1f}s"
+            f" - {batch_result['success']} success, {batch_result['failed']} failed{suffix}"
+        )
+
+        # Commit after each batch
+        frappe.db.commit()
+
+        # Progress update
+        frappe.publish_realtime(
+            "ai_description_progress",
+            {
+                "batch": batch_num,
+                "total_batches": total_batches,
+                "items_processed": results["success"] + results["failed"],
+                "total_items": len(item_codes),
+            },
+            user=frappe.session.user,
+        )
 
     total_time = time.time() - start_time
     results["total_time"] = total_time
@@ -525,6 +586,47 @@ def generate_descriptions_multi_batch(item_codes: list, products_per_request: in
     frappe.logger().info(f"AI Multi-Batch: Completed {len(item_codes)} items in {total_time:.1f}s ({results['avg_time_per_item']:.2f}s/item)")
 
     return results
+
+
+class _GeminiRateLimitGaveUp(Exception):
+    """Raised when a batch has hit 429 more times than the backoff schedule allows."""
+
+
+def _process_multi_batch_with_backoff(
+    batch: list, settings, batch_num: int, total_batches: int
+) -> tuple[dict, int]:
+    """Wrap ``_process_multi_batch`` with exponential backoff on Gemini 429s.
+
+    Returns ``(batch_result, rate_limited_attempts)`` where ``rate_limited_attempts``
+    is the number of times we slept and retried before this batch succeeded.
+
+    Raises ``_GeminiRateLimitGaveUp`` if we exhaust the schedule.
+    """
+    attempts = 0
+    for delay in _RATE_LIMIT_BACKOFF_SCHEDULE + (None,):  # None = final attempt then give up
+        try:
+            return _process_multi_batch(batch, settings, batch_num, total_batches), attempts
+        except Exception as e:
+            if not _is_rate_limit_error(e):
+                raise
+            if delay is None:
+                raise _GeminiRateLimitGaveUp(
+                    f"batch {batch_num}/{total_batches}: {_RATE_LIMIT_GIVE_UP_AFTER} 429s in a row"
+                ) from e
+            attempts += 1
+            # Prefer Gemini's own retryDelay hint when present, else schedule.
+            hint = _extract_retry_delay_seconds(e)
+            sleep_for = max(min(hint or delay, _RATE_LIMIT_BACKOFF_MAX), 1.0)
+            frappe.logger().warning(
+                f"AI Multi-Batch: rate-limited on batch {batch_num}/{total_batches}; "
+                f"sleeping {sleep_for:.0f}s then retrying (attempt {attempts})"
+            )
+            # Don't hold a DB connection across the sleep; MySQL may drop it.
+            try:
+                frappe.db.commit()
+            except Exception:
+                pass
+            time.sleep(sleep_for)
 
 
 def _process_multi_batch(item_codes: list, settings, batch_num: int, total_batches: int) -> dict:
