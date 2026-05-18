@@ -57,6 +57,15 @@ _PROGRESS_EVERY_N_ITEMS = 5
 # How often (in items) to check the cancel_requested flag on the Run.
 _CANCEL_CHECK_EVERY_N_ITEMS = 25
 
+# Apply-loop batch size — products go through the backend's bulk
+# endpoint (Shopware ``_action/sync``, Medusa ``/admin/products/batch``)
+# in chunks of this size. synQup's Shopware connector docs recommend
+# ~25 for the sync endpoint because products are complex entities and
+# big batches risk internal-server-errors / memory pressure on the
+# target shop. Each batch is one HTTP roundtrip → on a 33 961-item
+# apply this drops from 33 961 round trips to ~1 359.
+_APPLY_BATCH_SIZE = 25
+
 
 def apply_sync(
     sync_name: str,
@@ -202,61 +211,50 @@ def _apply_live(
             if row.sales_channel_id
         ]
 
-        # 3. Apply creates + updates serially. Phase-5.1 will batch.
-        to_process = []
+        # 3. Apply creates + updates in batches against the backend's
+        #    bulk endpoint (Shopware /_action/sync, Medusa
+        #    /admin/products/batch). Per-item HTTP would be 33k+ round
+        #    trips on a five-figure catalogue; batched calls keep the
+        #    apply pass tractable. Batch size is conservative (25)
+        #    because products are complex entities — synQup's
+        #    recommendation for Shopware sync API stability.
+        to_process: list[tuple] = []
         for node in plan.creates:
             to_process.append((node, ACTION_CREATE))
         for node in plan.updates:
             to_process.append((node, ACTION_UPDATE))
 
-        for i, (node, action) in enumerate(to_process):
-            # Heartbeat + cancel check every N items.
-            if i and i % _CANCEL_CHECK_EVERY_N_ITEMS == 0:
-                if _is_cancelled(run.name):
-                    result.message = _("Run wurde durch den Operator abgebrochen.")
-                    _finalize_run(
-                        run, result, status=STATUS_PARTIAL,
-                        message=result.message, applied_diffs=applied_diffs,
-                        started_ts=started_ts,
-                    )
-                    _release_sync(
-                        sync_doc.name, status=STATUS_PARTIAL,
-                        last_error=result.message,
-                    )
-                    return result
-                _heartbeat(run.name)
-
-            # Realtime progress.
-            if i and i % _PROGRESS_EVERY_N_ITEMS == 0:
-                _publish_progress(sync_doc.name, run.name, i, len(to_process), result)
-
-            try:
-                outcome = _apply_one_item(
-                    item_code=node.item_code,
-                    action=action,
-                    sync_doc=sync_doc,
-                    adapter=adapter,
-                    target_channels=target_channels,
-                    integration_key=integration_key,
-                    run_name=run.name,
+        for batch_start in range(0, len(to_process), _APPLY_BATCH_SIZE):
+            batch = to_process[batch_start:batch_start + _APPLY_BATCH_SIZE]
+            # Heartbeat + cancel check between batches.
+            if _is_cancelled(run.name):
+                result.message = _("Run wurde durch den Operator abgebrochen.")
+                _finalize_run(
+                    run, result, status=STATUS_PARTIAL,
+                    message=result.message, applied_diffs=applied_diffs,
+                    started_ts=started_ts,
                 )
-                applied_diffs.append(outcome)
-                if action == ACTION_CREATE:
-                    result.created += 1
-                else:
-                    result.updated += 1
-            except Exception as exc:  # noqa: BLE001
-                _record_item_failure(
-                    sync_doc.name, node.item_code, backend, exc,
-                    payload=None, response=None, run_name=run.name,
+                _release_sync(
+                    sync_doc.name, status=STATUS_PARTIAL,
+                    last_error=result.message,
                 )
-                result.errors.append(f"{node.item_code}: {exc}")
-                applied_diffs.append({
-                    "item_code": node.item_code,
-                    "action": action,
-                    "status": "error",
-                    "error": str(exc),
-                })
+                return result
+            _heartbeat(run.name)
+            _publish_progress(
+                sync_doc.name, run.name, batch_start, len(to_process), result,
+            )
+
+            _apply_batch(
+                batch=batch,
+                sync_doc=sync_doc,
+                adapter=adapter,
+                target_channels=target_channels,
+                integration_key=integration_key,
+                run_name=run.name,
+                backend=backend,
+                applied_diffs=applied_diffs,
+                result=result,
+            )
 
         # 4. Orphan handling per orphan_policy.
         orphan_policy = (sync_doc.orphan_policy or "keep").lower()
@@ -311,6 +309,173 @@ def _apply_live(
 # ─── Per-item application ────────────────────────────────────────────
 
 
+def _apply_batch(
+    *,
+    batch: list[tuple],
+    sync_doc,
+    adapter,
+    target_channels: list[str],
+    integration_key: str,
+    run_name: str,
+    backend: str,
+    applied_diffs: list[dict],
+    result,
+) -> None:
+    """Push a batch of items to the backend in one bulk-API roundtrip.
+
+    Builds payloads + hashes for every item in ``batch``, calls
+    ``adapter.upsert_products_bulk(...)`` once, then loops the per-item
+    results to persist mappings, append to ``applied_diffs``, and bump
+    the run counters. Any per-item error is captured in the result
+    dict so a single bad item can't take down the whole batch.
+
+    Adapter responsibility: the bulk call MUST return one result row
+    per input item (same order). The base ``ProductAdapter`` enforces
+    this via a default fallback to per-item upsert, so the contract
+    holds even for backends that haven't implemented bulk yet.
+    """
+    from ecommerce_integrations.product_sync.engine.payload import (
+        build_medusa_payload,
+        build_shopware_payload,
+    )
+
+    # Phase A: build per-item payloads + capture state we'll need after
+    # the bulk call returns.
+    prepared: list[dict] = []
+    metadata: list[dict] = []  # parallel list — same indices as prepared
+    for node, action in batch:
+        try:
+            item = frappe.get_doc("Item", node.item_code)
+        except frappe.DoesNotExistError:
+            applied_diffs.append({
+                "item_code": node.item_code,
+                "action": action,
+                "status": "error",
+                "error": "Item not found",
+            })
+            result.errors.append(f"{node.item_code}: Item not found")
+            continue
+        canonical = build_canonical_payload(item, sync_doc)
+        proposed_hash = compute_hash(canonical)
+        ecom_row = frappe.db.get_value(
+            _ECOMMERCE_ITEM_DOCTYPE,
+            {"erpnext_item_code": node.item_code, "integration": integration_key},
+            ["name", "integration_item_code"],
+            as_dict=True,
+        )
+        external_id = ecom_row.get("integration_item_code") if ecom_row else None
+
+        if backend == BACKEND_SHOPWARE:
+            payload = build_shopware_payload(
+                item, sync_doc, canonical, external_id=external_id,
+            )
+        elif backend == BACKEND_MEDUSA:
+            payload = build_medusa_payload(
+                item, sync_doc, canonical, external_id=external_id,
+            )
+        else:
+            applied_diffs.append({
+                "item_code": node.item_code,
+                "action": action,
+                "status": "error",
+                "error": f"Unknown backend: {backend}",
+            })
+            result.errors.append(f"{node.item_code}: unknown backend")
+            continue
+
+        prepared.append({
+            "external_id": external_id,
+            "payload": payload,
+        })
+        metadata.append({
+            "item_code": node.item_code,
+            "action": action,
+            "ecom_row": ecom_row,
+            "proposed_hash": proposed_hash,
+        })
+
+    if not prepared:
+        return
+
+    # Phase B: one bulk call. The adapter handles chunking inside if
+    # the batch is larger than its API allows.
+    try:
+        results = adapter.upsert_products_bulk(
+            prepared, target_sales_channels=target_channels,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Whole-batch failure: every item gets the same error so the
+        # operator sees one clean reason in the audit row instead of N
+        # duplicated lines.
+        for meta in metadata:
+            _record_item_failure(
+                sync_doc.name, meta["item_code"], backend, exc,
+                payload=None, response=None, run_name=run_name,
+            )
+            result.errors.append(f"{meta['item_code']}: {exc}")
+            applied_diffs.append({
+                "item_code": meta["item_code"],
+                "action": meta["action"],
+                "status": "error",
+                "error": str(exc),
+            })
+        return
+
+    # Phase C: walk per-item results, persist mappings + counters.
+    for meta, row in zip(metadata, results, strict=False):
+        err = row.get("error")
+        if err:
+            _record_item_failure(
+                sync_doc.name, meta["item_code"], backend, Exception(err),
+                payload=None, response=None, run_name=run_name,
+            )
+            result.errors.append(f"{meta['item_code']}: {err}")
+            applied_diffs.append({
+                "item_code": meta["item_code"],
+                "action": meta["action"],
+                "status": "error",
+                "error": err,
+            })
+            continue
+
+        new_external_id = row.get("external_id") or prepared[
+            metadata.index(meta)
+        ].get("external_id")
+        if not new_external_id:
+            # Bulk-API didn't echo an id and we didn't have one. This
+            # shouldn't happen for a successful row but the defensive
+            # branch keeps us from persisting a broken mapping.
+            applied_diffs.append({
+                "item_code": meta["item_code"],
+                "action": meta["action"],
+                "status": "error",
+                "error": "Backend returned no external_id",
+            })
+            result.errors.append(
+                f"{meta['item_code']}: no external_id from backend",
+            )
+            continue
+
+        _persist_item_success(
+            item_code=meta["item_code"],
+            integration=integration_key,
+            external_id=new_external_id,
+            proposed_hash=meta["proposed_hash"],
+            run_name=run_name,
+            existing_row=meta["ecom_row"],
+        )
+        applied_diffs.append({
+            "item_code": meta["item_code"],
+            "action": meta["action"],
+            "status": "ok",
+            "external_id": new_external_id,
+        })
+        if meta["action"] == ACTION_CREATE:
+            result.created += 1
+        else:
+            result.updated += 1
+
+
 def _apply_one_item(
     *,
     item_code: str,
@@ -321,7 +486,12 @@ def _apply_one_item(
     integration_key: str,
     run_name: str,
 ) -> dict:
-    """Push one item to the backend, persist mapping + hash on success."""
+    """Push one item to the backend, persist mapping + hash on success.
+
+    Retained for callers (tests, subset runs) that want one-at-a-time
+    semantics. The main apply loop now uses :func:`_apply_batch` for
+    throughput.
+    """
     from ecommerce_integrations.product_sync.engine.payload import (
         build_medusa_payload,
         build_shopware_payload,

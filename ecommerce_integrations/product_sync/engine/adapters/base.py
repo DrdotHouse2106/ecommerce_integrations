@@ -119,6 +119,42 @@ class ProductAdapter(ABC):
         same inputs.
         """
 
+    def upsert_products_bulk(
+        self,
+        items: list[dict],
+        *,
+        target_sales_channels: list[str],
+    ) -> list[dict]:
+        """Upsert many products in one or more batched backend calls.
+
+        Each entry in ``items`` is ``{external_id, payload}``. The
+        return list mirrors the input order and each row is
+        ``{external_id, error}`` — ``error`` is ``None`` on success.
+        ``external_id`` is the canonical backend id (may differ from
+        the input on first create).
+
+        Default fallback: call :meth:`upsert_product` per item. Real
+        adapters should override and batch on the backend's bulk
+        endpoint (Shopware ``POST /_action/sync``, Medusa
+        ``POST /admin/products/batch``) — that's the single biggest
+        wall-time win for the apply loop on five-figure catalogues.
+        """
+        out: list[dict] = []
+        for entry in items:
+            try:
+                ext_id = self.upsert_product(
+                    external_id=entry.get("external_id"),
+                    payload=entry.get("payload") or {},
+                    target_sales_channels=target_sales_channels,
+                )
+                out.append({"external_id": ext_id, "error": None})
+            except Exception as exc:  # noqa: BLE001
+                out.append({
+                    "external_id": entry.get("external_id"),
+                    "error": str(exc),
+                })
+        return out
+
     @abstractmethod
     def deactivate_product(self, external_id: str) -> None:
         """Soft-disable the product so it's hidden from storefronts but

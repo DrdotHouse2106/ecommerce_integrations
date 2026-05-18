@@ -97,6 +97,31 @@ class ShopwareProductAdapter(ProductAdapter):
             external_ids=external_ids,
         )
 
+    def upsert_products_bulk(
+        self,
+        items: list[dict],
+        *,
+        target_sales_channels: list[str],
+    ) -> list[dict]:
+        """Push N products via ``POST /_action/sync`` in ~25-item chunks.
+
+        Reuses the internal ``_bulk_upsert`` (which already chunks via
+        ``_BULK_CHUNK_SIZE`` and parses per-item errors). One outer
+        session wraps the whole batch instead of one session per item
+        — that's the wall-time win.
+        """
+        if not items:
+            return []
+        prepared = [
+            self._prepare_upsert_payload(
+                external_id=entry.get("external_id"),
+                payload=entry.get("payload") or {},
+                target_sales_channels=target_sales_channels,
+            )
+            for entry in items
+        ]
+        return _with_client(self._bulk_upsert, prepared)
+
     def upsert_product(
         self,
         *,
