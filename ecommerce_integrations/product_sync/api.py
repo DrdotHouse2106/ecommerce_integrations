@@ -498,10 +498,10 @@ def _check_category_bridge(doc, _finding) -> None:
     if missing:
         _finding(
             "warn", "category_bridge_missing",
-            _("{0} Artikelgruppen haben noch keine Backend-Kategorie. Produkte würden ohne Kategorie-Zuordnung gepushed.").format(len(missing)),
+            _("{0} item groups have no backend category yet. Products would be pushed without a category link.").format(len(missing)),
             count=len(missing),
             sample=missing[:5],
-            fix_hint=_("Catalog Mirror öffnen → Apply Live ausführen, bevor Product Sync läuft."),
+            fix_hint=_("Open Catalog Mirror → run Apply Live before Product Sync."),
         )
 
 

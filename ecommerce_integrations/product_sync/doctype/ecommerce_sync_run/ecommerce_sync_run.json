@@ -168,16 +168,16 @@
   },
   {
    "fieldname": "deleted_count",
-   "label": "Gelöscht",
+   "label": "Deleted",
    "fieldtype": "Int",
    "read_only": 1
   },
   {
    "fieldname": "ai_descriptions_generated",
-   "label": "AI-Beschreibungen erzeugt",
+   "label": "AI descriptions generated",
    "fieldtype": "Int",
    "read_only": 1,
-   "description": "Wie viele Items im Pre-Pass über die AI-Description-Pipeline einen Text bekommen haben (nur wenn description_source=ai_generated und auto_generate_ai_descriptions aktiv)."
+   "description": "How many items received text via the AI description pipeline in the pre-pass (only when description_source=ai_generated and auto_generate_ai_descriptions is on)."
   },
   {
    "fieldname": "metrics_section",
@@ -200,7 +200,7 @@
   {
    "fieldname": "error_section",
    "fieldtype": "Section Break",
-   "label": "Fehler-Zusammenfassung",
+   "label": "Error summary",
    "collapsible": 1,
    "depends_on": "eval:doc.items_failed > 0 || doc.status === 'error'"
   },
@@ -209,7 +209,7 @@
    "label": "Kurzfassung",
    "fieldtype": "Small Text",
    "read_only": 1,
-   "description": "Erste paar Fehler dieses Laufs. Vollständige Liste siehe verknüpfte Ecommerce Sync Error-Einträge."
+   "description": "First few errors of this run. See linked Ecommerce Sync Error rows for the full list."
   },
   {
    "fieldname": "snapshot_section",
@@ -223,7 +223,7 @@
    "label": "Snapshot (JSON)",
    "fieldtype": "Long Text",
    "read_only": 1,
-   "description": "Pre-Apply-Snapshot der betroffenen Backend-Produkte. Ermöglicht 'Rollback diesen Run' bei Bedarf. Wird nur bei Live-Apply mit Snapshot-Option befüllt."
+   "description": "Pre-apply snapshot of the affected backend products. Backs 'rollback this run' on demand. Only populated for Live Apply with the snapshot option."
   },
   {
    "fieldname": "mode",
@@ -238,7 +238,7 @@
   },
   {
    "fieldname": "target_channel_id",
-   "label": "Tatsächlich getroffener Channel",
+   "label": "Actually hit channel",
    "fieldtype": "Data",
    "read_only": 1,
    "description": "Sales-Channel-UUID, in den dieser Run geschrieben hat. Bei Sandbox/Subset kann das vom Sync-Standard abweichen."
@@ -291,21 +291,21 @@
    "label": "Plan (JSON)",
    "fieldtype": "Long Text",
    "read_only": 1,
-   "description": "Vollständiger ProductSyncPreviewPlan zum Zeitpunkt des Laufs. Basis für Run-Vergleich und Export."
+   "description": "Full ProductSyncPreviewPlan as of the run. Used for run-compare and export."
   },
   {
    "fieldname": "preflight_findings_json",
    "label": "Pre-Flight-Befunde (JSON)",
    "fieldtype": "Long Text",
    "read_only": 1,
-   "description": "Nur bei mode=preflight gefüllt — Liste der Findings (severity, code, message, fix_hint)."
+   "description": "Only populated for mode=preflight — list of findings (severity, code, message, fix_hint)."
   },
   {
    "fieldname": "applied_diffs_json",
-   "label": "Tatsächlich angewendete Änderungen (JSON)",
+   "label": "Actually applied changes (JSON)",
    "fieldtype": "Long Text",
    "read_only": 1,
-   "description": "Nach echtem Apply: pro Item die Liste der angewendeten FieldDiffs (action, item_code, field, vorher, nachher). Basis für die 'Was hat Run X bei Item Y geändert'-Drill-Down-Ansicht. Bei dry-run/preflight leer."
+   "description": "After a real apply: per-item list of applied FieldDiffs (action, item_code, field, before, after). Backs the 'what did run X change on item Y' drill-down view. Empty for dry-run / preflight."
   }
  ],
  "index_web_pages_for_search": 0,

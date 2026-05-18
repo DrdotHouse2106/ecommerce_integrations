@@ -198,14 +198,14 @@
   },
   {
    "default": "Bestellbestätigung",
-   "description": "Titel auf der Bestellbestätigungs-PDF (wird dem Kunden sofort nach Bestelleingang geschickt)",
+   "description": "Title on the order receipt PDF (sent to the customer immediately after order entry)",
    "fieldname": "order_ack_title",
    "fieldtype": "Data",
    "label": "Order Acknowledgment Title"
   },
   {
    "default": "Wir haben Ihre Bestellung erhalten und prüfen sie:",
-   "description": "Einleitungssatz auf der Bestellbestätigungs-PDF",
+   "description": "Intro sentence on the order receipt PDF",
    "fieldname": "order_ack_intro",
    "fieldtype": "Small Text",
    "label": "Order Acknowledgment Intro"
@@ -216,14 +216,14 @@
   },
   {
    "default": "Auftragsbestätigung",
-   "description": "Titel auf der Auftragsbestätigungs-PDF (nach Freigabe durch das Büro)",
+   "description": "Title on the order confirmation PDF (after office release)",
    "fieldname": "order_confirmation_title",
    "fieldtype": "Data",
    "label": "Order Confirmation Title"
   },
   {
    "default": "Hiermit bestätigen wir Ihre Bestellung:",
-   "description": "Einleitungssatz auf der Auftragsbestätigungs-PDF",
+   "description": "Intro sentence on the order confirmation PDF",
    "fieldname": "order_confirmation_intro",
    "fieldtype": "Small Text",
    "label": "Order Confirmation Intro"
@@ -255,21 +255,21 @@
   },
   {
    "default": "Bestellbestätigung {{ doc.name }}",
-   "description": "Betreffzeile der Bestellbestätigungs-E-Mail. Jinja unterstützt (z.B. {{ doc.name }} für die Auftragsnummer).",
+   "description": "Subject line of the order receipt email. Jinja supported (e.g. {{ doc.name }} for the order number).",
    "fieldname": "email_acknowledgment_subject",
    "fieldtype": "Data",
    "label": "Acknowledgment Email Subject"
   },
   {
    "default": "{{ auto_greeting }},",
-   "description": "Anrede am Anfang der Bestellbestätigungs-E-Mail. Jinja-Platzhalter erlaubt: {{ first_name }}, {{ last_name }}, {{ salutation }}, {{ gender }}, {{ customer_name }}, {{ auto_greeting }} (sprachabhängige Auto-Anrede mit Fallback auf 'Sehr geehrte Damen und Herren').",
+   "description": "Greeting at the top of the order receipt email. Jinja placeholders allowed: {{ first_name }}, {{ last_name }}, {{ salutation }}, {{ gender }}, {{ customer_name }}, {{ auto_greeting }} (locale-aware auto-greeting with fallback to 'Dear Sir or Madam').",
    "fieldname": "email_acknowledgment_greeting",
    "fieldtype": "Small Text",
    "label": "Acknowledgment Email Greeting"
   },
   {
    "default": "<p>vielen Dank für Ihre Bestellung. Wir haben Ihren Auftrag erhalten und werden ihn schnellstmöglich bearbeiten.</p><p>Nachfolgend finden Sie eine Übersicht Ihrer bestellten Artikel.</p>",
-   "description": "Hauptinhalt der Bestellbestätigungs-E-Mail (HTML, Jinja-Platzhalter unterstützt: {{ doc.name }}, {{ doc.grand_total }}, sowie {{ first_name }}, {{ last_name }}, {{ salutation }}, {{ gender }}, {{ auto_greeting }}).",
+   "description": "Body of the order receipt email (HTML, Jinja placeholders supported: {{ doc.name }}, {{ doc.grand_total }}, plus {{ first_name }}, {{ last_name }}, {{ salutation }}, {{ gender }}, {{ auto_greeting }}).",
    "fieldname": "email_acknowledgment_body",
    "fieldtype": "Text Editor",
    "label": "Acknowledgment Email Body"
@@ -280,14 +280,14 @@
   },
   {
    "default": "Auftragsbestätigung {{ doc.name }}",
-   "description": "Betreffzeile der Auftragsbestätigungs-E-Mail. Jinja unterstützt (z.B. {{ doc.name }} für die Auftragsnummer).",
+   "description": "Subject line of the order confirmation email. Jinja supported (e.g. {{ doc.name }} for the order number).",
    "fieldname": "email_confirmation_subject",
    "fieldtype": "Data",
    "label": "Confirmation Email Subject"
   },
   {
    "default": "{{ auto_greeting }},",
-   "description": "Anrede am Anfang der Auftragsbestätigungs-E-Mail. Jinja-Platzhalter erlaubt: {{ first_name }}, {{ last_name }}, {{ salutation }}, {{ gender }}, {{ customer_name }}, {{ auto_greeting }} (sprachabhängige Auto-Anrede mit Fallback auf 'Sehr geehrte Damen und Herren').",
+   "description": "Greeting at the top of the order confirmation email. Jinja placeholders allowed: {{ first_name }}, {{ last_name }}, {{ salutation }}, {{ gender }}, {{ customer_name }}, {{ auto_greeting }} (locale-aware auto-greeting with fallback to 'Dear Sir or Madam').",
    "fieldname": "email_confirmation_greeting",
    "fieldtype": "Small Text",
    "label": "Confirmation Email Greeting"
@@ -300,7 +300,7 @@
   },
   {
    "default": "Ihre Rechnung {{ doc.name }}",
-   "description": "Betreffzeile der Rechnungs-E-Mail. Jinja unterstützt (z.B. {{ doc.name }} für die Rechnungsnummer).",
+   "description": "Subject line of the invoice email. Jinja supported (e.g. {{ doc.name }} for the invoice number).",
    "fieldname": "email_invoice_subject",
    "fieldtype": "Data",
    "label": "Invoice Email Subject"
@@ -314,7 +314,7 @@
   },
   {
    "default": "<p>anbei erhalten Sie Ihre Rechnung im PDF-Format. Falls aktiviert, ist eine elektronische Rechnung (XRechnung/ZUGFeRD) sowohl als XML-Datei als auch eingebettet im PDF beigefügt.</p><p>Zahlungsdetails entnehmen Sie bitte der Rechnung.</p>",
-   "description": "Hauptinhalt der Rechnungs-E-Mail (HTML, Jinja-Platzhalter unterstützt).",
+   "description": "Body of the invoice email (HTML, Jinja placeholders supported).",
    "fieldname": "email_invoice_body",
    "fieldtype": "Text Editor",
    "label": "Invoice Email Body"

@@ -63,7 +63,7 @@
    "fieldtype": "Check",
    "default": "0",
    "columns": 1,
-   "description": "Kehrt die Regel um. Hinweis: NULL-Behandlung ist streng — ein nicht gesetzter Wert passt nie, daher ist NICHT(Regel) nicht identisch mit der Operator-Verneinung, wenn die Eigenschaft fehlt."
+   "description": "Inverts the rule. Note: NULL handling is strict — an unset value never matches, so NOT(rule) is not identical to the operator-negated form when the property is missing."
   }
  ],
  "index_web_pages_for_search": 0,

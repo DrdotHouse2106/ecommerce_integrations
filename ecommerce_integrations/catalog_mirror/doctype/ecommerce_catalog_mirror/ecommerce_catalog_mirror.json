@@ -78,23 +78,23 @@
   {
    "fieldname": "root_section",
    "fieldtype": "Section Break",
-   "label": "Wurzel",
-   "description": "Welche ERPNext-Artikelgruppe als Ausgangspunkt für die Spiegelung verwendet wird, und welche Backend-Kategorie ihr entspricht."
+   "label": "Root",
+   "description": "Which ERPNext item group is the mirror's starting point, and which backend category corresponds to it."
   },
   {
    "fieldname": "root_item_group",
-   "label": "Wurzel-Artikelgruppe",
+   "label": "Root item group",
    "fieldtype": "Link",
    "options": "Item Group",
    "reqd": 1,
-   "description": "Die Spiegelung beginnt hier und folgt allen Unter-Artikelgruppen. Das 'Vom Kategorie-Sync ausnehmen'-Flag der Wurzel wird ignoriert."
+   "description": "The mirror starts here and follows every sub-item-group. The root's 'exclude from category sync' flag is ignored."
   },
   {
    "fieldname": "external_root_id",
-   "label": "Backend-Wurzel-Kategorie-ID",
+   "label": "Backend root category ID",
    "fieldtype": "Data",
    "read_only_depends_on": "eval:!!doc.external_root_id",
-   "description": "UUID der bestehenden Backend-Kategorie, die als Wurzel dient. Bleibt leer wenn neu angelegt werden soll — wird beim ersten Sync automatisch aus der Storefront ermittelt."
+   "description": "UUID of the existing backend category to use as root. Leave empty to create it — derived from the storefront automatically on first sync."
   },
   {
    "fieldname": "column_break_root",
@@ -102,59 +102,59 @@
   },
   {
    "fieldname": "sync_inactive_leaves",
-   "label": "Leere Blatt-Kategorien synchronisieren",
+   "label": "Sync empty leaf categories",
    "fieldtype": "Check",
    "default": "0",
-   "description": "Wenn deaktiviert: Blatt-Artikelgruppen ohne Artikel werden übersprungen. Wenn aktiviert: auch leere Blatt-Kategorien werden im Shop angelegt."
+   "description": "When disabled: leaf item-groups without items are skipped. When enabled: empty leaf categories are created in the shop too."
   },
   {
    "fieldname": "orphan_policy",
-   "label": "Verwaiste Kategorien",
+   "label": "Orphan categories",
    "fieldtype": "Select",
    "options": "keep\ndelete\nreport",
    "default": "keep",
-   "description": "Was mit Backend-Kategorien unter der Wurzel passieren soll, denen keine ERPNext-Artikelgruppe (mehr) entspricht. <strong>Beibehalten</strong> = unverändert lassen. <strong>Nur melden</strong> = in der Vorschau auflisten, aber nicht löschen. <strong>Löschen (gefährlich)</strong> = automatisch im Shop löschen — Vorsicht bei manuell gepflegten Kategorien!"
+   "description": "What to do with backend categories under the root that no longer match any ERPNext item group. <strong>Keep</strong> = leave alone. <strong>Report only</strong> = list in the preview but don't delete. <strong>Delete (dangerous)</strong> = auto-delete in the shop — caution with manually-maintained categories!"
   },
   {
    "fieldname": "templates_section",
    "fieldtype": "Section Break",
-   "label": "Namens-Vorlagen",
+   "label": "Name templates",
    "collapsible": 1,
-   "description": "Optionale Jinja-Vorlagen, die bestimmen, wie ERPNext-Artikelgruppen im Shop benannt und beschrieben werden."
+   "description": "Optional Jinja templates controlling how ERPNext item groups are named and described in the shop."
   },
   {
    "fieldname": "name_template",
-   "label": "Namens-Vorlage",
+   "label": "Name template",
    "fieldtype": "Data",
    "default": "{{ item_group.item_group_name }}",
-   "description": "Jinja-Template für den Kategorie-Namen im Backend. Default <code>{{ item_group.item_group_name }}</code> übernimmt den Artikelgruppen-Namen unverändert."
+   "description": "Jinja template for the backend category name. Default <code>{{ item_group.item_group_name }}</code> uses the item-group name as-is."
   },
   {
    "fieldname": "description_template",
-   "label": "Beschreibungs-Vorlage",
+   "label": "Description template",
    "fieldtype": "Small Text",
-   "description": "Optionale Jinja-Vorlage für die Backend-Kategorie-Beschreibung."
+   "description": "Optional Jinja template for the backend category description."
   },
   {
    "fieldname": "overrides_section",
    "fieldtype": "Section Break",
    "label": "Manuelle Zuordnungen pro Artikelgruppe",
    "collapsible": 1,
-   "description": "Sonderfälle: einzelne Artikelgruppen einer bestimmten Backend-Kategorie zuordnen oder ganz vom Sync ausnehmen."
+   "description": "Special cases: map specific item groups to a specific backend category or exclude them from the sync."
   },
   {
    "fieldname": "node_overrides",
-   "label": "Knoten-Überschreibungen",
+   "label": "Node overrides",
    "fieldtype": "Table",
    "options": "Ecommerce Catalog Mirror Node Override",
-   "description": "Manuelle Zuordnungen pro Artikelgruppe (Backend-UUID fest verknüpfen oder Artikelgruppe komplett ausnehmen)."
+   "description": "Manual overrides per item group (pin a backend UUID or exclude the item group entirely)."
   },
   {
    "fieldname": "status_section",
    "fieldtype": "Section Break",
    "label": "Status (informativ)",
    "collapsible": 1,
-   "description": "Schreibgeschützte Status-Informationen zum letzten Sync. Nur zur Information."
+   "description": "Read-only status info from the last sync. Informational only."
   },
   {
    "fieldname": "sync_status",
@@ -171,7 +171,7 @@
    "label": "Letzte Synchronisation (informativ)",
    "fieldtype": "Datetime",
    "read_only": 1,
-   "description": "Zeitpunkt des letzten erfolgreichen Sync-Laufs."
+   "description": "Timestamp of the last successful sync run."
   },
   {
    "fieldname": "column_break_status",
@@ -183,14 +183,14 @@
    "fieldtype": "Datetime",
    "read_only": 1,
    "hidden": 1,
-   "description": "Wird zu Beginn jedes Sync-Versuchs aktualisiert. Der Stale-Mirror-Recover entfernt Einträge, die zu lange im Status 'running' hängen."
+   "description": "Updated at the start of every sync attempt. Stale-mirror-recover removes rows stuck in 'running' for too long."
   },
   {
    "fieldname": "last_error",
-   "label": "Letzte Fehlermeldung (informativ)",
+   "label": "Last error message (informational)",
    "fieldtype": "Small Text",
    "read_only": 1,
-   "description": "Kurzfassung der letzten Fehlermeldung. Vollständiger Stacktrace im Ecommerce Integration Log."
+   "description": "Short summary of the most recent error. Full stacktrace in the Ecommerce Integration Log."
   }
  ],
  "index_web_pages_for_search": 1,

@@ -135,11 +135,11 @@
   {
    "fieldname": "payload_section",
    "fieldtype": "Section Break",
-   "label": "Fehler-Details"
+   "label": "Error details"
   },
   {
    "fieldname": "last_error_message",
-   "label": "Fehlermeldung",
+   "label": "Error message",
    "fieldtype": "Small Text",
    "read_only": 1
   },
@@ -154,14 +154,14 @@
    "label": "Gesendetes Payload (JSON)",
    "fieldtype": "Long Text",
    "read_only": 1,
-   "description": "Was an das Backend geschickt wurde. Hilfreich beim Reproduzieren des Fehlers."
+   "description": "What was sent to the backend. Useful for reproducing the error."
   },
   {
    "fieldname": "last_response_payload",
    "label": "Antwort des Backends (JSON)",
    "fieldtype": "Long Text",
    "read_only": 1,
-   "description": "Was das Backend zurückgegeben hat. Enthält i.d.R. die genaue Validierungsfehler-Meldung."
+   "description": "What the backend responded with. Usually contains the precise validation error."
   }
  ],
  "index_web_pages_for_search": 0,

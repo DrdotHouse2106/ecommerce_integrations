@@ -103,12 +103,14 @@ def main() -> int:
         return 0
 
     if not apply:
+        list_all = "--list-all" in sys.argv
         for fp, items in findings.items():
             rel = fp.relative_to(ROOT)
             print(f"\n  {rel}")
-            for path, value in items[:5]:
+            display_items = items if list_all else items[:5]
+            for path, value in display_items:
                 print(f"    {'.'.join(path)}: {value!r}")
-            if len(items) > 5:
+            if not list_all and len(items) > 5:
                 print(f"    … and {len(items) - 5} more")
         print("\n(re-run with --apply once an English-source map is built)")
         return 0

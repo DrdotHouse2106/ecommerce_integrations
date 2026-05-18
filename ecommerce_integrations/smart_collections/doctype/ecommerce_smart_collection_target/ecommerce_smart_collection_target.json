@@ -67,7 +67,7 @@
    "read_only": 1,
    "in_list_view": 1,
    "columns": 2,
-   "description": "ID der Backend-Kategorie. Wird nach dem ersten erfolgreichen Sync automatisch gefüllt."
+   "description": "Backend category ID. Auto-filled after the first successful sync."
   },
   {
    "fieldname": "sync_status",
@@ -84,7 +84,7 @@
    "label": "Letzte Synchronisation (informativ)",
    "fieldtype": "Datetime",
    "read_only": 1,
-   "description": "Zeitpunkt des letzten erfolgreichen Syncs für dieses Ziel."
+   "description": "Timestamp of the last successful sync for this target."
   },
   {
    "fieldname": "last_heartbeat_at",
@@ -92,14 +92,14 @@
    "fieldtype": "Datetime",
    "read_only": 1,
    "hidden": 1,
-   "description": "Wird zu Beginn jedes Sync-Versuchs aktualisiert. Der Stale-Target-Recover entfernt Einträge, die zu lange im Status 'running' hängen."
+   "description": "Updated at the start of every sync attempt. Stale-target-recover removes rows stuck in 'running' for too long."
   },
   {
    "fieldname": "last_error",
-   "label": "Letzte Fehlermeldung (informativ)",
+   "label": "Last error message (informational)",
    "fieldtype": "Small Text",
    "read_only": 1,
-   "description": "Kurzfassung; vollständiger Stacktrace im Ecommerce Integration Log."
+   "description": "Short summary; full stacktrace in the Ecommerce Integration Log."
   }
  ],
  "index_web_pages_for_search": 0,

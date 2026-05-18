@@ -138,4 +138,10 @@ MAP: dict[str, str] = {
         "Unexpected error loading adapter: {0}",
     "Verknüpfte Kollektion": "Linked collection",
     "Verknüpfter Kategorie-Sync": "Linked category sync",
+
+    # ── Category-bridge finding (from preflight_check) ──
+    "{0} Artikelgruppen haben noch keine Backend-Kategorie. Produkte würden ohne Kategorie-Zuordnung gepushed.":
+        "{0} item groups have no backend category yet. Products would be pushed without a category link.",
+    "Catalog Mirror öffnen → Apply Live ausführen, bevor Product Sync läuft.":
+        "Open Catalog Mirror → run Apply Live before Product Sync.",
 }

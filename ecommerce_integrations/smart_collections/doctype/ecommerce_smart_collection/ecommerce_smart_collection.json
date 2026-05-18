@@ -74,45 +74,45 @@
    "fieldtype": "Int",
    "default": "0",
    "in_list_view": 1,
-   "description": "Kleinere Werte ranken höher. Entscheidet bei Konflikten, welche Kollektion eine Hauptkategorie 'gewinnt'."
+   "description": "Lower values rank higher. Decides which collection 'wins' a main category on conflicts."
   },
   {
    "fieldname": "allow_empty",
    "label": "Leere Kollektion erlauben",
    "fieldtype": "Check",
    "default": "0",
-   "description": "Wenn deaktiviert (Standard): Wenn die Regeln keine Artikel ergeben, wird die Backend-Kategorie nicht angelegt und eine Warnung erscheint. Aktivieren, um auch leere Kollektionen anzulegen."
+   "description": "When disabled (default): if the rules produce no items, the backend category isn't created and a warning appears. Enable to create empty collections too."
   },
   {
    "fieldname": "description_section",
    "fieldtype": "Section Break",
-   "label": "Beschreibung",
+   "label": "Description",
    "collapsible": 1,
-   "description": "Optionaler Beschreibungstext, der im Shop und für SEO verwendet wird."
+   "description": "Optional description used in the shop and for SEO."
   },
   {
    "fieldname": "description",
-   "label": "Beschreibung",
+   "label": "Description",
    "fieldtype": "Text",
-   "description": "Optionaler Text für Storefront / SEO."
+   "description": "Optional text for storefront / SEO."
   },
   {
    "fieldname": "rule_section",
    "fieldtype": "Section Break",
-   "label": "Regeln",
-   "description": "Definieren, welche Artikel automatisch in diese Kollektion fallen. Jede Zeile ist eine Regel — z.B. 'Artikelgruppe ist Schuhe' oder 'Marke enthält Nike'."
+   "label": "Rules",
+   "description": "Define which items fall into this collection automatically. Each row is a rule — e.g. 'Item group is Shoes' or 'Brand contains Nike'."
   },
   {
    "fieldname": "rule_combinator",
-   "label": "Regel-Verknüpfung",
+   "label": "Rule combinator",
    "fieldtype": "Select",
    "options": "AND\nOR",
    "default": "AND",
-   "description": "<strong>AND</strong> verknüpft alle Regeln (alle müssen zutreffen). <strong>OR</strong> reicht aus, dass eine Regel zutrifft. OR-Gruppen sind über die Spalte 'OR Group' möglich (Zeilen mit gleicher OR-Group-Nummer werden mit OR kombiniert, die Gruppen untereinander dann nach diesem Kombinator)."
+   "description": "<strong>AND</strong> requires every rule to match. <strong>OR</strong> requires one. OR-groups are supported via the 'OR Group' column (rows sharing the same OR-group number are OR-combined; the groups themselves combine via this combinator)."
   },
   {
    "fieldname": "rules",
-   "label": "Regeln",
+   "label": "Rules",
    "fieldtype": "Table",
    "options": "Ecommerce Smart Collection Rule"
   },
@@ -120,7 +120,7 @@
    "fieldname": "target_section",
    "fieldtype": "Section Break",
    "label": "Sync-Ziele (pro Storefront)",
-   "description": "In welche Shops/Storefronts diese Kollektion synchronisiert wird. Pro Storefront eine Zeile anlegen."
+   "description": "Which shops/storefronts this collection is synced to. One row per storefront."
   },
   {
    "fieldname": "targets",
@@ -133,21 +133,21 @@
    "fieldtype": "Section Break",
    "label": "Statistik (informativ)",
    "collapsible": 1,
-   "description": "Schreibgeschützte Informationen zum letzten Auflösen der Regeln."
+   "description": "Read-only information from the last rule resolution."
   },
   {
    "fieldname": "last_resolved_count",
-   "label": "Anzahl Artikel (zuletzt aufgelöst)",
+   "label": "Item count (last resolved)",
    "fieldtype": "Int",
    "read_only": 1,
-   "description": "Anzahl Artikel, die beim letzten Sync von den Regeln erfasst wurden."
+   "description": "Number of items the rules captured on the last sync."
   },
   {
    "fieldname": "last_resolved_at",
-   "label": "Zuletzt aufgelöst (informativ)",
+   "label": "Last resolved (informational)",
    "fieldtype": "Datetime",
    "read_only": 1,
-   "description": "Zeitpunkt des letzten Regel-Durchlaufs."
+   "description": "Timestamp of the last rule run."
   }
  ],
  "index_web_pages_for_search": 1,

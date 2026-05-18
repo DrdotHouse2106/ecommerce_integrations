@@ -107,8 +107,8 @@
    "default": "0",
    "fieldname": "enable_medusa",
    "fieldtype": "Check",
-   "label": "Medusa-Integration aktivieren",
-   "description": "Aktiviert die Verbindung zu Medusa. Deaktiviert: keine Synchronisation, keine Webhook-Verarbeitung. Erst aktivieren, wenn die Verbindung getestet wurde."
+   "label": "Enable Medusa integration",
+   "description": "Enables the connection to Medusa. Disabled: no sync, no webhook processing. Only enable once the connection has been tested."
   },
   {
    "fieldname": "column_break_enable",
@@ -124,10 +124,10 @@
    "fieldname": "section_break_connection",
    "fieldtype": "Section Break",
    "label": "Verbindung",
-   "description": "Zugangsdaten zur Medusa-Admin-API. Nach dem Eintragen über die Schaltfläche oben rechts die Verbindung testen."
+   "description": "Medusa Admin API credentials. After entering, test the connection via the button at the top right."
   },
   {
-   "description": "Vollständige Adresse Ihres Medusa-Backends, z.B. https://medusa.example.com (mit https://, ohne abschließenden Schrägstrich).",
+   "description": "Full URL of your Medusa backend, e.g. https://medusa.example.com (with https://, no trailing slash).",
    "fieldname": "medusa_url",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -139,28 +139,28 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Admin-API-Schlüssel aus Medusa (Einstellungen → API-Schlüssel-Verwaltung). Wird verschlüsselt gespeichert.",
+   "description": "Medusa Admin API key (Settings → API Key Management). Stored encrypted.",
    "fieldname": "api_key",
    "fieldtype": "Password",
-   "label": "API-Schlüssel",
+   "label": "API key",
    "mandatory_depends_on": "eval:doc.enable_medusa"
   },
   {
    "collapsible": 1,
    "fieldname": "section_break_webhook",
    "fieldtype": "Section Break",
-   "label": "Webhooks (Eingehende Ereignisse)",
-   "description": "Webhooks erlauben Medusa, ERPNext über Ereignisse (z.B. neue Bestellung) sofort zu informieren — schneller als der reguläre Abruf. Erfordert das Medusa-Subscriber-Plugin."
+   "label": "Webhooks (incoming events)",
+   "description": "Webhooks let Medusa notify ERPNext of events (e.g. new order) instantly — faster than periodic polling. Requires the Medusa subscriber plugin."
   },
   {
-   "description": "Geheimcode zur Prüfung eingehender Medusa-Webhooks. Im produktiven Einsatz ZWINGEND erforderlich. Den gleichen Wert auch im Medusa-Subscriber konfigurieren.",
+   "description": "Secret used to verify incoming Medusa webhooks. MANDATORY in production. Configure the same value in the Medusa subscriber.",
    "fieldname": "webhook_secret",
    "fieldtype": "Password",
-   "label": "Webhook-Geheimcode"
+   "label": "Webhook secret"
   },
   {
    "default": "0",
-   "description": "SICHERHEITSWARNUNG: Nur für lokale Tests aktivieren. Im Live-Betrieb IMMER deaktiviert lassen und stattdessen einen Webhook-Geheimcode setzen — sonst kann jede Person mit der URL Daten einschleusen.",
+   "description": "SECURITY WARNING: Only enable for local testing. ALWAYS leave disabled in production and set a webhook secret instead — otherwise anyone with the URL can inject data.",
    "fieldname": "allow_unsigned_webhooks",
    "fieldtype": "Check",
    "label": "Unsignierte Webhooks zulassen (nicht empfohlen)"
@@ -180,7 +180,7 @@
    "depends_on": "eval:doc.enable_medusa",
    "fieldname": "sales_channels_section",
    "fieldtype": "Section Break",
-   "label": "Storefronts (Verkaufskanäle)",
+   "label": "Storefronts (sales channels)",
    "description": "Liste aller in Medusa vorhandenen Storefronts. Pro Storefront kann separat festgelegt werden, ob ERPNext-Artikel dorthin synchronisiert werden."
   },
   {
@@ -188,7 +188,7 @@
    "fieldtype": "Table",
    "label": "Storefronts",
    "options": "Medusa Sales Channel",
-   "description": "Aus Medusa abgerufene Storefronts. Pro Eintrag aktivieren/deaktivieren, ob Artikel dort verfügbar sein sollen."
+   "description": "Storefronts fetched from Medusa. Toggle each row to control whether items are available there."
   },
   {
    "depends_on": "eval:doc.enable_medusa",
@@ -199,9 +199,9 @@
   {
    "fieldname": "catalog_mirror_section",
    "fieldtype": "Section Break",
-   "label": "Kategorie-Sync (ERP → Shop)",
+   "label": "Category sync (ERP → shop)",
    "depends_on": "eval:doc.enable_medusa",
-   "description": "Spiegelt den ERPNext-Artikelgruppen-Baum 1:1 in die Medusa-Produktkategorien. Ein Eintrag pro Wurzel-Artikelgruppe."
+   "description": "Mirrors the ERPNext item-group tree 1:1 into Medusa product categories. One entry per root item group."
   },
   {
    "fieldname": "catalog_mirror_intro_html",
@@ -217,7 +217,7 @@
    "fieldtype": "Section Break",
    "label": "Eigene Kollektionen (Sale, Bestseller, …)",
    "depends_on": "eval:doc.enable_medusa",
-   "description": "Regelbasierte Kollektionen, die sich nicht aus dem Artikelgruppen-Baum ergeben (z.B. Sale, Bestseller, saisonale Aktionen)."
+   "description": "Rule-based collections that don't fall out of the item-group tree (e.g. Sale, Bestsellers, seasonal promotions)."
   },
   {
    "fieldname": "smart_collections_intro_html",
@@ -233,7 +233,7 @@
    "fieldtype": "Section Break",
    "label": "Produkt-Sync (ERP → Shop)",
    "depends_on": "eval:doc.enable_medusa",
-   "description": "Konfigurierbare Produkt-Syncs (Ecommerce Product Sync). Ein Eintrag pro Scope (Verkaufskanal × Artikelgruppe / Filter). Vorschau, Sandbox-Push und Apply Live laufen jeweils gegen den Sync — nicht gegen diese Einstellungen."
+   "description": "Configurable Product Syncs (Ecommerce Product Sync). One entry per scope (sales channel × item group / filter). Preview, sandbox push, and Apply Live all run against the Sync — not against these settings."
   },
   {
    "fieldname": "ecom_product_sync_html",
@@ -244,7 +244,7 @@
    "fieldtype": "Section Break",
    "label": "Pull Sync (Shop → ERP)",
    "depends_on": "eval:doc.enable_medusa",
-   "description": "Eingehende Synchronisationen (Bestellungen / Kunden / Bestand von Medusa nach ERPNext). Pro Pull-Sync ein Cron-Intervall; manuelle Ausführung über die Schaltfläche unten."
+   "description": "Incoming syncs (orders / customers / stock from Medusa to ERPNext). One cron interval per Pull Sync; manual run via the button below."
   },
   {
    "fieldname": "ecom_pull_sync_html",
@@ -254,10 +254,10 @@
    "fieldname": "customer_settings_section",
    "fieldtype": "Section Break",
    "label": "Kunden",
-   "description": "Wie eingehende Medusa-Bestellungen Kunden in ERPNext zugeordnet werden. Der Standardkunde wird verwendet, wenn ein Gast bestellt oder kein bestehender Kunde gefunden wird."
+   "description": "How incoming Medusa orders are matched to ERPNext customers. The default customer is used for guest orders or when no existing customer matches."
   },
   {
-   "description": "Wird verwendet für Bestellungen, bei denen der Medusa-Kunde in ERPNext nicht gefunden wird.",
+   "description": "Used for orders where the Medusa customer cannot be found in ERPNext.",
    "fieldname": "default_customer",
    "fieldtype": "Link",
    "label": "Standardkunde",
@@ -277,7 +277,7 @@
    "fieldtype": "Select",
    "label": "Kunden-Sync-Intervall (Minuten)",
    "options": "5\n10\n15\n30\n60",
-   "description": "Wie oft Kunden aus Medusa geholt werden."
+   "description": "How often customers are fetched from Medusa."
   },
   {
    "fieldname": "last_customer_sync",
@@ -285,7 +285,7 @@
    "hidden": 1,
    "label": "Letzter Kunden-Sync (informativ)",
    "read_only": 1,
-   "description": "Zeitpunkt des letzten erfolgreichen Kunden-Abrufs. Nur zur Information."
+   "description": "Timestamp of the last successful customer pull. Informational only."
   },
   {
    "fieldname": "column_break_customer",
@@ -296,14 +296,14 @@
    "fieldtype": "Link",
    "label": "Kundengruppe",
    "options": "Customer Group",
-   "description": "Kundengruppe, der aus Medusa übernommene Kunden zugeordnet werden."
+   "description": "Customer group new customers from Medusa are assigned to."
   },
   {
    "fieldname": "default_country",
    "fieldtype": "Link",
    "label": "Standardland",
    "options": "Country",
-   "description": "Auffangland für Adressen ohne Länder-Code in Medusa."
+   "description": "Fallback country for addresses without a country code in Medusa."
   },
   {
    "fieldname": "company_settings_section",
@@ -324,14 +324,14 @@
    "fieldtype": "Link",
    "label": "Kostenstelle",
    "options": "Cost Center",
-   "description": "Kostenstelle für Erlöse aus Medusa-Bestellungen."
+   "description": "Cost center for revenue from Medusa orders."
   },
   {
    "fieldname": "column_break_company",
    "fieldtype": "Column Break"
   },
   {
-   "description": "Standard-Lager für eingehende Bestellungen.",
+   "description": "Default warehouse for incoming orders.",
    "fieldname": "warehouse",
    "fieldtype": "Link",
    "label": "Standard-Lager",
@@ -349,18 +349,18 @@
    "fieldname": "price_handling_section",
    "fieldtype": "Section Break",
    "label": "Preise (B2B / B2C)",
-   "description": "Welche Preisliste an Medusa übertragen wird, und wie mit Brutto-/Netto-Preisen umgegangen wird. Wichtig: B2B-Shops arbeiten typischerweise mit Netto-Preisen, B2C-Shops mit Brutto-Preisen."
+   "description": "Which price list is pushed to Medusa and how gross/net prices are handled. Note: B2B shops typically use net prices, B2C shops gross prices."
   },
   {
    "fieldname": "default_selling_price_list",
    "fieldtype": "Link",
    "label": "Standard-Verkaufspreisliste",
    "options": "Price List",
-   "description": "Standard-Preisliste für den Produkt-Export zu Medusa."
+   "description": "Default price list for product export to Medusa."
   },
   {
    "depends_on": "default_selling_price_list",
-   "description": "Preisliste mit UVP / Streichpreisen. Wenn ein Artikel hier einen höheren Preis hat als in der Verkaufspreisliste, wird der UVP als Streichpreis an Medusa übertragen.",
+   "description": "Price list for MSRP / strike-through prices. When an item is priced higher here than in the sales price list, the MSRP is pushed to Medusa as a strike-through price.",
    "fieldname": "list_price_price_list",
    "fieldtype": "Link",
    "label": "UVP-/Streichpreisliste",
@@ -370,22 +370,22 @@
    "default": "0",
    "fieldname": "price_list_includes_tax",
    "fieldtype": "Check",
-   "label": "Preisliste enthält Brutto-Preise",
-   "description": "Aktivieren, wenn die Preislisten Brutto-Preise (inkl. MwSt.) enthalten. Die Preise werden vor der Übertragung zu Medusa in Netto umgerechnet."
+   "label": "Price list contains gross prices",
+   "description": "Enable if the price lists contain gross prices (incl. VAT). Prices are converted to net before sync to Medusa."
   },
   {
    "default": "0",
    "fieldname": "import_prices_as_net",
    "fieldtype": "Check",
    "label": "Preise als Netto importieren (B2B)",
-   "description": "Empfohlen für B2B: Preise aus Medusa werden als Netto-Preise gespeichert. Wenn deaktiviert (B2C), bleiben sie als Brutto-Preise (inkl. MwSt.) erhalten."
+   "description": "Recommended for B2B: prices from Medusa are stored as net prices. When disabled (B2C), they remain as gross prices (incl. VAT)."
   },
   {
    "fieldname": "column_break_price",
    "fieldtype": "Column Break"
   },
   {
-   "description": "Standard-MwSt.-Satz für die Brutto/Netto-Umrechnung, wenn kein passendes Steuertemplate gefunden wird. Deutschland: 19 % (Regel), 7 % (ermäßigt).",
+   "description": "Default VAT rate for gross/net conversion when no matching tax template is found. Germany: 19 % (standard), 7 % (reduced).",
    "fieldname": "default_tax_rate",
    "fieldtype": "Float",
    "label": "Standard-MwSt.-Satz (%)"
@@ -394,7 +394,7 @@
    "fieldname": "section_break_order",
    "fieldtype": "Section Break",
    "label": "Bestellungen (Eingang aus Medusa)",
-   "description": "Wie oft Bestellungen aus Medusa abgeholt werden und welche Nummernkreise verwendet werden."
+   "description": "How often orders are fetched from Medusa and which naming series are used."
   },
   {
    "default": "30",
@@ -402,7 +402,7 @@
    "fieldtype": "Select",
    "label": "Bestell-Sync-Intervall (Minuten)",
    "options": "5\n10\n15\n30\n60",
-   "description": "Wie oft Bestellungen aus Medusa geholt werden (in Minuten)."
+   "description": "How often orders are fetched from Medusa (in minutes)."
   },
   {
    "fieldname": "last_order_sync",
@@ -410,7 +410,7 @@
    "hidden": 1,
    "label": "Letzter Bestell-Sync (informativ)",
    "read_only": 1,
-   "description": "Zeitpunkt des letzten erfolgreichen Bestellungs-Abrufs. Nur zur Information."
+   "description": "Timestamp of the last successful order pull. Informational only."
   },
   {
    "fieldname": "column_break_order",
@@ -419,20 +419,20 @@
   {
    "fieldname": "sales_order_series",
    "fieldtype": "Select",
-   "label": "Nummernkreis Auftragsbestätigung",
-   "description": "Nummernkreis, aus dem Auftragsbestätigungen für Medusa-Bestellungen vergeben werden."
+   "label": "Order confirmation naming series",
+   "description": "Naming series for order confirmations created from Medusa orders."
   },
   {
    "fieldname": "delivery_note_series",
    "fieldtype": "Select",
    "label": "Nummernkreis Lieferschein",
-   "description": "Nummernkreis für Lieferscheine, die aus Medusa-Sendungen erstellt werden."
+   "description": "Naming series for delivery notes created from Medusa shipments."
   },
   {
    "fieldname": "section_break_order_automation",
    "fieldtype": "Section Break",
    "label": "Beleg-Automatisierung",
-   "description": "Welche Folgebelege automatisch erstellt werden (Lieferschein, Rechnung). Vor dem Aktivieren prüfen, dass Nummernkreise und Druckformate korrekt eingerichtet sind."
+   "description": "Which follow-on documents are auto-created (delivery note, invoice). Before enabling, check that naming series and print formats are configured."
   },
   {
    "default": "0",
@@ -446,7 +446,7 @@
    "fieldname": "auto_create_invoice_on_shipment",
    "fieldtype": "Check",
    "label": "Rechnung automatisch bei Versand erstellen",
-   "description": "Erstellt automatisch eine Rechnung, sobald der Lieferschein gebucht wird. Rechnungsdatum = Versanddatum (Lieferdatum). WICHTIG: Wenn deaktiviert, müssen Sie Rechnungen manuell erstellen."
+   "description": "Auto-creates an invoice as soon as the delivery note is submitted. Invoice date = shipment date. IMPORTANT: When disabled, you must create invoices manually."
   },
   {
    "fieldname": "column_break_order_automation",
@@ -456,8 +456,8 @@
    "default": "0",
    "fieldname": "sync_sales_invoice",
    "fieldtype": "Check",
-   "label": "Rechnungen für bezahlte Bestellungen erstellen",
-   "description": "Erstellt eine Rechnung, sobald die Zahlung in Medusa bestätigt ist."
+   "label": "Create invoices for paid orders",
+   "description": "Creates an invoice as soon as payment is confirmed in Medusa."
   },
   {
    "default": "0",
@@ -487,7 +487,7 @@
    "fieldtype": "Select",
    "label": "Zahlungs-Sync-Intervall (Minuten)",
    "options": "5\n10\n15\n30\n60",
-   "description": "Wie oft Zahlungsstatus aus Medusa geprüft wird."
+   "description": "How often payment status is checked in Medusa."
   },
   {
    "fieldname": "last_payment_sync",
@@ -495,7 +495,7 @@
    "hidden": 1,
    "label": "Letzter Zahlungs-Sync (informativ)",
    "read_only": 1,
-   "description": "Zeitpunkt des letzten erfolgreichen Zahlungs-Abrufs. Nur zur Information."
+   "description": "Timestamp of the last successful payment pull. Informational only."
   },
   {
    "fieldname": "column_break_payment_sync",
@@ -523,7 +523,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Wird verwendet, wenn keine der obigen Zuordnungen passt. Ohne Auswahl wird die ERPNext-Standardzahlart verwendet.",
+   "description": "Used when none of the mappings above match. Without a selection, the ERPNext default payment method is used.",
    "fieldname": "default_mode_of_payment",
    "fieldtype": "Link",
    "label": "Standard-Zahlungsart",
@@ -533,14 +533,14 @@
    "fieldname": "section_break_tax",
    "fieldtype": "Section Break",
    "label": "Steuern",
-   "description": "Welches Steuertemplate und Versandkostenkonto für Medusa-Bestellungen verwendet wird."
+   "description": "Which tax template and shipping account is used for Medusa orders."
   },
   {
    "fieldname": "default_sales_tax_template",
    "fieldtype": "Link",
    "label": "Standard-Steuertemplate",
    "options": "Sales Taxes and Charges Template",
-   "description": "Standard-Steuertemplate für Bestellungen, wenn kein spezifisches Template ermittelt werden kann."
+   "description": "Default tax template for orders when no specific template can be determined."
   },
   {
    "fieldname": "column_break_tax",
@@ -557,30 +557,30 @@
    "fieldname": "product_sync_section",
    "fieldtype": "Section Break",
    "label": "Produkt-Upload (ERPNext → Medusa)",
-   "description": "Ob und wie Artikel von ERPNext zu Medusa übertragen werden. ACHTUNG: Mit diesen Einstellungen können bestehende Medusa-Daten überschrieben werden. Vor dem Aktivieren immer einen Trockenlauf durchführen."
+   "description": "Whether and how items are pushed from ERPNext to Medusa. CAUTION: These settings can overwrite existing Medusa data. Always run a dry-run before enabling."
   },
   {
    "default": "0",
    "fieldname": "upload_erpnext_items",
    "fieldtype": "Check",
-   "label": "ERPNext-Artikel zu Medusa hochladen",
-   "description": "GEFÄHRLICH: Aktiviert den Outbound-Sync. Jeder neue Artikel und jede Artikel-Änderung wird zu Medusa übertragen. WARNUNG: Wenn Sie Produkttexte direkt in Medusa pflegen, werden diese beim nächsten ERPNext-Speichern überschrieben. Bitte zuerst einen Komplett-Sync als Trockenlauf ausführen, um die Auswirkungen zu sehen."
+   "label": "Upload ERPNext items to Medusa",
+   "description": "DANGEROUS: Enables outbound sync. Every new item and every item change is pushed to Medusa. WARNING: If you edit product copy directly in Medusa, it will be overwritten on the next ERPNext save. Run a full dry-run first to see the impact."
   },
   {
    "default": "0",
    "depends_on": "eval:doc.upload_erpnext_items",
    "fieldname": "sync_item_on_update",
    "fieldtype": "Check",
-   "label": "Artikel-Änderungen automatisch nach Medusa übertragen",
-   "description": "Wenn aktiviert: jede Artikel-Änderung wird sofort zu Medusa gesendet. Wenn deaktiviert: Synchronisation nur manuell pro Artikel über 'Jetzt synchronisieren'."
+   "label": "Automatically push item changes to Medusa",
+   "description": "When enabled: every item change is pushed to Medusa immediately. When disabled: sync only happens manually per item via 'Sync now'."
   },
   {
    "default": "1",
    "depends_on": "eval:doc.upload_erpnext_items",
    "fieldname": "sync_new_item_as_active",
    "fieldtype": "Check",
-   "label": "Neue Artikel direkt aktiv in Medusa veröffentlichen",
-   "description": "Wenn aktiviert: neu hochgeladene Artikel sind sofort im Shop sichtbar. Wenn deaktiviert: Artikel werden als inaktiv angelegt und müssen in Medusa manuell freigegeben werden."
+   "label": "Publish new items as active in Medusa",
+   "description": "When enabled: newly uploaded items are visible in the shop immediately. When disabled: items are created as inactive and have to be released manually in Medusa."
   },
   {
    "fieldname": "column_break_product_sync",
@@ -591,38 +591,38 @@
    "default": "Item Group Mapping",
    "fieldname": "category_assignment_mode",
    "fieldtype": "Select",
-   "label": "Kategorie-Zuordnung",
+   "label": "Category mapping",
    "options": "Item Group Mapping\nSmart Collections Only",
-   "description": "<strong>Item Group Mapping</strong> (Standard): Jeder Artikel wird automatisch in die Medusa-Kategorie eingehängt, die seiner ERPNext-Artikelgruppe entspricht — plus eventuell Eigene Kollektionen. <strong>Smart Collections Only</strong>: Nur Eigene Kollektionen bestimmen die Kategorien — die Artikelgruppen werden nicht parallel nach Medusa gespiegelt. Letzteres wählen, wenn Sie Ihren Medusa-Kategorie-Baum ausschließlich über Eigene Kollektionen pflegen wollen."
+   "description": "<strong>Item Group Mapping</strong> (default): each item is auto-linked to the Medusa category corresponding to its ERPNext item group — plus any Smart Collections. <strong>Smart Collections Only</strong>: only Smart Collections drive categories — the item-group tree is not mirrored to Medusa. Pick this if you maintain your Medusa category tree exclusively via Smart Collections."
   },
   {
    "depends_on": "eval:doc.upload_erpnext_items && doc.category_assignment_mode != 'Smart Collections Only'",
    "fieldname": "category_sync_root",
    "fieldtype": "Link",
-   "label": "Wurzel-Artikelgruppe für Kategorie-Sync",
+   "label": "Root item group for category sync",
    "options": "Item Group",
-   "description": "Wurzel-Artikelgruppe, ab der der Kategorie-Baum nach Medusa gespiegelt wird."
+   "description": "Root item group from which the category tree is mirrored to Medusa."
   },
   {
    "default": "50",
    "depends_on": "eval:doc.upload_erpnext_items",
    "fieldname": "product_batch_size",
    "fieldtype": "Int",
-   "label": "Stapelgröße Artikel",
-   "description": "Anzahl Artikel pro Sync-Stapel. Größere Werte = schneller, aber mehr RAM-Bedarf."
+   "label": "Item batch size",
+   "description": "Number of items per sync batch. Larger values = faster but more RAM."
   },
   {
    "fieldname": "inventory_sync_section",
    "fieldtype": "Section Break",
    "label": "Bestand (Lager-Sync)",
-   "description": "Wie ERPNext-Lagerbestände zu Medusa übertragen werden. Bei mehreren Lagern bitte die Lager-Zuordnungstabelle unten ausfüllen."
+   "description": "How ERPNext stock levels are pushed to Medusa. For multi-warehouse setups, fill out the warehouse mapping table below."
   },
   {
    "default": "0",
    "fieldname": "sync_inventory",
    "fieldtype": "Check",
-   "label": "Lagerbestände zu Medusa synchronisieren",
-   "description": "GEFÄHRLICH: Wenn aktiviert, überschreibt ERPNext die Bestände in Medusa periodisch. Nur aktivieren, wenn ERPNext das führende System für Bestände ist."
+   "label": "Sync stock levels to Medusa",
+   "description": "DANGEROUS: When enabled, ERPNext overwrites stock in Medusa periodically. Only enable if ERPNext is the source of truth for stock."
   },
   {
    "default": "60",
@@ -631,7 +631,7 @@
    "fieldtype": "Select",
    "label": "Bestand-Sync-Intervall (Minuten)",
    "options": "5\n10\n15\n30\n60",
-   "description": "Wie oft ERPNext-Bestände zu Medusa übertragen werden."
+   "description": "How often ERPNext stock is pushed to Medusa."
   },
   {
    "fieldname": "last_inventory_sync",
@@ -639,14 +639,14 @@
    "hidden": 1,
    "label": "Letzter Bestand-Sync (informativ)",
    "read_only": 1,
-   "description": "Zeitpunkt des letzten erfolgreichen Bestand-Syncs. Nur zur Information."
+   "description": "Timestamp of the last successful stock sync. Informational only."
   },
   {
    "fieldname": "column_break_inventory",
    "fieldtype": "Column Break"
   },
   {
-   "description": "ID des Medusa-Lagerorts (Stock Location), an den Bestände gemeldet werden. Bei mehreren Lagern bitte die Zuordnungstabelle unten ausfüllen.",
+   "description": "ID of the Medusa Stock Location to which stock is reported. For multi-warehouse setups, fill out the mapping table below.",
    "fieldname": "medusa_stock_location_id",
    "fieldtype": "Data",
    "label": "Medusa-Lagerort-ID"
@@ -664,7 +664,7 @@
    "fieldtype": "Table",
    "label": "Lager-Zuordnungen",
    "options": "Medusa Warehouse Mapping",
-   "description": "ERPNext-Lager auf Medusa-Lagerorte abbilden für Multi-Lager-Bestand."
+   "description": "Map ERPNext warehouses to Medusa stock locations for multi-warehouse stock."
   },
   {
    "depends_on": "eval:doc.enable_medusa",
@@ -682,8 +682,8 @@
    "default": "0",
    "fieldname": "add_shipping_as_item",
    "fieldtype": "Check",
-   "label": "Versandkosten als Auftragsposition erfassen",
-   "description": "Fügt Versandkosten als eigene Position in den Auftrag ein. Voraussetzung, damit Versandkosten aus Medusa übernommen werden."
+   "label": "Record shipping as a line item",
+   "description": "Adds shipping as its own line item on the order. Required for shipping costs to be picked up from Medusa."
   },
   {
    "depends_on": "eval:doc.add_shipping_as_item",
@@ -691,7 +691,7 @@
    "fieldtype": "Link",
    "label": "Versand-Artikel",
    "options": "Item",
-   "description": "ERPNext-Artikel für Versandkosten (z.B. 'VERSAND')."
+   "description": "ERPNext item for shipping costs (e.g. 'SHIPPING')."
   },
   {
    "fieldname": "column_break_shipping",
@@ -700,15 +700,15 @@
   {
    "fieldname": "discount_item",
    "fieldtype": "Link",
-   "label": "Artikel für Rabatte",
+   "label": "Discount item",
    "options": "Item",
-   "description": "Dummy-Artikel (z.B. 'RABATT'), über den Promo-Rabatte aus Medusa in den Auftrag eingefügt werden. Wird mit negativem Betrag erfasst."
+   "description": "Dummy item (e.g. 'DISCOUNT') used to insert Medusa promo discounts into the order. Recorded with a negative amount."
   },
   {
    "fieldname": "checkout_fields_section",
    "fieldtype": "Section Break",
-   "label": "Checkout-Felder (Erweitert)",
-   "description": "Wie Medusa-Order-Metadata-Keys auf ERPNext-Felder oder Dienstleistungs-Artikel abgebildet werden. Pro Feld eine Zeile anlegen.",
+   "label": "Checkout fields (advanced)",
+   "description": "How Medusa order metadata keys are mapped to ERPNext fields or service items. One row per field.",
    "collapsible": 1
   },
   {

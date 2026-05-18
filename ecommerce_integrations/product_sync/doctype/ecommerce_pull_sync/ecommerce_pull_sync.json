@@ -81,7 +81,7 @@
    "fieldname": "targets_section",
    "fieldtype": "Section Break",
    "label": "What is pulled",
-   "description": "Welche Entitäten beim Pull aus dem Backend abgeholt werden. Pro Run wird jede aktivierte Sektion mit ihrer Watermark abgefragt."
+   "description": "Which entities are pulled from the backend. Per run, each enabled section is queried using its watermark."
   },
   {
    "fieldname": "pull_orders",
@@ -100,7 +100,7 @@
    "label": "Bestand (Backend → ERPNext)",
    "fieldtype": "Check",
    "default": "0",
-   "description": "Default 0 — meist ist ERPNext die Stock-Quelle. Aktivieren nur, wenn das Backend die Wahrheit ist (z.B. POS-System)."
+   "description": "Default 0 — usually ERPNext is the source of stock truth. Enable only when the backend is the source of truth (e.g. POS)."
   },
   {
    "fieldname": "column_break_targets",
@@ -115,16 +115,16 @@
   },
   {
    "fieldname": "lookback_hours",
-   "label": "Rückblick (Stunden)",
+   "label": "Lookback (hours)",
    "fieldtype": "Int",
    "default": "168",
-   "description": "Beim Erstlauf ohne Watermark wird so weit zurückgegriffen. Default 7 Tage."
+   "description": "On the first run without a watermark, this is how far back to look. Default 7 days."
   },
   {
    "fieldname": "channels_section",
    "fieldtype": "Section Break",
    "label": "Quell-Storefronts",
-   "description": "Auf welche Storefronts der Pull beschränkt wird. Leer = alle Channels."
+   "description": "Which storefronts the pull is restricted to. Empty = all channels."
   },
   {
    "fieldname": "target_sales_channels",
@@ -137,23 +137,23 @@
    "fieldtype": "Section Break",
    "label": "Watermarks (informativ)",
    "collapsible": 1,
-   "description": "Pro Entität: Zeitpunkt des letzten erfolgreichen Pulls. Pulls fragen alles ab, was seither erstellt/geändert wurde."
+   "description": "Per entity: timestamp of the last successful pull. Pulls cover anything created/changed since."
   },
   {
    "fieldname": "last_order_pulled_at",
-   "label": "Letzte Bestellung geholt am",
+   "label": "Last order pull at",
    "fieldtype": "Datetime",
    "read_only": 1
   },
   {
    "fieldname": "last_customer_pulled_at",
-   "label": "Letzter Kunde geholt am",
+   "label": "Last customer pull at",
    "fieldtype": "Datetime",
    "read_only": 1
   },
   {
    "fieldname": "last_inventory_pulled_at",
-   "label": "Letzter Bestand geholt am",
+   "label": "Last stock pull at",
    "fieldtype": "Datetime",
    "read_only": 1
   },
@@ -187,7 +187,7 @@
   },
   {
    "fieldname": "last_error",
-   "label": "Letzte Fehlermeldung",
+   "label": "Last error message",
    "fieldtype": "Small Text",
    "read_only": 1
   },
@@ -197,7 +197,7 @@
   },
   {
    "fieldname": "items_pulled_total",
-   "label": "Geholt insgesamt (letzter Run)",
+   "label": "Total fetched (last run)",
    "fieldtype": "Int",
    "read_only": 1
   },
