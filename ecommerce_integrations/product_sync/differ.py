@@ -248,13 +248,35 @@ def compute_product_diff(
             )
 
     if adapter_available and adapter is not None and drift_candidates:
+        import time as _t
         drift_ext_ids = [
             m["integration_item_code"]
             for (_i, _p, _h, _n, m) in drift_candidates
         ]
+        fetch_total = len(drift_ext_ids)
+        fetched = 0
+        last_keepalive = _t.time()
         try:
             for p in adapter.fetch_products(external_ids=drift_ext_ids):
                 live_by_ext_id[p.external_id] = p
+                fetched += 1
+                # Two reasons to tick periodically during the backend
+                # fetch: (a) drive the worker's progress writer so the
+                # bar moves past 99% instead of looking frozen,
+                # (b) keep the MySQL connection warm. A long IO-bound
+                # fetch with no DB activity blows past ``wait_timeout``
+                # and the post-fetch ``set_value`` dies with (2006).
+                now = _t.time()
+                if now - last_keepalive > 2.0:
+                    last_keepalive = now
+                    _bump_progress(
+                        on_progress,
+                        total + fetched, total + fetch_total,
+                    )
+                    try:
+                        frappe.db.sql("SELECT 1")
+                    except Exception:  # noqa: BLE001
+                        pass
         except AdapterError as exc:
             plan.notes.append(
                 _("Backend-Fetch (Drift-Kandidaten) fehlgeschlagen: {0}").format(exc),

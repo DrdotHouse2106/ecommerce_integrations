@@ -165,27 +165,35 @@ def _run_preview_in_background(
     last_total = [0]
 
     def _on_progress(current: int, total: int) -> None:
-        # First call: write the total once so the UI knows the
-        # denominator straight away.
+        # Double-duty: writes UI progress AND keeps the worker's
+        # MySQL connection warm during the long fetch phase. Any
+        # OperationalError triggers a hard reconnect so the next
+        # iteration succeeds — without this the post-fetch ``status='ok'``
+        # write loses the run with (2006 'Server has gone away').
         if last_total[0] != total:
-            frappe.db.set_value(
+            _set_value_with_db_retry(
                 _RUN_DOCTYPE, run_name,
                 {"items_total": total},
                 update_modified=False,
             )
-            frappe.db.commit()  # noqa: SLF001
+            try:
+                frappe.db.commit()  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                _force_db_reconnect()
             last_total[0] = total
         now = time.time()
-        # Throttle: only write every 500 ms or on the final tick.
         if (now - last_write[0]) < 0.5 and current < total:
             return
         last_write[0] = now
-        frappe.db.set_value(
+        _set_value_with_db_retry(
             _RUN_DOCTYPE, run_name,
             {"items_succeeded": current},
             update_modified=False,
         )
-        frappe.db.commit()  # noqa: SLF001
+        try:
+            frappe.db.commit()  # noqa: SLF001
+        except Exception:  # noqa: BLE001
+            _force_db_reconnect()
 
     try:
         plan = compute_product_diff(
@@ -197,22 +205,62 @@ def _run_preview_in_background(
             detect_orphans=detect_orphans,
         )
         plan_dict = plan.to_dict() if hasattr(plan, "to_dict") else plan
-        # Detail / Full previews can run for minutes during which the
-        # MySQL connection idles past ``wait_timeout``. The retry
-        # wrapper force-reconnects on (2006/2013) before re-running
-        # the set_value so we don't lose the result at the finish line.
+        plan_json = frappe.as_json(plan_dict, indent=1)
+        # Compress the plan JSON before storing. 33 k-item Detail
+        # previews produce ~12 MB of repetitive JSON which approaches
+        # MySQL's ``max_allowed_packet`` (16 MB on this site) AND takes
+        # long enough to write that the server-side ``net_write_timeout``
+        # (60 s) closes the connection mid-query → 2006 'Server has
+        # gone away'. Gzip typically takes 12 MB → 1–2 MB which fits
+        # in a single fast UPDATE. The ``GZB64:`` prefix lets readers
+        # distinguish compressed from legacy plain-JSON rows.
+        plan_json = _maybe_gzip_plan_json(plan_json)
+        # Two-step write so we don't combine a small status/counter
+        # update with a multi-MB JSON write in one query — splitting
+        # also lets the small write recover the run row even if the
+        # JSON write fails (status is already 'ok' for the operator).
         _set_value_with_db_retry(
             _RUN_DOCTYPE, run_name,
             {
                 "status": "ok",
                 "finished_at": frappe.utils.now_datetime(),
-                "preview_plan_json": frappe.as_json(plan_dict, indent=1),
                 "items_succeeded": plan.items_in_scope,
                 "items_total": plan.items_in_scope,
             },
             update_modified=True,
         )
         frappe.db.commit()  # noqa: SLF001
+        # Now the heavy payload, in its own query.
+        try:
+            _set_value_with_db_retry(
+                _RUN_DOCTYPE, run_name,
+                {"preview_plan_json": plan_json},
+                update_modified=False,
+            )
+            frappe.db.commit()  # noqa: SLF001
+        except Exception as exc:  # noqa: BLE001
+            # The status is already 'ok' — keep it that way but
+            # surface the storage failure via error_summary so the
+            # operator knows the plan JSON is missing.
+            frappe.log_error(
+                title=f"Product Sync preview plan_json write failed: {sync}",
+                message=str(exc),
+            )
+            try:
+                _force_db_reconnect()
+                _set_value_with_db_retry(
+                    _RUN_DOCTYPE, run_name,
+                    {
+                        "error_summary": (
+                            "Plan computed successfully but plan_json "
+                            "write failed: " + str(exc)
+                        )[:500],
+                    },
+                    update_modified=False,
+                )
+                frappe.db.commit()  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                pass
     except Exception as exc:  # noqa: BLE001
         import traceback
         try:
@@ -277,7 +325,8 @@ def get_preview_status(run_name: str) -> dict:
     if row.status == "ok" and row.preview_plan_json:
         try:
             import json
-            out["plan"] = json.loads(row.preview_plan_json)
+            decoded = _maybe_gunzip_plan_json(row.preview_plan_json)
+            out["plan"] = json.loads(decoded or "{}")
         except (ValueError, TypeError):
             out["status"] = "error"
             out["error"] = _("Could not read preview JSON.")
@@ -816,21 +865,66 @@ def list_for_backend(backend: str) -> list[dict]:
 # ─── Helpers ─────────────────────────────────────────────────────────
 
 
+_PLAN_GZIP_PREFIX = "GZB64:"
+
+
+def _maybe_gzip_plan_json(plan_json: str) -> str:
+    """Compress the preview plan JSON if it's big enough to matter.
+
+    Threshold of 256 KB: under that we store plaintext for easy
+    SQL-inspection. Above it, gzip + base64 brings 12 MB → ~1–2 MB
+    and avoids MySQL's ``net_write_timeout`` killing the connection
+    during a multi-MB UPDATE.
+    """
+    if len(plan_json) < 256 * 1024:
+        return plan_json
+    import base64
+    import gzip
+    raw = plan_json.encode("utf-8")
+    compressed = gzip.compress(raw, compresslevel=6)
+    encoded = base64.b64encode(compressed).decode("ascii")
+    return _PLAN_GZIP_PREFIX + encoded
+
+
+def _maybe_gunzip_plan_json(stored: str | None) -> str | None:
+    """Inverse of :func:`_maybe_gzip_plan_json`. Plain JSON passes through."""
+    if not stored:
+        return stored
+    if not stored.startswith(_PLAN_GZIP_PREFIX):
+        return stored
+    import base64
+    import gzip
+    encoded = stored[len(_PLAN_GZIP_PREFIX):]
+    compressed = base64.b64decode(encoded)
+    return gzip.decompress(compressed).decode("utf-8")
+
+
 def _force_db_reconnect() -> None:
     """Hard-reset the worker's MySQL handle.
 
-    ``frappe.connect()`` short-circuits when ``frappe.local.db`` is
-    already populated, so a stale handle survives a plain ``close()``
-    + ``connect()`` pair. Setting ``frappe.local.db = None`` first
-    forces a real fresh connection — required after a multi-minute
-    HTTPS-bound fetch tripped MySQL's ``wait_timeout``.
+    Two-step teardown: close the old handle (best-effort), drop
+    ``frappe.local.db`` so Frappe's lazy-init can't short-circuit, then
+    invoke ``frappe.connect(site=…)`` which rebuilds the connection
+    from scratch via ``Database.create_connection()``.
+
+    The reason ``frappe.connect()`` alone wasn't enough: it checks
+    ``if frappe.local.db`` and returns early when the attribute is set,
+    even if the underlying socket is dead. Dropping the attribute first
+    forces a real reconnect.
     """
     try:
         frappe.db.close()
     except Exception:  # noqa: BLE001
         pass
-    frappe.local.db = None
-    frappe.connect(site=getattr(frappe.local, "site", None))
+    # Frappe stores ``db`` on its thread-local. ``del`` to avoid the
+    # "set to None then check `if frappe.local.db`" race.
+    try:
+        del frappe.local.db
+    except (AttributeError, KeyError):
+        pass
+    site = getattr(frappe.local, "site", None)
+    if site:
+        frappe.connect(site=site)
 
 
 def _set_value_with_db_retry(doctype: str, name: str, values: dict, **kwargs) -> None:
