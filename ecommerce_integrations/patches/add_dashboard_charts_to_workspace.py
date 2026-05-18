@@ -128,5 +128,49 @@ def execute() -> None:
         "Workspace", _WORKSPACE, update,
         update_modified=True,
     )
+    _ensure_chart_child_rows()
     frappe.clear_cache(doctype="Workspace")
     frappe.db.commit()  # noqa: SLF001
+
+
+def _ensure_chart_child_rows() -> None:
+    """Populate the ``tabWorkspace Chart`` child table.
+
+    Frappe v16 renders dashboard charts on a workspace from the
+    ``charts`` child table — not from the ``chart`` blocks in the
+    ``content`` JSON. The number-card child table is populated by the
+    workspace import on first install, but ``charts`` lands as an
+    empty array in older fixtures, so we need to insert the link
+    rows ourselves.
+
+    Each insert uses ``frappe.get_doc`` so v16's standard hooks fire
+    (no shortcut via raw SQL). ``parent_doctype`` and ``parenttype``
+    are set explicitly because the doctype enforces both.
+    """
+    existing = {
+        row["chart_name"]
+        for row in frappe.get_all(
+            "Workspace Chart",
+            filters={"parent": _WORKSPACE, "parenttype": "Workspace"},
+            fields=["chart_name"],
+        )
+    }
+    max_idx = frappe.db.sql(
+        """SELECT COALESCE(MAX(idx), 0) FROM `tabWorkspace Chart`
+           WHERE parent=%s AND parenttype='Workspace'""",
+        (_WORKSPACE,),
+    )[0][0] or 0
+    for offset, name in enumerate(_REQUIRED_CHARTS, start=1):
+        if name in existing:
+            continue
+        row = frappe.get_doc({
+            "doctype": "Workspace Chart",
+            "chart_name": name,
+            "label": name,
+            "parent": _WORKSPACE,
+            "parenttype": "Workspace",
+            "parentfield": "charts",
+            "idx": max_idx + offset,
+        })
+        row.flags.ignore_permissions = True
+        row.insert()
