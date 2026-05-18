@@ -26,6 +26,7 @@
  "indicator_color": "blue",
  "is_hidden": 0,
  "label": "Ecommerce Integrations",
+ "type": "Workspace",
  "links": [
   {
    "hidden": 0,

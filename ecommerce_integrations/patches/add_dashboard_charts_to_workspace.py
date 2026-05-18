@@ -118,8 +118,14 @@ def execute() -> None:
     # (``type``, ``parent_page``) that the v16 doctype now requires.
     # Going through set_value bypasses the doctype validator while
     # still writing through the standard cache invalidation path.
+    update: dict[str, str] = {"content": json.dumps(new_blocks)}
+    # Same patch repairs the missing ``type`` value that prevents the
+    # workspace from being indexed by the Awesome Bar / global search
+    # on installs that predate the v16 schema bump.
+    if not frappe.db.get_value("Workspace", _WORKSPACE, "type"):
+        update["type"] = "Workspace"
     frappe.db.set_value(
-        "Workspace", _WORKSPACE, "content", json.dumps(new_blocks),
+        "Workspace", _WORKSPACE, update,
         update_modified=True,
     )
     frappe.clear_cache(doctype="Workspace")
