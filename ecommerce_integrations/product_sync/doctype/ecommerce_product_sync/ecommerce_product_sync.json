@@ -207,7 +207,8 @@
    "fieldname": "fields_section",
    "fieldtype": "Section Break",
    "label": "Was synchronisiert wird",
-   "description": "Toggleable per field group. Useful e.g. to pause images on the first sync and catch them up later."
+   "description": "Toggleable per field group. Useful e.g. to pause images on the first sync and catch them up later.",
+   "collapsible": 1
   },
   {
    "fieldname": "sync_basic_fields",
@@ -259,7 +260,8 @@
    "fieldname": "behavior_section",
    "fieldtype": "Section Break",
    "label": "Inhalt",
-   "description": "How name / description / price are produced in the backend."
+   "description": "How name / description / price are produced in the backend.",
+   "collapsible": 1
   },
   {
    "fieldname": "name_template",
@@ -302,7 +304,8 @@
    "fieldtype": "Section Break",
    "label": "SEO-Fallback (Jinja)",
    "depends_on": "eval:doc.sync_seo_fields",
-   "description": "Rendered when the corresponding Item field is empty. Variables: {{ item }}, {{ sync }}, {{ brand }} (channel branding if available). Example: '{{ item.item_name }} | {{ brand.brand_name or item.brand or \"\" }}' for the meta title."
+   "description": "Rendered when the corresponding Item field is empty. Variables: {{ item }}, {{ sync }}, {{ brand }} (channel branding if available). Example: '{{ item.item_name }} | {{ brand.brand_name or item.brand or \"\" }}' for the meta title.",
+   "collapsible": 1
   },
   {
    "fieldname": "seo_meta_title_template",
@@ -362,7 +365,8 @@
    "fieldname": "lifecycle_section",
    "fieldtype": "Section Break",
    "label": "Lebenszyklus",
-   "description": "How the sync handles items that no longer match or that conflict."
+   "description": "How the sync handles items that no longer match or that conflict.",
+   "collapsible": 1
   },
   {
    "fieldname": "orphan_policy",
@@ -402,7 +406,8 @@
    "fieldname": "images_section",
    "fieldtype": "Section Break",
    "label": "Bild-Sync",
-   "description": "How images are pushed to the backend."
+   "description": "How images are pushed to the backend.",
+   "collapsible": 1
   },
   {
    "fieldname": "image_strategy",
@@ -423,7 +428,8 @@
    "fieldname": "schedule_section",
    "fieldtype": "Section Break",
    "label": "Schedule",
-   "description": "When the sync runs automatically."
+   "description": "When the sync runs automatically.",
+   "collapsible": 1
   },
   {
    "fieldname": "cron_preset",

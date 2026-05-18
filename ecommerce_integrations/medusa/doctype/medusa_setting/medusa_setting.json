@@ -76,7 +76,6 @@
   "price_list_includes_tax",
   "import_prices_as_net",
   "column_break_price",
-  "default_tax_rate",
   "product_sync_section",
   "upload_erpnext_items",
   "sync_item_on_update",
@@ -201,7 +200,8 @@
    "fieldtype": "Section Break",
    "label": "Category sync (ERP → shop)",
    "depends_on": "eval:doc.enable_medusa",
-   "description": "Mirrors the ERPNext item-group tree 1:1 into Medusa product categories. One entry per root item group."
+   "description": "Mirrors the ERPNext item-group tree 1:1 into Medusa product categories. One entry per root item group.",
+   "collapsible": 1
   },
   {
    "fieldname": "catalog_mirror_intro_html",
@@ -217,7 +217,8 @@
    "fieldtype": "Section Break",
    "label": "Eigene Kollektionen (Sale, Bestseller, …)",
    "depends_on": "eval:doc.enable_medusa",
-   "description": "Rule-based collections that don't fall out of the item-group tree (e.g. Sale, Bestsellers, seasonal promotions)."
+   "description": "Rule-based collections that don't fall out of the item-group tree (e.g. Sale, Bestsellers, seasonal promotions).",
+   "collapsible": 1
   },
   {
    "fieldname": "smart_collections_intro_html",
@@ -349,7 +350,8 @@
    "fieldname": "price_handling_section",
    "fieldtype": "Section Break",
    "label": "Preise (B2B / B2C)",
-   "description": "Which price list is pushed to Medusa and how gross/net prices are handled. Note: B2B shops typically use net prices, B2C shops gross prices."
+   "description": "Which price list is pushed to Medusa and how gross/net prices are handled. Note: B2B shops typically use net prices, B2C shops gross prices.",
+   "collapsible": 1
   },
   {
    "fieldname": "default_selling_price_list",
@@ -385,16 +387,11 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Default VAT rate for gross/net conversion when no matching tax template is found. Germany: 19 % (standard), 7 % (reduced).",
-   "fieldname": "default_tax_rate",
-   "fieldtype": "Float",
-   "label": "Standard-MwSt.-Satz (%)"
-  },
-  {
    "fieldname": "section_break_order",
    "fieldtype": "Section Break",
    "label": "Bestellungen (Eingang aus Medusa)",
-   "description": "How often orders are fetched from Medusa and which naming series are used."
+   "description": "How often orders are fetched from Medusa and which naming series are used.",
+   "collapsible": 1
   },
   {
    "default": "30",
@@ -432,7 +429,8 @@
    "fieldname": "section_break_order_automation",
    "fieldtype": "Section Break",
    "label": "Beleg-Automatisierung",
-   "description": "Which follow-on documents are auto-created (delivery note, invoice). Before enabling, check that naming series and print formats are configured."
+   "description": "Which follow-on documents are auto-created (delivery note, invoice). Before enabling, check that naming series and print formats are configured.",
+   "collapsible": 1
   },
   {
    "default": "0",
@@ -471,7 +469,8 @@
    "fieldname": "section_break_payment_sync",
    "fieldtype": "Section Break",
    "label": "Zahlungs-Sync",
-   "description": "Wie und wann Medusa-Zahlungen in ERPNext als Zahlungseingang gebucht werden."
+   "description": "Wie und wann Medusa-Zahlungen in ERPNext als Zahlungseingang gebucht werden.",
+   "collapsible": 1
   },
   {
    "default": "0",
@@ -505,7 +504,8 @@
    "fieldname": "payment_method_mapping_section",
    "fieldtype": "Section Break",
    "label": "Zahlungsart-Zuordnung",
-   "description": "Welche Medusa-Zahlart welcher ERPNext-Zahlungsart entspricht (z.B. Stripe → Stripe-Konto, PayPal → PayPal-Konto). Ohne Zuordnung wird die Standard-Zahlungsart unten verwendet."
+   "description": "Welche Medusa-Zahlart welcher ERPNext-Zahlungsart entspricht (z.B. Stripe → Stripe-Konto, PayPal → PayPal-Konto). Ohne Zuordnung wird die Standard-Zahlungsart unten verwendet.",
+   "collapsible": 1
   },
   {
    "fieldname": "payment_method_mapping_info_html",
@@ -533,7 +533,8 @@
    "fieldname": "section_break_tax",
    "fieldtype": "Section Break",
    "label": "Steuern",
-   "description": "Which tax template and shipping account is used for Medusa orders."
+   "description": "Which tax template and shipping account is used for Medusa orders.",
+   "collapsible": 1
   },
   {
    "fieldname": "default_sales_tax_template",
@@ -557,7 +558,8 @@
    "fieldname": "product_sync_section",
    "fieldtype": "Section Break",
    "label": "Produkt-Upload (ERPNext → Medusa)",
-   "description": "Whether and how items are pushed from ERPNext to Medusa. CAUTION: These settings can overwrite existing Medusa data. Always run a dry-run before enabling."
+   "description": "Whether and how items are pushed from ERPNext to Medusa. CAUTION: These settings can overwrite existing Medusa data. Always run a dry-run before enabling.",
+   "collapsible": 1
   },
   {
    "default": "0",
@@ -615,7 +617,8 @@
    "fieldname": "inventory_sync_section",
    "fieldtype": "Section Break",
    "label": "Bestand (Lager-Sync)",
-   "description": "How ERPNext stock levels are pushed to Medusa. For multi-warehouse setups, fill out the warehouse mapping table below."
+   "description": "How ERPNext stock levels are pushed to Medusa. For multi-warehouse setups, fill out the warehouse mapping table below.",
+   "collapsible": 1
   },
   {
    "default": "0",
@@ -676,7 +679,8 @@
    "fieldname": "shipping_section",
    "fieldtype": "Section Break",
    "label": "Versand & Rabatte",
-   "description": "Wie Versandkosten und Rabatte aus Medusa-Bestellungen in ERPNext erfasst werden."
+   "description": "Wie Versandkosten und Rabatte aus Medusa-Bestellungen in ERPNext erfasst werden.",
+   "collapsible": 1
   },
   {
    "default": "0",
