@@ -1,0 +1,333 @@
+{
+ "actions": [],
+ "autoname": "format:SYNC-RUN-{YYYY}-{#####}",
+ "creation": "2026-05-17 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "sync",
+  "backend",
+  "status",
+  "trigger_type",
+  "mode",
+  "target_channel_id",
+  "subset_mode",
+  "subset_value",
+  "is_sandbox",
+  "cancel_requested",
+  "rolled_back_from",
+  "column_break_header",
+  "triggered_by",
+  "started_at",
+  "finished_at",
+  "duration_ms",
+  "counts_section",
+  "items_total",
+  "items_succeeded",
+  "items_failed",
+  "items_skipped",
+  "column_break_counts",
+  "created_count",
+  "updated_count",
+  "deactivated_count",
+  "deleted_count",
+  "metrics_section",
+  "p50_ms",
+  "p99_ms",
+  "error_section",
+  "error_summary",
+  "plan_section",
+  "preview_plan_json",
+  "applied_diffs_json",
+  "preflight_findings_json",
+  "snapshot_section",
+  "snapshot_json"
+ ],
+ "fields": [
+  {
+   "fieldname": "sync",
+   "label": "Produkt-Sync",
+   "fieldtype": "Link",
+   "options": "Ecommerce Product Sync",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "backend",
+   "label": "Backend",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "status",
+   "label": "Status",
+   "fieldtype": "Select",
+   "options": "running\nok\nerror\npartial",
+   "default": "running",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "trigger_type",
+   "label": "Auslöser",
+   "fieldtype": "Select",
+   "options": "manual\ncron\nwebhook\ndispatch",
+   "default": "manual",
+   "read_only": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "column_break_header",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "triggered_by",
+   "label": "Gestartet von",
+   "fieldtype": "Link",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "started_at",
+   "label": "Gestartet",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "finished_at",
+   "label": "Beendet",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "duration_ms",
+   "label": "Dauer (ms)",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "description": "Gesamte Laufzeit in Millisekunden. 0 wenn noch laufend."
+  },
+  {
+   "fieldname": "counts_section",
+   "fieldtype": "Section Break",
+   "label": "Zähler"
+  },
+  {
+   "fieldname": "items_total",
+   "label": "Artikel in Auswahl",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "items_succeeded",
+   "label": "Erfolgreich",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "items_failed",
+   "label": "Fehlgeschlagen",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "items_skipped",
+   "label": "Übersprungen (Hash unverändert / Override)",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_counts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "created_count",
+   "label": "Angelegt",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "updated_count",
+   "label": "Aktualisiert",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "deactivated_count",
+   "label": "Deaktiviert",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "deleted_count",
+   "label": "Gelöscht",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "metrics_section",
+   "fieldtype": "Section Break",
+   "label": "Performance-Metriken",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "p50_ms",
+   "label": "Median-Latenz pro Push (ms, p50)",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "p99_ms",
+   "label": "P99-Latenz pro Push (ms)",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error_section",
+   "fieldtype": "Section Break",
+   "label": "Fehler-Zusammenfassung",
+   "collapsible": 1,
+   "depends_on": "eval:doc.items_failed > 0 || doc.status === 'error'"
+  },
+  {
+   "fieldname": "error_summary",
+   "label": "Kurzfassung",
+   "fieldtype": "Small Text",
+   "read_only": 1,
+   "description": "Erste paar Fehler dieses Laufs. Vollständige Liste siehe verknüpfte Ecommerce Sync Error-Einträge."
+  },
+  {
+   "fieldname": "snapshot_section",
+   "fieldtype": "Section Break",
+   "label": "Rollback-Snapshot (vor Apply)",
+   "collapsible": 1,
+   "collapsible_depends_on": "eval:!!doc.snapshot_json"
+  },
+  {
+   "fieldname": "snapshot_json",
+   "label": "Snapshot (JSON)",
+   "fieldtype": "Long Text",
+   "read_only": 1,
+   "description": "Pre-Apply-Snapshot der betroffenen Backend-Produkte. Ermöglicht 'Rollback diesen Run' bei Bedarf. Wird nur bei Live-Apply mit Snapshot-Option befüllt."
+  },
+  {
+   "fieldname": "mode",
+   "label": "Modus",
+   "fieldtype": "Select",
+   "options": "live\ndryrun\npreflight\nsandbox\nsubset\nrollback\npull",
+   "default": "live",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1,
+   "description": "Welcher Test-/Apply-Modus diesen Lauf erzeugt hat. Filterbar in der Listenansicht."
+  },
+  {
+   "fieldname": "target_channel_id",
+   "label": "Tatsächlich getroffener Channel",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "description": "Sales-Channel-UUID, in den dieser Run geschrieben hat. Bei Sandbox/Subset kann das vom Sync-Standard abweichen."
+  },
+  {
+   "fieldname": "subset_mode",
+   "label": "Subset-Modus",
+   "fieldtype": "Select",
+   "options": "\nall\nrandom_n\nfirst_n\nsku_list\nfailed_from",
+   "read_only": 1
+  },
+  {
+   "fieldname": "subset_value",
+   "label": "Subset-Wert",
+   "fieldtype": "Small Text",
+   "read_only": 1,
+   "description": "Bei random_n / first_n: Anzahl. Bei sku_list: SKUs (eine pro Zeile). Bei failed_from: Name des Quell-Runs."
+  },
+  {
+   "fieldname": "is_sandbox",
+   "label": "War Sandbox-Lauf",
+   "fieldtype": "Check",
+   "default": "0",
+   "read_only": 1,
+   "description": "1 wenn target_channel_id auf einem Channel mit is_sandbox=1 lag."
+  },
+  {
+   "fieldname": "cancel_requested",
+   "label": "Abbruch angefordert",
+   "fieldtype": "Check",
+   "default": "0",
+   "description": "Wird vom 'Anhalten'-Knopf gesetzt. Push-Loop bricht zwischen Batches sauber ab und stempelt status='partial'."
+  },
+  {
+   "fieldname": "rolled_back_from",
+   "label": "Rollback von",
+   "fieldtype": "Link",
+   "options": "Ecommerce Sync Run",
+   "read_only": 1,
+   "description": "Wenn gesetzt: dieser Run ist die Wiederherstellung des verlinkten Snapshots."
+  },
+  {
+   "fieldname": "plan_section",
+   "fieldtype": "Section Break",
+   "label": "Run-Daten (JSON)",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "preview_plan_json",
+   "label": "Plan (JSON)",
+   "fieldtype": "Long Text",
+   "read_only": 1,
+   "description": "Vollständiger ProductSyncPreviewPlan zum Zeitpunkt des Laufs. Basis für Run-Vergleich und Export."
+  },
+  {
+   "fieldname": "preflight_findings_json",
+   "label": "Pre-Flight-Befunde (JSON)",
+   "fieldtype": "Long Text",
+   "read_only": 1,
+   "description": "Nur bei mode=preflight gefüllt — Liste der Findings (severity, code, message, fix_hint)."
+  },
+  {
+   "fieldname": "applied_diffs_json",
+   "label": "Tatsächlich angewendete Änderungen (JSON)",
+   "fieldtype": "Long Text",
+   "read_only": 1,
+   "description": "Nach echtem Apply: pro Item die Liste der angewendeten FieldDiffs (action, item_code, field, vorher, nachher). Basis für die 'Was hat Run X bei Item Y geändert'-Drill-Down-Ansicht. Bei dry-run/preflight leer."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [
+  {
+   "link_doctype": "Ecommerce Sync Error",
+   "link_fieldname": "sync_run"
+  }
+ ],
+ "modified": "2026-05-17 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Product Sync",
+ "name": "Ecommerce Sync Run",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "started_at",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "sync",
+ "track_changes": 0
+}

@@ -38,9 +38,27 @@ class MedusaSetting(Document):
 	def test_connection(self):
 		from ecommerce_integrations.medusa.connection import test_connection
 		from ecommerce_integrations.medusa.services.access import require_medusa_admin
+		from ecommerce_integrations.medusa.utils import create_medusa_log
 
 		require_medusa_admin()
 		result = test_connection()
+
+		# Best-effort audit row so the Setting form's health banner can
+		# prove "tested recently" within the 24h heuristic window.
+		try:
+			create_medusa_log(
+				request_type="test_connection",
+				status="Success" if result.get("success") else "Error",
+				response_data={
+					"product_count": result.get("product_count"),
+					"success": result.get("success"),
+					"message": result.get("message"),
+				},
+				error=None if result.get("success") else result.get("message"),
+			)
+		except Exception:
+			pass
+
 		if result.get("success"):
 			frappe.msgprint(
 				_("Connection successful. {0} products found in Medusa.").format(result.get("product_count", 0)),

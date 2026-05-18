@@ -419,9 +419,33 @@ def test_connection() -> dict[str, Any]:
 
 @frappe.whitelist()
 def test_shopware_connection() -> dict[str, Any]:
-    """Whitelisted method to test connection from the frontend."""
+    """Whitelisted method to test connection from the frontend.
+
+    Also writes a single ``Ecommerce Integration Log`` row stamped with
+    method ``test_connection`` so the Setting form's health banner
+    (``shopware6.api.setup.get_health``) can prove "tested recently"
+    without relying on a dedicated timestamp field.
+    """
     require_shopware_admin()
-    return test_connection()
+    result = test_connection()
+    try:
+        from ecommerce_integrations.shopware6.utils import create_shopware_log
+
+        create_shopware_log(
+            status="Success" if result.get("success") else "Error",
+            method="test_connection",
+            message=result.get("message"),
+            response_data={
+                "sales_channels": result.get("sales_channels"),
+                "success": result.get("success"),
+            },
+            make_new=True,
+        )
+    except Exception:
+        # Logging is best-effort — never fail a connection test because
+        # the audit row couldn't be written.
+        pass
+    return result
 
 
 def validate_webhook_signature(payload: bytes, signature: str, secret: str) -> bool:

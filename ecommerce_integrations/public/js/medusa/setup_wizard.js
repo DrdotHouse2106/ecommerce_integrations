@@ -1,9 +1,11 @@
 // 5-step setup wizard for the Medusa Setting form.
 // Loaded via `doctype_js` in hooks.py; the parent setting JS adds a
-// "🧙 Setup Wizard" button that calls window.medusa_setup_wizard.open(frm).
+// "wand-sparkles" Setup-Wizard button that calls
+// window.medusa_setup_wizard.open(frm).
 
 (function () {
 
+	const _i = window.ecom_icon || (() => '');
 	const API_MODULE = 'ecommerce_integrations.medusa.api.setup';
 	const TOTAL_STEPS = 5;
 
@@ -135,7 +137,7 @@
 							? __('Verbindung erfolgreich. {0} Produkte in Medusa gefunden.', [cnt])
 							: __('Verbindung erfolgreich.');
 						$body.html(
-							`<div class="alert alert-success" style="margin:0">✓ ${frappe.utils.escape_html(msg)}</div>`
+							`<div class="alert alert-success" style="margin:0;display:flex;align-items:center;gap:6px">${_i('circle-check', 'sm')} <span>${frappe.utils.escape_html(msg)}</span></div>`
 							+ `<div style="margin-top:10px"><button type="button" class="btn btn-default btn-sm retest-btn">${__('Erneut testen')}</button></div>`
 						);
 					} else {
@@ -143,7 +145,7 @@
 						const err = (r.message && (r.message.error || r.message.message))
 							|| __('Verbindung fehlgeschlagen. Bitte URL und Zugangsdaten prüfen.');
 						$body.html(
-							`<div class="alert alert-danger" style="margin:0">✗ ${frappe.utils.escape_html(err)}</div>`
+							`<div class="alert alert-danger" style="margin:0;display:flex;align-items:center;gap:6px">${_i('circle-x', 'sm')} <span>${frappe.utils.escape_html(err)}</span></div>`
 							+ `<div style="margin-top:10px"><button type="button" class="btn btn-default btn-sm retest-btn">${__('Erneut testen')}</button></div>`
 						);
 					}
@@ -267,8 +269,8 @@
 						callback: function (rr) {
 							const ok = rr.message && rr.message.success;
 							$r.html(ok
-								? `<span class="text-success">✓ ${frappe.utils.escape_html(rr.message.message || __('Erfolgreich.'))}</span>`
-								: `<span class="text-danger">✗ ${frappe.utils.escape_html((rr.message && rr.message.message) || __('Test fehlgeschlagen.'))}</span>`
+								? `<span class="text-success" style="display:inline-flex;align-items:center;gap:4px">${_i('circle-check', 'xs')} ${frappe.utils.escape_html(rr.message.message || __('Erfolgreich.'))}</span>`
+								: `<span class="text-danger" style="display:inline-flex;align-items:center;gap:4px">${_i('circle-x', 'xs')} ${frappe.utils.escape_html((rr.message && rr.message.message) || __('Test fehlgeschlagen.'))}</span>`
 							);
 						},
 					});

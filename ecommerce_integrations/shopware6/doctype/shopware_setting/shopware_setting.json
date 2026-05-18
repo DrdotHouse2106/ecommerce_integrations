@@ -20,6 +20,11 @@
   "api_username",
   "column_break_user_credentials",
   "api_password",
+  "section_break_webhook",
+  "webhook_secret",
+  "allow_unsigned_webhooks",
+  "column_break_webhook",
+  "webhook_url_info",
   "sales_channels_section",
   "sales_channels",
   "fetch_sales_channels_btn",
@@ -39,6 +44,10 @@
   "smart_collections_section",
   "smart_collections_intro_html",
   "smart_collections_html",
+  "ecom_product_sync_section",
+  "ecom_product_sync_html",
+  "ecom_pull_sync_section",
+  "ecom_pull_sync_html",
   "section_break_order",
   "order_sync_frequency",
   "last_order_sync",
@@ -121,12 +130,7 @@
   "checkout_fields_section",
   "checkout_fields",
   "checkout_fields_info_section",
-  "checkout_fields_info_html",
-  "section_break_webhook",
-  "webhook_secret",
-  "allow_unsigned_webhooks",
-  "column_break_webhook",
-  "webhook_url_info"
+  "checkout_fields_info_html"
  ],
  "fields": [
   {
@@ -197,6 +201,28 @@
   },
   {
    "fieldname": "smart_collections_html",
+   "fieldtype": "HTML"
+  },
+  {
+   "fieldname": "ecom_product_sync_section",
+   "fieldtype": "Section Break",
+   "label": "Produkt-Sync (ERP → Shop)",
+   "depends_on": "eval:doc.enable_shopware",
+   "description": "Konfigurierbare Produkt-Syncs (Ecommerce Product Sync). Ein Eintrag pro Scope (Storefront × Artikelgruppe / Filter). Vorschau, Sandbox-Push und Apply Live laufen jeweils gegen den Sync — nicht gegen diese Einstellungen."
+  },
+  {
+   "fieldname": "ecom_product_sync_html",
+   "fieldtype": "HTML"
+  },
+  {
+   "fieldname": "ecom_pull_sync_section",
+   "fieldtype": "Section Break",
+   "label": "Pull Sync (Shop → ERP)",
+   "depends_on": "eval:doc.enable_shopware",
+   "description": "Eingehende Synchronisationen (Bestellungen / Kunden / Bestand von Shopware nach ERPNext). Pro Pull-Sync ein Cron-Intervall; manuelle Ausführung über die Schaltfläche unten."
+  },
+  {
+   "fieldname": "ecom_pull_sync_html",
    "fieldtype": "HTML"
   },
   {

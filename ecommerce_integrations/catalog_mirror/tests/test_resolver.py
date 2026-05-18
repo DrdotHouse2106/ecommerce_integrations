@@ -126,10 +126,10 @@ class TestResolver(IntegrationTestCase):
             update_modified=False,
         )
 
-        # The Mirror covering the leaf IG. target_sales_channel is a
-        # Link to Shopware Sales Channel (a child table), so we have to
-        # bypass link validation — Frappe can't validate Links against
-        # child-table rows.
+        # The Mirror covering the leaf IG. target_sales_channel stores
+        # the raw Shopware UUID via an Autocomplete field — no Frappe
+        # link validation runs against it. flags.ignore_links is kept
+        # defensively in case the fieldtype is ever reverted.
         mirror = frappe.get_doc({
             "doctype": "Ecommerce Catalog Mirror",
             "title": cls.MIRROR_TITLE,

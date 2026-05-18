@@ -8,10 +8,12 @@
   "sales_channel_id",
   "sales_channel_name",
   "short_code",
+  "domain_url",
   "column_break_1",
   "is_default",
   "active",
   "access_key",
+  "is_sandbox",
   "pricing_section",
   "price_list",
   "price_list_includes_tax",
@@ -42,6 +44,14 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Short Code"
+  },
+  {
+   "description": "Primary storefront domain (e.g. https://shop.example.com). Populated by 'Storefronts aktualisieren' from the Shopware sales-channel-domain API; used as a human-friendly label in the Catalog Mirror picker.",
+   "fieldname": "domain_url",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Domain",
+   "read_only": 1
   },
   {
    "fieldname": "column_break_1",
@@ -107,6 +117,14 @@
    "hidden": 1,
    "label": "Shopware Rule ID",
    "read_only": 1
+  },
+  {
+   "fieldname": "is_sandbox",
+   "label": "Sandbox / Test-Channel",
+   "fieldtype": "Check",
+   "default": "0",
+   "in_list_view": 1,
+   "description": "Markiert diesen Channel als Sandbox. Nur so markierte Channels erscheinen im Sandbox-Push-Dialog der Product Syncs ohne Production-Warnung."
   }
  ],
  "index_web_pages_for_search": 1,

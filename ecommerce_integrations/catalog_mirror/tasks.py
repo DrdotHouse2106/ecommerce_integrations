@@ -233,19 +233,11 @@ def recover_stale_mirrors() -> dict:
 
 
 def _build_preview(mirror) -> MirrorPreviewPlan:
-    if not int(mirror.is_active or 0):
-        return MirrorPreviewPlan(
-            mirror=mirror.name,
-            title=mirror.title or mirror.name,
-            backend=mirror.backend,
-            target_sales_channel=mirror.target_sales_channel,
-            root_item_group=mirror.root_item_group,
-            external_root_id=mirror.external_root_id,
-            is_active=0,
-            skipped=True,
-            skip_reason=_("mirror inactive"),
-        )
-
+    # Dry-run previews are intentionally allowed when the mirror is
+    # inactive — the operator needs to be able to inspect what *would*
+    # happen before flipping the toggle. Apply paths still refuse to
+    # mutate the live backend when is_active=0 (see ``apply_mirror``).
+    # We only annotate the plan so the dialog can surface a hint.
     erp_tree = walk_erpnext_tree(
         mirror.root_item_group,
         include_inactive_leaves=bool(mirror.sync_inactive_leaves),
@@ -272,6 +264,11 @@ def _build_preview(mirror) -> MirrorPreviewPlan:
     )
     if live_error:
         plan.notes.append(live_error)
+    if not int(mirror.is_active or 0):
+        plan.notes.append(
+            _("Mirror ist deaktiviert — dies ist nur eine Vorschau. "
+              "Setze 'Aktiv' und speichere, bevor du 'Apply Live' drückst.")
+        )
     return plan
 
 

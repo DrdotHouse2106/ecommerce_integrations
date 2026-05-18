@@ -77,7 +77,8 @@
 		if (frm.is_new && frm.is_new()) return;
 
 		// Avoid duplicates on refresh re-runs.
-		const label = __('⛑ Safety Mode');
+		const _i = window.ecom_icon || (() => '');
+		const label = _i('shield', 'sm') + ' ' + __('Safety Mode');
 		const existing = frm.custom_buttons && frm.custom_buttons[label];
 		if (existing) return;
 

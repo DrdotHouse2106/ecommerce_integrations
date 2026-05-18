@@ -1,0 +1,20 @@
+{
+ "color": "#28a745",
+ "creation": "2026-05-18 00:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Number Card",
+ "document_type": "Ecommerce Product Sync",
+ "filters_json": "[[\"Ecommerce Product Sync\",\"is_active\",\"=\",1]]",
+ "function": "Count",
+ "idx": 0,
+ "is_public": 1,
+ "is_standard": 1,
+ "label": "Active Product Syncs",
+ "modified": "2026-05-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Ecommerce Integrations",
+ "name": "Active Product Syncs",
+ "owner": "Administrator",
+ "show_percentage_stats": 0,
+ "type": "Document Type"
+}

@@ -1,7 +1,7 @@
 {
  "app": "ecommerce_integrations",
  "charts": [],
- "content": "[{\"id\":\"header_health\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Sync Health</b></span>\",\"col\":12}},{\"id\":\"nc_errors\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Ecommerce Sync Errors (24h)\",\"col\":4}},{\"id\":\"nc_queued\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Ecommerce Queued Syncs\",\"col\":4}},{\"id\":\"nc_success\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Ecommerce Successful Syncs (24h)\",\"col\":4}},{\"id\":\"sp1\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"header_links\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Configure &amp; Investigate</b></span>\",\"col\":12}},{\"id\":\"card_settings\",\"type\":\"card\",\"data\":{\"card_name\":\"Settings\",\"col\":4}},{\"id\":\"card_collections\",\"type\":\"card\",\"data\":{\"card_name\":\"Collections\",\"col\":4}},{\"id\":\"card_logs\",\"type\":\"card\",\"data\":{\"card_name\":\"Logs\",\"col\":4}}]",
+ "content": "[{\"id\": \"header_health\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Sync Health</b></span>\", \"col\": 12}}, {\"id\": \"nc_active\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Active Product Syncs\", \"col\": 3}}, {\"id\": \"nc_unresolved\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Unresolved Sync Errors\", \"col\": 3}}, {\"id\": \"nc_runs_today\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Sync Runs Today\", \"col\": 3}}, {\"id\": \"nc_errors24h\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Ecommerce Sync Errors (24h)\", \"col\": 3}}, {\"id\": \"nc_queued\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Ecommerce Queued Syncs\", \"col\": 4}}, {\"id\": \"nc_success\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Ecommerce Successful Syncs (24h)\", \"col\": 4}}, {\"id\": \"sp1\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"header_sync\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Product &amp; Catalog Sync</b></span>\", \"col\": 12}}, {\"id\": \"card_sync\", \"type\": \"card\", \"data\": {\"card_name\": \"Sync Operations\", \"col\": 4}}, {\"id\": \"card_catalog\", \"type\": \"card\", \"data\": {\"card_name\": \"Catalog\", \"col\": 4}}, {\"id\": \"card_audit\", \"type\": \"card\", \"data\": {\"card_name\": \"Audit\", \"col\": 4}}, {\"id\": \"sp2\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"header_links\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Configure &amp; Investigate</b></span>\", \"col\": 12}}, {\"id\": \"card_settings\", \"type\": \"card\", \"data\": {\"card_name\": \"Settings\", \"col\": 4}}, {\"id\": \"card_collections\", \"type\": \"card\", \"data\": {\"card_name\": \"Collections\", \"col\": 4}}, {\"id\": \"card_logs\", \"type\": \"card\", \"data\": {\"card_name\": \"Logs\", \"col\": 4}}]",
  "creation": "2026-05-14 00:00:00.000000",
  "custom_blocks": [],
  "docstatus": 0,
@@ -14,6 +14,103 @@
  "is_hidden": 0,
  "label": "Ecommerce Integrations",
  "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Sync Operations",
+   "link_count": 3,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Product Sync",
+   "link_count": 0,
+   "link_to": "Ecommerce Product Sync",
+   "link_type": "DocType",
+   "onboard": 1,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Sync Run",
+   "link_count": 0,
+   "link_to": "Ecommerce Sync Run",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Sync Error",
+   "link_count": 0,
+   "link_to": "Ecommerce Sync Error",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Catalog",
+   "link_count": 2,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Catalog Mirror",
+   "link_count": 0,
+   "link_to": "Ecommerce Catalog Mirror",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Smart Collection",
+   "link_count": 0,
+   "link_to": "Ecommerce Smart Collection",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Audit",
+   "link_count": 2,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Ecommerce Integration Log",
+   "link_count": 0,
+   "link_to": "Ecommerce Integration Log",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Ecommerce Item",
+   "link_count": 0,
+   "link_to": "Ecommerce Item",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
   {
    "hidden": 0,
    "is_query_report": 0,
@@ -82,11 +179,23 @@
    "type": "Link"
   }
  ],
- "modified": "2026-05-14 00:00:00.000000",
+ "modified": "2026-05-18 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Ecommerce Integrations",
  "name": "Ecommerce Integrations",
  "number_cards": [
+  {
+   "label": "Active Product Syncs",
+   "number_card_name": "Active Product Syncs"
+  },
+  {
+   "label": "Unresolved Sync Errors",
+   "number_card_name": "Unresolved Sync Errors"
+  },
+  {
+   "label": "Sync Runs Today",
+   "number_card_name": "Sync Runs Today"
+  },
   {
    "label": "Ecommerce Sync Errors (24h)",
    "number_card_name": "Ecommerce Sync Errors (24h)"
@@ -107,6 +216,28 @@
  "roles": [],
  "sequence_id": 100,
  "shortcuts": [
+  {
+   "color": "Green",
+   "doc_view": "",
+   "label": "Product Sync",
+   "link_to": "Ecommerce Product Sync",
+   "type": "DocType"
+  },
+  {
+   "color": "Red",
+   "doc_view": "",
+   "label": "Sync Errors",
+   "link_to": "Ecommerce Sync Error",
+   "type": "DocType",
+   "stats_filter": "{\"resolved\":0}"
+  },
+  {
+   "color": "Orange",
+   "doc_view": "",
+   "label": "Sync Runs",
+   "link_to": "Ecommerce Sync Run",
+   "type": "DocType"
+  },
   {
    "color": "Blue",
    "doc_view": "",

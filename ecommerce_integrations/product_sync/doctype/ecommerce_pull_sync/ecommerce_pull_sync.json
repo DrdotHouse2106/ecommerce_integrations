@@ -1,0 +1,245 @@
+{
+ "actions": [],
+ "autoname": "field:title",
+ "creation": "2026-05-18 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "backend",
+  "is_active",
+  "column_break_header",
+  "cron_preset",
+  "cron_schedule",
+  "targets_section",
+  "pull_orders",
+  "pull_customers",
+  "pull_inventory",
+  "column_break_targets",
+  "order_status_filter",
+  "lookback_hours",
+  "channels_section",
+  "target_sales_channels",
+  "watermarks_section",
+  "last_order_pulled_at",
+  "last_customer_pulled_at",
+  "last_inventory_pulled_at",
+  "status_section",
+  "sync_status",
+  "last_synced_at",
+  "last_heartbeat_at",
+  "last_error",
+  "column_break_status",
+  "items_pulled_total",
+  "items_failed_total"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "label": "Bezeichnung",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "Eigene Bezeichnung für diesen Pull-Sync, z.B. 'Hauptshop Bestellungen'."
+  },
+  {
+   "fieldname": "backend",
+   "label": "Quellsystem",
+   "fieldtype": "Select",
+   "options": "Shopware\nMedusa",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "is_active",
+   "label": "Aktiv (am Cron-Pull teilnehmen)",
+   "fieldtype": "Check",
+   "default": "0",
+   "in_list_view": 1,
+   "description": "Bei 0 läuft der Pull nur manuell."
+  },
+  {
+   "fieldname": "column_break_header",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cron_preset",
+   "label": "Zeitplan",
+   "fieldtype": "Select",
+   "options": "manual\nevery_hour\nevery_6h\ndaily_3am\ncustom",
+   "default": "every_hour",
+   "description": "Wie oft der Pull läuft. 'every_hour' ist Standard — Webhook + Cron als Sicherheitsnetz."
+  },
+  {
+   "fieldname": "cron_schedule",
+   "label": "Eigener Cron-Ausdruck",
+   "fieldtype": "Data",
+   "depends_on": "eval:doc.cron_preset==='custom'",
+   "description": "5-Felder-Cron-Expression, z.B. <code>0 */2 * * *</code>"
+  },
+  {
+   "fieldname": "targets_section",
+   "fieldtype": "Section Break",
+   "label": "Was geholt wird",
+   "description": "Welche Entitäten beim Pull aus dem Backend abgeholt werden. Pro Run wird jede aktivierte Sektion mit ihrer Watermark abgefragt."
+  },
+  {
+   "fieldname": "pull_orders",
+   "label": "Bestellungen",
+   "fieldtype": "Check",
+   "default": "1"
+  },
+  {
+   "fieldname": "pull_customers",
+   "label": "Kunden",
+   "fieldtype": "Check",
+   "default": "1"
+  },
+  {
+   "fieldname": "pull_inventory",
+   "label": "Bestand (Backend → ERPNext)",
+   "fieldtype": "Check",
+   "default": "0",
+   "description": "Default 0 — meist ist ERPNext die Stock-Quelle. Aktivieren nur, wenn das Backend die Wahrheit ist (z.B. POS-System)."
+  },
+  {
+   "fieldname": "column_break_targets",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "order_status_filter",
+   "label": "Bestell-Status-Filter",
+   "fieldtype": "Data",
+   "default": "paid,open",
+   "description": "Kommagetrennte Backend-Status-Werte; bei Shopware z.B. 'paid,open,in_progress'. Leer = alle Stati."
+  },
+  {
+   "fieldname": "lookback_hours",
+   "label": "Rückblick (Stunden)",
+   "fieldtype": "Int",
+   "default": "168",
+   "description": "Beim Erstlauf ohne Watermark wird so weit zurückgegriffen. Default 7 Tage."
+  },
+  {
+   "fieldname": "channels_section",
+   "fieldtype": "Section Break",
+   "label": "Quell-Storefronts",
+   "description": "Auf welche Storefronts der Pull beschränkt wird. Leer = alle Channels."
+  },
+  {
+   "fieldname": "target_sales_channels",
+   "label": "Storefronts",
+   "fieldtype": "Table",
+   "options": "Ecommerce Pull Sync Channel"
+  },
+  {
+   "fieldname": "watermarks_section",
+   "fieldtype": "Section Break",
+   "label": "Watermarks (informativ)",
+   "collapsible": 1,
+   "description": "Pro Entität: Zeitpunkt des letzten erfolgreichen Pulls. Pulls fragen alles ab, was seither erstellt/geändert wurde."
+  },
+  {
+   "fieldname": "last_order_pulled_at",
+   "label": "Letzte Bestellung geholt am",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_customer_pulled_at",
+   "label": "Letzter Kunde geholt am",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_inventory_pulled_at",
+   "label": "Letzter Bestand geholt am",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Status (informativ)",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "sync_status",
+   "label": "Status",
+   "fieldtype": "Select",
+   "options": "pending\nrunning\nok\nerror\npartial",
+   "default": "pending",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_synced_at",
+   "label": "Letzter Run",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_heartbeat_at",
+   "label": "Letzter Heartbeat",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "last_error",
+   "label": "Letzte Fehlermeldung",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "items_pulled_total",
+   "label": "Geholt insgesamt (letzter Run)",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "items_failed_total",
+   "label": "Fehlgeschlagen (letzter Run)",
+   "fieldtype": "Int",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [
+  {
+   "link_doctype": "Ecommerce Sync Run",
+   "link_fieldname": "sync"
+  },
+  {
+   "link_doctype": "Ecommerce Sync Error",
+   "link_fieldname": "sync"
+  }
+ ],
+ "modified": "2026-05-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Product Sync",
+ "name": "Ecommerce Pull Sync",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "title",
+ "track_changes": 1
+}

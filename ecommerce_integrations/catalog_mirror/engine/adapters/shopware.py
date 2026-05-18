@@ -13,6 +13,8 @@ Shopware shouldn't produce them.
 
 from __future__ import annotations
 
+import json
+
 from ecommerce_integrations.catalog_mirror.constants import BACKEND_SHOPWARE
 from ecommerce_integrations.catalog_mirror.engine.adapters.base import (
     AdapterError,
@@ -122,7 +124,83 @@ class ShopwareCatalogAdapter(CatalogAdapter):
                 index[parent_id].children.append(node)
                 frontier.append(child_id)
 
+        # Populate ``product_count`` per category in one batched
+        # request against the product_category join entity. Without
+        # this the preview's "Produkte" column is always 0, which lies
+        # to the operator about whether deleting an orphan would
+        # detach products.
+        counts = self._fetch_product_counts(client, list(index.keys()))
+        for cid, node in index.items():
+            node.product_count = counts.get(cid, 0)
+
         return root
+
+    def _fetch_product_counts(
+        self, client, category_ids: list[str],
+    ) -> dict[str, int]:
+        """Return ``{categoryId: count}`` over the ``product`` entity's
+        ``categoryIds`` array field.
+
+        We can't aggregate on ``product_category`` (the join table has
+        no scalar ``id``, so Shopware rejects the search with
+        ``FRAMEWORK__UNMAPPED_FIELD``). Instead aggregate by
+        ``product.categoryIds`` — a list field whose terms aggregation
+        produces one bucket per *combination* of categories a product
+        belongs to. Each bucket key is the JSON-serialised list
+        (e.g. ``'["uuid-a","uuid-b"]'``); we parse it and accumulate
+        the count against every contained category id so products
+        assigned to multiple categories are counted in each.
+        """
+        if not category_ids:
+            return {}
+        wanted = set(category_ids)
+        counts: dict[str, int] = {cid: 0 for cid in category_ids}
+        try:
+            resp = client.request_post(
+                "search/product",
+                payload={
+                    "limit": 1,
+                    "aggregations": [
+                        {
+                            "type": "terms",
+                            "name": "by_category",
+                            "field": "categoryIds",
+                            # Shopware caps the bucket count — keep it
+                            # generous so big trees with many products
+                            # come back fully resolved in one call.
+                            "limit": max(5000, len(category_ids) * 2),
+                        },
+                    ],
+                },
+            )
+        except Exception:
+            return counts
+
+        buckets = ((resp or {}).get("aggregations") or {}).get(
+            "by_category", {},
+        ).get("buckets") or []
+        for entry in buckets:
+            raw_key = entry.get("key") or ""
+            cnt = int(entry.get("count") or 0)
+            if not raw_key or not cnt:
+                continue
+            # The bucket key is the JSON-encoded categoryIds list. We
+            # accept both the canonical ``'["…"]'`` shape and the
+            # legacy ``"uuid,uuid"`` fallback older Shopware versions
+            # may emit — both decode to a flat list of uuids.
+            ids: list[str]
+            if raw_key.startswith("["):
+                try:
+                    parsed = json.loads(raw_key)
+                    ids = [str(x) for x in parsed if x]
+                except Exception:
+                    ids = []
+            else:
+                ids = [p.strip() for p in raw_key.split(",") if p.strip()]
+            for cid in ids:
+                if cid in wanted:
+                    counts[cid] += cnt
+        return counts
 
     def _fetch_category(self, client, external_id: str) -> dict | None:
         try:

@@ -64,17 +64,16 @@
   {
    "fieldname": "target_sales_channel",
    "label": "Storefront",
-   "fieldtype": "Link",
-   "options": "Shopware Sales Channel",
+   "fieldtype": "Autocomplete",
    "depends_on": "eval:doc.backend === 'Shopware'",
-   "description": "Shopware-Storefront, der diese Spiegelung zugeordnet ist. Wenn keine Backend-Wurzel-ID gesetzt ist, wird die Navigations-Kategorie der Storefront als Wurzel verwendet."
+   "description": "Shopware-Storefront-UUID. Vorschläge werden aus 'Shopware Setting → Verfügbare Storefronts' geladen. Wenn keine Backend-Wurzel-ID gesetzt ist, wird die Navigations-Kategorie der Storefront als Wurzel verwendet."
   },
   {
    "fieldname": "target_sales_channel_data",
    "label": "Storefront (Medusa)",
-   "fieldtype": "Data",
+   "fieldtype": "Autocomplete",
    "depends_on": "eval:doc.backend === 'Medusa'",
-   "description": "Medusa kennt keine Kategorisierung pro Storefront — dieses Feld dient nur zur Information."
+   "description": "Vorschläge werden aus 'Medusa Setting → Verfügbare Storefronts' geladen. Rein informativ — Medusa hat keine Kategorisierung pro Storefront, der Wert wird vom Sync ignoriert."
   },
   {
    "fieldname": "root_section",

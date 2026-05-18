@@ -1,0 +1,466 @@
+"""Canonical payload + hash for delta-detection.
+
+The Phase-3 differ asks two questions per Item: (1) what would I push?
+and (2) is that different from what I last pushed? This module is the
+answer to both.
+
+``build_canonical_payload(item, sync)`` walks the Item, reads the
+Sync doc's field toggles, and emits a deterministic, JSON-serialisable
+dict. ``compute_hash(payload)`` hashes that dict with SHA-256.
+
+Determinism rules — break any of these and hashes spuriously change:
+
+1. **Stable key order** — JSON is serialised with ``sort_keys=True``.
+2. **Stable string form** — strings are stripped + internal whitespace
+   collapsed to single spaces; ``None`` becomes ``""``; missing
+   attributes are treated as ``None``.
+3. **Stable numeric form** — floats are rounded to 4 decimal places
+   (cents-precise for typical retail prices). ``Decimal`` is funnelled
+   through the same rounding.
+4. **Stable list order** — lists of structured items (images,
+   attributes, channel prices) are sorted on a stable key (URL, name,
+   channel_id).
+5. **Schema version tag** — the top-level ``v`` field bumps when we
+   add a section in a backward-incompatible way, so old hashes never
+   collide with new ones.
+6. **Toggle-aware** — sections only land in the payload when the
+   matching ``sync_*`` toggle is set, so an operator who switches
+   ``sync_images=0`` does not trigger every item to "drift".
+7. **Backend-agnostic** — the same payload shape is used for Shopware
+   and Medusa. Adapters compute the same hash from their live data so
+   the differ can compare apples to apples.
+
+The module is intentionally thin on ``frappe.*``-imports: most
+callsites pass in a pre-loaded ``item`` doc (from ``frappe.get_doc``)
+plus a ``sync`` doc. Imports happen lazily inside the section helpers
+where Bin/Item-Price/File lookups need them.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any
+
+# Schema version. Bump only on backward-incompatible changes to the
+# payload shape (added/removed top-level keys, changed semantics). Do
+# NOT bump for "we now collect a new property" — that is data drift,
+# not schema drift, and will naturally produce different hashes.
+PAYLOAD_VERSION = 1
+
+# Float precision for hashing. 4 decimals is "1/100th of a cent" —
+# plenty for retail prices and stock floats; small enough to swallow
+# float-arithmetic noise.
+_FLOAT_DECIMALS = 4
+
+
+def build_canonical_payload(item, sync, ctx=None) -> dict[str, Any]:
+    """Return the canonical payload dict for one Item under one Sync.
+
+    ``item`` can be either a real Frappe Item doc (with all child
+    tables resolved) or an ``ItemSnapshot`` from
+    :class:`BulkContext` — both quack the same way for the attributes
+    we read. ``ctx`` is the optional :class:`BulkContext`; when set,
+    expensive lookups (stock, price, images) bypass per-item queries
+    and hit the pre-loaded in-memory dicts.
+    """
+    payload: dict[str, Any] = {
+        "v": PAYLOAD_VERSION,
+        "item_code": _norm_str(item.item_code),
+        "is_variant": bool(getattr(item, "variant_of", None)),
+        "variant_of": _norm_str(getattr(item, "variant_of", "")) or None,
+    }
+    if _flag(sync, "sync_basic_fields", default=True):
+        payload["basic"] = _canonical_basic(item, sync)
+    if _flag(sync, "sync_pricing", default=True):
+        payload["pricing"] = _canonical_pricing(item, sync, ctx)
+    if _flag(sync, "sync_inventory", default=True):
+        payload["inventory"] = _canonical_inventory(item, sync, ctx)
+    if _flag(sync, "sync_images", default=True):
+        payload["images"] = _canonical_images(item, sync, ctx)
+    if _flag(sync, "sync_properties", default=True):
+        payload["properties"] = _canonical_properties(item, sync)
+    if _flag(sync, "sync_seo_fields", default=False):
+        payload["seo"] = _canonical_seo(item, sync)
+    if _flag(sync, "sync_taxes", default=True):
+        payload["taxes"] = _canonical_taxes(item, sync)
+    # Category assignment isn't a sync_* toggle — products in
+    # Shopware/Medusa MUST belong to at least one category, so the
+    # mapping is always part of the payload. Drift here triggers a
+    # re-assignment push.
+    payload["categories"] = _canonical_categories(item, sync)
+    return payload
+
+
+def compute_hash(payload: dict[str, Any]) -> str:
+    """SHA-256 hex digest of the canonical JSON serialisation."""
+    return hashlib.sha256(_serialise(payload).encode("utf-8")).hexdigest()
+
+
+def compute_hash_for(item, sync) -> str:
+    """Build canonical payload and hash it in one go."""
+    return compute_hash(build_canonical_payload(item, sync))
+
+
+def diff_payloads(
+    current: dict[str, Any] | None, proposed: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Per-field diff between two canonical payloads.
+
+    Walks the proposed payload top-down. For each leaf field returns a
+    ``{field, current, proposed, change_kind}`` dict matching the
+    ``FieldDiff`` dataclass. Lists/dicts at the value level are
+    compared by canonical-JSON equality, then dumped as short
+    previews so the renderer can show "images: [+3, -1]".
+
+    Top-level keys with section semantics (``basic``, ``pricing``,
+    etc.) are unfolded one level so the differ output reads like
+    ``basic.name`` / ``pricing.list_price`` instead of one giant
+    "basic" blob.
+    """
+    diffs: list[dict[str, Any]] = []
+    current = current or {}
+    sections = set(current.keys()) | set(proposed.keys())
+    # 'v' is schema version, not user-facing
+    sections.discard("v")
+    for sec in sorted(sections):
+        cur_val = current.get(sec)
+        prop_val = proposed.get(sec)
+        if cur_val == prop_val:
+            continue
+        if isinstance(prop_val, dict) or isinstance(cur_val, dict):
+            cur_dict = cur_val if isinstance(cur_val, dict) else {}
+            prop_dict = prop_val if isinstance(prop_val, dict) else {}
+            for k in sorted(set(cur_dict.keys()) | set(prop_dict.keys())):
+                c = cur_dict.get(k)
+                p = prop_dict.get(k)
+                if c == p:
+                    continue
+                diffs.append({
+                    "field": f"{sec}.{k}",
+                    "current": _to_string(c),
+                    "proposed": _to_string(p),
+                    "change_kind": _classify_change(c, p),
+                })
+        else:
+            diffs.append({
+                "field": sec,
+                "current": _to_string(cur_val),
+                "proposed": _to_string(prop_val),
+                "change_kind": _classify_change(cur_val, prop_val),
+            })
+    return diffs
+
+
+# ─── Section builders ────────────────────────────────────────────────
+
+
+def _canonical_basic(item, sync) -> dict[str, Any]:
+    return {
+        "name": _norm_str(_render_name(item, sync)),
+        "sku": _norm_str(item.item_code),
+        "description": _norm_str(_render_description(item, sync)),
+        "ean": _norm_str(
+            getattr(item, "ean", "") or _from_barcodes(item),
+        ),
+        "is_active": not bool(getattr(item, "disabled", 0)),
+        "uom": _norm_str(getattr(item, "stock_uom", "")),
+    }
+
+
+def _render_name(item, sync) -> str:
+    """Render the sync's name_template. If empty or no template tag,
+    falls back to ``item.item_name``."""
+    template = (getattr(sync, "name_template", None) or "").strip()
+    if not template:
+        return item.item_name or item.item_code
+    if "{{" not in template and "{%" not in template:
+        return template
+    try:
+        import frappe
+        return frappe.render_template(template, {"item": item.as_dict()})
+    except Exception:
+        return item.item_name or item.item_code
+
+
+def _render_description(item, sync) -> str:
+    """Render the sync's description_template if mode = custom_template;
+    else read description directly from Item."""
+    source = (getattr(sync, "description_source", None) or "item_description").strip()
+    if source == "custom_template":
+        template = (getattr(sync, "description_template", None) or "").strip()
+        if not template:
+            return ""
+        if "{{" not in template and "{%" not in template:
+            return template
+        try:
+            import frappe
+            return frappe.render_template(template, {"item": item.as_dict()})
+        except Exception:
+            return ""
+    # ai_generated falls back to item_description until Phase 5 wires AI
+    return getattr(item, "description", "") or ""
+
+
+def _canonical_pricing(item, sync, ctx=None) -> dict[str, Any]:
+    """Resolve price per channel based on the sync's strategy.
+
+    Uses ``ctx.price_for`` when available (O(1) dict lookup over the
+    pre-loaded ``tabItem Price`` snapshot); falls back to per-call SQL
+    when no context was passed (single-item callers in test code).
+    """
+    import frappe
+
+    strategy = getattr(sync, "price_strategy", "channel_price_list") or "channel_price_list"
+    standard_rate = _normalize_float(getattr(item, "standard_rate", 0) or 0)
+    currency = getattr(item, "currency", "") or frappe.db.get_default("currency") or "EUR"
+
+    def _price(price_list: str) -> float | None:
+        if not price_list:
+            return None
+        if ctx is not None:
+            return ctx.price_for(item.item_code, price_list)
+        return _lookup_item_price(item.item_code, price_list, currency)
+
+    if strategy == "item_standard_rate":
+        base = standard_rate
+        channel_prices = []
+    elif strategy == "custom_markup":
+        pct = float(getattr(sync, "markup_percent", 0) or 0)
+        base = _normalize_float(standard_rate * (1.0 + pct / 100.0))
+        channel_prices = []
+    else:  # channel_price_list
+        global_list = getattr(sync, "price_list_override", None)
+        base_list = global_list
+        base = _price(base_list) if base_list else standard_rate
+        channel_prices = []
+        for row in (getattr(sync, "target_sales_channels", []) or []):
+            sc_id = _norm_str(row.sales_channel_id)
+            pl = getattr(row, "override_price_list", None) or base_list
+            if not sc_id or not pl:
+                continue
+            channel_prices.append({
+                "channel_id": sc_id,
+                "price": _normalize_float(_price(pl) or 0),
+            })
+        channel_prices.sort(key=lambda d: d["channel_id"])
+
+    return {
+        "currency": _norm_str(currency),
+        "base_price": _normalize_float(base or 0),
+        "channel_prices": channel_prices,
+    }
+
+
+def _lookup_item_price(item_code: str, price_list: str, currency: str) -> float | None:
+    """Fallback per-item SQL lookup used when no :class:`BulkContext`
+    is provided. The differ always provides one; only standalone test
+    callers hit this path."""
+    import frappe
+
+    rows = frappe.db.sql(
+        """SELECT rate FROM `tabItem Price`
+           WHERE item_code = %s AND price_list = %s
+           ORDER BY modified DESC LIMIT 1""",
+        (item_code, price_list),
+    )
+    if rows:
+        return float(rows[0][0] or 0)
+    return None
+
+
+def _canonical_inventory(item, sync, ctx=None) -> dict[str, Any]:
+    """Sum stock across warehouses. Uses ``ctx.stock_for`` for O(1)
+    when running over a bulk pre-load; falls back to per-item SQL
+    otherwise."""
+    if ctx is not None:
+        return {"qty": _normalize_float(ctx.stock_for(item.item_code))}
+
+    import frappe
+
+    qty = frappe.db.sql(
+        """SELECT COALESCE(SUM(actual_qty), 0)
+           FROM `tabBin` WHERE item_code = %s""",
+        (item.item_code,),
+    )
+    total = float(qty[0][0]) if qty else 0.0
+    return {"qty": _normalize_float(total)}
+
+
+def _canonical_images(item, sync, ctx=None) -> list[dict[str, Any]]:
+    """Return sorted list of image references.
+
+    ``ctx.images_for`` returns pre-loaded URLs from the bulk File
+    snapshot. The Item's own ``image`` field (primary) is also
+    included regardless of ctx — it lives directly on the item doc.
+    """
+    images: list[dict[str, Any]] = []
+    primary = _norm_str(getattr(item, "image", ""))
+    if primary:
+        images.append({"url": primary, "primary": True})
+
+    extra_urls: list[str] = []
+    if ctx is not None:
+        extra_urls = list(ctx.images_for(item.item_code))
+    else:
+        import frappe
+
+        rows = frappe.get_all(
+            "File",
+            filters={
+                "attached_to_doctype": "Item",
+                "attached_to_name": item.item_code,
+                "is_private": 0,
+                "is_folder": 0,
+            },
+            fields=["file_url"],
+        )
+        extra_urls = [(r.get("file_url") or "").strip() for r in rows]
+
+    for url in extra_urls:
+        u = _norm_str(url)
+        if not u or u == primary:
+            continue
+        images.append({"url": u, "primary": False})
+
+    # Deterministic order.
+    seen: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for img in sorted(images, key=lambda d: d["url"]):
+        if img["url"] in seen:
+            continue
+        seen.add(img["url"])
+        deduped.append(img)
+    return deduped
+
+
+def _canonical_properties(item, sync) -> dict[str, Any]:
+    """Brand, manufacturer, and Item Attribute values."""
+    out: dict[str, Any] = {
+        "brand": _norm_str(getattr(item, "brand", "")),
+        "manufacturer": _norm_str(getattr(item, "manufacturer", "")),
+    }
+    attrs = []
+    for row in (getattr(item, "attributes", []) or []):
+        name = _norm_str(getattr(row, "attribute", ""))
+        value = _norm_str(getattr(row, "attribute_value", ""))
+        if name and value:
+            attrs.append({"name": name, "value": value})
+    attrs.sort(key=lambda d: (d["name"], d["value"]))
+    out["attributes"] = attrs
+    return out
+
+
+def _canonical_seo(item, sync) -> dict[str, Any]:
+    """SEO fields. The ones we care about are usually Custom Fields
+    on Item (``meta_title``, ``meta_description``, ``slug``); fall
+    back to empty strings when absent."""
+    return {
+        "slug": _norm_str(getattr(item, "seo_slug", "")
+                          or getattr(item, "slug", "")),
+        "meta_title": _norm_str(getattr(item, "meta_title", "")),
+        "meta_description": _norm_str(getattr(item, "meta_description", "")),
+    }
+
+
+def _canonical_taxes(item, sync) -> dict[str, Any]:
+    """Item Tax Template + the resolved rate for the sync's first
+    target channel. Per-channel tax rate variance is a Phase-5
+    extension."""
+    template = _norm_str(getattr(sync, "tax_template", ""))
+    return {"template": template}
+
+
+def _canonical_categories(item, sync) -> dict[str, Any]:
+    """Item Group of this Item — the Catalog Mirror is responsible
+    for mapping it to a backend category id at apply time. For hash
+    purposes we just hash the IG name; a category re-mapping in
+    Catalog Mirror leaves the Item's hash unchanged (the IG name
+    didn't change), but the apply step still re-pushes because the
+    backend category id is read fresh."""
+    return {"item_group": _norm_str(getattr(item, "item_group", ""))}
+
+
+# ─── Helpers ─────────────────────────────────────────────────────────
+
+
+def _flag(sync, name: str, *, default: bool) -> bool:
+    """Read a sync toggle, treating missing attribute as ``default``."""
+    val = getattr(sync, name, None)
+    if val is None:
+        return default
+    return bool(int(val) if isinstance(val, (str, int, float)) else val)
+
+
+def _norm_str(value) -> str:
+    """Normalise to single-space-collapsed stripped string. ``None`` → ``""``."""
+    if value is None:
+        return ""
+    s = str(value)
+    if not s:
+        return ""
+    return " ".join(s.split())
+
+
+def _normalize_float(v) -> float:
+    """Round to ``_FLOAT_DECIMALS`` to swallow float-arithmetic noise."""
+    if v is None:
+        return 0.0
+    return round(float(v), _FLOAT_DECIMALS)
+
+
+def _from_barcodes(item) -> str:
+    """Read EAN from the standard ``Item.barcodes`` child table if
+    the Item doesn't carry an explicit ``ean`` field. Picks the first
+    row with ``barcode_type='EAN'`` or falls back to the first row."""
+    rows = getattr(item, "barcodes", []) or []
+    if not rows:
+        return ""
+    for r in rows:
+        if (getattr(r, "barcode_type", "") or "").upper() == "EAN":
+            return _norm_str(r.barcode)
+    return _norm_str(rows[0].barcode)
+
+
+def _serialise(payload: dict[str, Any]) -> str:
+    """JSON-serialise with stable key order and compact separators."""
+    return json.dumps(
+        payload,
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=_default,
+    )
+
+
+def _default(obj):
+    """JSON-serialiser fallback for non-standard types."""
+    if isinstance(obj, Decimal):
+        return _normalize_float(float(obj))
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, set):
+        return sorted(obj)
+    raise TypeError(
+        f"Object of type {type(obj).__name__} is not JSON serialisable",
+    )
+
+
+def _to_string(v) -> str | None:
+    """Compact preview for diff rendering. Lists/dicts → JSON; None → None."""
+    if v is None:
+        return None
+    if isinstance(v, (str, int, float, bool)):
+        return str(v)
+    return _serialise(v)
+
+
+def _classify_change(current, proposed) -> str:
+    """Map ``(current, proposed)`` to FieldDiff.change_kind."""
+    if current in (None, "", [], {}) and proposed not in (None, "", [], {}):
+        return "added"
+    if current not in (None, "", [], {}) and proposed in (None, "", [], {}):
+        return "removed"
+    return "modified"

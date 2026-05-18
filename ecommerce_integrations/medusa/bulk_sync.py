@@ -48,10 +48,21 @@ _TRACKER = BulkModeTracker(
 
 
 def queue_item_for_sync(doc, method=None):
-    """Hook: queue an Item change for Medusa sync."""
+    """Hook: queue an Item change for Medusa sync.
+
+    Phase-Future refactor: only enqueue when at least one ACTIVE
+    Product Sync's scope covers this Item. The old behaviour ("push
+    every ``Item.save()``") is unsafe at scale — it produces thousands
+    of pointless pushes for items the operator does not actually want
+    synced. The ``Ecommerce Product Sync`` doctype is now the explicit
+    opt-in for "which Items get pushed".
+    """
     if not is_medusa_enabled():
         return
     if doc.flags.from_integration:
+        return
+
+    if not _item_in_any_active_sync(doc):
         return
 
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
@@ -329,3 +340,16 @@ def _acquire_lock(timeout=300):
 
 def _release_lock():
     release_lock(LOCK_KEY)
+
+
+# ── Product Sync scope gate ───────────────────────────────────
+
+
+def _item_in_any_active_sync(doc) -> bool:
+    """Delegate to the shared two-stage scope gate. Same wrapper
+    pattern as ``shopware6/services/queue_hooks.py``."""
+    from ecommerce_integrations.product_sync.constants import BACKEND_MEDUSA
+    from ecommerce_integrations.product_sync.resolver import (
+        item_is_in_any_active_sync,
+    )
+    return item_is_in_any_active_sync(doc, BACKEND_MEDUSA)

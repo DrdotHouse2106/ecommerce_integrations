@@ -189,6 +189,13 @@ class ShopwareSetting(Document):
             response = client.request_get("sales-channel")
             channels = response.get("data", [])
 
+            # Fetch domain map keyed by sales-channel UUID. Surfacing the
+            # storefront URL in the Catalog Mirror picker makes "which
+            # channel is which" obvious without round-tripping to the
+            # Shopware admin. We swallow errors here — a missing
+            # domain field is a UX regression, not a sync blocker.
+            domain_map = self._fetch_sales_channel_domains(client)
+
             # Remember existing channel configurations before refresh
             existing_config = {}
             for sc in self.sales_channels:
@@ -212,6 +219,7 @@ class ShopwareSetting(Document):
                 self.append("sales_channels", {
                     "sales_channel_id": channel_id,
                     "sales_channel_name": channel_name,
+                    "domain_url": domain_map.get(channel_id, ""),
                     "active": channel.get("active", True),
                     "access_key": channel.get("accessKey", ""),
                     "is_default": prev_config.get("is_default", 0),
@@ -245,6 +253,34 @@ class ShopwareSetting(Document):
         except Exception as e:
             get_logger().error("Error occurred", persist=False)
             frappe.throw(_("Failed to fetch Sales Channels: {0}").format(str(e)))
+
+    def _fetch_sales_channel_domains(self, client) -> dict[str, str]:
+        """Return ``{sales_channel_id: domain_url}`` for the primary domain
+        of each sales channel.
+
+        Shopware lets one sales channel carry many domain rows (one per
+        language). We keep the first one we see — it's good enough for a
+        human-friendly picker label. If the API call fails we swallow
+        the error and return an empty map so the surrounding refresh
+        still succeeds; the picker just falls back to "Name (UUID)".
+        """
+        try:
+            response = client.request_get("sales-channel-domain")
+        except Exception:
+            get_logger().error(
+                "Failed to fetch sales-channel-domain — picker labels will "
+                "fall back to UUIDs",
+                persist=False,
+            )
+            return {}
+        out: dict[str, str] = {}
+        for row in (response or {}).get("data", []) or []:
+            attrs = row.get("attributes") or row
+            sc_id = attrs.get("salesChannelId") or row.get("salesChannelId")
+            url = (attrs.get("url") or row.get("url") or "").strip()
+            if sc_id and url and sc_id not in out:
+                out[sc_id] = url
+        return out
 
     def _ensure_channel_rules(self, client) -> int:
         """

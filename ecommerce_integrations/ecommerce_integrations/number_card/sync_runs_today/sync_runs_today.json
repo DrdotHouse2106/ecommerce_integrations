@@ -1,0 +1,20 @@
+{
+ "color": "#5e64ff",
+ "creation": "2026-05-18 00:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Number Card",
+ "document_type": "Ecommerce Sync Run",
+ "filters_json": "[[\"Ecommerce Sync Run\",\"started_at\",\"Timespan\",\"today\"]]",
+ "function": "Count",
+ "idx": 0,
+ "is_public": 1,
+ "is_standard": 1,
+ "label": "Sync Runs Today",
+ "modified": "2026-05-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Ecommerce Integrations",
+ "name": "Sync Runs Today",
+ "owner": "Administrator",
+ "show_percentage_stats": 0,
+ "type": "Document Type"
+}

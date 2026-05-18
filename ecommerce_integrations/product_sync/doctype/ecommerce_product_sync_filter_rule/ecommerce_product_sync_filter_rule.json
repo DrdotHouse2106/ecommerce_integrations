@@ -1,0 +1,73 @@
+{
+ "actions": [],
+ "creation": "2026-05-17 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "field",
+  "field_name",
+  "operator",
+  "value",
+  "combinator"
+ ],
+ "fields": [
+  {
+   "fieldname": "field",
+   "label": "Feld",
+   "fieldtype": "Select",
+   "options": "item_group\nbrand\nmanufacturer\nitem_attribute\ncustom_field\nsku_pattern",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "field_name",
+   "label": "Feldname",
+   "fieldtype": "Data",
+   "depends_on": "eval:['item_attribute','custom_field'].includes(doc.field)",
+   "columns": 2,
+   "description": "Bei item_attribute oder custom_field: der Name des Attributs / Custom Fields."
+  },
+  {
+   "fieldname": "operator",
+   "label": "Operator",
+   "fieldtype": "Select",
+   "options": "equals\nin\nnot_in\ndescends_from\nlike\ngt\nlt\nbetween",
+   "reqd": 1,
+   "default": "equals",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "value",
+   "label": "Wert",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 3,
+   "description": "Für 'in'/'not_in' kommagetrennte Werte. Für 'between' zwei Werte mit '..' getrennt (z.B. <code>100..200</code>)."
+  },
+  {
+   "fieldname": "combinator",
+   "label": "Verknüpfung mit nächster Regel",
+   "fieldtype": "Select",
+   "options": "AND\nOR",
+   "default": "AND",
+   "columns": 2
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-05-17 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Product Sync",
+ "name": "Ecommerce Product Sync Filter Rule",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 0
+}

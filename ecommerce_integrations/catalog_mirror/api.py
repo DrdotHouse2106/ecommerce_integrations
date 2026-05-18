@@ -288,6 +288,173 @@ def resolve_item_for_form(item_code: str) -> dict:
 
 
 @frappe.whitelist()
+def list_shopware_sales_channels() -> list[dict]:
+    """Return Shopware Sales Channel suggestions for the Catalog Mirror
+    form's ``target_sales_channel`` autocomplete.
+
+    Each entry: ``{value: uuid, label: "Name", description: "https://…"}``.
+    The label is what's shown in the dropdown bold line; the description
+    is the storefront URL (Shopware sales-channel-domain) rendered as
+    muted secondary text by Frappe's Autocomplete control. Stored value
+    stays the bare UUID, so downstream sync code is unaffected.
+
+    Replaces the original Link-to-child-table fieldtype, which tripped
+    "Insufficient Permission for Shopware Sales Channel" on form open.
+    """
+    if not frappe.has_permission(_MIRROR_DOCTYPE, "read"):
+        frappe.throw(_("Not permitted to read Catalog Mirrors"))
+    if not frappe.db.exists("DocType", "Shopware Setting"):
+        return []
+    try:
+        setting = frappe.get_single("Shopware Setting")
+    except frappe.DoesNotExistError:
+        return []
+    return _channel_rows_to_options(getattr(setting, "sales_channels", []))
+
+
+@frappe.whitelist()
+def list_medusa_sales_channels() -> list[dict]:
+    """Same shape as :func:`list_shopware_sales_channels`, sourced from
+    ``Medusa Setting.sales_channels``.
+
+    Medusa has no domain-per-channel concept (storefronts are headless),
+    so the description falls back to the UUID. The picker still beats
+    the bare ``Data`` field it replaces because it surfaces the channel
+    name from the local cache.
+    """
+    if not frappe.has_permission(_MIRROR_DOCTYPE, "read"):
+        frappe.throw(_("Not permitted to read Catalog Mirrors"))
+    if not frappe.db.exists("DocType", "Medusa Setting"):
+        return []
+    try:
+        setting = frappe.get_single("Medusa Setting")
+    except frappe.DoesNotExistError:
+        return []
+    return _channel_rows_to_options(getattr(setting, "sales_channels", []))
+
+
+def _channel_rows_to_options(rows) -> list[dict]:
+    """Adapt Shopware / Medusa Sales Channel child rows into Frappe
+    Autocomplete options. Uses ``domain_url`` as the description when
+    present, falling back to the UUID so the row stays unambiguous."""
+    out: list[dict] = []
+    for row in rows or []:
+        uuid = (getattr(row, "sales_channel_id", "") or "").strip()
+        if not uuid:
+            continue
+        name = (getattr(row, "sales_channel_name", "") or uuid).strip()
+        domain = (getattr(row, "domain_url", "") or "").strip()
+        description = domain or uuid
+        out.append({"value": uuid, "label": name, "description": description})
+    return out
+
+
+@frappe.whitelist()
+def auto_adopt_by_path(mirror: str) -> dict:
+    """Match existing live backend categories to ERPNext Item Groups by
+    their full path (root excluded) and persist the resulting
+    ``<backend>_category_id`` mapping.
+
+    Idempotent: IGs that already have a mapping are skipped. Ambiguous
+    paths (the same path produces more than one live candidate) are
+    skipped too and surfaced in the result counters so the operator can
+    use the per-row "Adopt existing…" dialog to disambiguate manually.
+
+    Returns ``{adopted, skipped_already_mapped, no_match, ambiguous}``.
+
+    Use case: first sync against a hand-curated backend tree whose names
+    already match the ERP Item Group structure. The default differ
+    refuses name-based matching to avoid silently re-linking renamed IGs
+    — this endpoint is the explicit, operator-driven opt-in.
+    """
+    if not frappe.has_permission(_MIRROR_DOCTYPE, "write", doc=mirror):
+        frappe.throw(_("Not permitted to write this Catalog Mirror"))
+
+    from ecommerce_integrations.catalog_mirror.engine.adapters.base import (
+        AdapterError,
+        get_adapter,
+    )
+    from ecommerce_integrations.catalog_mirror.tasks import (
+        _load_mapping,
+        _persist_mapping,
+        _resolve_external_root,
+    )
+    from ecommerce_integrations.catalog_mirror.walker import walk_erpnext_tree
+
+    mirror_doc = frappe.get_doc(_MIRROR_DOCTYPE, mirror)
+    erp_tree = walk_erpnext_tree(
+        mirror_doc.root_item_group,
+        include_inactive_leaves=bool(mirror_doc.sync_inactive_leaves),
+    )
+    mapping = _load_mapping(mirror_doc, erp_tree)
+
+    try:
+        adapter = get_adapter(mirror_doc.backend)
+    except AdapterError as e:
+        frappe.throw(_("Adapter for {0} unavailable: {1}").format(mirror_doc.backend, e))
+
+    live_root_id = _resolve_external_root(mirror_doc, mirror_doc.external_root_id or None)
+    if not live_root_id:
+        frappe.throw(
+            _("Keine Backend-Wurzel auflösbar. Setze 'Backend-Wurzel-Kategorie-ID' "
+              "oder wähle eine Storefront aus, bevor du adoptierst."),
+        )
+
+    try:
+        live_tree = adapter.fetch_tree(live_root_id)
+    except (AdapterError, NotImplementedError) as e:
+        frappe.throw(_("Konnte Live-Baum nicht laden: {0}").format(e))
+    if live_tree is None:
+        frappe.throw(_("Konnte Live-Baum nicht laden — Wurzel nicht gefunden."))
+
+    # Build a path-tuple map of the live tree (root excluded — both
+    # trees agree the root pairs with itself).
+    live_paths: dict[tuple[str, ...], list[str]] = {}
+
+    def _walk_live(node, prefix: tuple[str, ...]) -> None:
+        for child in node.children:
+            key = prefix + ((child.name or "").strip(),)
+            live_paths.setdefault(key, []).append(child.external_id)
+            _walk_live(child, key)
+
+    _walk_live(live_tree, ())
+
+    # Walk ERP tree, matching each IG without a mapping against live
+    # paths. We compare on the rendered template name so a custom
+    # ``name_template`` that, say, prefixes every category still works.
+    from ecommerce_integrations.catalog_mirror.differ import _render_template
+
+    template = mirror_doc.name_template or "{{ item_group.item_group_name }}"
+
+    counts = {"adopted": 0, "skipped_already_mapped": 0, "no_match": 0, "ambiguous": 0}
+
+    def _walk_erp(node, prefix: tuple[str, ...]) -> None:
+        for child in node.children:
+            rendered = _render_template(template, child).strip() or (
+                (child.item_group_name or child.name).strip()
+            )
+            key = prefix + (rendered,)
+            if mapping.get(child.name):
+                counts["skipped_already_mapped"] += 1
+            else:
+                candidates = live_paths.get(key, [])
+                if len(candidates) == 1:
+                    ext_id = candidates[0]
+                    _persist_mapping(mirror_doc.backend, child.name, ext_id)
+                    mapping[child.name] = ext_id
+                    counts["adopted"] += 1
+                elif len(candidates) > 1:
+                    counts["ambiguous"] += 1
+                else:
+                    counts["no_match"] += 1
+            _walk_erp(child, key)
+
+    _walk_erp(erp_tree, ())
+    frappe.db.commit()  # noqa: SLF001 — persist mapping before returning so a reopen reflects state
+    return counts
+
+
+@frappe.whitelist()
 def list_for_backend(backend: str) -> list[dict]:
     """Return all Catalog Mirror docs for one backend, flat shape with
     enough info to render a summary table on the Setting form widget."""

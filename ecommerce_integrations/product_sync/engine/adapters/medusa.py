@@ -1,0 +1,803 @@
+"""Medusa ProductAdapter — Product Sync ↔ Medusa v2 product catalogue.
+
+Wraps the Medusa Admin API in the contract laid out by
+:class:`ProductAdapter`. Mirrors the structural choices made in
+:mod:`product_sync.engine.adapters.shopware`, but the wire format is
+quite different and a few quirks need to be respected to keep things
+idempotent:
+
+1. **POST, not PATCH.** Medusa v2 only exposes ``POST /admin/products``
+   for both create and update. There is no merge-patch semantics — any
+   array field in the body (``variants``, ``images``, ``options``,
+   ``sales_channels`` …) replaces the existing array wholesale on
+   update. Callers that only intend to touch a scalar must still send
+   the arrays they want to keep, otherwise the unmentioned arrays
+   silently empty out.
+2. **``external_id`` is the operator-controlled identity column.**
+   Medusa keeps its own opaque ``id`` (``prod_…``) but we drive
+   lookups through ``external_id`` so the ERP-side ``item_code`` is
+   the source of truth. Lookups are done with
+   ``GET /admin/products?external_id={id}``; the response gives back
+   the Medusa-internal ``id`` we then use to POST to.
+3. **No "active" flag.** ``status=draft`` is the standard way to hide
+   a product from the storefront; that's what :meth:`deactivate_product`
+   sets. Hard delete uses ``DELETE /admin/products/{id}``; Medusa
+   soft-deletes (``deleted_at``) but the product is no longer visible
+   from the admin endpoints.
+4. **Prices are integers in minor units (cents).** All money values
+   land on the wire as ``amount=1234`` for €12.34. We convert at the
+   adapter boundary so the engine-level canonical payload speaks in
+   floats just like the Shopware side.
+
+Live-side hashing (:meth:`MedusaProductAdapter.compute_live_hash`)
+emits the same canonical sections as
+:func:`product_sync.engine.canonical.build_canonical_payload`. The
+section keys must stay in lock-step with the ERP-side builders or the
+differ will flap (live-hash says one thing, ERP-hash says another,
+push, still don't match, push again…).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from typing import Any
+
+from ecommerce_integrations.medusa.connection import (
+    get_medusa_session,
+    medusa_request,
+)
+from ecommerce_integrations.product_sync.constants import BACKEND_MEDUSA
+from ecommerce_integrations.product_sync.engine.adapters.base import (
+    AdapterError,
+    LiveProductNode,
+    ProductAdapter,
+    ProductMatch,
+)
+from ecommerce_integrations.product_sync.engine.canonical import (
+    PAYLOAD_VERSION,
+    compute_hash,
+)
+
+# Medusa v2 paginates with offset/limit. 200 is a comfortable page
+# size — the admin endpoint accepts more, but throughput plateaus
+# around here and bigger pages just inflate per-request latency on a
+# remote Medusa instance.
+_FETCH_PAGE_SIZE = 200
+
+# Field projection for ``GET /admin/products``. Without an explicit
+# ``fields`` argument Medusa returns a slim product shape that omits
+# the variant-level inventory + price data we need for the live hash.
+# Keep this in sync with the read paths in ``_node_from_product`` and
+# ``_build_live_canonical`` — drop a field here and the live-hash
+# silently goes stale.
+_FETCH_FIELDS = (
+    "*,variants.*,variants.prices.*,sales_channels.*,"
+    "categories.*,thumbnail,images.*"
+)
+
+# Match-workflow result cap. The Match UI shows the top handful;
+# anything more is just noise.
+_MATCH_LIMIT = 10
+
+
+class MedusaProductAdapter(ProductAdapter):
+    """Concrete adapter against the Medusa v2 Admin API.
+
+    Every public method opens its own short-lived
+    ``requests.Session`` via :func:`get_medusa_session` and closes it
+    in a ``finally`` so we don't leak sockets when a call raises.
+    HTTP-level retries on overload happen inside
+    :func:`medusa_request` itself, so adapter code only has to handle
+    final failure.
+    """
+
+    backend = BACKEND_MEDUSA
+
+    # ─── Public adapter surface ──────────────────────────────────────
+
+    def fetch_products(
+        self,
+        *,
+        sales_channel_ids: list[str] | None = None,
+        category_ids: list[str] | None = None,
+        external_ids: list[str] | None = None,
+    ) -> Iterator[LiveProductNode]:
+        # Iterator pattern: yield per-page. Materialising a five-figure
+        # catalogue in one list would peak memory and defeat the point
+        # of streaming.
+        session, base_url = get_medusa_session()
+        try:
+            yield from self._iter_products(
+                session,
+                base_url,
+                sales_channel_ids=sales_channel_ids,
+                category_ids=category_ids,
+                external_ids=external_ids,
+            )
+        finally:
+            session.close()
+
+    def upsert_product(
+        self,
+        *,
+        external_id: str | None,
+        payload: dict,
+        target_sales_channels: list[str],
+    ) -> str:
+        session, base_url = get_medusa_session()
+        try:
+            return self._upsert_impl(
+                session,
+                base_url,
+                external_id=external_id,
+                payload=payload,
+                target_sales_channels=target_sales_channels,
+            )
+        finally:
+            session.close()
+
+    def deactivate_product(self, external_id: str) -> None:
+        if not external_id:
+            return
+        session, base_url = get_medusa_session()
+        try:
+            product_id = self._resolve_product_id(
+                session, base_url, external_id,
+            )
+            if not product_id:
+                # Idempotent: nothing to deactivate.
+                return
+            try:
+                medusa_request(
+                    session,
+                    base_url,
+                    "POST",
+                    f"/admin/products/{product_id}",
+                    json={"status": "draft"},
+                )
+            except Exception as e:
+                raise AdapterError(
+                    f"Medusa product deactivate failed ({external_id}): {e}",
+                ) from e
+        finally:
+            session.close()
+
+    def delete_product(self, external_id: str) -> None:
+        if not external_id:
+            return
+        session, base_url = get_medusa_session()
+        try:
+            product_id = self._resolve_product_id(
+                session, base_url, external_id,
+            )
+            if not product_id:
+                # Idempotent: 404-equivalent. Treat as already deleted.
+                return
+            try:
+                medusa_request(
+                    session,
+                    base_url,
+                    "DELETE",
+                    f"/admin/products/{product_id}",
+                )
+            except Exception as e:
+                # 404 = already gone; idempotent per the ABC contract.
+                if "404" in str(e):
+                    return
+                raise AdapterError(
+                    f"Medusa product delete failed ({external_id}): {e}",
+                ) from e
+        finally:
+            session.close()
+
+    def find_matching_products(
+        self,
+        *,
+        sku: str | None = None,
+        name: str | None = None,
+        ean: str | None = None,
+    ) -> list[ProductMatch]:
+        # Note: the ABC only declares ``sku``/``name``; ``ean`` is an
+        # extra keyword the Medusa adapter accepts because Medusa
+        # carries EAN on the variant. Keyword-only + default ``None``
+        # keeps the override covariant with the base.
+        if not (sku or name or ean):
+            return []
+
+        session, base_url = get_medusa_session()
+        try:
+            return self._find_matching_impl(
+                session, base_url, sku=sku, name=name, ean=ean,
+            )
+        finally:
+            session.close()
+
+    # ─── Hashing parity with engine/canonical.py ─────────────────────
+
+    def compute_live_hash(
+        self, product: dict[str, Any], sync,
+    ) -> str:
+        """Hash a live Medusa product the same way the ERP side hashes
+        the source Item, so the differ can compare apples to apples.
+
+        ``product`` is the raw response dict from the
+        ``products[]`` array of ``GET /admin/products``. ``sync`` is
+        the ``Ecommerce Product Sync`` doc; toggles on the sync gate
+        which sections land in the payload, matching the ERP-side
+        :func:`build_canonical_payload`.
+        """
+        payload = self._build_live_canonical(product, sync)
+        return compute_hash(payload)
+
+    # ─── Implementations ─────────────────────────────────────────────
+
+    def _iter_products(
+        self,
+        session,
+        base_url: str,
+        *,
+        sales_channel_ids: list[str] | None,
+        category_ids: list[str] | None,
+        external_ids: list[str] | None,
+    ) -> Iterator[LiveProductNode]:
+        params = self._build_fetch_params(
+            sales_channel_ids=sales_channel_ids,
+            category_ids=category_ids,
+            external_ids=external_ids,
+        )
+        offset = 0
+        while True:
+            page_params = dict(params)
+            page_params["limit"] = _FETCH_PAGE_SIZE
+            page_params["offset"] = offset
+
+            try:
+                resp = medusa_request(
+                    session,
+                    base_url,
+                    "GET",
+                    "/admin/products",
+                    params=page_params,
+                )
+            except Exception as e:
+                raise AdapterError(
+                    f"Medusa product list failed (offset={offset}): {e}",
+                ) from e
+
+            products = (resp or {}).get("products") or []
+            if not products:
+                return
+            for p in products:
+                node = self._node_from_product(p)
+                if node is not None:
+                    yield node
+            # Same termination guard as the catalog adapter — short
+            # page means we've drained the result set.
+            if len(products) < _FETCH_PAGE_SIZE:
+                return
+            offset += _FETCH_PAGE_SIZE
+
+    def _build_fetch_params(
+        self,
+        *,
+        sales_channel_ids: list[str] | None,
+        category_ids: list[str] | None,
+        external_ids: list[str] | None,
+    ) -> dict[str, Any]:
+        """Compose the query-param dict for ``/admin/products``.
+
+        Medusa accepts repeated query keys for list-valued filters
+        (``external_id[]=a&external_id[]=b``). ``requests`` serialises
+        a list-valued dict entry to repeated keys automatically when
+        we pass it as the value for ``external_id[]`` — that's the
+        idiom used elsewhere in the Medusa module.
+        """
+        params: dict[str, Any] = {"fields": _FETCH_FIELDS}
+        if external_ids:
+            params["external_id[]"] = list(external_ids)
+        if sales_channel_ids:
+            params["sales_channel_id[]"] = list(sales_channel_ids)
+        if category_ids:
+            params["category_id[]"] = list(category_ids)
+        return params
+
+    def _node_from_product(
+        self, product: dict[str, Any],
+    ) -> LiveProductNode | None:
+        ext_id = product.get("id")
+        if not ext_id:
+            return None
+
+        variants = product.get("variants") or []
+        first_variant: dict[str, Any] = (
+            variants[0] if variants and isinstance(variants[0], dict) else {}
+        )
+
+        sku = first_variant.get("sku") or None
+
+        price_val: float | None = None
+        prices = first_variant.get("prices") or []
+        if isinstance(prices, list) and prices:
+            first_price = prices[0] or {}
+            amount = first_price.get("amount")
+            try:
+                if amount is not None:
+                    # Medusa stores prices in minor units (cents). Engine-
+                    # side hashing speaks majors, so we divide here.
+                    price_val = float(amount) / 100.0
+            except (TypeError, ValueError):
+                price_val = None
+
+        stock_raw = first_variant.get("inventory_quantity")
+        try:
+            stock_val: int | None = (
+                int(stock_raw) if stock_raw is not None else 0
+            )
+        except (TypeError, ValueError):
+            stock_val = 0
+
+        cat_ids: list[str] = []
+        for c in product.get("categories") or []:
+            if not isinstance(c, dict):
+                continue
+            cid = c.get("id")
+            if cid:
+                cat_ids.append(cid)
+        cat_ids = sorted(set(cat_ids))
+
+        sc_ids: list[str] = []
+        for s in product.get("sales_channels") or []:
+            if not isinstance(s, dict):
+                continue
+            sid = s.get("id")
+            if sid:
+                sc_ids.append(sid)
+        sc_ids = sorted(set(sc_ids))
+
+        images: list[str] = []
+        for img in product.get("images") or []:
+            if not isinstance(img, dict):
+                continue
+            url = img.get("url")
+            if url:
+                images.append(url)
+        images = sorted(set(images))
+
+        return LiveProductNode(
+            external_id=ext_id,
+            sku=sku,
+            name=product.get("title") or "",
+            description=product.get("description") or None,
+            price=price_val,
+            stock=stock_val,
+            category_ids=cat_ids,
+            sales_channel_ids=sc_ids,
+            active=(product.get("status") == "published"),
+            images=images,
+        )
+
+    def _upsert_impl(
+        self,
+        session,
+        base_url: str,
+        *,
+        external_id: str | None,
+        payload: dict,
+        target_sales_channels: list[str],
+    ) -> str:
+        out_payload: dict[str, Any] = dict(payload or {})
+
+        # Sales-channel assignment is opinionated by Product Sync. If
+        # the caller supplied targets, they win over whatever is
+        # currently linked. An empty list means "no opinion" — leave
+        # whatever Medusa already has, because clobbering with ``[]``
+        # would unlink every channel on update.
+        if target_sales_channels:
+            out_payload["sales_channels"] = [
+                {"id": sc_id} for sc_id in target_sales_channels if sc_id
+            ]
+
+        product_id: str | None = None
+        if external_id:
+            product_id = self._resolve_product_id(
+                session, base_url, external_id,
+            )
+            # If we couldn't find the existing product, fall through
+            # to create — we keep the operator-supplied external_id
+            # on the body so Medusa adopts the same identity.
+            out_payload.setdefault("external_id", external_id)
+
+        try:
+            if product_id:
+                resp = medusa_request(
+                    session,
+                    base_url,
+                    "POST",
+                    f"/admin/products/{product_id}",
+                    json=out_payload,
+                )
+            else:
+                resp = medusa_request(
+                    session,
+                    base_url,
+                    "POST",
+                    "/admin/products",
+                    json=out_payload,
+                )
+        except Exception as e:
+            raise AdapterError(
+                f"Medusa product upsert failed "
+                f"(external_id={external_id!r}): {e}",
+            ) from e
+
+        prod = (resp or {}).get("product") or {}
+        new_id = prod.get("id") or product_id
+        if not new_id:
+            raise AdapterError(
+                f"Medusa product upsert returned no id "
+                f"(external_id={external_id!r}, response={resp!r})",
+            )
+        return new_id
+
+    def _resolve_product_id(
+        self, session, base_url: str, external_id: str,
+    ) -> str | None:
+        """Look up the Medusa-internal ``id`` for an ``external_id``.
+
+        Returns ``None`` when no product carries that external_id —
+        the caller decides whether to treat that as "create" (upsert)
+        or "nothing to do" (deactivate/delete).
+        """
+        try:
+            resp = medusa_request(
+                session,
+                base_url,
+                "GET",
+                "/admin/products",
+                params={
+                    "external_id[]": [external_id],
+                    "limit": 1,
+                    "fields": "id,external_id",
+                },
+            )
+        except Exception as e:
+            raise AdapterError(
+                f"Medusa product lookup failed "
+                f"(external_id={external_id!r}): {e}",
+            ) from e
+
+        products = (resp or {}).get("products") or []
+        if not products:
+            return None
+        first = products[0] or {}
+        return first.get("id")
+
+    def _find_matching_impl(
+        self,
+        session,
+        base_url: str,
+        *,
+        sku: str | None,
+        name: str | None,
+        ean: str | None,
+    ) -> list[ProductMatch]:
+        matches: list[ProductMatch] = []
+        seen: set[str] = set()
+
+        # SKU is the strongest signal: 1.0. Variant-level filter — a
+        # product with a matching variant SKU is treated as the
+        # candidate.
+        if sku:
+            for m in self._run_match_query(
+                session,
+                base_url,
+                params={
+                    "variants[sku]": sku,
+                    "limit": _MATCH_LIMIT,
+                    "fields": "id,title,variants.sku",
+                },
+                score=1.0,
+            ):
+                if m.external_id not in seen:
+                    seen.add(m.external_id)
+                    matches.append(m)
+
+        # EAN second: 0.8. Different products legitimately share an
+        # EAN (re-issued barcodes, multi-pack vs single).
+        if ean:
+            for m in self._run_match_query(
+                session,
+                base_url,
+                params={
+                    "variants[ean]": ean,
+                    "limit": _MATCH_LIMIT,
+                    "fields": "id,title,variants.sku",
+                },
+                score=0.8,
+            ):
+                if m.external_id not in seen:
+                    seen.add(m.external_id)
+                    matches.append(m)
+
+        # Name last: 0.5. Medusa's ``q`` parameter is a free-text
+        # search; we cap at the first page of results and let the UI
+        # rank below SKU/EAN hits.
+        if name:
+            for m in self._run_match_query(
+                session,
+                base_url,
+                params={
+                    "q": name,
+                    "limit": _MATCH_LIMIT,
+                    "fields": "id,title,variants.sku",
+                },
+                score=0.5,
+            ):
+                if m.external_id not in seen:
+                    seen.add(m.external_id)
+                    matches.append(m)
+
+        matches.sort(key=lambda mm: mm.score, reverse=True)
+        return matches[:_MATCH_LIMIT]
+
+    def _run_match_query(
+        self,
+        session,
+        base_url: str,
+        *,
+        params: dict[str, Any],
+        score: float,
+    ) -> list[ProductMatch]:
+        try:
+            resp = medusa_request(
+                session,
+                base_url,
+                "GET",
+                "/admin/products",
+                params=params,
+            )
+        except Exception as e:
+            raise AdapterError(
+                f"Medusa product match search failed "
+                f"(params={params!r}): {e}",
+            ) from e
+
+        out: list[ProductMatch] = []
+        for prod in (resp or {}).get("products") or []:
+            if not isinstance(prod, dict):
+                continue
+            ext_id = prod.get("id")
+            if not ext_id:
+                continue
+            variants = prod.get("variants") or []
+            first_variant = (
+                variants[0]
+                if variants and isinstance(variants[0], dict)
+                else {}
+            )
+            out.append(
+                ProductMatch(
+                    external_id=ext_id,
+                    sku=first_variant.get("sku") or None,
+                    name=prod.get("title") or "",
+                    score=score,
+                ),
+            )
+        return out
+
+    # ─── Live-hash payload builders ──────────────────────────────────
+
+    def _build_live_canonical(
+        self, product: dict[str, Any], sync,
+    ) -> dict[str, Any]:
+        """Build a canonical-payload dict from a live Medusa product.
+
+        Section names and shapes mirror
+        :func:`product_sync.engine.canonical.build_canonical_payload`
+        exactly. Toggles are honoured via ``_live_flag`` — the same
+        ``sync_*`` flags that gate the ERP-side sections gate the
+        live-side ones, otherwise the differ would compare a
+        toggle-trimmed ERP payload against a full live payload and
+        always declare drift.
+        """
+        variants = product.get("variants") or []
+        first_variant: dict[str, Any] = (
+            variants[0] if variants and isinstance(variants[0], dict) else {}
+        )
+        metadata = product.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        out: dict[str, Any] = {
+            "v": PAYLOAD_VERSION,
+            "item_code": _ns(first_variant.get("sku")),
+            # Medusa variants live inside a product; the engine-level
+            # canonical treats variants the same as standalone items
+            # for hash purposes (variant-of mapping is a Phase-5
+            # extension).
+            "is_variant": False,
+            "variant_of": None,
+        }
+
+        if _live_flag(sync, "sync_basic_fields", default=True):
+            out["basic"] = self._live_basic(product, first_variant)
+        if _live_flag(sync, "sync_pricing", default=True):
+            out["pricing"] = self._live_pricing(first_variant)
+        if _live_flag(sync, "sync_inventory", default=True):
+            out["inventory"] = self._live_inventory(first_variant)
+        if _live_flag(sync, "sync_images", default=True):
+            out["images"] = self._live_images(product)
+        if _live_flag(sync, "sync_properties", default=True):
+            out["properties"] = self._live_properties(metadata)
+        if _live_flag(sync, "sync_seo_fields", default=False):
+            out["seo"] = self._live_seo(product, metadata)
+        if _live_flag(sync, "sync_taxes", default=True):
+            out["taxes"] = self._live_taxes()
+        out["categories"] = self._live_categories(metadata)
+        return out
+
+    def _live_basic(
+        self,
+        product: dict[str, Any],
+        first_variant: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "name": _ns(product.get("title")),
+            "sku": _ns(first_variant.get("sku")),
+            "description": _ns(product.get("description")),
+            "ean": _ns(first_variant.get("ean")),
+            "is_active": (product.get("status") == "published"),
+            # Medusa doesn't carry an item-level UoM; the engine-side
+            # canonical hashes ``stock_uom`` (free-text) but there's
+            # no equivalent live field. Emit empty string so the
+            # presence-or-absence check stays deterministic; Phase 5
+            # can map this onto a metadata key if operators need it.
+            # TODO: surface UoM via metadata when Phase 5 lands.
+            "uom": "",
+        }
+
+    def _live_pricing(
+        self, first_variant: dict[str, Any],
+    ) -> dict[str, Any]:
+        prices = first_variant.get("prices") or []
+        base = 0.0
+        currency = ""
+        if isinstance(prices, list) and prices:
+            first = prices[0] or {}
+            try:
+                amount = first.get("amount")
+                base = round(float(amount or 0) / 100.0, 4)
+            except (TypeError, ValueError):
+                base = 0.0
+            currency = _ns(first.get("currency_code"))
+
+        # Channel-tier prices in Medusa land on price-list entries
+        # bound to sales channels; reconciling those against ERP
+        # price lists is a Phase 5 concern. For now we emit an empty
+        # list, which matches what ``_canonical_pricing`` does on the
+        # ERP side when the sync has no per-channel overrides.
+        # TODO: when sync.price_strategy = channel_price_list with
+        # per-channel rows, expand price-list rules and emit one
+        # channel_prices entry per matched rule.
+        return {
+            "currency": currency,
+            "base_price": base,
+            "channel_prices": [],
+        }
+
+    def _live_inventory(
+        self, first_variant: dict[str, Any],
+    ) -> dict[str, Any]:
+        raw = first_variant.get("inventory_quantity")
+        try:
+            qty = round(float(raw or 0), 4)
+        except (TypeError, ValueError):
+            qty = 0.0
+        return {"qty": qty}
+
+    def _live_images(
+        self, product: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        # Medusa carries the cover image as ``thumbnail`` separately
+        # from the ``images[]`` collection. Match the engine-side
+        # convention of marking the first sorted URL as primary —
+        # that way a hash stays stable across re-uploads that don't
+        # change the URL set.
+        out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for img in product.get("images") or []:
+            if not isinstance(img, dict):
+                continue
+            url = img.get("url")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            out.append({"url": url, "primary": False})
+        out.sort(key=lambda d: d["url"])
+        if out:
+            out[0]["primary"] = True
+        return out
+
+    def _live_properties(
+        self, metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        # Medusa doesn't carry first-class brand/manufacturer fields
+        # on the product entity. The convention this plugin uses is
+        # to stash them on ``metadata`` (a free-form JSON map) under
+        # operator-chosen keys. We read ``brand``/``manufacturer``
+        # there; if the operator picked different keys, the hash
+        # will diverge until Phase 5 makes the keys configurable.
+        # TODO: make the metadata keys configurable on the sync doc.
+        return {
+            "brand": _ns(metadata.get("brand")),
+            "manufacturer": _ns(metadata.get("manufacturer")),
+            "attributes": [],
+        }
+
+    def _live_seo(
+        self,
+        product: dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "slug": _ns(product.get("handle")),
+            "meta_title": _ns(metadata.get("meta_title")),
+            "meta_description": _ns(metadata.get("meta_description")),
+        }
+
+    def _live_taxes(self) -> dict[str, Any]:
+        # Medusa tax handling lives on tax-region/tax-rate objects
+        # rather than directly on the product. The engine-side
+        # canonical reports the operator-chosen Item Tax Template
+        # name, which has no direct equivalent on the live side.
+        # Emit empty string so the hash compares against the ERP
+        # "no template set" case; Phase 5 will map tax-rate ids
+        # back to a comparable string.
+        # TODO: resolve tax_rate_id → template name for parity.
+        return {"template": ""}
+
+    def _live_categories(
+        self, metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        # ERP side hashes the Item Group name, not the backend
+        # category id; category-tree drift is the Catalog Mirror's
+        # job, not this adapter's. We read an operator-stashed
+        # ``item_group`` key from ``metadata`` so that hash parity
+        # converges when the operator opts into round-tripping IG
+        # names through metadata; otherwise we emit empty string,
+        # matching the ERP "no IG set" case.
+        # TODO: when sync.match_categories_by_name is enabled, walk
+        # the categories association and emit the first IG name match.
+        return {"item_group": _ns(metadata.get("item_group"))}
+
+
+# ─── Module-level helpers ────────────────────────────────────────────
+
+
+def _ns(value) -> str:
+    """Normalise to single-space-collapsed stripped string.
+
+    Mirrors :func:`product_sync.engine.canonical._norm_str` so a value
+    that the ERP-side hashes as ``"Acme GmbH"`` doesn't hash as
+    ``"  Acme  GmbH "`` on the live side. ``None`` becomes empty
+    string, which is what the canonical builder also does.
+    """
+    if value is None:
+        return ""
+    s = str(value)
+    if not s:
+        return ""
+    return " ".join(s.split())
+
+
+def _live_flag(sync, name: str, *, default: bool) -> bool:
+    """Toggle reader that matches ``canonical._flag``.
+
+    Importing the private symbol directly from ``canonical`` would
+    couple this module to an underscore-prefixed name; reimplementing
+    is one line and keeps the boundary clean.
+    """
+    val = getattr(sync, name, None)
+    if val is None:
+        return default
+    return bool(int(val) if isinstance(val, (str, int, float)) else val)

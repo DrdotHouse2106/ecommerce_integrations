@@ -54,16 +54,20 @@ doctype_js = {
 	"Stock Entry": "public/js/unicommerce/stock_entry.js",
 	"Pick List": "public/js/unicommerce/pick_list.js",
 	"Medusa Setting": [
+		"public/js/common/icon_helper.js",
 		"public/js/smart_collections/setting_widget.js",
 		"public/js/catalog_mirror/setting_widget.js",
+		"public/js/product_sync/setting_widget.js",
 		"public/js/common/health_banner.js",
 		"public/js/common/safety_mode.js",
 		"public/js/common/webhook_widget.js",
 		"public/js/medusa/setup_wizard.js",
 	],
 	"Shopware Setting": [
+		"public/js/common/icon_helper.js",
 		"public/js/smart_collections/setting_widget.js",
 		"public/js/catalog_mirror/setting_widget.js",
+		"public/js/product_sync/setting_widget.js",
 		"public/js/common/health_banner.js",
 		"public/js/common/safety_mode.js",
 		"public/js/common/webhook_widget.js",
@@ -311,6 +315,15 @@ scheduler_events = {
 			"ecommerce_integrations.unicommerce.order.sync_new_orders",
 			"ecommerce_integrations.unicommerce.inventory.update_inventory_on_unicommerce",
 			"ecommerce_integrations.unicommerce.delivery_note.prepare_delivery_note",
+		],
+		# Product Sync: per-doc cron dispatcher for push direction.
+		# Pull Sync: same pattern for the inverse direction (Backend →
+		# ERPNext orders/customers/inventory) so both pulls and pushes
+		# share one audit trail (``Ecommerce Sync Run``) and the same
+		# 15-minute tick cadence.
+		"*/15 * * * *": [
+			"ecommerce_integrations.product_sync.tasks.dispatch_due_syncs",
+			"ecommerce_integrations.product_sync.pull_tasks.dispatch_due_pulls",
 		],
 	},
 }

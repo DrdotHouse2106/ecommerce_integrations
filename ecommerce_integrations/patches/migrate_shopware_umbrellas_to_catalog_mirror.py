@@ -183,11 +183,11 @@ def _insert_mirror(
 ) -> str:
     """Create the Mirror doc and return its name.
 
-    ``flags.ignore_links`` because ``target_sales_channel`` is a Link to
-    a child-table row (``Shopware Sales Channel`` is parented under
-    ``Shopware Setting``) — Frappe's link-existence check can't reach
-    into child tables, so we skip it; resolver / adapter look the
-    channel up via the parent doctype at sync time.
+    ``target_sales_channel`` is an Autocomplete (raw UUID string) — the
+    form populates suggestions from ``Shopware Setting.sales_channels``
+    at open time. ``flags.ignore_links`` is kept defensively in case the
+    fieldtype is ever reverted; resolver / adapter look the channel up
+    via the parent doctype at sync time regardless.
     """
     doc = frappe.get_doc({
         "doctype": _MIRROR_DOCTYPE,

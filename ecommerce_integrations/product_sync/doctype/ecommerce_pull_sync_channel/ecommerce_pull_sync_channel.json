@@ -1,0 +1,41 @@
+{
+ "actions": [],
+ "creation": "2026-05-18 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sales_channel_id",
+  "label"
+ ],
+ "fields": [
+  {
+   "fieldname": "sales_channel_id",
+   "label": "Storefront-ID",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "UUID aus Shopware/Medusa Setting. Leer lassen für 'alle Channels'."
+  },
+  {
+   "fieldname": "label",
+   "label": "Hinweis",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "description": "Optional: Name/Anmerkung, damit man die UUID wiedererkennt."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-05-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Product Sync",
+ "name": "Ecommerce Pull Sync Channel",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

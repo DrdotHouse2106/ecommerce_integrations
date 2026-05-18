@@ -1,0 +1,968 @@
+"""Shopware ProductAdapter — Product Sync ↔ Shopware product catalogue.
+
+Wraps the Shopware Admin API in the contract laid out by
+:class:`ProductAdapter`. The adapter is intentionally thin: it does
+one thing — speak HTTP — and leaves orchestration (batching, retry
+policy, error routing) to the caller.
+
+Three patterns are inherited verbatim from
+:mod:`ecommerce_integrations.catalog_mirror.engine.adapters.shopware`
+because they are session-level concerns, not endpoint-level:
+
+1. **Session wrapping** — every public method funnels through
+   :func:`_with_client`, which wraps the call in
+   ``temp_shopware_session``. That handles auth, gateway-retry, and
+   idempotency-key injection on writes for free.
+2. **Pagination loop** — ``page/limit`` with abort-on-short-page.
+3. **Defensive errors** — every API call sits inside a ``try`` that
+   maps the SDK exception to :class:`AdapterError` with ``__cause__``
+   preserved, so the orchestrator's log row has the original
+   traceback.
+
+Live-side hashing (:meth:`ShopwareProductAdapter.compute_live_hash`)
+re-uses the canonical-payload section builders from
+:mod:`product_sync.engine.canonical` deliberately: if the live-side
+hash is computed against a different shape than the ERP-side hash,
+the differ would loop forever ("they don't match — push — still
+don't match — push"). The section keys produced here must remain in
+lock-step with ``_canonical_basic`` / ``_canonical_pricing`` / etc.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from typing import Any
+
+from ecommerce_integrations.product_sync.constants import BACKEND_SHOPWARE
+from ecommerce_integrations.product_sync.engine.adapters.base import (
+    AdapterError,
+    LiveProductNode,
+    ProductAdapter,
+    ProductMatch,
+)
+from ecommerce_integrations.product_sync.engine.canonical import (
+    PAYLOAD_VERSION,
+    compute_hash,
+)
+from ecommerce_integrations.shopware6.connection import temp_shopware_session
+
+# Shopware caps page size at 500. We use the cap on big fetches so we
+# pay fewer round-trips on a five-figure catalogue.
+_FETCH_PAGE_SIZE = 500
+
+# Bulk-sync chunk size. Shopware accepts more but throughput peaks
+# around 100 and lock-timeout risk climbs above that — same number the
+# existing BatchProductUploader settled on.
+_BULK_CHUNK_SIZE = 100
+
+# Match-workflow result cap. UI shows the top handful; anything more
+# is noise and just inflates the round-trip.
+_MATCH_LIMIT = 10
+
+# Shopware "visible everywhere" — search + listing + direct URL. The
+# enum value is fixed in the entity schema; 10 = link only, 20 = link
+# + search, 30 = full. We push the maximum because Product Sync owns
+# the per-channel decision via the include/exclude list; once a
+# channel is included, the operator wants the product fully visible.
+_VISIBILITY_ALL = 30
+
+
+class ShopwareProductAdapter(ProductAdapter):
+    """Concrete adapter against Shopware 6 Admin API.
+
+    All five public methods are wrappers that delegate to private
+    ``_*_impl`` methods which run inside a Shopware session. The
+    indirection is what lets tests inject a mock client without going
+    through OAuth.
+    """
+
+    backend = BACKEND_SHOPWARE
+
+    # ─── Public adapter surface ──────────────────────────────────────
+
+    def fetch_products(
+        self,
+        *,
+        sales_channel_ids: list[str] | None = None,
+        category_ids: list[str] | None = None,
+        external_ids: list[str] | None = None,
+    ) -> Iterator[LiveProductNode]:
+        # Iterator pattern: yield per-page, not all-at-once. A 50k
+        # catalogue blown into memory is what crashed the legacy
+        # exporter; this adapter must not repeat that mistake.
+        yield from _with_client(
+            self._fetch_products_impl,
+            sales_channel_ids=sales_channel_ids,
+            category_ids=category_ids,
+            external_ids=external_ids,
+        )
+
+    def upsert_product(
+        self,
+        *,
+        external_id: str | None,
+        payload: dict,
+        target_sales_channels: list[str],
+    ) -> str:
+        return _with_client(
+            self._upsert_product_impl,
+            external_id=external_id,
+            payload=payload,
+            target_sales_channels=target_sales_channels,
+        )
+
+    def deactivate_product(self, external_id: str) -> None:
+        _with_client(self._deactivate_impl, external_id)
+
+    def delete_product(self, external_id: str) -> None:
+        _with_client(self._delete_impl, external_id)
+
+    def find_matching_products(
+        self,
+        *,
+        sku: str | None = None,
+        ean: str | None = None,
+        name: str | None = None,
+    ) -> list[ProductMatch]:
+        # Note: the ABC only declares ``sku``/``name``; ``ean`` is an
+        # extra keyword the Shopware adapter accepts because Shopware
+        # carries EAN natively on the product entity. Keyword-only +
+        # default ``None`` keeps the override covariant with the base.
+        return _with_client(
+            self._find_matching_impl,
+            sku=sku,
+            ean=ean,
+            name=name,
+        )
+
+    def find_matching_products_bulk(
+        self,
+        *,
+        skus: list[str] | None = None,
+        eans: list[str] | None = None,
+    ) -> dict[str, ProductMatch]:
+        # Shopware's ``equalsAny`` filter takes a list — we send N
+        # lookup values in one ``POST /search/product`` instead of N
+        # HTTP calls. SKUs are checked against ``productNumber``, EANs
+        # against ``ean``. SKU hits win when both fire for the same
+        # backend product.
+        return _with_client(
+            self._find_matching_bulk_impl,
+            skus=skus,
+            eans=eans,
+        )
+
+    # ─── Hashing parity with engine/canonical.py ─────────────────────
+
+    def compute_live_hash(self, product: dict[str, Any], sync) -> str:
+        """Hash a live Shopware product the same way the ERP side hashes
+        the source Item, so the differ can compare apples to apples.
+
+        ``product`` is the raw response dict as it appears in the
+        ``data[]`` array of ``POST /search/product`` — the same shape
+        that backs :class:`LiveProductNode`. ``sync`` is the
+        ``Ecommerce Product Sync`` doc whose toggles decide which
+        sections land in the payload.
+
+        The output dict mirrors :func:`build_canonical_payload` by
+        construction: same top-level keys, same section schemas, same
+        sort orders. Any divergence and the differ flaps.
+        """
+        payload = self._build_live_canonical(product, sync)
+        return compute_hash(payload)
+
+    # ─── Implementations (run inside temp_shopware_session) ──────────
+
+    def _fetch_products_impl(
+        self,
+        client,
+        *,
+        sales_channel_ids: list[str] | None,
+        category_ids: list[str] | None,
+        external_ids: list[str] | None,
+    ) -> Iterator[LiveProductNode]:
+        filters = self._build_fetch_filters(
+            sales_channel_ids=sales_channel_ids,
+            category_ids=category_ids,
+            external_ids=external_ids,
+        )
+        page = 1
+        while True:
+            criteria: dict[str, Any] = {
+                "page": page,
+                "limit": _FETCH_PAGE_SIZE,
+                # Associations carry the data we need for the hash. Drop
+                # an association here and the live-hash silently goes
+                # stale ("no images on live, push images every run").
+                "associations": {
+                    "tax": {},
+                    "media": {"associations": {"media": {}}},
+                    "properties": {"associations": {"group": {}}},
+                    "prices": {},
+                    "visibilities": {},
+                    "categories": {},
+                },
+            }
+            if filters:
+                criteria["filter"] = filters
+
+            try:
+                resp = client.request_post(
+                    "search/product", payload=criteria,
+                )
+            except Exception as e:
+                raise AdapterError(
+                    f"Shopware product search failed (page={page}): {e}",
+                ) from e
+
+            data = (resp or {}).get("data") or []
+            if not data:
+                return
+            for row in data:
+                node = self._row_to_live_node(row)
+                if node is not None:
+                    yield node
+            # Same termination guard as the catalog adapter — if the
+            # page came back short, we're done.
+            if len(data) < _FETCH_PAGE_SIZE:
+                return
+            page += 1
+
+    def _build_fetch_filters(
+        self,
+        *,
+        sales_channel_ids: list[str] | None,
+        category_ids: list[str] | None,
+        external_ids: list[str] | None,
+    ) -> list[dict[str, Any]]:
+        """AND-combine the three filter dimensions.
+
+        Each non-empty list becomes one ``equalsAny`` clause; the API
+        AND-combines the top-level ``filter`` array, which gives us the
+        right semantics with no nesting.
+        """
+        filters: list[dict[str, Any]] = []
+        if external_ids:
+            filters.append({
+                "type": "equalsAny",
+                "field": "id",
+                "value": list(external_ids),
+            })
+        if sales_channel_ids:
+            filters.append({
+                "type": "equalsAny",
+                "field": "visibilities.salesChannelId",
+                "value": list(sales_channel_ids),
+            })
+        if category_ids:
+            # ``categoriesRo`` is the read-only join including parent
+            # categories, which is what the operator means when they
+            # filter by "anything under this branch".
+            filters.append({
+                "type": "equalsAny",
+                "field": "categoriesRo.id",
+                "value": list(category_ids),
+            })
+        return filters
+
+    def _row_to_live_node(self, row: dict[str, Any]) -> LiveProductNode | None:
+        # Shopware responses come in two shapes depending on version
+        # and includes: flat (everything top-level) or attributes-wrapped.
+        # Accept both and let the rest of the method read from a single
+        # merged view.
+        attrs = row.get("attributes") or {}
+        merged: dict[str, Any] = {**attrs, **{k: v for k, v in row.items() if k != "attributes"}}
+
+        ext_id = merged.get("id")
+        if not ext_id:
+            return None
+
+        translated = merged.get("translated") or {}
+        name = merged.get("name") or translated.get("name") or ""
+        description = merged.get("description") or translated.get("description") or None
+
+        # Price: take the first list price. The full multi-currency
+        # picture is a Phase-5 concern; Phase-2 reports the primary.
+        price_val: float | None = None
+        prices = merged.get("price") or []
+        if isinstance(prices, list) and prices:
+            first = prices[0] or {}
+            try:
+                price_val = float(first.get("gross") or first.get("net") or 0) or None
+            except (TypeError, ValueError):
+                price_val = None
+
+        # Stock: ``availableStock`` is the customer-facing number;
+        # ``stock`` is the warehouse number. Prefer availableStock so
+        # the live-hash matches what shoppers see.
+        stock_raw = merged.get("availableStock")
+        if stock_raw is None:
+            stock_raw = merged.get("stock")
+        try:
+            stock_val: int | None = int(stock_raw) if stock_raw is not None else None
+        except (TypeError, ValueError):
+            stock_val = None
+
+        # Categories: prefer the expanded ``categories`` association
+        # (each entry has an id); fall back to the inline ``categoryIds``
+        # array Shopware emits when no association was requested.
+        cat_ids: list[str] = []
+        cats = merged.get("categories")
+        if isinstance(cats, list) and cats:
+            for c in cats:
+                cid = (c or {}).get("id") if isinstance(c, dict) else None
+                if cid:
+                    cat_ids.append(cid)
+        if not cat_ids:
+            raw_cat_ids = merged.get("categoryIds") or []
+            if isinstance(raw_cat_ids, list):
+                cat_ids = [str(x) for x in raw_cat_ids if x]
+        cat_ids = sorted(set(cat_ids))
+
+        # Sales channels from visibilities — same shape as the catalog
+        # mirror's visibility check.
+        sc_ids: list[str] = []
+        for vis in merged.get("visibilities") or []:
+            if not isinstance(vis, dict):
+                continue
+            sc_id = vis.get("salesChannelId")
+            if sc_id:
+                sc_ids.append(sc_id)
+        sc_ids = sorted(set(sc_ids))
+
+        # Image URLs. Shopware nests as ``media[].media.url``. Sort so
+        # the hash is stable across reorderings on the backend.
+        images: list[str] = []
+        for m in merged.get("media") or []:
+            if not isinstance(m, dict):
+                continue
+            inner = m.get("media") or {}
+            url = inner.get("url") if isinstance(inner, dict) else None
+            if url:
+                images.append(url)
+        images = sorted(set(images))
+
+        return LiveProductNode(
+            external_id=ext_id,
+            sku=merged.get("productNumber") or None,
+            name=name,
+            description=description,
+            price=price_val,
+            stock=stock_val,
+            category_ids=cat_ids,
+            sales_channel_ids=sc_ids,
+            active=bool(merged.get("active", True)),
+            images=images,
+        )
+
+    def _upsert_product_impl(
+        self,
+        client,
+        *,
+        external_id: str | None,
+        payload: dict,
+        target_sales_channels: list[str],
+    ) -> str:
+        prepared = self._prepare_upsert_payload(
+            external_id=external_id,
+            payload=payload,
+            target_sales_channels=target_sales_channels,
+        )
+        results = self._bulk_upsert(client, [prepared])
+        if not results:
+            raise AdapterError(
+                "Shopware sync returned no result for upsert",
+            )
+        first = results[0]
+        if first.get("error"):
+            raise AdapterError(
+                f"Shopware product upsert failed: {first['error']}",
+            )
+        # Shopware echoes the id on insert/update either way — but our
+        # _prepare ensured ``id`` is always set on the outgoing payload.
+        # The "look in the response first, fall back to outgoing" order
+        # matters when the server normalised the UUID.
+        return first.get("external_id") or prepared.get("id")
+
+    def _bulk_upsert(
+        self, client, payloads: list[dict],
+    ) -> list[dict[str, Any]]:
+        """Push ``payloads`` via ``POST /_action/sync`` in chunks.
+
+        Returns one result dict per input payload, in input order:
+        ``{external_id, error}``. ``error`` is ``None`` on success.
+
+        The orchestrator (Phase 5) will call this directly through a
+        public ``upsert_products_bulk`` wrapper that lives one layer
+        above; for now ``upsert_product`` is the only caller.
+        """
+        results: list[dict[str, Any]] = []
+        for i in range(0, len(payloads), _BULK_CHUNK_SIZE):
+            chunk = payloads[i:i + _BULK_CHUNK_SIZE]
+            sync_payload = {
+                "products": {
+                    "entity": "product",
+                    "action": "upsert",
+                    "payload": chunk,
+                },
+            }
+            try:
+                resp = client.request_post(
+                    "_action/sync", payload=sync_payload,
+                )
+            except Exception as e:
+                # Whole-chunk failure: surface the original error and
+                # mark every item in the chunk failed. The orchestrator
+                # decides retry vs. give-up per-item from here.
+                msg = f"Shopware bulk sync failed: {e}"
+                for p in chunk:
+                    results.append({
+                        "external_id": p.get("id"),
+                        "error": msg,
+                    })
+                raise AdapterError(msg) from e
+
+            # Parse per-item errors out of the response body. Shopware's
+            # sync endpoint returns ``{success: bool, data: {<key>:
+            # {result: [{errors: [...]}]}}}`` — same shape as the legacy
+            # batch uploader unpacks.
+            chunk_errors = self._extract_per_item_errors(resp, len(chunk))
+            for idx, p in enumerate(chunk):
+                err = chunk_errors[idx] if idx < len(chunk_errors) else None
+                results.append({
+                    "external_id": p.get("id"),
+                    "error": err,
+                })
+
+            # If the response declared overall failure but didn't break
+            # out per-item, raise so the caller doesn't silently treat
+            # the chunk as a success.
+            if (resp or {}).get("success") is False and not any(chunk_errors):
+                raise AdapterError(
+                    f"Shopware bulk sync reported failure: {resp!r}",
+                )
+        return results
+
+    def _extract_per_item_errors(
+        self, resp: dict[str, Any] | None, chunk_size: int,
+    ) -> list[str | None]:
+        """Pull per-item error strings out of a sync-API response.
+
+        Returns a list of length ``chunk_size``; entries are ``None``
+        when the item succeeded, otherwise a short string carrying the
+        Shopware-side message (best-effort; the API's error shapes vary).
+        """
+        errs: list[str | None] = [None] * chunk_size
+        data = (resp or {}).get("data") or {}
+        block = data.get("products") or {}
+        result = block.get("result") or []
+        for idx, row in enumerate(result):
+            if idx >= chunk_size:
+                break
+            row_errors = (row or {}).get("errors") or []
+            if row_errors:
+                # Compact a list of error dicts into one human-readable
+                # string. Shopware errors carry ``code``/``detail``.
+                parts: list[str] = []
+                for e in row_errors[:3]:
+                    if isinstance(e, dict):
+                        detail = e.get("detail") or e.get("title") or e.get("code") or str(e)
+                        parts.append(str(detail))
+                    else:
+                        parts.append(str(e))
+                errs[idx] = "; ".join(parts) or "unknown error"
+        return errs
+
+    def _prepare_upsert_payload(
+        self,
+        *,
+        external_id: str | None,
+        payload: dict,
+        target_sales_channels: list[str],
+    ) -> dict[str, Any]:
+        """Normalise an outgoing product payload for the sync endpoint.
+
+        - Sets ``id`` on update. When ``external_id`` is omitted we
+          leave id-generation to Shopware; the response will surface
+          the assigned id.
+        - Injects ``visibilities`` from ``target_sales_channels`` so
+          Product Sync's per-channel decision wins over whatever is
+          currently on the product.
+        - Normalises ``prices[i].quantityStart`` (the JTL edge case —
+          quantityStart=0 was tolerated pre-6.7 but rejects now).
+        """
+        out: dict[str, Any] = dict(payload or {})
+        if external_id:
+            out["id"] = external_id
+
+        # Visibilities — only set when caller actually passed channels.
+        # Empty list means "no opinion", not "remove all visibilities".
+        if target_sales_channels:
+            out["visibilities"] = [
+                {
+                    "salesChannelId": sc_id,
+                    "visibility": _VISIBILITY_ALL,
+                }
+                for sc_id in target_sales_channels
+                if sc_id
+            ]
+
+        # Edge-case from JTL repo: quantityStart < 1 is rejected by
+        # Shopware ≥6.7. Normalise upward instead of dropping the row,
+        # because dropping it would change pricing semantics; bumping
+        # to 1 keeps the price tier in place.
+        prices = out.get("prices")
+        if isinstance(prices, list):
+            for tier in prices:
+                if not isinstance(tier, dict):
+                    continue
+                qs = tier.get("quantityStart")
+                try:
+                    if qs is None or float(qs) < 1:
+                        tier["quantityStart"] = 1
+                except (TypeError, ValueError):
+                    tier["quantityStart"] = 1
+        return out
+
+    def _deactivate_impl(self, client, external_id: str) -> None:
+        sync_payload = {
+            "products": {
+                "entity": "product",
+                "action": "upsert",
+                "payload": [{"id": external_id, "active": False}],
+            },
+        }
+        try:
+            client.request_post("_action/sync", payload=sync_payload)
+        except Exception as e:
+            raise AdapterError(
+                f"Shopware product deactivate failed: {e}",
+            ) from e
+
+    def _delete_impl(self, client, external_id: str) -> None:
+        sync_payload = {
+            "products": {
+                "entity": "product",
+                "action": "delete",
+                "payload": [{"id": external_id}],
+            },
+        }
+        try:
+            client.request_post("_action/sync", payload=sync_payload)
+        except Exception as e:
+            # 404 = already gone; idempotent per the ABC contract.
+            if "404" in str(e):
+                return
+            raise AdapterError(
+                f"Shopware product delete failed: {e}",
+            ) from e
+
+    def _find_matching_impl(
+        self,
+        client,
+        *,
+        sku: str | None,
+        ean: str | None,
+        name: str | None,
+    ) -> list[ProductMatch]:
+        if not (sku or ean or name):
+            return []
+
+        matches: list[ProductMatch] = []
+        seen: set[str] = set()
+
+        # SKU is the strongest signal: 1.0. Exact match on
+        # ``productNumber`` (Shopware's name for SKU).
+        if sku:
+            for m in self._run_match_query(
+                client,
+                field="productNumber",
+                value=sku,
+                score=1.0,
+            ):
+                if m.external_id not in seen:
+                    seen.add(m.external_id)
+                    matches.append(m)
+
+        # EAN second: 0.8. Different products legitimately share an EAN
+        # (re-issued barcodes, multi-pack vs single) so we soft-rank
+        # below the SKU hit.
+        if ean:
+            for m in self._run_match_query(
+                client,
+                field="ean",
+                value=ean,
+                score=0.8,
+            ):
+                if m.external_id not in seen:
+                    seen.add(m.external_id)
+                    matches.append(m)
+
+        # Name last: 0.5. Exact match only (fuzzy would invite
+        # adoption mistakes — operator clicks "match" on the wrong
+        # item, ERP and backend are now welded together permanently).
+        if name:
+            for m in self._run_match_query(
+                client,
+                field="name",
+                value=name,
+                score=0.5,
+            ):
+                if m.external_id not in seen:
+                    seen.add(m.external_id)
+                    matches.append(m)
+
+        # Already cap-limited per query; sort by score desc for the UI.
+        matches.sort(key=lambda mm: mm.score, reverse=True)
+        return matches[:_MATCH_LIMIT]
+
+    def _find_matching_bulk_impl(
+        self,
+        client,
+        *,
+        skus: list[str] | None,
+        eans: list[str] | None,
+    ) -> dict[str, ProductMatch]:
+        # Batched ``equalsAny`` lookup. Shopware's filter limit on
+        # ``equalsAny`` lists is generous (well into the thousands), but
+        # we chunk at the same page size we use for fetch so we don't
+        # have one outlier endpoint defining the API ergonomics.
+        out: dict[str, ProductMatch] = {}
+
+        def _batch(field: str, values: list[str], score: float) -> None:
+            # Dedupe + drop blanks before chunking so we don't waste a
+            # whole page on noise.
+            seen: set[str] = set()
+            cleaned: list[str] = []
+            for v in values:
+                v = (v or "").strip()
+                if v and v not in seen:
+                    seen.add(v)
+                    cleaned.append(v)
+            for i in range(0, len(cleaned), _FETCH_PAGE_SIZE):
+                chunk = cleaned[i : i + _FETCH_PAGE_SIZE]
+                criteria = {
+                    "limit": _FETCH_PAGE_SIZE,
+                    "filter": [
+                        {"type": "equalsAny", "field": field, "value": chunk},
+                    ],
+                    "includes": {
+                        "product": ["id", "productNumber", "ean", "name"],
+                    },
+                }
+                try:
+                    resp = client.request_post(
+                        "search/product", payload=criteria,
+                    )
+                except Exception as e:
+                    raise AdapterError(
+                        f"Shopware bulk match search failed "
+                        f"({field}, chunk size {len(chunk)}): {e}",
+                    ) from e
+                for row in (resp or {}).get("data") or []:
+                    attrs = row.get("attributes") or {}
+                    merged = {
+                        **attrs,
+                        **{k: v for k, v in row.items() if k != "attributes"},
+                    }
+                    ext_id = merged.get("id")
+                    if not ext_id:
+                        continue
+                    key = merged.get(field)
+                    if not key:
+                        continue
+                    # SKU wins over EAN if both lookups happen to hit
+                    # the same product through different keys.
+                    if key in out and field == "ean":
+                        continue
+                    out[str(key)] = ProductMatch(
+                        external_id=ext_id,
+                        sku=merged.get("productNumber") or None,
+                        name=merged.get("name") or "",
+                        score=score,
+                    )
+
+        if skus:
+            _batch("productNumber", skus, score=1.0)
+        if eans:
+            _batch("ean", eans, score=0.8)
+        return out
+
+    def _run_match_query(
+        self,
+        client,
+        *,
+        field: str,
+        value: str,
+        score: float,
+    ) -> list[ProductMatch]:
+        criteria = {
+            "limit": _MATCH_LIMIT,
+            "filter": [
+                {"type": "equals", "field": field, "value": value},
+            ],
+            "includes": {
+                "product": ["id", "productNumber", "name"],
+            },
+        }
+        try:
+            resp = client.request_post(
+                "search/product", payload=criteria,
+            )
+        except Exception as e:
+            raise AdapterError(
+                f"Shopware product match search failed ({field}={value!r}): {e}",
+            ) from e
+
+        out: list[ProductMatch] = []
+        for row in (resp or {}).get("data") or []:
+            attrs = row.get("attributes") or {}
+            merged = {**attrs, **{k: v for k, v in row.items() if k != "attributes"}}
+            ext_id = merged.get("id")
+            if not ext_id:
+                continue
+            out.append(
+                ProductMatch(
+                    external_id=ext_id,
+                    sku=merged.get("productNumber") or None,
+                    name=merged.get("name") or "",
+                    score=score,
+                ),
+            )
+        return out
+
+    # ─── Live-hash payload builders ──────────────────────────────────
+
+    def _build_live_canonical(
+        self, product: dict[str, Any], sync,
+    ) -> dict[str, Any]:
+        """Build a canonical-payload dict from a live Shopware product.
+
+        Section names and shapes mirror
+        :func:`product_sync.engine.canonical.build_canonical_payload`
+        exactly. Toggles are honoured via ``_live_flag`` — the same
+        ``sync_*`` flags that gate the ERP-side sections gate the
+        live-side ones, otherwise the differ would compare a
+        toggle-trimmed ERP payload against a full live payload and
+        always declare drift.
+        """
+        merged = self._merge_attrs(product)
+        out: dict[str, Any] = {
+            "v": PAYLOAD_VERSION,
+            "item_code": _ns(merged.get("productNumber")),
+            # Shopware variants carry a ``parentId``; treat the same
+            # way the ERP side treats ``variant_of``.
+            "is_variant": bool(merged.get("parentId")),
+            "variant_of": _ns(merged.get("parentId")) or None,
+        }
+        if _live_flag(sync, "sync_basic_fields", default=True):
+            out["basic"] = self._live_basic(merged)
+        if _live_flag(sync, "sync_pricing", default=True):
+            out["pricing"] = self._live_pricing(merged, sync)
+        if _live_flag(sync, "sync_inventory", default=True):
+            out["inventory"] = self._live_inventory(merged)
+        if _live_flag(sync, "sync_images", default=True):
+            out["images"] = self._live_images(merged)
+        if _live_flag(sync, "sync_properties", default=True):
+            out["properties"] = self._live_properties(merged)
+        if _live_flag(sync, "sync_seo_fields", default=False):
+            out["seo"] = self._live_seo(merged)
+        if _live_flag(sync, "sync_taxes", default=True):
+            out["taxes"] = self._live_taxes(merged, sync)
+        out["categories"] = self._live_categories(merged)
+        return out
+
+    def _merge_attrs(self, product: dict[str, Any]) -> dict[str, Any]:
+        attrs = product.get("attributes") or {}
+        return {**attrs, **{k: v for k, v in product.items() if k != "attributes"}}
+
+    def _live_basic(self, merged: dict[str, Any]) -> dict[str, Any]:
+        translated = merged.get("translated") or {}
+        return {
+            "name": _ns(merged.get("name") or translated.get("name")),
+            "sku": _ns(merged.get("productNumber")),
+            "description": _ns(
+                merged.get("description") or translated.get("description"),
+            ),
+            "ean": _ns(merged.get("ean")),
+            "is_active": bool(merged.get("active", True)),
+            # Shopware stores the UoM on a separate ``unit`` association;
+            # without expanding it we can only echo the unit-id. The ERP
+            # side hashes the UoM name, so a UoM-only drift may not
+            # converge until Phase 5 expands the unit association.
+            # TODO: expand ``unit`` association to compare on UoM name.
+            "uom": _ns(merged.get("unitId")),
+        }
+
+    def _live_pricing(
+        self, merged: dict[str, Any], sync,
+    ) -> dict[str, Any]:
+        prices = merged.get("price") or []
+        base = 0.0
+        currency = ""
+        if isinstance(prices, list) and prices:
+            first = prices[0] or {}
+            try:
+                base = round(float(first.get("gross") or first.get("net") or 0), 4)
+            except (TypeError, ValueError):
+                base = 0.0
+            currency = _ns(first.get("currencyId"))
+
+        # Channel-tier prices live in the ``prices`` association
+        # (rule-based price tiers) — Phase 5 will reconcile these
+        # against ERP price lists. For now we emit an empty list, which
+        # matches what ``_canonical_pricing`` does on the ERP side when
+        # the sync has no per-channel overrides configured.
+        # TODO: when sync.price_strategy = channel_price_list with
+        # per-channel rows, expand the live ``prices`` rules and emit
+        # one channel_prices entry per matched rule.
+        return {
+            "currency": currency,
+            "base_price": base,
+            "channel_prices": [],
+        }
+
+    def _live_inventory(self, merged: dict[str, Any]) -> dict[str, Any]:
+        # ERP side sums across warehouses; live side reports the same
+        # number Shopware shows the customer — see _row_to_live_node
+        # for the availableStock-over-stock preference.
+        raw = merged.get("availableStock")
+        if raw is None:
+            raw = merged.get("stock")
+        try:
+            qty = round(float(raw or 0), 4)
+        except (TypeError, ValueError):
+            qty = 0.0
+        return {"qty": qty}
+
+    def _live_images(self, merged: dict[str, Any]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        cover = merged.get("cover")
+        cover_id = cover.get("mediaId") if isinstance(cover, dict) else None
+        for m in merged.get("media") or []:
+            if not isinstance(m, dict):
+                continue
+            inner = m.get("media") or {}
+            url = inner.get("url") if isinstance(inner, dict) else None
+            media_id = (inner.get("id") if isinstance(inner, dict) else None) or m.get("mediaId")
+            if not url:
+                continue
+            out.append({
+                "url": url,
+                "primary": bool(cover_id and media_id == cover_id),
+            })
+        out.sort(key=lambda d: d["url"])
+        return out
+
+    def _live_properties(self, merged: dict[str, Any]) -> dict[str, Any]:
+        # Brand/manufacturer come from associations Shopware doesn't
+        # expand by default; without them the ERP-side hash that
+        # includes brand will always disagree. We TODO this rather than
+        # ship a half-wrong hash that nobody can debug.
+        # TODO: expand ``manufacturer`` association to fill brand.
+        attrs_list: list[dict[str, str]] = []
+        for prop in merged.get("properties") or []:
+            if not isinstance(prop, dict):
+                continue
+            group = prop.get("group") or {}
+            group_name = (
+                group.get("name") if isinstance(group, dict) else None
+            )
+            value = prop.get("name") or prop.get("translated", {}).get("name")
+            if group_name and value:
+                attrs_list.append({
+                    "name": _ns(group_name),
+                    "value": _ns(value),
+                })
+        attrs_list.sort(key=lambda d: (d["name"], d["value"]))
+        return {
+            "brand": "",
+            "manufacturer": "",
+            "attributes": attrs_list,
+        }
+
+    def _live_seo(self, merged: dict[str, Any]) -> dict[str, Any]:
+        return {
+            # ``seo_url`` lives on a separate entity; not expanded here.
+            # Phase 5 picks this up once the export side actually ships
+            # slugs.
+            "slug": "",
+            "meta_title": _ns(merged.get("metaTitle")),
+            "meta_description": _ns(merged.get("metaDescription")),
+        }
+
+    def _live_taxes(
+        self, merged: dict[str, Any], sync,
+    ) -> dict[str, Any]:
+        # ERP side reports the ``Item Tax Template`` name (a string
+        # the operator chose). Live side reports the resolved Shopware
+        # tax-id, which is not the same string. The hashes can only
+        # match in Phase 5 once we map tax_id → template name.
+        # TODO: resolve tax_id back to template name for parity.
+        tax_id = merged.get("taxId")
+        tax = merged.get("tax") or {}
+        if isinstance(tax, dict) and tax.get("name"):
+            return {"template": _ns(tax.get("name"))}
+        return {"template": _ns(tax_id)}
+
+    def _live_categories(self, merged: dict[str, Any]) -> dict[str, Any]:
+        # ERP side hashes the Item Group name, not its backend id;
+        # category-tree drift is the Catalog Mirror's job, not this
+        # adapter's. We emit an empty string so the hash compares
+        # against the ERP "no IG set" case correctly; the apply step
+        # re-resolves the backend category-id from the IG mapping at
+        # push time.
+        # TODO: when sync.match_categories_by_name is enabled, walk
+        # the categories association and emit the first IG name match.
+        return {"item_group": ""}
+
+
+# ─── Module-level helpers ────────────────────────────────────────────
+
+
+def _with_client(fn, *args, **kwargs):
+    """Run ``fn`` inside a Shopware admin session.
+
+    Mirrors the catalog-mirror adapter's helper of the same name. The
+    ``temp_shopware_session`` decorator injects the client as the first
+    positional arg and handles auth, gateway-retry and idempotency-key
+    rotation transparently.
+
+    In test mode (``frappe.flags.in_test``) the decorator calls ``fn``
+    without the client so tests can pass a mock.
+    """
+
+    @temp_shopware_session
+    def runner(client, *inner_args, **inner_kwargs):
+        return fn(client, *inner_args, **inner_kwargs)
+
+    return runner(*args, **kwargs)
+
+
+def _ns(value) -> str:
+    """Normalise to single-space-collapsed stripped string.
+
+    Mirrors :func:`product_sync.engine.canonical._norm_str` so a value
+    that the ERP-side hashes as ``"Acme GmbH"`` doesn't hash as
+    ``"  Acme  GmbH "`` on the live side. ``None`` becomes empty
+    string, which is what the canonical builder also does.
+    """
+    if value is None:
+        return ""
+    s = str(value)
+    if not s:
+        return ""
+    return " ".join(s.split())
+
+
+def _live_flag(sync, name: str, *, default: bool) -> bool:
+    """Toggle reader that matches ``canonical._flag``.
+
+    Importing the private symbol directly from ``canonical`` would
+    couple this module to an underscore-prefixed name; reimplementing
+    is one line and keeps the boundary clean.
+    """
+    val = getattr(sync, name, None)
+    if val is None:
+        return default
+    return bool(int(val) if isinstance(val, (str, int, float)) else val)

@@ -1,0 +1,488 @@
+{
+ "actions": [],
+ "autoname": "field:title",
+ "creation": "2026-05-17 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "naming_rule": "By fieldname",
+ "title_field": "title",
+ "field_order": [
+  "title",
+  "backend",
+  "is_active",
+  "priority",
+  "column_break_header",
+  "target_sales_channels",
+  "scope_section",
+  "scope_mode",
+  "linked_catalog_mirror",
+  "linked_smart_collection",
+  "root_item_group",
+  "include_descendants",
+  "custom_filter_rules",
+  "column_break_scope",
+  "include_disabled",
+  "include_variants",
+  "min_qty_in_stock",
+  "fields_section",
+  "sync_basic_fields",
+  "sync_pricing",
+  "sync_inventory",
+  "column_break_fields",
+  "sync_images",
+  "sync_properties",
+  "sync_seo_fields",
+  "sync_taxes",
+  "behavior_section",
+  "name_template",
+  "description_source",
+  "description_template",
+  "column_break_behavior",
+  "price_strategy",
+  "price_list_override",
+  "markup_percent",
+  "tax_template",
+  "default_sandbox_channel",
+  "lifecycle_section",
+  "orphan_policy",
+  "update_policy",
+  "column_break_lifecycle",
+  "conflict_policy",
+  "auto_create_shopware_rules",
+  "images_section",
+  "image_strategy",
+  "internal_host_patterns",
+  "schedule_section",
+  "cron_preset",
+  "cron_schedule",
+  "overrides_section",
+  "node_overrides",
+  "status_section",
+  "sync_status",
+  "last_synced_at",
+  "last_heartbeat_at",
+  "last_error",
+  "column_break_status",
+  "items_in_scope",
+  "items_synced",
+  "items_failed",
+  "items_skipped"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "label": "Bezeichnung",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "Eigene Bezeichnung für diesen Produkt-Sync, z.B. 'Hauptshop: Bestseller'."
+  },
+  {
+   "fieldname": "backend",
+   "label": "Zielsystem",
+   "fieldtype": "Select",
+   "options": "Shopware\nMedusa",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "is_active",
+   "label": "Aktiv (am Cron-Sync teilnehmen)",
+   "fieldtype": "Check",
+   "default": "0",
+   "in_list_view": 1,
+   "description": "Bei 0 läuft der Sync nur, wenn er manuell gestartet wird."
+  },
+  {
+   "fieldname": "priority",
+   "label": "Priorität",
+   "fieldtype": "Int",
+   "default": "0",
+   "description": "Bei Konflikten (ein Artikel passt in mehrere aktive Syncs) gewinnt die höhere Priorität. Bei Gleichstand greift conflict_policy."
+  },
+  {
+   "fieldname": "column_break_header",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "target_sales_channels",
+   "label": "Ziel-Storefronts",
+   "fieldtype": "Table",
+   "options": "Ecommerce Product Sync Channel",
+   "description": "Storefronts, in denen dieses Produkt sichtbar sein soll. Mehrere möglich — das Produkt wird in jeder gelisteten Storefront ausgespielt."
+  },
+  {
+   "fieldname": "scope_section",
+   "fieldtype": "Section Break",
+   "label": "Auswahl der Artikel",
+   "description": "Bestimmt, welche ERPNext-Artikel von diesem Sync abgedeckt werden."
+  },
+  {
+   "fieldname": "scope_mode",
+   "label": "Auswahl-Modus",
+   "fieldtype": "Select",
+   "options": "Catalog Mirror\nItem Group Subtree\nSmart Collection\nCustom Filter\nAll",
+   "reqd": 1,
+   "default": "Catalog Mirror"
+  },
+  {
+   "fieldname": "linked_catalog_mirror",
+   "label": "Verknüpfter Kategorie-Sync",
+   "fieldtype": "Link",
+   "options": "Ecommerce Catalog Mirror",
+   "depends_on": "eval:doc.scope_mode==='Catalog Mirror'",
+   "mandatory_depends_on": "eval:doc.scope_mode==='Catalog Mirror'"
+  },
+  {
+   "fieldname": "linked_smart_collection",
+   "label": "Verknüpfte Kollektion",
+   "fieldtype": "Link",
+   "options": "Ecommerce Smart Collection",
+   "depends_on": "eval:doc.scope_mode==='Smart Collection'",
+   "mandatory_depends_on": "eval:doc.scope_mode==='Smart Collection'"
+  },
+  {
+   "fieldname": "root_item_group",
+   "label": "Wurzel-Artikelgruppe",
+   "fieldtype": "Link",
+   "options": "Item Group",
+   "depends_on": "eval:doc.scope_mode==='Item Group Subtree'",
+   "mandatory_depends_on": "eval:doc.scope_mode==='Item Group Subtree'"
+  },
+  {
+   "fieldname": "include_descendants",
+   "label": "Untergruppen einbeziehen",
+   "fieldtype": "Check",
+   "default": "1",
+   "depends_on": "eval:doc.scope_mode==='Item Group Subtree'"
+  },
+  {
+   "fieldname": "custom_filter_rules",
+   "label": "Filter-Regeln",
+   "fieldtype": "Table",
+   "options": "Ecommerce Product Sync Filter Rule",
+   "depends_on": "eval:doc.scope_mode==='Custom Filter'"
+  },
+  {
+   "fieldname": "column_break_scope",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "include_disabled",
+   "label": "Deaktivierte Artikel einbeziehen",
+   "fieldtype": "Check",
+   "default": "0"
+  },
+  {
+   "fieldname": "include_variants",
+   "label": "Varianten als Children pushen",
+   "fieldtype": "Check",
+   "default": "1",
+   "description": "Bei Shopware werden Varianten als verschachtelte Children unter dem Template-Produkt erzeugt."
+  },
+  {
+   "fieldname": "min_qty_in_stock",
+   "label": "Mindestbestand für Push",
+   "fieldtype": "Int",
+   "default": "0",
+   "description": "0 = kein Filter; bei >0 werden Artikel mit weniger Bestand vom Push ausgeschlossen."
+  },
+  {
+   "fieldname": "fields_section",
+   "fieldtype": "Section Break",
+   "label": "Was synchronisiert wird",
+   "description": "Granular pro Feldgruppe ein-/ausschaltbar. Hilfreich um z.B. Bilder bei Erstsync zu pausieren und später nachzuziehen."
+  },
+  {
+   "fieldname": "sync_basic_fields",
+   "label": "Stammdaten (Name, SKU, Beschreibung)",
+   "fieldtype": "Check",
+   "default": "1"
+  },
+  {
+   "fieldname": "sync_pricing",
+   "label": "Preise",
+   "fieldtype": "Check",
+   "default": "1"
+  },
+  {
+   "fieldname": "sync_inventory",
+   "label": "Bestand",
+   "fieldtype": "Check",
+   "default": "1"
+  },
+  {
+   "fieldname": "column_break_fields",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sync_images",
+   "label": "Bilder",
+   "fieldtype": "Check",
+   "default": "1"
+  },
+  {
+   "fieldname": "sync_properties",
+   "label": "Eigenschaften / Marken",
+   "fieldtype": "Check",
+   "default": "1"
+  },
+  {
+   "fieldname": "sync_seo_fields",
+   "label": "SEO-Felder (Slug, Meta-Title)",
+   "fieldtype": "Check",
+   "default": "0"
+  },
+  {
+   "fieldname": "sync_taxes",
+   "label": "Steuern",
+   "fieldtype": "Check",
+   "default": "1"
+  },
+  {
+   "fieldname": "behavior_section",
+   "fieldtype": "Section Break",
+   "label": "Inhalt",
+   "description": "Wie Name/Beschreibung/Preis im Backend gebildet werden."
+  },
+  {
+   "fieldname": "name_template",
+   "label": "Namens-Vorlage",
+   "fieldtype": "Data",
+   "default": "{{ item.item_name }}",
+   "description": "Jinja-Template für den Produkt-Namen im Backend."
+  },
+  {
+   "fieldname": "description_source",
+   "label": "Beschreibungs-Quelle",
+   "fieldtype": "Select",
+   "options": "item_description\nai_generated\ncustom_template",
+   "default": "item_description"
+  },
+  {
+   "fieldname": "description_template",
+   "label": "Beschreibungs-Vorlage",
+   "fieldtype": "Small Text",
+   "depends_on": "eval:doc.description_source==='custom_template'"
+  },
+  {
+   "fieldname": "column_break_behavior",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "price_strategy",
+   "label": "Preis-Strategie",
+   "fieldtype": "Select",
+   "options": "channel_price_list\nitem_standard_rate\ncustom_markup",
+   "default": "channel_price_list",
+   "description": "channel_price_list = je Storefront eigene Price List; item_standard_rate = Standardverkaufspreis; custom_markup = Standardpreis ± Prozent."
+  },
+  {
+   "fieldname": "price_list_override",
+   "label": "Globale Price List (Override)",
+   "fieldtype": "Link",
+   "options": "Price List",
+   "depends_on": "eval:doc.price_strategy==='channel_price_list'",
+   "description": "Wird genutzt, wenn die Storefront in target_sales_channels keine eigene override_price_list gesetzt hat."
+  },
+  {
+   "fieldname": "markup_percent",
+   "label": "Aufschlag in %",
+   "fieldtype": "Float",
+   "depends_on": "eval:doc.price_strategy==='custom_markup'",
+   "description": "+10 = 10% Aufschlag, -5 = 5% Rabatt."
+  },
+  {
+   "fieldname": "tax_template",
+   "label": "Steuer-Vorlage (optional)",
+   "fieldtype": "Link",
+   "options": "Item Tax Template"
+  },
+  {
+   "fieldname": "lifecycle_section",
+   "fieldtype": "Section Break",
+   "label": "Lebenszyklus",
+   "description": "Wie der Sync mit nicht (mehr) passenden Artikeln oder Konflikten umgeht."
+  },
+  {
+   "fieldname": "orphan_policy",
+   "label": "Verwaiste Backend-Produkte",
+   "fieldtype": "Select",
+   "options": "keep\ndeactivate\ndelete\nreport",
+   "default": "keep",
+   "description": "Was passieren soll mit Backend-Produkten, die nicht (mehr) zur Auswahl gehören. <b>keep</b> = unverändert. <b>deactivate</b> = im Backend deaktivieren. <b>delete</b> = löschen (gefährlich). <b>report</b> = nur melden."
+  },
+  {
+   "fieldname": "update_policy",
+   "label": "Update-Strategie",
+   "fieldtype": "Select",
+   "options": "always\nonly_if_changed\nmanual_review",
+   "default": "only_if_changed"
+  },
+  {
+   "fieldname": "column_break_lifecycle",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "conflict_policy",
+   "label": "Konflikt-Strategie",
+   "fieldtype": "Select",
+   "options": "manual_review\nlast_wins\nskip",
+   "default": "manual_review",
+   "description": "Wenn ein Artikel in mehreren aktiven Syncs derselben Priorität ist."
+  },
+  {
+   "fieldname": "auto_create_shopware_rules",
+   "label": "Shopware-Rules automatisch anlegen",
+   "fieldtype": "Check",
+   "default": "1",
+   "description": "Für unterschiedliche Preise pro Storefront werden Shopware-Pricing-Rules automatisch erzeugt und an die Storefront gebunden."
+  },
+  {
+   "fieldname": "images_section",
+   "fieldtype": "Section Break",
+   "label": "Bild-Sync",
+   "description": "Wie Bilder ins Backend übertragen werden."
+  },
+  {
+   "fieldname": "image_strategy",
+   "label": "Übertragungsweg",
+   "fieldtype": "Select",
+   "options": "url_with_bytes_fallback\nurl_only\nbytes_only",
+   "default": "url_with_bytes_fallback",
+   "description": "<b>url_with_bytes_fallback</b> = bevorzugt URL-Referenz, lädt Binary nur hoch, wenn die URL als intern erkannt wird. <b>url_only</b> = immer URL. <b>bytes_only</b> = immer Binary."
+  },
+  {
+   "fieldname": "internal_host_patterns",
+   "label": "Interne Host-Muster",
+   "fieldtype": "Small Text",
+   "depends_on": "eval:doc.image_strategy==='url_with_bytes_fallback'",
+   "description": "Ein Muster pro Zeile, z.B. <code>*.internal</code>, <code>192.168.*</code>, <code>erp.local</code>. Bei Treffer wird das Bild als Binary hochgeladen."
+  },
+  {
+   "fieldname": "schedule_section",
+   "fieldtype": "Section Break",
+   "label": "Zeitplan",
+   "description": "Wann der Sync automatisch läuft."
+  },
+  {
+   "fieldname": "cron_preset",
+   "label": "Cron-Voreinstellung",
+   "fieldtype": "Select",
+   "options": "manual\nevery_hour\nevery_6h\ndaily_3am\ncustom",
+   "default": "manual",
+   "description": "<b>manual</b> = nur per Knopf. Andere Werte starten den Sync zyklisch."
+  },
+  {
+   "fieldname": "cron_schedule",
+   "label": "Eigener Cron-Ausdruck",
+   "fieldtype": "Data",
+   "depends_on": "eval:doc.cron_preset==='custom'",
+   "description": "Cron-Ausdruck im 5-Felder-Format, z.B. <code>0 3 * * *</code>"
+  },
+  {
+   "fieldname": "overrides_section",
+   "fieldtype": "Section Break",
+   "label": "Manuelle Overrides",
+   "collapsible": 1,
+   "description": "Sonderfälle pro Artikel: bestehendes Backend-Produkt manuell verknüpfen, Artikel überspringen oder Felder überschreiben."
+  },
+  {
+   "fieldname": "node_overrides",
+   "label": "Artikel-Overrides",
+   "fieldtype": "Table",
+   "options": "Ecommerce Product Sync Override"
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Status (informativ)",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "sync_status",
+   "label": "Status",
+   "fieldtype": "Select",
+   "options": "pending\nrunning\nok\nerror\npartial",
+   "default": "pending",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "last_synced_at",
+   "label": "Letzte Synchronisation",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_heartbeat_at",
+   "label": "Letzter Heartbeat",
+   "fieldtype": "Datetime",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "last_error",
+   "label": "Letzte Fehlermeldung",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "items_in_scope",
+   "label": "Artikel in Auswahl (letzter Lauf)",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "items_synced",
+   "label": "Erfolgreich synchronisiert",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "items_failed",
+   "label": "Fehlgeschlagen",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "items_skipped",
+   "label": "Übersprungen",
+   "fieldtype": "Int",
+   "read_only": 1
+  },
+  {
+   "fieldname": "default_sandbox_channel",
+   "label": "Standard-Sandbox-Channel",
+   "fieldtype": "Data",
+   "description": "Sales-Channel-UUID, die der Sandbox-Push-Dialog vorauswählt. Muss in den Sales-Channel-Settings is_sandbox=1 tragen, sonst wird sie ignoriert."
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-05-17 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Product Sync",
+ "name": "Ecommerce Product Sync",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

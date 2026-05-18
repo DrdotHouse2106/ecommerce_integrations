@@ -1,0 +1,192 @@
+{
+ "actions": [],
+ "autoname": "format:SYNC-ERR-{YYYY}-{#####}",
+ "creation": "2026-05-17 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "sync",
+  "item_code",
+  "backend",
+  "severity",
+  "column_break_header",
+  "attempt_count",
+  "next_retry_at",
+  "last_attempt_at",
+  "sync_run",
+  "resolution_section",
+  "resolved",
+  "resolved_at",
+  "resolved_by",
+  "resolution_note",
+  "payload_section",
+  "last_error_message",
+  "details_section",
+  "last_error_payload",
+  "last_response_payload"
+ ],
+ "fields": [
+  {
+   "fieldname": "sync",
+   "label": "Produkt-Sync",
+   "fieldtype": "Link",
+   "options": "Ecommerce Product Sync",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "item_code",
+   "label": "Artikel",
+   "fieldtype": "Link",
+   "options": "Item",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "backend",
+   "label": "Backend",
+   "fieldtype": "Data",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "severity",
+   "label": "Schweregrad",
+   "fieldtype": "Select",
+   "options": "immediate\ntransient\nmanual_review",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "<b>immediate</b> = Validierungsfehler (4xx), kein automatischer Retry — Operator-Eingriff. <b>transient</b> = Timeout / 5xx — wird automatisch nochmal versucht. <b>manual_review</b> = Business-Konflikt (z.B. SKU bereits vergeben) — braucht Entscheidung."
+  },
+  {
+   "fieldname": "column_break_header",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "attempt_count",
+   "label": "Versuche",
+   "fieldtype": "Int",
+   "default": "0",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "next_retry_at",
+   "label": "Nächster Versuch",
+   "fieldtype": "Datetime",
+   "depends_on": "eval:doc.severity==='transient' && !doc.resolved",
+   "description": "Nur bei severity=transient. Wird vom Retry-Dispatcher gelesen."
+  },
+  {
+   "fieldname": "last_attempt_at",
+   "label": "Letzter Versuch",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sync_run",
+   "label": "Sync-Lauf",
+   "fieldtype": "Link",
+   "options": "Ecommerce Sync Run",
+   "read_only": 1,
+   "description": "Der Sync-Run, bei dem dieser Fehler zuletzt aufgetreten ist."
+  },
+  {
+   "fieldname": "resolution_section",
+   "fieldtype": "Section Break",
+   "label": "Auflösung"
+  },
+  {
+   "fieldname": "resolved",
+   "label": "Behoben",
+   "fieldtype": "Check",
+   "default": "0",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "Bei Setzen wird der Eintrag aus der aktiven Retry-Queue entfernt."
+  },
+  {
+   "fieldname": "resolved_at",
+   "label": "Behoben am",
+   "fieldtype": "Datetime",
+   "depends_on": "eval:doc.resolved",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resolved_by",
+   "label": "Behoben von",
+   "fieldtype": "Link",
+   "options": "User",
+   "depends_on": "eval:doc.resolved",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resolution_note",
+   "label": "Notiz zur Behebung",
+   "fieldtype": "Small Text",
+   "depends_on": "eval:doc.resolved"
+  },
+  {
+   "fieldname": "payload_section",
+   "fieldtype": "Section Break",
+   "label": "Fehler-Details"
+  },
+  {
+   "fieldname": "last_error_message",
+   "label": "Fehlermeldung",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "details_section",
+   "fieldtype": "Section Break",
+   "label": "Roh-Payloads (technisch)",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "last_error_payload",
+   "label": "Gesendetes Payload (JSON)",
+   "fieldtype": "Long Text",
+   "read_only": 1,
+   "description": "Was an das Backend geschickt wurde. Hilfreich beim Reproduzieren des Fehlers."
+  },
+  {
+   "fieldname": "last_response_payload",
+   "label": "Antwort des Backends (JSON)",
+   "fieldtype": "Long Text",
+   "read_only": 1,
+   "description": "Was das Backend zurückgegeben hat. Enthält i.d.R. die genaue Validierungsfehler-Meldung."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-05-17 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Product Sync",
+ "name": "Ecommerce Sync Error",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "item_code",
+ "track_changes": 1
+}

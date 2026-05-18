@@ -12,7 +12,8 @@
   "active",
   "is_default",
   "price_list",
-  "price_adjustment_percent"
+  "price_adjustment_percent",
+  "is_sandbox"
  ],
  "fields": [
   {
@@ -70,6 +71,14 @@
    "in_list_view": 1,
    "label": "Price Adjustment %",
    "description": "Adjust prices by this percentage for this channel (e.g. 10 = 10% markup, -5 = 5% discount)"
+  },
+  {
+   "fieldname": "is_sandbox",
+   "label": "Sandbox / Test-Channel",
+   "fieldtype": "Check",
+   "default": "0",
+   "in_list_view": 1,
+   "description": "Markiert diesen Channel als Sandbox. Nur so markierte Channels erscheinen im Sandbox-Push-Dialog der Product Syncs ohne Production-Warnung."
   }
  ],
  "index_web_pages_for_search": 0,

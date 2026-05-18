@@ -132,6 +132,13 @@ def get_health() -> dict[str, Any]:
         except Exception:
             tested_recently = False
 
+    # A successful sync within the last 24h is strictly stronger evidence
+    # the connection works than a one-off test_connection click — the
+    # sync runs hundreds of API calls, the test does one. Don't nag the
+    # operator about "untested" when the integration is visibly healthy.
+    if not tested_recently and success_24h > 0:
+        tested_recently = True
+
     misconfigured = _is_misconfigured(setting)
     recent_test_failure = frappe.db.count(
         "Ecommerce Integration Log",

@@ -6,7 +6,15 @@ from ecommerce_integrations.shopware6.constants import ROOT_ITEM_GROUPS
 
 
 def queue_item_for_sync(doc, method=None):
-    """Queue an item for product sync or enqueue a single async sync."""
+    """Queue an item for product sync or enqueue a single async sync.
+
+    Phase-Future refactor: only enqueue when at least one ACTIVE
+    Product Sync's scope covers this Item. The old behaviour ("push
+    every ``Item.save()``") is unsafe at scale — it produces thousands of
+    pointless pushes for items the operator does not actually want
+    synced. The ``Ecommerce Product Sync`` doctype is now the explicit
+    opt-in for "which Items get pushed".
+    """
     from ecommerce_integrations.shopware6.bulk_sync import (
         activate_bulk_mode,
         add_to_sync_queue,
@@ -25,6 +33,9 @@ def queue_item_for_sync(doc, method=None):
         return
 
     if not _is_shopware_item_sync_enabled(item.name):
+        return
+
+    if not _item_in_any_active_sync(item):
         return
 
     settings = get_bulk_sync_settings()
@@ -315,3 +326,17 @@ def _resolve_item_group_rename_names(doc, method=None, old_name=None, new_name=N
         return method, old_name
 
     return None, None
+
+
+def _item_in_any_active_sync(doc) -> bool:
+    """Delegate to the shared two-stage scope gate in product_sync.
+
+    Kept here as a thin wrapper so the hook signature in ``hooks.py``
+    doesn't change. The cheap IG pre-check inside the shared gate is
+    what keeps bulk Item-save bursts fast.
+    """
+    from ecommerce_integrations.product_sync.constants import BACKEND_SHOPWARE
+    from ecommerce_integrations.product_sync.resolver import (
+        item_is_in_any_active_sync,
+    )
+    return item_is_in_any_active_sync(doc, BACKEND_SHOPWARE)

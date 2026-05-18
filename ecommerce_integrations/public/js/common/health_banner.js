@@ -25,11 +25,19 @@
 		},
 	};
 
+	// Lucide icon + Frappe color tokens per state. ``ecom_icon`` is
+	// loaded ahead of this script via doctype_js; the soft fallback
+	// keeps the banner usable on a stray page where the helper is
+	// absent.
+	function _state_icon(name, color) {
+		if (!window.ecom_icon) return '';
+		return window.ecom_icon(name, 'sm', color);
+	}
 	const STATE_STYLES = {
-		green:  { icon: '🟢', bg: '#e8f6ee', border: '#28a745' },
-		yellow: { icon: '🟡', bg: '#fff8e1', border: '#f0ad4e' },
-		red:    { icon: '🔴', bg: '#fdecea', border: '#d9534f' },
-		grey:   { icon: '⚪', bg: '#f1f3f5', border: '#adb5bd' },
+		green:  { icon: () => _state_icon('circle-check',  '#28a745'), bg: '#e8f6ee', border: '#28a745' },
+		yellow: { icon: () => _state_icon('circle-alert',  '#f0ad4e'), bg: '#fff8e1', border: '#f0ad4e' },
+		red:    { icon: () => _state_icon('circle-x',      '#d9534f'), bg: '#fdecea', border: '#d9534f' },
+		grey:   { icon: () => _state_icon('circle',        '#adb5bd'), bg: '#f1f3f5', border: '#adb5bd' },
 	};
 
 	function fmt_relative(value) {
@@ -58,7 +66,7 @@
 			            display:flex;justify-content:space-between;align-items:center;gap:12px">
 				<div style="flex:1;min-width:0">
 					<div style="font-weight:600;font-size:13px">
-						<span style="margin-right:6px">${style.icon}</span>
+						<span style="margin-right:6px;vertical-align:middle">${style.icon()}</span>
 						${frappe.utils.escape_html(data.message || '')}
 					</div>
 					${detail}
