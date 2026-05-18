@@ -124,7 +124,7 @@
    "fieldtype": "Check",
    "default": "0",
    "in_list_view": 1,
-   "description": "Markiert diesen Channel als Sandbox. Nur so markierte Channels erscheinen im Sandbox-Push-Dialog der Product Syncs ohne Production-Warnung."
+   "description": "Marks this channel as sandbox. Only sandbox-flagged channels appear in the Product Sync sandbox-push dialog without a production warning."
   }
  ],
  "index_web_pages_for_search": 1,

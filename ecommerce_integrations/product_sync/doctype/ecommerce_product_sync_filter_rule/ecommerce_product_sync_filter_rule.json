@@ -46,11 +46,11 @@
    "reqd": 1,
    "in_list_view": 1,
    "columns": 3,
-   "description": "Für 'in'/'not_in' kommagetrennte Werte. Für 'between' zwei Werte mit '..' getrennt (z.B. <code>100..200</code>)."
+   "description": "For 'in'/'not_in', comma-separated values. For 'between', two values separated by '..' (e.g. <code>100..200</code>)."
   },
   {
    "fieldname": "combinator",
-   "label": "Verknüpfung mit nächster Regel",
+   "label": "Combinator with next rule",
    "fieldtype": "Select",
    "options": "AND\nOR",
    "default": "AND",

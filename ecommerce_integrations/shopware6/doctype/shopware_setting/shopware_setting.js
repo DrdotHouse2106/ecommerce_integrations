@@ -90,7 +90,7 @@ frappe.ui.form.on('Shopware Setting', {
 		// hash-delta detection, no background runner, no audit row).
 		// We keep one big button at the top of the form so operators
 		// land on the right surface from any direction.
-		frm.add_custom_button(__('Product Sync öffnen'), function() {
+		frm.add_custom_button(__('Open Product Sync'), function() {
 			frappe.set_route('List', 'Ecommerce Product Sync', { backend: 'Shopware' });
 		}).addClass('btn-primary-dark');
 
@@ -99,17 +99,17 @@ frappe.ui.form.on('Shopware Setting', {
 		// cleanup). The Shopware Setting page used to ship "Categories" and
 		// "Remove Orphaned Categories" buttons each with their own dialog;
 		// both lived in Catalog Mirror's domain so we now redirect there.
-		frm.add_custom_button(__('Catalog Mirror öffnen'), function() {
+		frm.add_custom_button(__('Open Catalog Mirror'), function() {
 			frappe.set_route('List', 'Ecommerce Catalog Mirror', { backend: 'Shopware' });
-		}, __('Sync öffnen'));
+		}, __('Open sync'));
 
 		// Pull Sync öffnen — single source of truth for backend → ERP
 		// pulls (orders, customers, stock). The legacy "Orders" /
 		// "Customers" / "Stock" / "Properties" dialogs duplicated what
 		// the Pull Sync doctype now does with watermarks and audit runs.
-		frm.add_custom_button(__('Pull Sync öffnen'), function() {
+		frm.add_custom_button(__('Open Pull Sync'), function() {
 			frappe.set_route('List', 'Ecommerce Pull Sync', { backend: 'Shopware' });
-		}, __('Sync öffnen'));
+		}, __('Open sync'));
 
 		// Operational buttons (Maintenance group) — these are not sync
 		// triggers, they belong on the Setting page because they act

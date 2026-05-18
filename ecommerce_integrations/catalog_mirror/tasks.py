@@ -266,7 +266,7 @@ def _build_preview(mirror) -> MirrorPreviewPlan:
         plan.notes.append(live_error)
     if not int(mirror.is_active or 0):
         plan.notes.append(
-            _("Mirror ist deaktiviert — dies ist nur eine Vorschau. "
+            _("Mirror is disabled — this is preview-only. "
               "Setze 'Aktiv' und speichere, bevor du 'Apply Live' drückst.")
         )
     return plan

@@ -38,7 +38,7 @@
    "fieldtype": "Data",
    "reqd": 1,
    "in_list_view": 1,
-   "description": "Eigene Bezeichnung für diesen Kategorie-Sync, z.B. 'Hauptshop / Produkte'. Nur zur internen Erkennung."
+   "description": "Internal label for this category sync, e.g. 'Main shop / products'. Internal-only."
   },
   {
    "fieldname": "backend",
@@ -47,7 +47,7 @@
    "options": "Shopware\nMedusa",
    "reqd": 1,
    "in_list_view": 1,
-   "description": "Shop-Plattform, in die die Kategorien gespiegelt werden."
+   "description": "Shop platform the categories are mirrored into."
   },
   {
    "fieldname": "is_active",
@@ -55,7 +55,7 @@
    "fieldtype": "Check",
    "default": "1",
    "in_list_view": 1,
-   "description": "Wenn aktiviert: der zeitgesteuerte Hintergrund-Job synchronisiert diesen Kategorie-Sync regelmäßig (Cron). Wenn deaktiviert: läuft nur, wenn manuell 'Jetzt synchronisieren' geklickt wird."
+   "description": "When enabled: the scheduled background job syncs this category sync regularly (cron). When disabled: runs only when 'Sync now' is clicked manually."
   },
   {
    "fieldname": "column_break_header",
@@ -66,14 +66,14 @@
    "label": "Storefront",
    "fieldtype": "Autocomplete",
    "depends_on": "eval:doc.backend === 'Shopware'",
-   "description": "Shopware-Storefront-UUID. Vorschläge werden aus 'Shopware Setting → Verfügbare Storefronts' geladen. Wenn keine Backend-Wurzel-ID gesetzt ist, wird die Navigations-Kategorie der Storefront als Wurzel verwendet."
+   "description": "Shopware storefront UUID. Suggestions loaded from 'Shopware Setting → Available Storefronts'. If no backend-root id is set, the storefront's navigation category is used as the root."
   },
   {
    "fieldname": "target_sales_channel_data",
    "label": "Storefront (Medusa)",
    "fieldtype": "Autocomplete",
    "depends_on": "eval:doc.backend === 'Medusa'",
-   "description": "Vorschläge werden aus 'Medusa Setting → Verfügbare Storefronts' geladen. Rein informativ — Medusa hat keine Kategorisierung pro Storefront, der Wert wird vom Sync ignoriert."
+   "description": "Suggestions loaded from 'Medusa Setting → Available Storefronts'. Informational only — Medusa has no per-storefront categorisation, the value is ignored by the sync."
   },
   {
    "fieldname": "root_section",

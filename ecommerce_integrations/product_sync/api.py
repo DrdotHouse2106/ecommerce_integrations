@@ -280,9 +280,9 @@ def get_preview_status(run_name: str) -> dict:
             out["plan"] = json.loads(row.preview_plan_json)
         except (ValueError, TypeError):
             out["status"] = "error"
-            out["error"] = _("Vorschau-JSON konnte nicht gelesen werden.")
+            out["error"] = _("Could not read preview JSON.")
     elif row.status == "error":
-        out["error"] = row.error_summary or _("Unbekannter Fehler.")
+        out["error"] = row.error_summary or _("Unknown error.")
     return out
 
 
@@ -308,7 +308,7 @@ def preflight_check(sync: str) -> dict:
     if not (doc.target_sales_channels or []):
         _finding(
             "warn", "no_channels",
-            _("Keine Ziel-Storefronts konfiguriert — Apply würde nichts pushen."),
+            _("No target storefronts configured — Apply would push nothing."),
         )
 
     # Scope must resolve to ≥1 Item
@@ -323,18 +323,18 @@ def preflight_check(sync: str) -> dict:
         if scope_count == 0:
             _finding(
                 "block", "empty_scope",
-                _("Auswahl ist leer — kein Artikel passt zum Scope."),
+                _("Scope is empty — no item matches it."),
             )
         else:
             _finding(
                 "ok", "scope_size",
-                _("Auswahl enthält {0}+ Artikel.").format(scope_count),
+                _("Scope contains {0}+ items.").format(scope_count),
                 count=scope_count,
             )
     except Exception as exc:  # noqa: BLE001
         _finding(
             "block", "scope_error",
-            _("Scope-Auflösung fehlgeschlagen: {0}").format(exc),
+            _("Scope resolution failed: {0}").format(exc),
         )
 
     # Custom Filter without rules is a block
@@ -348,7 +348,7 @@ def preflight_check(sync: str) -> dict:
     if not int(doc.is_active or 0):
         _finding(
             "warn", "inactive",
-            _("Sync ist nicht aktiv — Cron würde ihn überspringen."),
+            _("Sync is inactive — cron would skip it."),
             fix_hint=_("Setze 'Aktiv' bevor du auf Cron umschaltest."),
         )
 

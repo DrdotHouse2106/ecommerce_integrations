@@ -26,7 +26,7 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "columns": 4,
-   "description": "UUID der Backend-Kategorie für diese Artikelgruppe. Erforderlich bei Modus 'Fest verknüpfen'."
+   "description": "UUID of the backend category for this item group. Required when mode is 'Pin'."
   },
   {
    "fieldname": "mode",
@@ -36,7 +36,7 @@
    "default": "pin",
    "in_list_view": 1,
    "columns": 2,
-   "description": "<strong>pin</strong> = Diese Backend-ID fest verwenden (Mit bestehender Kategorie verknüpfen). <strong>skip</strong> = Diese Artikelgruppe vom Kategorie-Sync ausnehmen."
+   "description": "<strong>pin</strong> = use this backend id explicitly (link with an existing category). <strong>skip</strong> = exclude this item group from the category sync."
   },
   {
    "fieldname": "notes",

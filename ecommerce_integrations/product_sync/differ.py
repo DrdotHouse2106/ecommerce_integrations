@@ -141,7 +141,7 @@ def compute_product_diff(
         item_nodes = item_nodes[:max_items]
 
     if not item_nodes:
-        plan.notes.append(_("Keine Artikel in der Auswahl gefunden."))
+        plan.notes.append(_("No items found in scope."))
         return plan
 
     # 2. Bulk-load mappings + per-item overrides + Item snapshots.
@@ -244,7 +244,7 @@ def compute_product_diff(
             ))
         except Exception as exc:  # noqa: BLE001 — never crash the differ
             plan.notes.append(
-                _("Unerwarteter Fehler beim Adapter-Load: {0}").format(exc),
+                _("Unexpected error loading adapter: {0}").format(exc),
             )
 
     if adapter_available and adapter is not None and drift_candidates:
@@ -589,7 +589,7 @@ def _detect_unmatched_orphans(
         # mapped-set diff already gave us drift detection above.
         return
     except AdapterError as exc:
-        plan.notes.append(_("Orphan-Erkennung übersprungen: {0}").format(exc))
+        plan.notes.append(_("Orphan detection skipped: {0}").format(exc))
         return
 
 

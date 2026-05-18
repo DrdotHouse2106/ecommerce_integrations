@@ -75,7 +75,7 @@
   },
   {
    "fieldname": "trigger_type",
-   "label": "Auslöser",
+   "label": "Trigger",
    "fieldtype": "Select",
    "options": "manual\ncron\nwebhook\ndispatch",
    "default": "manual",
@@ -116,18 +116,18 @@
   {
    "fieldname": "counts_section",
    "fieldtype": "Section Break",
-   "label": "Zähler"
+   "label": "Counters"
   },
   {
    "fieldname": "items_total",
-   "label": "Artikel in Auswahl",
+   "label": "Items in scope",
    "fieldtype": "Int",
    "read_only": 1,
    "in_list_view": 1
   },
   {
    "fieldname": "items_succeeded",
-   "label": "Erfolgreich",
+   "label": "Successful",
    "fieldtype": "Int",
    "read_only": 1
   },
@@ -140,7 +140,7 @@
   },
   {
    "fieldname": "items_skipped",
-   "label": "Übersprungen (Hash unverändert / Override)",
+   "label": "Skipped (hash unchanged / override)",
    "fieldtype": "Int",
    "read_only": 1
   },

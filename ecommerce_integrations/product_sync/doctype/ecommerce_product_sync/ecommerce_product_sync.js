@@ -36,17 +36,17 @@ function _icon(name, size, color) {
 function _render_dashboard_indicators(frm) {
     const status = (frm.doc.sync_status || '').toLowerCase();
     if (status === 'running') {
-        frm.dashboard.add_indicator(__('Sync läuft'), 'blue');
+        frm.dashboard.add_indicator(__('Sync running'), 'blue');
     } else if (status === 'error') {
         const snippet = (frm.doc.last_error || '').split('\n')[0].slice(0, 120);
         frm.dashboard.add_indicator(
-            snippet ? __('Sync-Fehler: {0}', [snippet]) : __('Sync-Fehler'),
+            snippet ? __('Sync error: {0}', [snippet]) : __('Sync error'),
             'red',
         );
     } else if (status === 'ok') {
         frm.dashboard.add_indicator(__('Letzter Lauf OK'), 'green');
     } else if (status === 'partial') {
-        frm.dashboard.add_indicator(__('Teilweise erfolgreich'), 'orange');
+        frm.dashboard.add_indicator(__('Partial success'), 'orange');
     }
     if (frm.doc.last_synced_at) {
         frm.dashboard.add_indicator(
@@ -66,13 +66,13 @@ function _render_header_buttons(frm) {
     // Three preview modes — fast is the default because it answers
     // "what would change?" correctly without the backend wait, and
     // power-users opt into the heavier ones from the menu.
-    frm.add_custom_button(__('Vorschau'),
+    frm.add_custom_button(__('Preview'),
         () => _open_preview_dialog(frm, { mode: 'fast' })).addClass('btn-primary');
 
     frm.add_custom_button(__('Detailvergleich (mit Backend)…'),
-        () => _open_preview_dialog(frm, { mode: 'detail' }), __('Vorschau'));
-    frm.add_custom_button(__('Vollständig (inkl. Orphans)…'),
-        () => _open_preview_dialog(frm, { mode: 'full' }), __('Vorschau'));
+        () => _open_preview_dialog(frm, { mode: 'detail' }), __('Preview'));
+    frm.add_custom_button(__('Full (incl. orphans)…'),
+        () => _open_preview_dialog(frm, { mode: 'full' }), __('Preview'));
 
     // Apply Live with double-confirm
     frm.add_custom_button(__('Apply Live'), () => _apply_live(frm));
@@ -89,7 +89,7 @@ function _render_header_buttons(frm) {
     frappe.ui.keys.add_shortcut({
         shortcut: 'ctrl+enter',
         action: () => _open_preview_dialog(frm, { mode: 'fast' }),
-        description: __('Schnellvorschau öffnen'),
+        description: __('Open quick preview'),
         page: frm.page,
         condition: () => !frm.is_new(),
     });
@@ -144,9 +144,9 @@ function _run_preview_with_progress(frm, { onDone, mode = 'fast' }) {
         // looks frozen at "33,961 / 33,961 (99%)".
         let label;
         if (!total) {
-            label = __('Auswahl wird ermittelt…');
+            label = __('Resolving scope…');
         } else if (current >= total && status === 'running') {
-            label = __('Backend-Abgleich läuft (Orphan- und Drift-Erkennung — kann bei großen Katalogen mehrere Minuten dauern)…');
+            label = __('Backend reconciliation running (orphan and drift detection — may take several minutes on large catalogues)…');
         } else {
             label = `${current.toLocaleString()} / ${total.toLocaleString()} (${percent}%)`;
         }
@@ -175,7 +175,7 @@ function _run_preview_with_progress(frm, { onDone, mode = 'fast' }) {
             const runName = r.message && r.message.run_name;
             if (!runName) {
                 progressDialog.hide();
-                frappe.msgprint(__('Vorschau konnte nicht gestartet werden.'));
+                frappe.msgprint(__('Could not start preview.'));
                 return;
             }
             const poll = () => {
@@ -194,7 +194,7 @@ function _run_preview_with_progress(frm, { onDone, mode = 'fast' }) {
                         if (m.status === 'error') {
                             progressDialog.hide();
                             frappe.msgprint({
-                                title: __('Vorschau fehlgeschlagen'),
+                                title: __('Preview failed'),
                                 message: frappe.utils.escape_html(m.error || ''),
                                 indicator: 'red',
                             });
@@ -214,7 +214,7 @@ function _run_preview_with_progress(frm, { onDone, mode = 'fast' }) {
 
 function _show_preview_dialog(frm, plan, { mode = 'fast' } = {}) {
     const d = new frappe.ui.Dialog({
-        title: __('Vorschau: {0}', [plan.title || frm.doc.name]),
+        title: __('Preview: {0}', [plan.title || frm.doc.name]),
         size: 'extra-large',
         fields: [{ fieldname: 'preview_html', fieldtype: 'HTML' }],
         primary_action_label: __('Apply Live'),
@@ -223,12 +223,12 @@ function _show_preview_dialog(frm, plan, { mode = 'fast' } = {}) {
             _apply_live(frm);
         },
     });
-    d.set_secondary_action_label(__('Neu laden'));
+    d.set_secondary_action_label(__('Reload'));
     d.set_secondary_action(() => _refresh_preview_inplace(frm, d));
 
     if (plan.skipped) {
         d.fields_dict.preview_html.$wrapper.html(
-            `<div class="alert alert-warning">${__('Übersprungen: {0}',
+            `<div class="alert alert-warning">${__('Skipped: {0}',
                 [frappe.utils.escape_html(plan.skip_reason || '')])}</div>`,
         );
         d.show();
@@ -298,7 +298,7 @@ function _render_summary_card(plan, c) {
                     </div>
                     <div class="text-muted small" style="margin-top:0.25em">
                         ${__('Backend')}: <strong>${frappe.utils.escape_html(plan.backend)}</strong>
-                        · ${__('Artikel in Auswahl')}: <strong>${plan.items_in_scope || 0}</strong>
+                        · ${__('Items in scope')}: <strong>${plan.items_in_scope || 0}</strong>
                         · ${__('Verarbeitet')}: <strong>${c.create + c.update + c.noop + c.conflict + c.drift}</strong>
                     </div>
                 </div>
@@ -353,7 +353,7 @@ function _render_risk_banner(plan) {
                     background:#fff7e6;border:1px solid #ffd591;border-radius:6px;
                     display:flex;align-items:center;gap:8px">
             <span style="color:#d46b08;display:inline-flex;align-items:center">${_icon('triangle-alert', 'sm')}</span>
-            <strong>${__('Auffällige Änderungen')}</strong>
+            <strong>${__('Significant changes')}</strong>
             <span class="text-muted small">— ${bits.join(' · ')}</span>
         </div>`;
 }
@@ -363,7 +363,7 @@ function _render_metrics_bar(c) {
     const cells = [
         { color: '#52c41a', icon: _icon('plus', 'sm'),         label: __('Anlegen'),       value: c.create },
         { color: '#fa8c16', icon: _icon('pencil', 'sm'),       label: __('Update'),        value: c.update },
-        { color: 'inherit', icon: _icon('minus', 'sm'),        label: __('Keine Änd.'),    value: c.noop },
+        { color: 'inherit', icon: _icon('minus', 'sm'),        label: __('No change'),    value: c.noop },
         { color: '#cf1322', icon: _icon('circle-slash', 'sm'), label: __('Verwaiste'),     value: c.orphan },
         { color: '#722ed1', icon: _icon('shuffle', 'sm'),      label: __('Konflikte'),     value: c.conflict },
         { color: '#cf1322', icon: _icon('unlink', 'sm'),       label: __('Drift'),         value: c.drift },
@@ -423,7 +423,7 @@ function _render_tree_section(plan) {
                 ${_render_filter_chip('all', _icon('list','xs')+' '+__('Alle'), c.create+c.update+c.noop, true)}
                 ${_render_filter_chip('create', _icon('plus','xs')+' '+__('Anlegen'), c.create, false)}
                 ${_render_filter_chip('update', _icon('pencil','xs')+' '+__('Update'), c.update, false)}
-                ${_render_filter_chip('noop', _icon('minus','xs')+' '+__('Keine Änd.'), c.noop, false)}
+                ${_render_filter_chip('noop', _icon('minus','xs')+' '+__('No change'), c.noop, false)}
             </div>
             <div style="max-height:480px;overflow:auto;
                         border:1px solid var(--border-color);border-radius:4px">
@@ -461,7 +461,7 @@ function _action_visuals(action) {
     const map = {
         create: { color: 'green',  label: __('Anlegen') },
         update: { color: 'orange', label: __('Update') },
-        noop:   { color: 'gray',   label: __('Keine Änd.') },
+        noop:   { color: 'gray',   label: __('No change') },
         error:  { color: 'red',    label: __('Fehler') },
     };
     return map[action] || { color: 'gray', label: (action || '').toUpperCase() };
@@ -542,7 +542,7 @@ function _render_conflicts_section(plan) {
                 <span class="text-muted small">(${conflicts.length})</span>
             </h6>
             <table class="table table-sm" style="margin:0.5em 0 0 0;font-size:12px">
-                <thead><tr><th>${__('Artikel')}</th><th>${__('Konkurrierende Syncs')}</th><th>${__('Auflösung')}</th></tr></thead>
+                <thead><tr><th>${__('Artikel')}</th><th>${__('Konkurrierende Syncs')}</th><th>${__('Resolution')}</th></tr></thead>
                 <tbody>${rows}</tbody>
             </table>
         </div>`;
@@ -560,7 +560,7 @@ function _render_drift_section(plan) {
         <div style="margin-top:1em">
             <h6 style="margin:0;display:flex;align-items:center;gap:6px">
                 <span style="color:#cf1322;display:inline-flex;align-items:center">${_icon('triangle-alert','sm')}</span>
-                <span>${__('Verlorene Verknüpfungen')}</span>
+                <span>${__('Lost mappings')}</span>
                 <span class="text-muted small">(${drift.length})</span>
             </h6>
             <div class="text-muted small" style="margin:0.25em 0">
@@ -658,7 +658,7 @@ function _open_preflight_dialog(frm) {
         method: 'ecommerce_integrations.product_sync.api.preflight_check',
         args: { sync: frm.doc.name },
         freeze: true,
-        freeze_message: __('Pre-Flight läuft…'),
+        freeze_message: __('Pre-flight running…'),
         callback(r) {
             if (r.message) _show_preflight_dialog(frm, r.message);
         },
@@ -669,7 +669,7 @@ function _open_preflight_dialog(frm) {
 function _show_preflight_dialog(frm, result) {
     const sev_pill = {
         ok:    `<span class="indicator-pill green">${__('OK')}</span>`,
-        warn:  `<span class="indicator-pill orange">${__('Warnung')}</span>`,
+        warn:  `<span class="indicator-pill orange">${__('Warning')}</span>`,
         block: `<span class="indicator-pill red">${__('Blocker')}</span>`,
     };
     const rows = (result.findings || []).map((f) => `
@@ -679,13 +679,13 @@ function _show_preflight_dialog(frm, result) {
             <td>${frappe.utils.escape_html(f.message)}</td>
         </tr>`).join('');
     const status_pill = result.ready_for_dryrun
-        ? `<span class="indicator-pill green">${__('Bereit für Vorschau')}</span>`
+        ? `<span class="indicator-pill green">${__('Ready for preview')}</span>`
         : `<span class="indicator-pill red">${__('Blockiert')}</span>`;
     const d = new frappe.ui.Dialog({
         title: __('Pre-Flight-Check'),
         size: 'large',
         fields: [{ fieldname: 'pf_html', fieldtype: 'HTML' }],
-        primary_action_label: result.ready_for_dryrun ? __('Vorschau öffnen') : __('Schließen'),
+        primary_action_label: result.ready_for_dryrun ? __('Open preview') : __('Close'),
         primary_action() {
             d.hide();
             if (result.ready_for_dryrun) _open_preview_dialog(frm);
@@ -694,7 +694,7 @@ function _show_preflight_dialog(frm, result) {
     d.fields_dict.pf_html.$wrapper.html(`
         <div style="margin-bottom:1em">${status_pill}</div>
         <table class="table table-sm" style="margin:0;font-size:12px">
-            <thead><tr><th>${__('Severity')}</th><th>${__('Code')}</th><th>${__('Beschreibung')}</th></tr></thead>
+            <thead><tr><th>${__('Severity')}</th><th>${__('Code')}</th><th>${__('Description')}</th></tr></thead>
             <tbody>${rows}</tbody>
         </table>`);
     d.show();
@@ -707,10 +707,10 @@ function _show_preflight_dialog(frm, result) {
 function _apply_live(frm) {
     frappe.warn(
         __('Apply Live auf Production-Backend?'),
-        __('Dieser Push verändert echte Daten in {0}. Sicher fortfahren?',
+        __('This push changes live data in {0}. Continue?',
             [frm.doc.backend || 'Backend']),
         () => frappe.confirm(
-            __('Wirklich apply? Die Aktion kann nur per Rollback rückgängig gemacht werden.'),
+            __('Really apply? The action can only be undone via rollback.'),
             () => _do_apply_live(frm),
         ),
         __('Apply Live'),
@@ -724,7 +724,7 @@ function _do_apply_live(frm) {
         method: 'ecommerce_integrations.product_sync.api.apply_live',
         args: { sync: frm.doc.name, with_snapshot: true },
         freeze: true,
-        freeze_message: __('Apply läuft…'),
+        freeze_message: __('Apply running…'),
         callback(r) {
             if (!r.message) return;
             const res = r.message;
@@ -751,7 +751,7 @@ function _open_adopt_by_sku(frm) {
             method: 'ecommerce_integrations.product_sync.api.auto_adopt_by_sku',
             args: { sync: frm.doc.name, also_try_ean: true },
             freeze: true,
-            freeze_message: __('SKU-Matching läuft…'),
+            freeze_message: __('SKU matching running…'),
             callback(r) {
                 if (!r.message) return;
                 const m = r.message;
@@ -799,7 +799,7 @@ function _open_history_dialog(frm) {
                         <th>${__('Run')}</th><th>${__('Modus')}</th><th>${__('Status')}</th>
                         <th>${__('Items')}</th><th>${__('Fehler')}</th><th>${__('Gestartet')}</th>
                     </tr></thead>
-                    <tbody>${rows || `<tr><td colspan="6" class="text-muted text-center">${__('Noch keine Test-Läufe.')}</td></tr>`}</tbody>
+                    <tbody>${rows || `<tr><td colspan="6" class="text-muted text-center">${__('No test runs yet.')}</td></tr>`}</tbody>
                 </table>`);
             d.show();
         },

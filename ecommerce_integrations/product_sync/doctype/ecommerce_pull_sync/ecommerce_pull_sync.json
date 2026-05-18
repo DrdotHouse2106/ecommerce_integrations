@@ -40,7 +40,7 @@
    "fieldtype": "Data",
    "reqd": 1,
    "in_list_view": 1,
-   "description": "Eigene Bezeichnung für diesen Pull-Sync, z.B. 'Hauptshop Bestellungen'."
+   "description": "Internal label for this Pull Sync, e.g. 'Main shop orders'."
   },
   {
    "fieldname": "backend",
@@ -56,7 +56,7 @@
    "fieldtype": "Check",
    "default": "0",
    "in_list_view": 1,
-   "description": "Bei 0 läuft der Pull nur manuell."
+   "description": "When 0, pull only runs manually."
   },
   {
    "fieldname": "column_break_header",
@@ -64,11 +64,11 @@
   },
   {
    "fieldname": "cron_preset",
-   "label": "Zeitplan",
+   "label": "Schedule",
    "fieldtype": "Select",
    "options": "manual\nevery_hour\nevery_6h\ndaily_3am\ncustom",
    "default": "every_hour",
-   "description": "Wie oft der Pull läuft. 'every_hour' ist Standard — Webhook + Cron als Sicherheitsnetz."
+   "description": "How often the pull runs. 'every_hour' is the default — webhook + cron as a safety net."
   },
   {
    "fieldname": "cron_schedule",
@@ -80,7 +80,7 @@
   {
    "fieldname": "targets_section",
    "fieldtype": "Section Break",
-   "label": "Was geholt wird",
+   "label": "What is pulled",
    "description": "Welche Entitäten beim Pull aus dem Backend abgeholt werden. Pro Run wird jede aktivierte Sektion mit ihrer Watermark abgefragt."
   },
   {

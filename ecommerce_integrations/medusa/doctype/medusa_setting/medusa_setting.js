@@ -97,22 +97,22 @@ frappe.ui.form.on('Medusa Setting', {
 		// pushes. The legacy "Complete Sync" dialog used to live here
 		// but it duplicated what the Product Sync's preview + apply
 		// pipeline already does, without hash-delta detection or audit.
-		frm.add_custom_button(__('Product Sync öffnen'), function() {
+		frm.add_custom_button(__('Open Product Sync'), function() {
 			frappe.set_route('List', 'Ecommerce Product Sync', { backend: 'Medusa' });
 		}).addClass('btn-primary-dark');
 
 		// Catalog Mirror öffnen — single source of truth for category
 		// pushes. Replaces the per-channel "Categories" sync dialog.
-		frm.add_custom_button(__('Catalog Mirror öffnen'), function() {
+		frm.add_custom_button(__('Open Catalog Mirror'), function() {
 			frappe.set_route('List', 'Ecommerce Catalog Mirror', { backend: 'Medusa' });
-		}, __('Sync öffnen'));
+		}, __('Open sync'));
 
 		// Pull Sync öffnen — single source of truth for backend → ERP
 		// pulls (orders, customers). Replaces the legacy "Orders" /
 		// "Customers" buttons.
-		frm.add_custom_button(__('Pull Sync öffnen'), function() {
+		frm.add_custom_button(__('Open Pull Sync'), function() {
 			frappe.set_route('List', 'Ecommerce Pull Sync', { backend: 'Medusa' });
-		}, __('Sync öffnen'));
+		}, __('Open sync'));
 
 
 		// === Maintenance group (U3) ===

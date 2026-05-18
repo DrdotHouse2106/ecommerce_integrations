@@ -21,7 +21,7 @@
    "label": "Zielsystem",
    "options": "Shopware\nMedusa",
    "reqd": 1,
-   "description": "Shop-Plattform, für die diese Sichtbarkeit gilt."
+   "description": "Shop platform this visibility rule applies to."
   },
   {
    "description": "Storefront-UUID oder -ID im Zielsystem. Als Text gespeichert, weil Shopware-Storefront und Medusa-Storefront unterschiedliche Doctypes sind.",
@@ -43,7 +43,7 @@
    "label": "Modus",
    "options": "include\nexclude",
    "reqd": 1,
-   "description": "<strong>Einschließen</strong> = Artikel zusätzlich in dieser Storefront sichtbar machen. <strong>Ausschließen</strong> = Artikel aus der Storefront ausschließen, auch wenn andere Regeln ihn einschließen würden."
+   "description": "<strong>Include</strong> = make the item visible in this storefront. <strong>Exclude</strong> = exclude the item from the storefront, even if other rules would include it."
   },
   {
    "default": "30 - All",
@@ -52,7 +52,7 @@
    "fieldtype": "Select",
    "label": "Sichtbarkeit",
    "options": "30 - All\n20 - Linked\n10 - Search",
-   "description": "Nur relevant bei Modus 'Einschließen'. <strong>30 - All</strong> = überall sichtbar (Kategorien, Suche, Direktlink). <strong>20 - Linked</strong> = nur über Direktlink erreichbar. <strong>10 - Search</strong> = nur in der Suche auffindbar."
+   "description": "Only relevant for 'Include' mode. <strong>30 - All</strong> = visible everywhere (categories, search, direct link). <strong>20 - Linked</strong> = direct link only. <strong>10 - Search</strong> = search only."
   },
   {
    "fieldname": "notes",

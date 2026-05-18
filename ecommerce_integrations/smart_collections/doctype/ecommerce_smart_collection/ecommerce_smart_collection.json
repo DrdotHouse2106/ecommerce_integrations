@@ -41,13 +41,13 @@
    "fieldtype": "Data",
    "unique": 1,
    "in_list_view": 1,
-   "description": "Interner Bezeichner (Frappe-Dokumentname). Wird mit dem Storefront-Suffix eindeutig gemacht. Nachträglich änderbar."
+   "description": "Internal identifier (Frappe document name). Made unique with the storefront suffix. Editable later."
   },
   {
    "fieldname": "external_handle",
    "label": "Backend-Handle (optional)",
    "fieldtype": "Data",
-   "description": "Optional: Handle/SEO-URL im Shop (z.B. Medusa-Category-Handle, Shopware-seoUrl). Wenn leer, wird der Kurzname verwendet. Setzen Sie diesen Wert, wenn Sie im Shop eine kürzere URL möchten."
+   "description": "Optional: handle / SEO URL in the shop (e.g. Medusa category handle, Shopware seoUrl). When empty, the slug is used. Set this for a shorter URL in the shop."
   },
   {
    "fieldname": "is_active",
@@ -55,7 +55,7 @@
    "fieldtype": "Check",
    "default": "0",
    "in_list_view": 1,
-   "description": "<strong>Aktiv</strong>: Die Kollektion wird automatisch durch den zeitgesteuerten Sync (Cron) aktualisiert, sobald sich Regelergebnisse ändern. <strong>Inaktiv</strong>: Die Kollektion wird nur manuell über die Schaltfläche 'Jetzt synchronisieren' gepflegt."
+   "description": "<strong>Active</strong>: the collection is updated automatically by the scheduled sync (cron) whenever rule results change. <strong>Inactive</strong>: the collection is maintained only via the 'Sync now' button."
   },
   {
    "fieldname": "column_break_header",
@@ -63,10 +63,10 @@
   },
   {
    "fieldname": "parent_collection",
-   "label": "Übergeordnete Kollektion (optional)",
+   "label": "Parent collection (optional)",
    "fieldtype": "Link",
    "options": "Ecommerce Smart Collection",
-   "description": "Optional: Eltern-Kollektion für verschachtelte Kategorien (nur bei Backends, die das unterstützen)."
+   "description": "Optional: parent collection for nested categories (only on backends that support it)."
   },
   {
    "fieldname": "sort_order",

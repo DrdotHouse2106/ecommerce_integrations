@@ -1,548 +1,678 @@
-Test Connection,Verbindung testen
-Connection OK – {0} sales channel(s),Verbindung OK – {0} Verkaufskanal/-kanäle
-Connection OK – {0},Verbindung OK – {0}
-Connection failed,Verbindung fehlgeschlagen
-Could not reach {0}. Check URL and credentials.,{0} konnte nicht erreicht werden. Bitte URL und Zugangsdaten prüfen.
+"""Modus """"{0}"""" angewendet""","""Modus „{0}“ angewendet"""
+'pin' wires the IG to this external_id. 'skip' tells the mirror to ignore this IG.,"'pin' verknüpft die Artikelgruppe mit dieser external_id. 'skip' weist den Spiegel an, diese Artikelgruppe zu ignorieren."
+(excluded),(ausgeschlossen)
+(value only visible via form field),(Wert nur über Form-Feld sichtbar)
+0 Fehler in 24h · {0} erfolgreiche Syncs,0 Fehler in 24h · {0} erfolgreiche Syncs
+0 selected,0 ausgewählt
+"<b>immediate</b> = validation failure (4xx), no auto-retry — operator action needed. <b>transient</b> = timeout / 5xx — auto-retried. <b>manual_review</b> = business conflict (e.g. SKU taken) — needs a decision.","<b>immediate</b> = Validierungsfehler (4xx), kein automatischer Retry — Operator-Eingriff. <b>transient</b> = Timeout / 5xx — wird automatisch nochmal versucht. <b>manual_review</b> = Business-Konflikt (z.B. SKU bereits vergeben) — braucht Entscheidung."
+<b>pin</b> = manually link the item to a backend product UUID. <b>skip</b> = skip the item in this sync. <b>custom</b> = apply per-item name/price/description fields.,<b>pin</b> = verknüpft den Artikel manuell mit einer Backend-Produkt-UUID. <b>skip</b> = Artikel wird in diesem Sync übersprungen. <b>custom</b> = individuelle Namens-/Preis-/Beschreibungs-Felder werden angewendet.
+<strong>Active</strong>: the collection is updated automatically by the scheduled sync (cron) whenever rule results change. <strong>Inactive</strong>: the collection is maintained only via the 'Sync now' button.,"<strong>Aktiv</strong>: Die Kollektion wird automatisch durch den zeitgesteuerten Sync (Cron) aktualisiert, sobald sich Regelergebnisse ändern. <strong>Inaktiv</strong>: Die Kollektion wird nur manuell über die Schaltfläche 'Jetzt synchronisieren' gepflegt."
+"<strong>Include</strong> = make the item visible in this storefront. <strong>Exclude</strong> = exclude the item from the storefront, even if other rules would include it.","<strong>Einschließen</strong> = Artikel zusätzlich in dieser Storefront sichtbar machen. <strong>Ausschließen</strong> = Artikel aus der Storefront ausschließen, auch wenn andere Regeln ihn einschließen würden."
+<strong>pin</strong> = use this backend id explicitly (link with an existing category). <strong>skip</strong> = exclude this item group from the category sync.,<strong>pin</strong> = Diese Backend-ID fest verwenden (Mit bestehender Kategorie verknüpfen). <strong>skip</strong> = Diese Artikelgruppe vom Kategorie-Sync ausnehmen.
+Abbrechen,Abbrechen
+Achtung — Aufmerksamkeit erforderlich,Achtung – Aufmerksamkeit erforderlich
+Actions,Aktionen
+Actions,Aktionen
+active,Aktiv
+Active,Aktiv (am Cron-Sync teilnehmen)
+Add,Hinzufügen
+"Add only, never remove","Nur hinzufügen, nichts entfernen"
+Add Shipping as Line Item,Versandkosten als Auftragsposition erfassen
+Admin-API Schlüssel. Wird verschlüsselt gespeichert.,Admin-API Schlüssel. Wird verschlüsselt gespeichert.
+Adopt,Übernehmen
+Adopt,Mit bestehender Kategorie verknüpfen
+Adopt + Link Only,Verknüpfen ohne Inhalt zu überschreiben
+Adopt existing…,Bestehendes übernehmen…
+Adopt → IG…,Zu Item-Group zuordnen…
+Adopted: {0},Übernommen: {0}
+Adopted: {0} → {1},Übernommen: {0} → {1}
+Adopting…,Übernahme läuft…
+Advanced,Erweitert
+AI Description Generation is not enabled,KI-Beschreibungsgenerierung ist nicht aktiviert
+Aktive Catalog Mirrors für {0} werden pausiert,Aktive Catalog Mirrors für {0} werden pausiert
+Aktivieren,Aktivieren
+Aktivierung fehlgeschlagen.,Aktivierung fehlgeschlagen.
+Aktivierung läuft …,Aktivierung läuft …
+Aktualisieren,Aktualisieren
+All backends,Alle Backends
+All Catalog Mirrors at a glance. Pick suggestions to link unmapped mirrors," then run Sync.,Alle Katalog-Mirror im Überblick. Vorschläge auswählen, um nicht verknüpfte Mirror zu verbinden, dann Sync ausführen."
+Allow Empty Collection,Leere Kollektion erlauben
+Allow Unsigned Webhooks,Unsignierte Webhooks zulassen
+Allow Unsigned Webhooks (Not Recommended),Unsignierte Webhooks zulassen (nicht empfohlen)
+Already linked,Bereits verknüpft
+Already mapped (skipped),Schon zugeordnet (übersprungen)
+Ambiguous (skipped),Mehrdeutig (übersprungen)
+Analyze Conflicts,Konflikte analysieren
+API Key,API Key
+API Key,API-Schlüssel
+API Password,API Password
+API Password,API-Passwort
+API Username,API Username
+API Username,API-Benutzername
+Apply (Live),Anwenden (Live)
+Apply Live,Live anwenden
+Apply Live,Jetzt synchronisieren
+Apply running…,Apply läuft…
+Apply this mirror against the live backend now?,Diesen Spiegel jetzt gegen das Live-Backend anwenden?
+Apply this plan to {0}?,Diesen Plan auf {0} anwenden?
+"Apply this plan to {0}? Creates: {1}, Updates: {2}, Moves: {3}, Orphans handled: {4}.","Diesen Plan auf {0} anwenden? Anlegen: {1}, Aktualisieren: {2}, Verschieben: {3}, Verwaiste behandelt: {4}."
+Applying mirror…,Spiegel wird angewendet…
+Authentication Type,Authentifizierungs-Typ
+Authentifizierung,Authentifizierung
+Auto-create Invoice after Shipment,Rechnung automatisch bei Versand erstellen
+Auto-create Invoice after Shipment (Recommended),Rechnung automatisch bei Versand erstellen (empfohlen)
+Auto-detect jattr_* fields,jattr_*-Felder automatisch erkennen
+Auto-send Invoice Email,Rechnung automatisch per E-Mail versenden
+Auto-send Invoice Email when Paid,Rechnung automatisch per E-Mail versenden
+Available Sales Channels,Verfügbare Storefronts
+Backend,Backend
+Backend,Backend
+Backend,Zielsystem
+Backend categories without ERPNext counterpart,Backend-Kategorien ohne ERPNext-Pendant
+Backend categories without ERPNext match,Backend-Kategorien ohne ERPNext-Pendant
+Backend categories without ERPNext match (per orphan_policy={0}),Backend-Kategorien ohne ERPNext-Pendant (gemäß orphan_policy={0})
+Backend reconciliation running (orphan and drift detection — may take several minutes on large catalogues)…,Backend-Abgleich läuft (Orphan- und Drift-Erkennung — kann bei großen Katalogen mehrere Minuten dauern)…
+Batch Size,Stapelgröße
+Batch Size,Stapelgröße
+Bitte Medusa URL und API Key eingeben.,Bitte Medusa URL und API Key eingeben.
+Bitte Shop URL eingeben.,Bitte Shop URL eingeben.
+Bitte zuerst eine erfolgreiche Verbindung herstellen.,Bitte zuerst eine erfolgreiche Verbindung herstellen.
+Building previews…,Vorschauen werden erstellt …
+Building preview…,Vorschau wird erstellt…
+Building preview…,Vorschau wird erstellt …
+Bulk Mode Threshold,Schwellenwert Massen-Modus
+Cache cleared.,Cache geleert.
+Cash / Bank Account,Kassen-/Bankkonto
+Cash/Bank Account,Kassen-/Bankkonto
+Catalog Mirror,Katalog-Spiegel
+Catalog Mirror,Kategorie-Sync (ERP → Shop)
+Catalog Mirror Dashboard,Katalog-Mirror Dashboard
+Catalog Mirror module not available — run bench migrate.,Katalog-Mirror-Modul nicht verfügbar – bench migrate ausführen.
+Catalog Mirror Skip,Vom Kategorie-Sync ausnehmen
+Categories,Kategorien
+Categories (would be linked next sync),Kategorien (würden beim nächsten Sync verlinkt)
+Category Assignment Mode,Kategorie-Zuordnung
+Category Sync Root,Wurzel-Artikelgruppe für Kategorie-Sync
+Channel,Kanal
+Channel Override,Manuelle Sichtbarkeit pro Item
+Channel Visibility Overrides (cross-backend),Channel-Sichtbarkeit Overrides (cross-backend)
+Channel: {0},Kanal: {0}
+Checkout Custom Fields,Checkout-Felder (Erweitert)
+Checkout Field Mappings,Checkout-Feld-Zuordnungen
+Clear all pending sync items?,Alle ausstehenden Sync-Einträge löschen?
+Clear backend mapping on Item Group {0}? The next sync will re-create the category.,Backend-Verknüpfung auf Artikelgruppe {0} löschen? Der nächste Sync legt die Kategorie erneut an.
+Clear Cache,Cache leeren
+Clear mapping & re-create,Verknüpfung löschen & neu anlegen
+Clear mapping and re-create,Zuordnung löschen & neu anlegen
+Clear Queue,Warteschlange leeren
+Cleared: {0},Gelöscht: {0}
+Clearing mapping…,Verknüpfung wird gelöscht…
+Client ID,Client ID
+Client ID (Access Key ID),Client-ID (Access Key ID)
+Client Secret,Client Secret
+Client Secret (Secret Access Key),Client-Secret (Secret Access Key)
+Close,Schließen
+Collection,Smart Collection
+Combinator with next rule,Verknüpfung mit nächster Regel
+Company,Firma
+"Comparison operator: <strong>equals</strong>, <strong>not_equals</strong>, <strong>in</strong> = is one of (comma-separated), <strong>not_in</strong>, <strong>descends_from</strong> = is descended from (for the item-group tree), <strong>contains</strong>, <strong>regex</strong>, <strong>is_set</strong>, <strong>is_empty</strong>.","Vergleichsoperator: <strong>equals</strong> = ist genau, <strong>not_equals</strong> = ist nicht, <strong>in</strong> = ist einer aus (kommagetrennt), <strong>not_in</strong> = ist keiner aus, <strong>descends_from</strong> = ist untergeordnet von (für Artikelgruppen-Baum), <strong>contains</strong> = enthält, <strong>regex</strong> = passt auf regulären Ausdruck, <strong>is_set</strong> = ist gesetzt, <strong>is_empty</strong> = ist leer."
 Complete Sync,Komplett-Sync
-Preview Changes,Änderungen vorschauen
-Start Live Sync,Live-Sync starten
-Dry Run,Trockenlauf
-Preview the operation without applying.,Vorschau der Aktion ohne tatsächliche Ausführung.
-Preview changes without applying them. Recommended for first run.,Änderungen vorschauen ohne sie anzuwenden. Für den ersten Lauf empfohlen.
-Dry run started. Check logs for results.,Trockenlauf gestartet. Ergebnisse in den Logs einsehen.
 Complete Sync started in background.,Komplett-Sync läuft im Hintergrund.
-Run LIVE Complete Sync against {0}? This will create/update/delete categories and products. Run a Dry Run first if unsure.,Live-Komplett-Sync gegen {0} ausführen? Dabei werden Kategorien und Produkte angelegt/aktualisiert/gelöscht. Im Zweifel zuerst einen Trockenlauf starten.
+Connection,Verbindung
+Connection failed,Verbindung fehlgeschlagen
+Connection OK – {0},Verbindung OK – {0}
+Connection OK – {0} sales channel(s),Verbindung OK – {0} Verkaufskanal/-kanäle
+Cost Center,Kostenstelle
+Could not fetch Medusa order {0},Medusa-Bestellung {0} konnte nicht abgerufen werden
+Could not reach {0}. Check URL and credentials.,{0} konnte nicht erreicht werden. Bitte URL und Zugangsdaten prüfen.
+Could not read preview JSON.,Vorschau-JSON konnte nicht gelesen werden.
+Could not start preview.,Vorschau konnte nicht gestartet werden.
+Counters,Zähler
+Create,Anlegen
+CREATE,ANLEGEN
+Create,Erstellen
+Create Delivery Notes from Fulfillments,Lieferscheine aus Medusa-Sendungen erstellen
+Create Delivery Notes from Shopware shipments,Lieferscheine aus Shopware-Sendungen erstellen
+Create Sales Invoices for Paid Orders,Rechnungen für bezahlte Bestellungen erstellen
+"Creates: {0}, Updates: {1}, Moves: {2}, Orphans handled: {3}","Anlegen: {0}, Aktualisieren: {1}, Verschieben: {2}, Verwaiste: {3}"
+Custom description,Custom Beschreibung
+Customer Group,Kundengruppe
+Customer Sync Frequency (Minutes),Kunden-Sync-Intervall (Minuten)
+Customers,Kunden
+Damit wird der automatische Versand gestoppt. Eingehende Webhooks bleiben aktiv.,Damit wird der automatische Versand gestoppt. Eingehende Webhooks bleiben aktiv.
+Das Secret ist als Password-Feld gespeichert und kann nur über das Feld unten geändert werden.,Das Secret ist als Password-Feld gespeichert und kann nur über das Feld unten geändert werden.
+Default Country,Standardland
+Default Customer,Standardkunde
+Default Mode of Payment,Standard-Zahlungsart
+Default Price List Includes Tax (Gross),Standard-Preisliste enthält Brutto-Preise
+Default Sales Tax Account,Standard-Umsatzsteuerkonto
+Default Sales Tax Template,Standard-Steuertemplate
+Default Selling Price List,Standard-Verkaufspreisliste
+Default Shipping Charges Account,Standardkonto Versandkosten
+Default Tax Rate (%),Standard-MwSt.-Satz (%)
+Default Warehouse,Standard-Lager
+delete,Löschen (gefährlich)
+Delete and recreate all price rules in Medusa?,Alle Preisregeln in Medusa löschen und neu anlegen?
+Delete and recreate all price rules in Shopware?,Alle Preisregeln in Shopware löschen und neu anlegen?
+Delete and recreate all price rules?,Alle Preisregeln löschen und neu anlegen?
+Delete and recreate all variants in Shopware?,Alle Varianten in Shopware löschen und neu anlegen?
+Delete and recreate all variants?,Alle Varianten löschen und neu anlegen?
+Delete backend category,Backend-Kategorie löschen
+Delete backend category {0}? This cannot be undone.,Backend-Kategorie {0} löschen? Dies kann nicht rückgängig gemacht werden.
+Delete selection,Auswahl: Löschen
+Delete {0} backend categories? This action cannot be undone.,{0} Backend-Kategorien löschen? Diese Aktion kann nicht rückgängig gemacht werden.
+Delivery Note Series,Nummernkreis Lieferschein
+description,Beschreibung
+Description,Beschreibung
+Description Template,Beschreibungs-Vorlage
+Details,Details
+Details — Letzte Ereignisse ({0}),Details – Letzte Ereignisse ({0})
+Discount Item,Artikel für Rabatte
+Doku öffnen,Doku öffnen
+DRIFT,VERSCHOBEN
+Dry Run,Trockenlauf
+Dry run started. Check logs for results.,Trockenlauf gestartet. Ergebnisse in den Logs einsehen.
+"Ecommerce Visibility (live, computed)",Ecommerce-Sichtbarkeit (Live berechnet)
+Edit Channel Overrides,Channel-Overrides bearbeiten
+Ein Secret ist bereits gesetzt. Du kannst es behalten oder hier neu generieren.,Ein Secret ist bereits gesetzt. Du kannst es behalten oder hier neu generieren.
+Eingehende Webhooks,Eingehende Webhooks
+Empfang + manueller Versand,Empfang + manueller Versand
+Empfang + manueller Versand: Empfang automatisch," Produkt-/Kategorie-Sync läuft nur wenn du auf ""Sync starten"" klickst.,""Empfang + manueller Versand: Empfang automatisch, Produkt-/Kategorie-Sync läuft nur wenn du auf „Sync starten“ klickst."""
+Empfang aus Medusa,Empfang aus Medusa
+Empfang aus Medusa: Bestellungen," Kunden, Bestand kommen rein in ERPNext (sicher empfohlen für den Einstieg).,""Empfang aus Medusa: Bestellungen, Kunden, Bestand kommen rein in ERPNext (sicher empfohlen für den Einstieg)."""
+Empfang aus Shopware,Empfang aus Shopware
+Empfang aus Shopware: Bestellungen," Kunden, Bestand kommen rein in ERPNext (sicher empfohlen für den Einstieg).,""Empfang aus Shopware: Bestellungen, Kunden, Bestand kommen rein in ERPNext (sicher empfohlen für den Einstieg)."""
+Empfange seit Kurzem,Empfange seit Kurzem
+Empfohlen vor Datenmigrationen oder bei unsicherem Zustand.,Empfohlen vor Datenmigrationen oder bei unsicherem Zustand.
+Empfohlen: resource_owner (Integration mit Client ID + Client Secret).,Empfohlen: resource_owner (Integration mit Client ID + Client Secret).
+Empty payload,Leere Nutzlast
+Enable Bulk Sync Queue,Massen-Synchronisation aktivieren
+Enable Medusa,Medusa-Integration aktivieren
+Enable Shopware 6,Shopware-6-Integration aktivieren
+Enabled,Aktiv
+Enqueued: {0} · Skipped (not linked): {1} · Skipped (inactive): {2},Eingereiht: {0} · Übersprungen (nicht verknüpft): {1} · Übersprungen (inaktiv): {2}
+Enqueueing syncs…,Synchronisationen werden eingereiht …
+Erfolgreich.,Erfolgreich.
+Erneut testen,Erneut testen
+ERROR,FEHLER
+Error,Fehler
+Errors,Fehler
+Events:,Events:
+exclude,ausschließen
+exclude,Ausschließen
+Execution,Ausführung
+Export Parent Products as Inactive,Vorlage-Artikel (Eltern) inaktiv exportieren
+External Handle,Backend-Handle (optional)
+External ID,Externe ID
+External ID,Backend-ID
+External Root ID,Externe Wurzel-ID
+External Root Id,Backend-Wurzel-ID
+External Root ID,Backend-Wurzel-Kategorie-ID
+Failed to sync to Shopware. Check the error log for details.,Synchronisation zu Shopware fehlgeschlagen. Details im Fehlerlog.
+Fallback Billing Contact First Name,Ersatz-Vorname für Rechnungsadresse
+Fehler,Fehler
+Field Key,Feldname
+Field Mappings,Feld-Zuordnungen
+Filter (optional),Filter (optional)
+Find and remove orphaned categories in Shopware?,Verwaiste Kategorien in Shopware suchen und entfernen?
+"For 'in'/'not_in', comma-separated values. For 'between', two values separated by '..' (e.g. <code>100..200</code>).",Für 'in'/'not_in' kommagetrennte Werte. Für 'between' zwei Werte mit '..' getrennt (z.B. <code>100..200</code>).
+"For products to flow from ERPNext to {0} you need a <b>Product Sync</b>. There you pick scope (category, smart collection, …), storefronts, and sync schedule.","Damit Produkte aus ERPNext nach {0} fliessen, brauchst du einen <b>Product Sync</b>. Dort wählst du Auswahl (Kategorie, Smart Collection, …), Storefronts und Sync-Zeitplan."
+Force Image Sync,Bild-Sync erzwingen
+Force Price Sync,Preis-Sync erzwingen
+Force Variant Sync,Varianten-Sync erzwingen
+from default,Standard-Kanal
+from Mirror: {0},von Mirror: {0}
+from Override,von Override
+from SC: {0},von SC: {0}
+Full (incl. orphans)…,Vollständig (inkl. Orphans)…
+Full Resync to Shopware,Vollständiger Resync zu Shopware
+"Fully automatic (advanced): item saves push to Medusa immediately, Catalog Mirror cron runs hourly (enable with care).","Vollautomatisch (Fortgeschritten): Item-Saves pushen sofort nach Medusa, Catalog Mirror Cron läuft stündlich (mit Bedacht aktivieren)."
+"Fully automatic (advanced): item saves push to Shopware immediately, Catalog Mirror cron runs hourly (enable with care).","Vollautomatisch (Fortgeschritten): Item-Saves pushen sofort nach Shopware, Catalog Mirror Cron läuft stündlich (mit Bedacht aktivieren)."
+Gemini API Key not configured,Gemini API-Key nicht konfiguriert
+Generieren,Generieren
+Google API Key not configured,Google API-Key nicht konfiguriert
+google-genai package not installed. Install with: pip install google-genai,"google-genai-Paket ist nicht installiert. Mit ""pip install google-genai"" installieren."
+Hinweis anzeigen,Hinweis anzeigen
+How often the pull runs. 'every_hour' is the default — webhook + cron as a safety net.,Wie oft der Pull läuft. 'every_hour' ist Standard — Webhook + Cron als Sicherheitsnetz.
+Image Batch Size,Stapelgröße Bilder
+Import,Importieren
+Import Customers from Shopware,Kunden aus Shopware importieren
+Import from Medusa,Aus Medusa importieren
+Import from Shopware,Aus Shopware importieren
+Import new Medusa customers since the last sync ({0})?,Neue Medusa-Kunden seit dem letzten Sync ({0}) importieren?
+Import new Medusa orders since the last sync ({0})?,Neue Medusa-Bestellungen seit dem letzten Sync ({0}) importieren?
+Import Orders from Medusa,Bestellungen aus Medusa importieren
+Import Orders from Shopware,Bestellungen aus Shopware importieren
+Import Prices as Net,Preise als Netto importieren (B2B)
+Import Prices as Net (B2B),Preise als Netto importieren (B2B)
+Import Properties from Shopware,Eigenschaften aus Shopware importieren
+Import Stock from Shopware,Bestand aus Shopware importieren
+In deinem Medusa-Subscriber-Plugin: trage URL und Secret ein. Wähle Events: {0}.,In deinem Medusa-Subscriber-Plugin: trage URL und Secret ein. Wähle Events: {0}.
+In Medusa Admin: aktiviere das Subscriber-Plugin und trage URL + Secret ein.,In Medusa Admin: aktiviere das Subscriber-Plugin und trage URL + Secret ein.
+"In Shopware: Einstellungen → System → Webhooks → ""Webhook hinzufügen"".","""In Shopware: Einstellungen → System → Webhooks → „Webhook hinzufügen“."""
+"In Shopware: Einstellungen → System → Webhooks → ""Webhook hinzufügen"". Klebe URL und Secret in die Felder. Wähle Events: {0}.","""In Shopware: Einstellungen → System → Webhooks → „Webhook hinzufügen“. Klebe URL und Secret in die Felder. Wähle Events: {0}."""
+In Zwischenablage kopiert,In Zwischenablage kopiert
+inactive,inaktiv
+Inbound,Eingehend
+include,einschließen
+include,Einschließen
+Integration deaktiviert,Integration deaktiviert
+Internal identifier (Frappe document name). Made unique with the storefront suffix. Editable later.,Interner Bezeichner (Frappe-Dokumentname). Wird mit dem Storefront-Suffix eindeutig gemacht. Nachträglich änderbar.
+"Internal label for this category sync, e.g. 'Main shop / products'. Internal-only.","Eigene Bezeichnung für diesen Kategorie-Sync, z.B. 'Hauptshop / Produkte'. Nur zur internen Erkennung."
+"Internal label for this Product Sync, e.g. 'Main shop: best sellers'.","Eigene Bezeichnung für diesen Produkt-Sync, z.B. 'Hauptshop: Bestseller'."
+"Internal label for this Pull Sync, e.g. 'Main shop orders'.","Eigene Bezeichnung für diesen Pull-Sync, z.B. 'Hauptshop Bestellungen'."
+Invalid webhook signature,Ungültige Webhook-Signatur
+Inventory Sync Frequency (Minutes),Bestand-Sync-Intervall (Minuten)
+Invoice Email Template,E-Mail-Vorlage Rechnung
+Invoice Print Format,Druckformat Rechnung
+Item Group,Artikelgruppe
+Item Group filter,Artikelgruppen-Filter
+Item groups whose stored backend category no longer exists in the live tree.,"Artikelgruppen, deren gespeicherte Backend-Kategorie nicht mehr im Live-Baum existiert."
+Item-Push nach {0} aus,Item-Push nach {0} aus
+Item-Save-Updates aus,Item-Save-Updates aus
+Items,Artikel
+Items in scope,Artikel in Auswahl
+keep,Beibehalten
+Keep selection,Auswahl: Behalten
+Kein Klartext-Secret verfügbar (bereits gespeichert).,Kein Klartext-Secret verfügbar (bereits gespeichert).
+Kein Secret gesetzt,Kein Secret gesetzt
+Kein Webhook Secret,Kein Webhook Secret
+Keine Einträge gefunden.,Keine Einträge gefunden.
+Keine erfolgreichen Syncs in 7 Tagen,Keine erfolgreichen Syncs in 7 Tagen
+Konfigurationsproblem — Webhooks werden abgewiesen,Konfigurationsproblem – Webhooks werden abgewiesen
+Kopieren,Kopieren
+Kopieren fehlgeschlagen,Kopieren fehlgeschlagen
+Last Customer Sync,Letzter Kunden-Sync (informativ)
+Last error,Letzter Fehler
+Last Error,Letzte Fehlermeldung (informativ)
+Last Heartbeat At,Letzter Heartbeat (informativ)
+Last Inventory Sync,Letzter Bestand-Sync (informativ)
+Last modified,Zuletzt geändert
+Last Order Sync,Letzter Bestell-Sync (informativ)
+Last Payment Sync,Letzter Zahlungs-Sync (informativ)
+Last Resolved At,Zuletzt aufgelöst (informativ)
+Last Resolved Count,Anzahl Artikel (zuletzt aufgelöst)
+Last sync,Letzter Sync
+Last sync OK,Letzter Sync OK
+Last Synced,Letzter Sync
+Last Synced At,Letzte Synchronisation (informativ)
+Last synced: {0},Zuletzt synchronisiert: {0}
+Later,Späterer Zeitpunkt
+Leave off until pre-flight + dry-run are both green.,"Lass aus, bis ein Pre-Flight + Dry-Run grün sind."
+letzter Empfang: {0},letzter Empfang: {0}
+Letzter Verbindungstest fehlgeschlagen. Bitte erneut testen.,Letzter Verbindungstest fehlgeschlagen. Bitte erneut testen.
+Letzter Verbindungstest: {0},Letzter Verbindungstest: {0}
+Link & add only,Verknüpfen + nur Hinzufügen
+Link & full sync,Verknüpfen + Voll-Sync
+Link only (don't unlink existing),"Nur hinzufügen, nichts entfernen"
+Link to category,Verknüpfen mit Kategorie
+Link with item group,Mit Artikelgruppe verknüpfen
+Linked,Verknüpft
+linked,verknüpft
+Linked category sync,Verknüpfter Kategorie-Sync
+Linked collection,Verknüpfte Kollektion
+Linked Smart Collection — its rules decide which items enter the sync.,"Verlinkte Smart Collection — ihre Regeln entscheiden, welche Items in den Sync wandern."
+Linked: {0},Verknüpft: {0}
+Linking…,Verknüpfe …
+List Price / RRP Price List,UVP-/Streichpreisliste
+List Price Includes Tax (Gross),UVP-Preisliste enthält Brutto-Preise
+Loading…,Lädt …
+Lost mappings,Verlorene Verknüpfungen
+Lädt …,Lädt …
+Maintenance,Wartung
+Mapping drift,Verknüpfung verschoben
+Mapping moved,Verknüpfung verschoben
+Mark exactly one channel as primary — used for push defaults.,Markiere genau einen Channel als primär — wird für die Defaults beim Push genutzt.
+Marked for deletion,Zum Löschen markiert
+Marks this channel as sandbox. Only sandbox-flagged channels appear in the Product Sync sandbox-push dialog without a production warning.,Markiert diesen Channel als Sandbox. Nur so markierte Channels erscheinen im Sandbox-Push-Dialog der Product Syncs ohne Production-Warnung.
+Match existing backend categories by path? ,Vorhandene Backend-Kategorien per Pfad-Match zuordnen? 
+Medusa einrichten — Schritt {0} von {1}: {2},Medusa einrichten – Schritt {0} von {1}: {2}
+Medusa integration is not enabled,Medusa-Integration ist nicht aktiviert
+Medusa Stock Location ID,Medusa-Lagerort-ID
+Medusa URL,Medusa URL
+Medusa URL,Medusa-URL
+Medusa URL and API Key must be configured in Medusa Setting,Medusa-URL und API-Key müssen in den Medusa-Einstellungen konfiguriert sein
+Medusa-Integration aktiviert.,Medusa-Integration aktiviert.
+Medusa-Integration eingeschaltet,Medusa-Integration eingeschaltet
+Medusa-Integration ist nicht aktiviert.,Medusa-Integration ist nicht aktiviert.
+Medusa: {0} (last sync {1}),Medusa: {0} (letzter Sync {1})
+Methode,Methode
+Mirror,Mirror
+Mirror is disabled — this is preview-only. ,Mirror ist deaktiviert — dies ist nur eine Vorschau. 
+Mode,Modus
+Mode,Modus
+Modus,Modus
+Move,Verschieben
+MOVE,VERSCHIEBEN
+Move,Verschieben
+Nachricht,Nachricht
+name,Name
+Name Template,Namens-Vorlage
+Negate,Negieren (NICHT)
+Neues Secret generieren,Neues Secret generieren
+never,nie
+Next attempt,Nächster Versuch
+Next step: create a Product Sync,Nächster Schritt: Product Sync anlegen
+No automatic suggestions found for this root Item Group.,Keine automatischen Vorschläge für diese Wurzel-Artikelgruppe gefunden.
+No Catalog Mirrors configured yet.,Noch keine Katalog-Mirror eingerichtet.
+No change,Keine Änd.
+No customer found for Medusa order {0},Kein Kunde gefunden für Medusa-Bestellung {0}
+No items found in scope.,Keine Artikel in der Auswahl gefunden.
+No target storefronts configured — Apply would push nothing.,Keine Ziel-Storefronts konfiguriert — Apply würde nichts pushen.
+No test runs yet.,Noch keine Test-Läufe.
+No tree nodes in plan.,Keine Baumknoten im Plan.
+Noch keine Webhooks empfangen,Noch keine Webhooks empfangen
+Node Overrides,Knoten-Überschreibungen
+node(s),Knoten
+Noop,Unverändert
+NOOP,UNVERÄNDERT
+Noop,Keine Änderung
+Not a Smart Collection target,Kein Smart-Collection-Ziel
+not linked,nicht verknüpft
+Not linked yet — pick a suggestion below or open the mirror form.,Noch nicht verknüpft – Vorschlag unten auswählen oder Mirror-Formular öffnen.
+Not permitted to preview this collection,Keine Berechtigung zur Vorschau dieser Smart Collection
+Not permitted to read Smart Collections,Keine Berechtigung zum Lesen von Smart Collections
+Not permitted to sync this collection,Keine Berechtigung zur Synchronisation dieser Smart Collection
+not yet linked,noch nicht verknüpft
+not yet resolved,noch nicht aufgelöst
+Notes,Notizen
+"On conflicts (an item matches multiple active syncs), higher priority wins. Ties fall back to conflict_policy.",Bei Konflikten (ein Artikel passt in mehrere aktive Syncs) gewinnt die höhere Priorität. Bei Gleichstand greift conflict_policy.
+Only for storefront (optional),Nur für Storefront (optional)
+"Only relevant for 'Include' mode. <strong>30 - All</strong> = visible everywhere (categories, search, direct link). <strong>20 - Linked</strong> = direct link only. <strong>10 - Search</strong> = search only.","Nur relevant bei Modus 'Einschließen'. <strong>30 - All</strong> = überall sichtbar (Kategorien, Suche, Direktlink). <strong>20 - Linked</strong> = nur über Direktlink erreichbar. <strong>10 - Search</strong> = nur in der Suche auffindbar."
+Open,Öffnen
+Open Catalog Mirror,Catalog Mirror öffnen
+Open in Medusa Admin,Im Medusa-Admin öffnen
+Open in Shopware Admin,Im Shopware-Admin öffnen
+Open mirror,Mirror öffnen
+Open preview,Vorschau öffnen
+Open Product Sync,Product Sync öffnen
+Open Pull Sync,Pull Sync öffnen
+Open quick preview,Schnellvorschau öffnen
+Open sync,Sync öffnen
+Open the mirror form for the full tree-diff and Adopt controls.,Mirror-Formular öffnen für vollständige Baum-Diff- und Verknüpfungs-Steuerung.
+"Open the Setup Wizard to auto-generate a secure secret, or paste one into the webhook section manually.","Öffne den Setup Wizard, um automatisch ein sicheres Secret zu erzeugen, oder trage manuell ein Secret im Webhook-Bereich ein."
+OpenAI API Key not configured,OpenAI API-Key nicht konfiguriert
+Operator,Operator
+"Optional: handle / SEO URL in the shop (e.g. Medusa category handle, Shopware seoUrl). When empty, the slug is used. Set this for a shorter URL in the shop.","Optional: Handle/SEO-URL im Shop (z.B. Medusa-Category-Handle, Shopware-seoUrl). Wenn leer, wird der Kurzname verwendet. Setzen Sie diesen Wert, wenn Sie im Shop eine kürzere URL möchten."
+Optional: parent collection for nested categories (only on backends that support it).,"Optional: Eltern-Kollektion für verschachtelte Kategorien (nur bei Backends, die das unterstützen)."
+OR Group,OR-Gruppe
+Order Sync Frequency (Minutes),Bestell-Sync-Intervall (Minuten)
+Orders,Bestellungen
+Orphan,Verwaist
+ORPHAN,VERWAIST
+Orphan,Verwaiste
+Orphan detection skipped: {0},Orphan-Erkennung übersprungen: {0}
+Orphan Policy,Verwaiste Kategorien
+Orphan {0}: {1},Verwaist {0}: {1}
+Orphaned Products Preview,Vorschau verwaiste Produkte
+Outbound,Ausgehend
+Parent Collection,Übergeordnete Kollektion (optional)
+Parent collection (optional),Übergeordnete Kollektion (optional)
+parent: {0} → {1},übergeordnet: {0} → {1}
+Partial success,Teilweise erfolgreich
+Paste the backend category ID for this Item Group. The mapping is stored as a node_override on the mirror so it survives re-walks.,Backend-Kategorie-ID für diese Artikelgruppe einfügen. Die Zuordnung wird als node_override im Spiegel gespeichert und überdauert erneute Walks.
+Path,Pfad
+Payment Method Mapping,Zahlungsart-Zuordnung
+Payment Sync Frequency (Minutes),Zahlungs-Sync-Intervall (Minuten)
+Pick the ERPNext Item Group that should own this backend category.,"ERPNext-Artikelgruppe wählen, der diese Backend-Kategorie zugeordnet werden soll."
+pin,Fest verknüpfen
+Pinecone API Key not configured,Pinecone API-Key nicht konfiguriert
+Pinecone index '{0}' does not exist. Please create it first.,Pinecone-Index '{0}' existiert nicht. Bitte zuerst anlegen.
+point at deleted backend categories. See section below.,zeigen auf gelöschte Backend-Kategorien. Siehe Abschnitt unten.
+Pre-flight running…,Pre-Flight läuft…
+Preview,Vorschau
+Preview all,Vorschau aller
+Preview all — combined summary,Vorschau aller – kombinierte Zusammenfassung
+Preview Changes,Änderungen vorschauen
+Preview changes without applying them. Recommended for first run.,Änderungen vorschauen ohne sie anzuwenden. Für den ersten Lauf empfohlen.
+Preview failed,Vorschau fehlgeschlagen
+Preview Sync,Sync vorschauen
+Preview Sync,Vorschau anzeigen
+Preview Sync: {0},Sync vorschauen: {0}
+Preview the operation without applying.,Vorschau der Aktion ohne tatsächliche Ausführung.
+Preview: {0},Vorschau: {0}
+Price Batch Size,Stapelgröße Preise
+Price List Includes Tax,Preisliste enthält Brutto-Preise
+Primary channel,Primärer Channel
+Priority,Priorität
+Process Queue Now,Warteschlange jetzt verarbeiten
+Product Batch Size,Stapelgröße Artikel
+Products,Produkte
+Properties,Eigenschaften
+Proposed Name,Vorgeschlagener Name
+Protected Shopware Category IDs,Geschützte Shopware-Kategorie-IDs
+Queue processing started.,Warteschlangenverarbeitung gestartet.
+Queues cleared.,Warteschlangen geleert.
+Ready for preview,Bereit für Vorschau
+Really apply now? This creates / updates / deletes backend categories.,Wirklich jetzt anwenden? Dabei werden Backend-Kategorien angelegt / aktualisiert / gelöscht.
+Really apply? The action can only be undone via rollback.,Wirklich apply? Die Aktion kann nur per Rollback rückgängig gemacht werden.
 Rebuild Prices,Preise neu aufbauen
 Rebuild Prices…,Preise neu aufbauen …
 Rebuild Variants,Varianten neu aufbauen
 Rebuild Variants…,Varianten neu aufbauen …
-Force Price Sync,Preis-Sync erzwingen
-Force Variant Sync,Varianten-Sync erzwingen
-Force Image Sync,Bild-Sync erzwingen
-Warning: This deletes all existing price rules in Shopware and recreates them from ERPNext. Run a Dry Run first.,"""Warnung: Dies löscht alle bestehenden Preisregeln in Shopware und legt sie neu aus ERPNext an. Bitte zuerst einen Trockenlauf starten."""
-Warning: This deletes all existing variants in Shopware and recreates them from ERPNext. Run a Dry Run first.,"""Warnung: Dies löscht alle bestehenden Varianten in Shopware und legt sie neu aus ERPNext an. Bitte zuerst einen Trockenlauf starten."""
-Warning: This deletes all existing price rules in Medusa and recreates them from ERPNext. Run a Dry Run first.,"""Warnung: Dies löscht alle bestehenden Preisregeln in Medusa und legt sie neu aus ERPNext an. Bitte zuerst einen Trockenlauf starten."""
-This deletes Shopware products that no longer exist in ERPNext.,"""Dies löscht Shopware-Produkte, die nicht mehr in ERPNext existieren."""
-Use Dry Run to preview first.,Mit Trockenlauf vorab prüfen.
-Delete and recreate all price rules?,Alle Preisregeln löschen und neu anlegen?
-Delete and recreate all price rules in Shopware?,Alle Preisregeln in Shopware löschen und neu anlegen?
-Delete and recreate all price rules in Medusa?,Alle Preisregeln in Medusa löschen und neu anlegen?
-Delete and recreate all variants?,Alle Varianten löschen und neu anlegen?
-Delete and recreate all variants in Shopware?,Alle Varianten in Shopware löschen und neu anlegen?
-This will permanently delete products from Shopware. Continue?,Diese Aktion löscht Produkte dauerhaft aus Shopware. Fortfahren?
-Find and remove orphaned categories in Shopware?,Verwaiste Kategorien in Shopware suchen und entfernen?
-Remove Orphaned Products,Verwaiste Produkte entfernen
-Remove Orphaned Categories,Verwaiste Kategorien entfernen
-Orphaned Products Preview,Vorschau verwaiste Produkte
-Analyze Conflicts,Konflikte analysieren
-Categories,Kategorien
-Properties,Eigenschaften
-Stock,Bestand
-Orders,Bestellungen
-Customers,Kunden
-Import,Importieren
-Import Orders from Shopware,Bestellungen aus Shopware importieren
-Import Customers from Shopware,Kunden aus Shopware importieren
-Import Properties from Shopware,Eigenschaften aus Shopware importieren
-Import Stock from Shopware,Bestand aus Shopware importieren
-Import Orders from Medusa,Bestellungen aus Medusa importieren
-Sync Categories,Kategorien synchronisieren
-Sync to Shopware,Zu Shopware synchronisieren
-Sync to Medusa,Zu Medusa synchronisieren
-Import from Shopware,Aus Shopware importieren
-Import from Medusa,Aus Medusa importieren
-Maintenance,Wartung
-Process Queue Now,Warteschlange jetzt verarbeiten
-Clear Queue,Warteschlange leeren
-Clear all pending sync items?,Alle ausstehenden Sync-Einträge löschen?
-Clear Cache,Cache leeren
-Cache cleared.,Cache geleert.
-Queue processing started.,Warteschlangenverarbeitung gestartet.
-Queues cleared.,Warteschlangen geleert.
-Open in Shopware Admin,Im Shopware-Admin öffnen
-Open in Medusa Admin,Im Medusa-Admin öffnen
-Full Resync to Shopware,Vollständiger Resync zu Shopware
-Sync Now,Jetzt synchronisieren
-Sync Successful,Synchronisation erfolgreich
-Sync Failed,Synchronisation fehlgeschlagen
-Failed to sync to Shopware. Check the error log for details.,Synchronisation zu Shopware fehlgeschlagen. Details im Fehlerlog.
-Setup: 1) Connection (Shop URL + Client ID/Secret). 2) Test Connection. 3) Refresh Sales Channels. 4) Company + Customer defaults. 5) Enable Upload only after a Dry-Run Complete Sync.,"""Einrichtung: 1) Verbindung (Shop-URL + Client ID/Secret). 2) Verbindung testen. 3) Verkaufskanäle aktualisieren. 4) Firma & Kunden-Standards. 5) Upload erst nach einem erfolgreichen Trockenlauf-Komplett-Sync aktivieren."""
-Setup: 1) Connection (Medusa URL + API Key). 2) Test Connection. 3) Refresh Sales Channels. 4) Company + Customer defaults. 5) Enable Upload only after a Dry-Run Complete Sync.,"""Einrichtung: 1) Verbindung (Medusa-URL + API-Schlüssel). 2) Verbindung testen. 3) Verkaufskanäle aktualisieren. 4) Firma & Kunden-Standards. 5) Upload erst nach einem erfolgreichen Trockenlauf-Komplett-Sync aktivieren."""
-{0} sync errors in last 24h,{0} Sync-Fehler in den letzten 24 Stunden
-Shopware: {0} (last sync {1}),Shopware: {0} (letzter Sync {1})
-Medusa: {0} (last sync {1}),Medusa: {0} (letzter Sync {1})
-Import new Medusa orders since the last sync ({0})?,Neue Medusa-Bestellungen seit dem letzten Sync ({0}) importieren?
-Import new Medusa customers since the last sync ({0})?,Neue Medusa-Kunden seit dem letzten Sync ({0}) importieren?
-never,nie
-Item Group filter,Artikelgruppen-Filter
-Batch Size,Stapelgröße
-Filter (optional),Filter (optional)
-Execution,Ausführung
-Warning,Warnung
-Start,Starten
-Link to category,Verknüpfen mit Kategorie
-Unlink from category,Verknüpfung aufheben
-Already linked,Bereits verknüpft
-"These counts describe the category-product link relationship only. Products themselves are not created, modified or deleted by Smart Collection sync.","Die Zahlen beschreiben nur die Kategorie-Produkt-Verknüpfung. Produkte selbst werden weder angelegt, geändert noch gelöscht."
-Add,Hinzufügen
-"Ecommerce Visibility (live, computed)",Ecommerce-Sichtbarkeit (Live berechnet)
-Preview Sync,Sync vorschauen
-Apply Live,Live anwenden
-Catalog Mirror,Katalog-Spiegel
-Backend categories without ERPNext match,Backend-Kategorien ohne ERPNext-Pendant
-Backend categories without ERPNext match (per orphan_policy={0}),Backend-Kategorien ohne ERPNext-Pendant (gemäß orphan_policy={0})
-Stale mappings,Veraltete Verknüpfungen
-Stale mappings (Item Groups pointing at deleted backend categories),Veraltete Verknüpfungen (Artikelgruppen mit gelöschten Backend-Kategorien)
-Clear mapping & re-create,Verknüpfung löschen & neu anlegen
-Adopt existing…,Bestehendes übernehmen…
-Adopt → IG…,Zu Item-Group zuordnen…
-Refresh Preview,Vorschau aktualisieren
-Apply this plan to {0}?,Diesen Plan auf {0} anwenden?
-"Apply this plan to {0}? Creates: {1}, Updates: {2}, Moves: {3}, Orphans handled: {4}.","Diesen Plan auf {0} anwenden? Anlegen: {1}, Aktualisieren: {2}, Verschieben: {3}, Verwaiste behandelt: {4}."
-"Creates: {0}, Updates: {1}, Moves: {2}, Orphans handled: {3}","Anlegen: {0}, Aktualisieren: {1}, Verschieben: {2}, Verwaiste: {3}"
-parent: {0} → {1},übergeordnet: {0} → {1}
-would create under {0},würde unter {0} angelegt
-Sync running since {0},Sync läuft seit {0}
-{0} target(s) in error,{0} Ziel(e) mit Fehler
-Sync error,Sync-Fehler
-Sync error: {0},Sync-Fehler: {0}
-Last sync OK,Letzter Sync OK
-Root: {0},Wurzel: {0}
-Channel: {0},Kanal: {0}
-Last synced: {0},Zuletzt synchronisiert: {0}
-Building preview…,Vorschau wird erstellt…
-Applying mirror…,Spiegel wird angewendet…
-Adopting…,Übernahme läuft…
-Updating orphan…,Verwaisten Eintrag aktualisieren…
-Clearing mapping…,Verknüpfung wird gelöscht…
-Apply this mirror against the live backend now?,Diesen Spiegel jetzt gegen das Live-Backend anwenden?
-Really apply now? This creates / updates / deletes backend categories.,Wirklich jetzt anwenden? Dabei werden Backend-Kategorien angelegt / aktualisiert / gelöscht.
-Apply (Live),Anwenden (Live)
-Preview Sync: {0},Sync vorschauen: {0}
-Skipped: {0},Übersprungen: {0}
-Root resolved,Wurzel aufgelöst
-Unresolved root,Wurzel nicht aufgelöst
-not yet resolved,noch nicht aufgelöst
-Backend,Backend
-Channel,Kanal
-Create,Anlegen
-Update,Aktualisieren
-Move,Verschieben
-Noop,Unverändert
-Orphan,Verwaist
-Mapping drift,Verknüpfung verschoben
-Tree diff,Baum-Diff
-node(s),Knoten
-No tree nodes in plan.,Keine Baumknoten im Plan.
-CREATE,ANLEGEN
-UPDATE,AKTUALISIEREN
-MOVE,VERSCHIEBEN
-NOOP,UNVERÄNDERT
-ORPHAN,VERWAIST
-DRIFT,VERSCHOBEN
-ERROR,FEHLER
-name,Name
-description,Beschreibung
-active,Aktiv
-root,Wurzel
-Path,Pfad
-External ID,Externe ID
-Stale External ID,Veraltete externe ID
-Proposed Name,Vorgeschlagener Name
-Products,Produkte
-Last modified,Zuletzt geändert
-Actions,Aktionen
-Item Group,Artikelgruppe
-Mode,Modus
-Adopt,Übernehmen
-Adopted: {0},Übernommen: {0}
-Adopted: {0} → {1},Übernommen: {0} → {1}
-Cleared: {0},Gelöscht: {0}
-Orphan {0}: {1},Verwaist {0}: {1}
-Delete backend category {0}? This cannot be undone.,Backend-Kategorie {0} löschen? Dies kann nicht rückgängig gemacht werden.
-Clear backend mapping on Item Group {0}? The next sync will re-create the category.,Backend-Verknüpfung auf Artikelgruppe {0} löschen? Der nächste Sync legt die Kategorie erneut an.
-Suggested parent: {0},Vorgeschlagene übergeordnete: {0}
-Paste the backend category ID for this Item Group. The mapping is stored as a node_override on the mirror so it survives re-walks.,Backend-Kategorie-ID für diese Artikelgruppe einfügen. Die Zuordnung wird als node_override im Spiegel gespeichert und überdauert erneute Walks.
-'pin' wires the IG to this external_id. 'skip' tells the mirror to ignore this IG.,"'pin' verknüpft die Artikelgruppe mit dieser external_id. 'skip' weist den Spiegel an, diese Artikelgruppe zu ignorieren."
-Pick the ERPNext Item Group that should own this backend category.,"ERPNext-Artikelgruppe wählen, der diese Backend-Kategorie zugeordnet werden soll."
-"Status: {0} — created: {1}, updated: {2}, moved: {3}, deleted: {4}","Status: {0} — angelegt: {1}, aktualisiert: {2}, verschoben: {3}, gelöscht: {4}"
-Categories (would be linked next sync),Kategorien (würden beim nächsten Sync verlinkt)
-Channel Visibility Overrides (cross-backend),Channel-Sichtbarkeit Overrides (cross-backend)
-from Mirror: {0},von Mirror: {0}
-from SC: {0},von SC: {0}
-from Override,von Override
-from default,Standard-Kanal
-(excluded),(ausgeschlossen)
-Edit Channel Overrides,Channel-Overrides bearbeiten
-Resolver not yet available — run bench migrate,Resolver nicht verfügbar — bitte bench migrate ausführen
-include,einschließen
-exclude,ausschließen
-Medusa URL and API Key must be configured in Medusa Setting,Medusa-URL und API-Key müssen in den Medusa-Einstellungen konfiguriert sein
-Medusa integration is not enabled,Medusa-Integration ist nicht aktiviert
-Empty payload,Leere Nutzlast
-Invalid webhook signature,Ungültige Webhook-Signatur
-Webhook signature validation required. Configure webhook_secret in Medusa Setting.,Webhook-Signaturprüfung erforderlich. webhook_secret in den Medusa-Einstellungen konfigurieren.
-No customer found for Medusa order {0},Kein Kunde gefunden für Medusa-Bestellung {0}
-Could not fetch Medusa order {0},Medusa-Bestellung {0} konnte nicht abgerufen werden
-Unknown backend: {0},Unbekanntes Backend: {0}
-Not permitted to preview this collection,Keine Berechtigung zur Vorschau dieser Smart Collection
-Not a Smart Collection target,Kein Smart-Collection-Ziel
-Not permitted to sync this collection,Keine Berechtigung zur Synchronisation dieser Smart Collection
-Not permitted to read Smart Collections,Keine Berechtigung zum Lesen von Smart Collections
-Pinecone API Key not configured,Pinecone API-Key nicht konfiguriert
-Pinecone index '{0}' does not exist. Please create it first.,Pinecone-Index '{0}' existiert nicht. Bitte zuerst anlegen.
-OpenAI API Key not configured,OpenAI API-Key nicht konfiguriert
-Google API Key not configured,Google API-Key nicht konfiguriert
-sentence-transformers not installed. Install with: pip install sentence-transformers,"sentence-transformers ist nicht installiert. Mit ""pip install sentence-transformers"" installieren."
-AI Description Generation is not enabled,KI-Beschreibungsgenerierung ist nicht aktiviert
-Gemini API Key not configured,Gemini API-Key nicht konfiguriert
-google-genai package not installed. Install with: pip install google-genai,"google-genai-Paket ist nicht installiert. Mit ""pip install google-genai"" installieren."
-Collection,Smart Collection
-State,Zustand
-Items,Artikel
-Visibility,Sichtbarkeit
-Status,Status
-Last Synced,Letzter Sync
-Open,Öffnen
-Loading…,Lädt …
-Catalog Mirror Dashboard,Katalog-Mirror Dashboard
-All Catalog Mirrors at a glance. Pick suggestions to link unmapped mirrors," then run Sync.,Alle Katalog-Mirror im Überblick. Vorschläge auswählen, um nicht verknüpfte Mirror zu verbinden, dann Sync ausführen."
-Sync all adopted,Alle verknüpften synchronisieren
-Preview all,Vorschau aller
+"Receive from Medusa: orders, customers, stock flow into ERPNext (safe default for getting started).","Empfang aus Medusa: Bestellungen, Kunden, Bestand kommen rein in ERPNext (sicher empfohlen für den Einstieg)."
+"Receive from Shopware: orders, customers, stock flow into ERPNext (safe default for getting started).","Empfang aus Shopware: Bestellungen, Kunden, Bestand kommen rein in ERPNext (sicher empfohlen für den Einstieg)."
 Refresh,Aktualisieren
-All backends,Alle Backends
-Backend,Backend
-Title,Titel
+Refresh Preview,Vorschau aktualisieren
+Refresh Sales Channels,Storefronts aktualisieren
+Reload,Neu laden
+Remove Orphaned Categories,Verwaiste Kategorien entfernen
+Remove Orphaned Products,Verwaiste Produkte entfernen
+report,Nur melden
+Resolution,Auflösung
+Resolver not yet available — run bench migrate,Resolver nicht verfügbar — bitte bench migrate ausführen
+Resolving scope…,Auswahl wird ermittelt…
+root,Wurzel
 Root Item Group,Wurzel-Artikelgruppe
-Storefront,Storefront
-Linked,Verknüpft
-Actions,Aktionen
-linked,verknüpft
-not linked,nicht verknüpft
-inactive,inaktiv
-Preview,Vorschau
-Sync now,Jetzt synchronisieren
-External Root ID,Externe Wurzel-ID
-Not linked yet — pick a suggestion below or open the mirror form.,Noch nicht verknüpft – Vorschlag unten auswählen oder Mirror-Formular öffnen.
-Last sync,Letzter Sync
-Last error,Letzter Fehler
-No automatic suggestions found for this root Item Group.,Keine automatischen Vorschläge für diese Wurzel-Artikelgruppe gefunden.
-{0} products,{0} Artikel
-Suggestions ({0}),Vorschläge ({0})
-Link & add only,Verknüpfen + nur Hinzufügen
-Link & full sync,Verknüpfen + Voll-Sync
-Sync this mirror now against the live backend?,Diesen Mirror jetzt gegen das Live-Backend synchronisieren?
-Linking…,Verknüpfe …
-Linked: {0},Verknüpft: {0}
-Building previews…,Vorschauen werden erstellt …
-Run Sync against every linked (adopted) mirror? Un-linked mirrors are skipped.,Sync für alle verknüpften Mirror ausführen? Nicht verknüpfte Mirror werden übersprungen.
-Enqueueing syncs…,Synchronisationen werden eingereiht …
-Enqueued: {0} · Skipped (not linked): {1} · Skipped (inactive): {2},Eingereiht: {0} · Übersprungen (nicht verknüpft): {1} · Übersprungen (inaktiv): {2}
-Status: {0} — created: {1}," updated: {2}, moved: {3}, deleted: {4},Status: {0} – erstellt: {1}, aktualisiert: {2}, verschoben: {3}, gelöscht: {4}"
-Building preview…,Vorschau wird erstellt …
-Syncing…,Synchronisiere …
-Preview: {0},Vorschau: {0}
-not yet linked,noch nicht verknüpft
-Create,Erstellen
-Update,Aktualisieren
-Move,Verschieben
-Noop,Keine Änderung
-Orphan,Verwaiste
-Open the mirror form for the full tree-diff and Adopt controls.,Mirror-Formular öffnen für vollständige Baum-Diff- und Verknüpfungs-Steuerung.
-Open mirror,Mirror öffnen
-Preview all — combined summary,Vorschau aller – kombinierte Zusammenfassung
-Mirror,Mirror
-Error,Fehler
-Errors,Fehler
-No Catalog Mirrors configured yet.,Noch keine Katalog-Mirror eingerichtet.
-Catalog Mirror module not available — run bench migrate.,Katalog-Mirror-Modul nicht verfügbar – bench migrate ausführen.
-Verbunden — Bestellungen werden empfangen,Verbunden – Bestellungen werden empfangen
-Integration deaktiviert,Integration deaktiviert
-Schalte 'Enable Shopware' ein," um zu starten.,Schalte „Enable Shopware“ ein, um zu starten."
-Schalte 'Enable Medusa' ein," um zu starten.,Schalte „Enable Medusa“ ein, um zu starten."
-Konfigurationsproblem — Webhooks werden abgewiesen,Konfigurationsproblem – Webhooks werden abgewiesen
-Verbindungstest fehlgeschlagen,Verbindungstest fehlgeschlagen
-Setze ein Webhook Secret oder erlaube ungesignierte Webhooks (nur für lokale Entwicklung).,Setze ein Webhook Secret oder erlaube ungesignierte Webhooks (nur für lokale Entwicklung).
-Letzter Verbindungstest fehlgeschlagen. Bitte erneut testen.,Letzter Verbindungstest fehlgeschlagen. Bitte erneut testen.
-Achtung — Aufmerksamkeit erforderlich,Achtung – Aufmerksamkeit erforderlich
-Verbindung wurde länger nicht getestet,Verbindung wurde länger nicht getestet
-{0} Fehler in 24h,{0} Fehler in 24h
-Keine erfolgreichen Syncs in 7 Tagen,Keine erfolgreichen Syncs in 7 Tagen
-0 Fehler in 24h · {0} erfolgreiche Syncs,0 Fehler in 24h · {0} erfolgreiche Syncs
-Letzter Verbindungstest: {0},Letzter Verbindungstest: {0}
-Verbindung noch nicht getestet,Verbindung noch nicht getestet
-{0} Fehler in 24h · {1} erfolgreiche Syncs,{0} Fehler in 24h · {1} erfolgreiche Syncs
-Details,Details
-Aktualisieren,Aktualisieren
-Safety Mode,Safety Mode
-Details — Letzte Ereignisse ({0}),Details – Letzte Ereignisse ({0})
-Lädt …,Lädt …
-Keine Einträge gefunden.,Keine Einträge gefunden.
-Zeitpunkt,Zeitpunkt
-Methode,Methode
-Nachricht,Nachricht
-Status wird geladen …,Status wird geladen …
-Status nicht verfügbar.,Status nicht verfügbar.
-Status nicht verfügbar,Status nicht verfügbar
-Safety Mode ist nicht verfügbar.,Safety Mode ist nicht verfügbar.
-⛑ Safety Mode,⛑ Safety Mode
-Safety Mode aktivieren — {0},Safety Mode aktivieren – {0}
-Damit wird der automatische Versand gestoppt. Eingehende Webhooks bleiben aktiv.,Damit wird der automatische Versand gestoppt. Eingehende Webhooks bleiben aktiv.
-Empfohlen vor Datenmigrationen oder bei unsicherem Zustand.,Empfohlen vor Datenmigrationen oder bei unsicherem Zustand.
-Item-Push nach {0} aus,Item-Push nach {0} aus
-Item-Save-Updates aus,Item-Save-Updates aus
-Aktive Catalog Mirrors für {0} werden pausiert,Aktive Catalog Mirrors für {0} werden pausiert
-Aktivieren,Aktivieren
-Abbrechen,Abbrechen
-Safety Mode wird aktiviert …,Safety Mode wird aktiviert …
-Safety Mode aktiv. {0} Catalog Mirror(s) pausiert.,Safety Mode aktiv. {0} Catalog Mirror(s) pausiert.
-Safety Mode konnte nicht aktiviert werden.,Safety Mode konnte nicht aktiviert werden.
-Eingehende Webhooks,Eingehende Webhooks
-Empfange seit Kurzem,Empfange seit Kurzem
-Noch keine Webhooks empfangen,Noch keine Webhooks empfangen
-letzter Empfang: {0},letzter Empfang: {0}
-URL,URL
-Kopieren,Kopieren
-Secret,Secret
-Kein Secret gesetzt,Kein Secret gesetzt
-Hinweis anzeigen,Hinweis anzeigen
-Generieren,Generieren
-Events:,Events:
-Test Webhook,Test Webhook
-Doku öffnen,Doku öffnen
-Webhook-Daten werden geladen …,Webhook-Daten werden geladen …
-Webhook-Daten nicht verfügbar.,Webhook-Daten nicht verfügbar.
-Kein Webhook Secret,Kein Webhook Secret
-Öffne den Setup Wizard," um automatisch ein sicheres Secret zu erzeugen, oder trage manuell ein Secret im Webhook-Bereich ein.,Öffne den Setup Wizard, um automatisch ein sicheres Secret zu erzeugen, oder trage manuell ein Secret im Webhook-Bereich ein."
-Das Secret ist als Password-Feld gespeichert und kann nur über das Feld unten geändert werden.,Das Secret ist als Password-Feld gespeichert und kann nur über das Feld unten geändert werden.
-In Zwischenablage kopiert,In Zwischenablage kopiert
-Kopieren fehlgeschlagen,Kopieren fehlgeschlagen
-Test-Webhook wird gesendet …,Test-Webhook wird gesendet …
-Webhook Test — {0},Webhook Test – {0}
-Test erfolgreich.,Test erfolgreich.
-Test fehlgeschlagen.,Test fehlgeschlagen.
-🧙 Setup Wizard,🧙 Setup Wizard
-Verbindung,Verbindung
-Verbindung testen,Verbindung testen
-Synchronisations-Modus wählen,Synchronisations-Modus wählen
-Webhook einrichten,Webhook einrichten
-Shopware 6 einrichten — Schritt {0} von {1}: {2},Shopware 6 einrichten – Schritt {0} von {1}: {2}
-Medusa einrichten — Schritt {0} von {1}: {2},Medusa einrichten – Schritt {0} von {1}: {2}
-Trage deine Shopware Admin API Credentials ein. Du findest sie in Shopware: Einstellungen → System → Integrationen.,Trage deine Shopware Admin API Credentials ein. Du findest sie in Shopware: Einstellungen → System → Integrationen.
-Trage deine Medusa Admin-API Zugangsdaten ein. Du findest sie in deinem Medusa-Admin unter den API-Einstellungen.,Trage deine Medusa Admin-API Zugangsdaten ein. Du findest sie in deinem Medusa-Admin unter den API-Einstellungen.
-Shop URL,Shop URL
-Medusa URL,Medusa URL
-z. B. https://yourshop.com,z. B. https://yourshop.com
-z. B. https://api.yourshop.com,z. B. https://api.yourshop.com
-Authentifizierung,Authentifizierung
-Empfohlen: resource_owner (Integration mit Client ID + Client Secret).,Empfohlen: resource_owner (Integration mit Client ID + Client Secret).
-Client ID,Client ID
-Client Secret,Client Secret
-API Username,API Username
-API Password,API Password
-API Key,API Key
-Admin-API Schlüssel. Wird verschlüsselt gespeichert.,Admin-API Schlüssel. Wird verschlüsselt gespeichert.
-Weiter,Weiter
-Zurück,Zurück
-Erneut testen,Erneut testen
-Bitte Shop URL eingeben.,Bitte Shop URL eingeben.
-Bitte Medusa URL und API Key eingeben.,Bitte Medusa URL und API Key eingeben.
-Bitte zuerst eine erfolgreiche Verbindung herstellen.,Bitte zuerst eine erfolgreiche Verbindung herstellen.
-Verbindung wird getestet …,Verbindung wird getestet …
-Verbindung erfolgreich.,Verbindung erfolgreich.
-Verbindung erfolgreich. {0} Sales Channels gefunden.,Verbindung erfolgreich. {0} Sales Channels gefunden.
-Verbindung erfolgreich. {0} Produkte in Medusa gefunden.,Verbindung erfolgreich. {0} Produkte in Medusa gefunden.
-Verbindung fehlgeschlagen. Bitte URL und Zugangsdaten prüfen.,Verbindung fehlgeschlagen. Bitte URL und Zugangsdaten prüfen.
-Modus,Modus
-Empfang aus Shopware: Bestellungen," Kunden, Bestand kommen rein in ERPNext (sicher empfohlen für den Einstieg).,""Empfang aus Shopware: Bestellungen, Kunden, Bestand kommen rein in ERPNext (sicher empfohlen für den Einstieg)."""
-Empfang aus Medusa: Bestellungen," Kunden, Bestand kommen rein in ERPNext (sicher empfohlen für den Einstieg).,""Empfang aus Medusa: Bestellungen, Kunden, Bestand kommen rein in ERPNext (sicher empfohlen für den Einstieg)."""
-Empfang + manueller Versand: Empfang automatisch," Produkt-/Kategorie-Sync läuft nur wenn du auf ""Sync starten"" klickst.,""Empfang + manueller Versand: Empfang automatisch, Produkt-/Kategorie-Sync läuft nur wenn du auf „Sync starten“ klickst."""
-Vollautomatisch (Fortgeschritten): Item-Saves pushen sofort nach Shopware," Catalog Mirror Cron läuft stündlich (mit Bedacht aktivieren).,""Vollautomatisch (Fortgeschritten): Item-Saves pushen sofort nach Shopware, Catalog Mirror Cron läuft stündlich (mit Bedacht aktivieren)."""
-Vollautomatisch (Fortgeschritten): Item-Saves pushen sofort nach Medusa," Catalog Mirror Cron läuft stündlich (mit Bedacht aktivieren).,""Vollautomatisch (Fortgeschritten): Item-Saves pushen sofort nach Medusa, Catalog Mirror Cron läuft stündlich (mit Bedacht aktivieren)."""
-"In Shopware: Einstellungen → System → Webhooks → ""Webhook hinzufügen"". Klebe URL und Secret in die Felder. Wähle Events: {0}.","""In Shopware: Einstellungen → System → Webhooks → „Webhook hinzufügen“. Klebe URL und Secret in die Felder. Wähle Events: {0}."""
-In deinem Medusa-Subscriber-Plugin: trage URL und Secret ein. Wähle Events: {0}.,In deinem Medusa-Subscriber-Plugin: trage URL und Secret ein. Wähle Events: {0}.
-"In Shopware: Einstellungen → System → Webhooks → ""Webhook hinzufügen"".","""In Shopware: Einstellungen → System → Webhooks → „Webhook hinzufügen“."""
-In Medusa Admin: aktiviere das Subscriber-Plugin und trage URL + Secret ein.,In Medusa Admin: aktiviere das Subscriber-Plugin und trage URL + Secret ein.
-Webhook URL,Webhook URL
-Webhook Secret,Webhook Secret
-Webhook URL kopieren,Webhook URL kopieren
-Secret kopieren,Secret kopieren
-Zeigen/verbergen,Zeigen/verbergen
-Neues Secret generieren,Neues Secret generieren
-Ein Secret ist bereits gesetzt. Du kannst es behalten oder hier neu generieren.,Ein Secret ist bereits gesetzt. Du kannst es behalten oder hier neu generieren.
-Kein Klartext-Secret verfügbar (bereits gespeichert).,Kein Klartext-Secret verfügbar (bereits gespeichert).
-Test läuft …,Test läuft …
-Erfolgreich.,Erfolgreich.
-"Wenn du auf ""Aktivieren"" klickst"," wird:,""Wenn du auf „Aktivieren“ klickst, wird:"""
-Shopware-Integration eingeschaltet,Shopware-Integration eingeschaltet
-Medusa-Integration eingeschaltet,Medusa-Integration eingeschaltet
-"""Modus """"{0}"""" angewendet""","""Modus „{0}“ angewendet"""
-Webhooks werden ab sofort verarbeitet,Webhooks werden ab sofort verarbeitet
-Aktivierung läuft …,Aktivierung läuft …
-Shopware-Integration aktiviert.,Shopware-Integration aktiviert.
-Medusa-Integration aktiviert.,Medusa-Integration aktiviert.
-Fehler,Fehler
-Aktivierung fehlgeschlagen.,Aktivierung fehlgeschlagen.
-Empfang aus Shopware,Empfang aus Shopware
-Empfang aus Medusa,Empfang aus Medusa
-Empfang + manueller Versand,Empfang + manueller Versand
-Vollautomatisch (Fortgeschritten),Vollautomatisch (Fortgeschritten)
-Test-Webhook erfolgreich empfangen.,Test-Webhook erfolgreich empfangen.
-Test-Webhook abgewiesen (HTTP {0}).,Test-Webhook abgewiesen (HTTP {0}).
-Test-Webhook fehlgeschlagen: {0},Test-Webhook fehlgeschlagen: {0}
-Shopware-Integration ist nicht aktiviert.,Shopware-Integration ist nicht aktiviert.
-Medusa-Integration ist nicht aktiviert.,Medusa-Integration ist nicht aktiviert.
-Catalog Mirror,Kategorie-Sync (ERP → Shop)
-Smart Collections,"""Eigene Kollektionen (Sale, Bestseller, …)"""
-Smart Collection,Eigene Kollektion
-Adopt,Mit bestehender Kategorie verknüpfen
-Adopt + Link Only,Verknüpfen ohne Inhalt zu überschreiben
-Preview Sync,Vorschau anzeigen
-Apply Live,Jetzt synchronisieren
+Root Item Group,Wurzel-Artikelgruppe
+Root not resolved,Wurzel nicht aufgelöst
+Root resolved,Wurzel aufgelöst
+Root: {0},Wurzel: {0}
+Rule Combinator,Regel-Verknüpfung
+Rule Type,Regel-Typ
+Rule type,Regel-Typ
+Rules,Regeln
+Rules with the same OR-group number (except 0) are combined with OR. Different OR-groups are combined via the Smart Collection's rule combinator.,Regeln mit derselben OR-Gruppen-Nummer (außer 0) werden mit OR verknüpft. Unterschiedliche OR-Gruppen werden über die Regel-Verknüpfung der Eigenen Kollektion kombiniert.
+Run LIVE Complete Sync against {0}? This will create/update/delete categories and products. Run a Dry Run first if unsure.,Live-Komplett-Sync gegen {0} ausführen? Dabei werden Kategorien und Produkte angelegt/aktualisiert/gelöscht. Im Zweifel zuerst einen Trockenlauf starten.
 Run Live Sync,Jetzt live synchronisieren
-Channel Override,Manuelle Sichtbarkeit pro Item
+Run Sync against every linked (adopted) mirror? Un-linked mirrors are skipped.,Sync für alle verknüpften Mirror ausführen? Nicht verknüpfte Mirror werden übersprungen.
+Safety Mode,Safety Mode
+Safety Mode aktiv. {0} Catalog Mirror(s) pausiert.,Safety Mode aktiv. {0} Catalog Mirror(s) pausiert.
+Safety Mode aktivieren — {0},Safety Mode aktivieren – {0}
+Safety Mode ist nicht verfügbar.,Safety Mode ist nicht verfügbar.
+Safety Mode konnte nicht aktiviert werden.,Safety Mode konnte nicht aktiviert werden.
+Safety Mode wird aktiviert …,Safety Mode wird aktiviert …
 Sales Channel,Storefront
 Sales Channels,Storefronts
-Sync Status,Status
-External ID,Backend-ID
-Backend,Zielsystem
-Catalog Mirror Skip,Vom Kategorie-Sync ausnehmen
-Orphan Policy,Verwaiste Kategorien
-External Root Id,Backend-Wurzel-ID
-Link only (don't unlink existing),"Nur hinzufügen, nichts entfernen"
-Webhook Secret,Webhook-Geheimcode
-Enable Shopware 6,Shopware-6-Integration aktivieren
-Enable Medusa,Medusa-Integration aktivieren
-Shop URL,Shop-URL
-Medusa URL,Medusa-URL
-API Key,API-Schlüssel
-Authentication Type,Authentifizierungs-Typ
-Client ID (Access Key ID),Client-ID (Access Key ID)
-Client Secret (Secret Access Key),Client-Secret (Secret Access Key)
-API Username,API-Benutzername
-API Password,API-Passwort
-Allow Unsigned Webhooks (Not Recommended),Unsignierte Webhooks zulassen (nicht empfohlen)
-Allow Unsigned Webhooks,Unsignierte Webhooks zulassen
-Refresh Sales Channels,Storefronts aktualisieren
-Available Sales Channels,Verfügbare Storefronts
-Default Customer,Standardkunde
-Customer Group,Kundengruppe
-Default Country,Standardland
-Fallback Billing Contact First Name,Ersatz-Vorname für Rechnungsadresse
-Company,Firma
-Cost Center,Kostenstelle
-Cash/Bank Account,Kassen-/Bankkonto
-Cash / Bank Account,Kassen-/Bankkonto
-Default Warehouse,Standard-Lager
-Warehouse,Standard-Lager
-Default Selling Price List,Standard-Verkaufspreisliste
-List Price / RRP Price List,UVP-/Streichpreisliste
-Default Price List Includes Tax (Gross),Standard-Preisliste enthält Brutto-Preise
-List Price Includes Tax (Gross),UVP-Preisliste enthält Brutto-Preise
-Price List Includes Tax,Preisliste enthält Brutto-Preise
-Import Prices as Net (B2B),Preise als Netto importieren (B2B)
-Import Prices as Net,Preise als Netto importieren (B2B)
-Default Tax Rate (%),Standard-MwSt.-Satz (%)
-Order Sync Frequency (Minutes),Bestell-Sync-Intervall (Minuten)
-Inventory Sync Frequency (Minutes),Bestand-Sync-Intervall (Minuten)
-Customer Sync Frequency (Minutes),Kunden-Sync-Intervall (Minuten)
-Payment Sync Frequency (Minutes),Zahlungs-Sync-Intervall (Minuten)
-Last Order Sync,Letzter Bestell-Sync (informativ)
-Last Inventory Sync,Letzter Bestand-Sync (informativ)
-Last Customer Sync,Letzter Kunden-Sync (informativ)
-Last Payment Sync,Letzter Zahlungs-Sync (informativ)
-Last Synced At,Letzte Synchronisation (informativ)
-Last Heartbeat At,Letzter Heartbeat (informativ)
-Last Error,Letzte Fehlermeldung (informativ)
-Sales Order Series,Nummernkreis Auftragsbestätigung
-Delivery Note Series,Nummernkreis Lieferschein
 Sales Invoice Series,Nummernkreis Rechnung
-Create Delivery Notes from Shopware shipments,Lieferscheine aus Shopware-Sendungen erstellen
-Create Delivery Notes from Fulfillments,Lieferscheine aus Medusa-Sendungen erstellen
-Auto-create Invoice after Shipment (Recommended),Rechnung automatisch bei Versand erstellen (empfohlen)
-Auto-create Invoice after Shipment,Rechnung automatisch bei Versand erstellen
-Create Sales Invoices for Paid Orders,Rechnungen für bezahlte Bestellungen erstellen
-Auto-send Invoice Email when Paid,Rechnung automatisch per E-Mail versenden
-Auto-send Invoice Email,Rechnung automatisch per E-Mail versenden
-Invoice Print Format,Druckformat Rechnung
-Invoice Email Template,E-Mail-Vorlage Rechnung
-Payment Method Mapping,Zahlungsart-Zuordnung
-Default Mode of Payment,Standard-Zahlungsart
-Default Sales Tax Account,Standard-Umsatzsteuerkonto
-Default Sales Tax Template,Standard-Steuertemplate
-Default Shipping Charges Account,Standardkonto Versandkosten
-Upload new ERPNext Items to Shopware,ERPNext-Artikel zu Shopware hochladen
-Upload ERPNext Items to Medusa,ERPNext-Artikel zu Medusa hochladen
-Update Shopware Item when ERPNext item is updated,Artikel-Änderungen automatisch nach Shopware übertragen
-Sync Item on Update,Artikel-Änderungen automatisch nach Medusa übertragen
-Sync new items as Active in Shopware,Neue Artikel direkt aktiv in Shopware veröffentlichen
-Sync New Items as Active,Neue Artikel direkt aktiv in Medusa veröffentlichen
-Export Parent Products as Inactive,Vorlage-Artikel (Eltern) inaktiv exportieren
-Discount Item,Artikel für Rabatte
-Shipping Item,Versand-Artikel
-Add Shipping as Line Item,Versandkosten als Auftragsposition erfassen
-Sync ERPNext stock levels to Shopware,ERPNext-Lagerbestände zu Shopware synchronisieren
-Sync Inventory to Medusa,Lagerbestände zu Medusa synchronisieren
-Sync Customers,Kunden aus Medusa synchronisieren
-Sync Payment Status,Zahlungs-Status synchronisieren
-Enable Bulk Sync Queue,Massen-Synchronisation aktivieren
-Bulk Mode Threshold,Schwellenwert Massen-Modus
-Batch Size,Stapelgröße
-Product Batch Size,Stapelgröße Artikel
-Image Batch Size,Stapelgröße Bilder
-Price Batch Size,Stapelgröße Preise
-Variant Batch Size,Stapelgröße Varianten
-Skip Category Sync on Complete Sync,Kategorie-Sync beim Komplett-Sync überspringen
-Category Sync Root,Wurzel-Artikelgruppe für Kategorie-Sync
-Skip Root Category,Wurzel-Kategorie nicht mitsynchronisieren
-Sync Empty Categories,Leere Kategorien synchronisieren
-Protected Shopware Category IDs,Geschützte Shopware-Kategorie-IDs
-Auto-detect jattr_* fields,jattr_*-Felder automatisch erkennen
-Field Mappings,Feld-Zuordnungen
-Checkout Field Mappings,Checkout-Feld-Zuordnungen
-Checkout Custom Fields,Checkout-Felder (Erweitert)
-Warehouse Mappings,Lager-Zuordnungen
-Shopware Warehouse Mapping,Lager-Zuordnung Shopware
-Medusa Stock Location ID,Medusa-Lagerort-ID
-Sync Stock Locations,Lagerorte aktualisieren
-Category Assignment Mode,Kategorie-Zuordnung
-Root Item Group,Wurzel-Artikelgruppe
-External Root ID,Backend-Wurzel-Kategorie-ID
-Target Sales Channel,Storefront
-Sync Inactive Leaves,Leere Blatt-Kategorien synchronisieren
-Name Template,Namens-Vorlage
-Description Template,Beschreibungs-Vorlage
-Node Overrides,Knoten-Überschreibungen
-Active,Aktiv (am Cron-Sync teilnehmen)
-Title,Bezeichnung
-Slug,Kurzname (Slug)
-External Handle,Backend-Handle (optional)
-Parent Collection,Übergeordnete Kollektion (optional)
-Sort Order,Sortier-Reihenfolge
-Allow Empty Collection,Leere Kollektion erlauben
-Rule Combinator,Regel-Verknüpfung
-Rules,Regeln
-Targets,Ziele
-Last Resolved Count,Anzahl Artikel (zuletzt aufgelöst)
-Last Resolved At,Zuletzt aufgelöst (informativ)
-Rule Type,Regel-Typ
-Field Key,Feldname
-Operator,Operator
-Value,Wert
-OR Group,OR-Gruppe
-Negate,Negieren (NICHT)
-Mode,Modus
-Notes,Notizen
-Enabled,Aktiv
-keep,Beibehalten
-report,Nur melden
-delete,Löschen (gefährlich)
-pin,Fest verknüpfen
-skip,Vom Sync ausnehmen
-include,Einschließen
-exclude,Ausschließen
+Sales Order Series,Nummernkreis Auftragsbestätigung
+Schalte 'Enable Medusa' ein," um zu starten.,Schalte „Enable Medusa“ ein, um zu starten."
+Schalte 'Enable Shopware' ein," um zu starten.,Schalte „Enable Shopware“ ein, um zu starten."
+Schedule,Zeitplan
+Scope contains {0}+ items.,Auswahl enthält {0}+ Artikel.
+Scope is empty — no item matches it.,Auswahl ist leer — kein Artikel passt zum Scope.
+Scope mode,Auswahl-Modus
+Scope resolution failed: {0},Scope-Auflösung fehlgeschlagen: {0}
+Secret,Secret
+Secret kopieren,Secret kopieren
+sentence-transformers not installed. Install with: pip install sentence-transformers,"sentence-transformers ist nicht installiert. Mit ""pip install sentence-transformers"" installieren."
 Setup,Einrichtung
-Connection,Verbindung
-Outbound,Ausgehend
-Inbound,Eingehend
-Advanced,Erweitert
+Setup: 1) Connection (Medusa URL + API Key). 2) Test Connection. 3) Refresh Sales Channels. 4) Company + Customer defaults. 5) Enable Upload only after a Dry-Run Complete Sync.,"""Einrichtung: 1) Verbindung (Medusa-URL + API-Schlüssel). 2) Verbindung testen. 3) Verkaufskanäle aktualisieren. 4) Firma & Kunden-Standards. 5) Upload erst nach einem erfolgreichen Trockenlauf-Komplett-Sync aktivieren."""
+Setup: 1) Connection (Shop URL + Client ID/Secret). 2) Test Connection. 3) Refresh Sales Channels. 4) Company + Customer defaults. 5) Enable Upload only after a Dry-Run Complete Sync.,"""Einrichtung: 1) Verbindung (Shop-URL + Client ID/Secret). 2) Verbindung testen. 3) Verkaufskanäle aktualisieren. 4) Firma & Kunden-Standards. 5) Upload erst nach einem erfolgreichen Trockenlauf-Komplett-Sync aktivieren."""
+Setze ein Webhook Secret oder erlaube ungesignierte Webhooks (nur für lokale Entwicklung).,Setze ein Webhook Secret oder erlaube ungesignierte Webhooks (nur für lokale Entwicklung).
+Shipping Item,Versand-Artikel
+Shop platform the categories are mirrored into.,"Shop-Plattform, in die die Kategorien gespiegelt werden."
+Shop platform this visibility rule applies to.,"Shop-Plattform, für die diese Sichtbarkeit gilt."
+Shop URL,Shop URL
+Shop URL,Shop-URL
+Shopware 6 einrichten — Schritt {0} von {1}: {2},Shopware 6 einrichten – Schritt {0} von {1}: {2}
+"Shopware storefront UUID. Suggestions loaded from 'Shopware Setting → Available Storefronts'. If no backend-root id is set, the storefront's navigation category is used as the root.","Shopware-Storefront-UUID. Vorschläge werden aus 'Shopware Setting → Verfügbare Storefronts' geladen. Wenn keine Backend-Wurzel-ID gesetzt ist, wird die Navigations-Kategorie der Storefront als Wurzel verwendet."
+Shopware switch. <strong>30 - All</strong> = visible everywhere. <strong>20 - Linked</strong> = direct link only. <strong>10 - Search</strong> = search only. <strong>0 - Hidden</strong> = not visible. Medusa treats everything except 'Hidden' as visible.,Shopware-Schalter. <strong>30 - All</strong> = überall sichtbar. <strong>20 - Linked</strong> = nur über Direktlink. <strong>10 - Search</strong> = nur in der Suche. <strong>0 - Hidden</strong> = nicht sichtbar. Medusa behandelt alles außer 'Hidden' als sichtbar.
+Shopware Warehouse Mapping,Lager-Zuordnung Shopware
+Shopware-Integration aktiviert.,Shopware-Integration aktiviert.
+Shopware-Integration eingeschaltet,Shopware-Integration eingeschaltet
+Shopware-Integration ist nicht aktiviert.,Shopware-Integration ist nicht aktiviert.
+Shopware: {0} (last sync {1}),Shopware: {0} (letzter Sync {1})
+Significant changes,Auffällige Änderungen
+"Single value, or comma-separated for 'in' / 'not_in'. Ignored for 'is_set' / 'is_empty'.","Einzelner Wert, oder kommagetrennt für 'in' / 'not_in'. Wird bei 'is_set' / 'is_empty' ignoriert."
+skip,Vom Sync ausnehmen
+Skip Category Sync on Complete Sync,Kategorie-Sync beim Komplett-Sync überspringen
+Skip Root Category,Wurzel-Kategorie nicht mitsynchronisieren
+Skipped (hash unchanged / override),Übersprungen (Hash unverändert / Override)
+Skipped: {0},Übersprungen: {0}
+SKU matching running…,SKU-Matching läuft…
+Slug,Kurzname (Slug)
+Smart Collection,Eigene Kollektion
+Smart Collections,"""Eigene Kollektionen (Sale, Bestseller, …)"""
+Sort Order,Sortier-Reihenfolge
+Stale External ID,Veraltete externe ID
+Stale mappings,Veraltete Verknüpfungen
+Stale mappings (Item Groups pointing at deleted backend categories),Veraltete Verknüpfungen (Artikelgruppen mit gelöschten Backend-Kategorien)
+Start,Starten
+Start Live Sync,Live-Sync starten
+State,Zustand
+Status,Status
+Status nicht verfügbar,Status nicht verfügbar
+Status nicht verfügbar.,Status nicht verfügbar.
+Status wird geladen …,Status wird geladen …
+Status: {0} — created: {1}," updated: {2}, moved: {3}, deleted: {4},Status: {0} – erstellt: {1}, aktualisiert: {2}, verschoben: {3}, gelöscht: {4}"
+"Status: {0} — created: {1}, updated: {2}, moved: {3}, deleted: {4}","Status: {0} — angelegt: {1}, aktualisiert: {2}, verschoben: {3}, gelöscht: {4}"
+Stock,Bestand
+Storefront,Storefront
+Storefront ID or name in the target system. Resolved against the chosen backend's storefront table at sync time.,Storefront-ID oder -Name im Zielsystem. Wird beim Sync gegen die Storefront-Tabelle des gewählten Backends aufgelöst.
+Storefronts where this product should be visible. Multiple allowed — the product is shipped to every listed storefront.,"Storefronts, in denen dieses Produkt sichtbar sein soll. Mehrere möglich — das Produkt wird in jeder gelisteten Storefront ausgespielt."
+Successful,Erfolgreich
+Suggested parent: {0},Vorgeschlagene übergeordnete: {0}
+Suggestions ({0}),Vorschläge ({0})
+"Suggestions loaded from 'Medusa Setting → Available Storefronts'. Informational only — Medusa has no per-storefront categorisation, the value is ignored by the sync.","Vorschläge werden aus 'Medusa Setting → Verfügbare Storefronts' geladen. Rein informativ — Medusa hat keine Kategorisierung pro Storefront, der Wert wird vom Sync ignoriert."
+Sync all adopted,Alle verknüpften synchronisieren
+Sync Categories,Kategorien synchronisieren
+Sync Customers,Kunden aus Medusa synchronisieren
+Sync Empty Categories,Leere Kategorien synchronisieren
+Sync ERPNext stock levels to Shopware,ERPNext-Lagerbestände zu Shopware synchronisieren
+Sync error,Sync-Fehler
+Sync error: {0},Sync-Fehler: {0}
+Sync Failed,Synchronisation fehlgeschlagen
+Sync Inactive Leaves,Leere Blatt-Kategorien synchronisieren
+Sync Inventory to Medusa,Lagerbestände zu Medusa synchronisieren
+Sync is inactive — cron would skip it.,Sync ist nicht aktiv — Cron würde ihn überspringen.
+Sync Item on Update,Artikel-Änderungen automatisch nach Medusa übertragen
+Sync New Items as Active,Neue Artikel direkt aktiv in Medusa veröffentlichen
+Sync new items as Active in Shopware,Neue Artikel direkt aktiv in Shopware veröffentlichen
+Sync Now,Jetzt synchronisieren
+Sync now,Jetzt synchronisieren
+Sync Payment Status,Zahlungs-Status synchronisieren
+Sync running,Sync läuft
+Sync running since {0},Sync läuft seit {0}
+Sync Status,Status
+Sync Stock Locations,Lagerorte aktualisieren
+Sync Successful,Synchronisation erfolgreich
+Sync this mirror now against the live backend?,Diesen Mirror jetzt gegen das Live-Backend synchronisieren?
+Sync to Medusa,Zu Medusa synchronisieren
+Sync to Shopware,Zu Shopware synchronisieren
+Synchronisations-Modus wählen,Synchronisations-Modus wählen
+Syncing…,Synchronisiere …
+Target Sales Channel,Storefront
+Targets,Ziele
+Test Connection,Verbindung testen
+Test erfolgreich.,Test erfolgreich.
+Test fehlgeschlagen.,Test fehlgeschlagen.
+Test läuft …,Test läuft …
+Test Webhook,Test Webhook
+Test-Webhook abgewiesen (HTTP {0}).,Test-Webhook abgewiesen (HTTP {0}).
+Test-Webhook erfolgreich empfangen.,Test-Webhook erfolgreich empfangen.
+Test-Webhook fehlgeschlagen: {0},Test-Webhook fehlgeschlagen: {0}
+Test-Webhook wird gesendet …,Test-Webhook wird gesendet …
+The Sync Run on which this error last occurred.,"Der Sync-Run, bei dem dieser Fehler zuletzt aufgetreten ist."
+"These counts describe the category-product link relationship only. Products themselves are not created, modified or deleted by Smart Collection sync.","Die Zahlen beschreiben nur die Kategorie-Produkt-Verknüpfung. Produkte selbst werden weder angelegt, geändert noch gelöscht."
+This deletes Shopware products that no longer exist in ERPNext.,"""Dies löscht Shopware-Produkte, die nicht mehr in ERPNext existieren."""
+This push changes live data in {0}. Continue?,Dieser Push verändert echte Daten in {0}. Sicher fortfahren?
+This will permanently delete products from Shopware. Continue?,Diese Aktion löscht Produkte dauerhaft aus Shopware. Fortfahren?
+Title,Titel
+Title,Bezeichnung
+Trage deine Medusa Admin-API Zugangsdaten ein. Du findest sie in deinem Medusa-Admin unter den API-Einstellungen.,Trage deine Medusa Admin-API Zugangsdaten ein. Du findest sie in deinem Medusa-Admin unter den API-Einstellungen.
+Trage deine Shopware Admin API Credentials ein. Du findest sie in Shopware: Einstellungen → System → Integrationen.,Trage deine Shopware Admin API Credentials ein. Du findest sie in Shopware: Einstellungen → System → Integrationen.
+Tree diff,Baum-Diff
+Trigger,Auslöser
+Unexpected error loading adapter: {0},Unerwarteter Fehler beim Adapter-Load: {0}
+Unknown backend: {0},Unbekanntes Backend: {0}
+Unknown error.,Unbekannter Fehler.
+Unlink from category,Verknüpfung aufheben
+Unresolved root,Wurzel nicht aufgelöst
+Update,Aktualisieren
+UPDATE,AKTUALISIEREN
+Update,Aktualisieren
+Update Shopware Item when ERPNext item is updated,Artikel-Änderungen automatisch nach Shopware übertragen
+Updating orphan…,Verwaisten Eintrag aktualisieren…
+Upload ERPNext Items to Medusa,ERPNext-Artikel zu Medusa hochladen
+Upload new ERPNext Items to Shopware,ERPNext-Artikel zu Shopware hochladen
+URL,URL
+Use Dry Run to preview first.,Mit Trockenlauf vorab prüfen.
+"UUID from Setting → Available Storefronts. One here, more via the form.","UUID aus dem Setting → Verfügbare Storefronts. Eine, weitere via Formular."
+"UUID from Shopware Setting → Available Storefronts; for Medusa, the channel ID.",UUID aus Shopware Setting → Verfügbare Storefronts; bei Medusa die Channel-ID.
+UUID from Shopware/Medusa Setting. Leave empty for 'all channels'.,UUID aus Shopware/Medusa Setting. Leer lassen für 'alle Channels'.
+UUID of the backend category for this item group. Required when mode is 'Pin'.,UUID der Backend-Kategorie für diese Artikelgruppe. Erforderlich bei Modus 'Fest verknüpfen'.
+Value,Wert
+Value only visible via form field,Wert nur über Form-Feld sichtbar
+Variant Batch Size,Stapelgröße Varianten
+Verbindung,Verbindung
+Verbindung erfolgreich.,Verbindung erfolgreich.
+Verbindung erfolgreich. {0} Produkte in Medusa gefunden.,Verbindung erfolgreich. {0} Produkte in Medusa gefunden.
+Verbindung erfolgreich. {0} Sales Channels gefunden.,Verbindung erfolgreich. {0} Sales Channels gefunden.
+Verbindung fehlgeschlagen. Bitte URL und Zugangsdaten prüfen.,Verbindung fehlgeschlagen. Bitte URL und Zugangsdaten prüfen.
+Verbindung noch nicht getestet,Verbindung noch nicht getestet
+Verbindung testen,Verbindung testen
+Verbindung wird getestet …,Verbindung wird getestet …
+Verbindung wurde länger nicht getestet,Verbindung wurde länger nicht getestet
+Verbindungstest fehlgeschlagen,Verbindungstest fehlgeschlagen
+Verbunden — Bestellungen werden empfangen,Verbunden – Bestellungen werden empfangen
+Visibility,Sichtbarkeit
+Vollautomatisch (Fortgeschritten),Vollautomatisch (Fortgeschritten)
+Vollautomatisch (Fortgeschritten): Item-Saves pushen sofort nach Medusa," Catalog Mirror Cron läuft stündlich (mit Bedacht aktivieren).,""Vollautomatisch (Fortgeschritten): Item-Saves pushen sofort nach Medusa, Catalog Mirror Cron läuft stündlich (mit Bedacht aktivieren)."""
+Vollautomatisch (Fortgeschritten): Item-Saves pushen sofort nach Shopware," Catalog Mirror Cron läuft stündlich (mit Bedacht aktivieren).,""Vollautomatisch (Fortgeschritten): Item-Saves pushen sofort nach Shopware, Catalog Mirror Cron läuft stündlich (mit Bedacht aktivieren)."""
+Warehouse,Standard-Lager
+Warehouse Mappings,Lager-Zuordnungen
+Warning,Warnung
+Warning: This deletes all existing price rules in Medusa and recreates them from ERPNext. Run a Dry Run first.,"""Warnung: Dies löscht alle bestehenden Preisregeln in Medusa und legt sie neu aus ERPNext an. Bitte zuerst einen Trockenlauf starten."""
+Warning: This deletes all existing price rules in Shopware and recreates them from ERPNext. Run a Dry Run first.,"""Warnung: Dies löscht alle bestehenden Preisregeln in Shopware und legt sie neu aus ERPNext an. Bitte zuerst einen Trockenlauf starten."""
+Warning: This deletes all existing variants in Shopware and recreates them from ERPNext. Run a Dry Run first.,"""Warnung: Dies löscht alle bestehenden Varianten in Shopware und legt sie neu aus ERPNext an. Bitte zuerst einen Trockenlauf starten."""
+Webhook einrichten,Webhook einrichten
+Webhook Secret,Webhook Secret
+Webhook Secret,Webhook-Geheimcode
+Webhook signature validation required. Configure webhook_secret in Medusa Setting.,Webhook-Signaturprüfung erforderlich. webhook_secret in den Medusa-Einstellungen konfigurieren.
+Webhook Test — {0},Webhook Test – {0}
+Webhook URL,Webhook URL
+Webhook URL kopieren,Webhook URL kopieren
+Webhook-Daten nicht verfügbar.,Webhook-Daten nicht verfügbar.
+Webhook-Daten werden geladen …,Webhook-Daten werden geladen …
+Webhooks werden ab sofort verarbeitet,Webhooks werden ab sofort verarbeitet
+Weiter,Weiter
+"Wenn du auf ""Aktivieren"" klickst"," wird:,""Wenn du auf „Aktivieren“ klickst, wird:"""
+What is pulled,Was geholt wird
+"What the rule applies to: <strong>Item Group</strong>, <strong>Ecommerce Property</strong>, <strong>Manufacturer</strong>, <strong>Item Field</strong>, <strong>Stock</strong>, <strong>Brand</strong>.","Worauf sich die Regel bezieht: <strong>Item Group</strong> (Artikelgruppe), <strong>Ecommerce Property</strong> (Eigenschaft), <strong>Manufacturer</strong> (Hersteller), <strong>Item Field</strong> (Artikel-Feld), <strong>Stock</strong> (Bestand), <strong>Brand</strong> (Marke)."
+"When 0, pull only runs manually.",Bei 0 läuft der Pull nur manuell.
+"When 0, the sync only runs when started manually.","Bei 0 läuft der Sync nur, wenn er manuell gestartet wird."
+"When disabled, this sync target is skipped.","Wenn deaktiviert, wird dieses Sync-Ziel übersprungen."
+When enabled: the scheduled background job syncs this category sync regularly (cron). When disabled: runs only when 'Sync now' is clicked manually.,"Wenn aktiviert: der zeitgesteuerte Hintergrund-Job synchronisiert diesen Kategorie-Sync regelmäßig (Cron). Wenn deaktiviert: läuft nur, wenn manuell 'Jetzt synchronisieren' geklickt wird."
+When enabled: the sync only adds items to the backend category. Items already there but not matching the rule result are left alone. Useful when linking to a manually curated category.,"Wenn aktiviert: Der Sync fügt nur Artikel zur Backend-Kategorie hinzu. Artikel, die bereits dort sind aber nicht ins Regelergebnis passen, bleiben unangetastet. Sinnvoll beim Verknüpfen mit einer manuell gepflegten Kategorie."
+"When set, the row is removed from the active retry queue.",Bei Setzen wird der Eintrag aus der aktiven Retry-Queue entfernt.
+"When set, this price list is used for prices in this channel. Otherwise the Sync's global price_list_override.","Wenn gesetzt, wird diese Price List für Preise in diesem Channel genutzt. Sonst die globale price_list_override des Sync-Docs."
+When set: comma-separated sales_channel_ids where this item should be visible (overrides the sync's default channels).,"Falls gesetzt: kommagetrennte sales_channel_ids, in denen dieser Artikel sichtbar sein soll (überstimmt die Sync-Default-Channels)."
+Which items the sync covers. Refine via the form.,Welche Artikel der Sync abdeckt. Verfeinerung über das Formular.
+would create under {0},würde unter {0} angelegt
+z. B. https://api.yourshop.com,z. B. https://api.yourshop.com
+z. B. https://yourshop.com,z. B. https://yourshop.com
+Zeigen/verbergen,Zeigen/verbergen
+Zeitpunkt,Zeitpunkt
+Zurück,Zurück
+{0} categories: {1},{0} Kategorien: {1}
+{0} Fehler in 24h,{0} Fehler in 24h
+{0} Fehler in 24h · {1} erfolgreiche Syncs,{0} Fehler in 24h · {1} erfolgreiche Syncs
+{0} planned creates and {1} orphan live categories. ,Es gibt {0} geplante Neuanlagen und {1} verwaiste Live-Kategorien. 
+{0} products,{0} Artikel
+{0} selected,{0} ausgewählt
+{0} sync errors in last 24h,{0} Sync-Fehler in den letzten 24 Stunden
+{0} target(s) in error,{0} Ziel(e) mit Fehler
+Öffne den Setup Wizard," um automatisch ein sicheres Secret zu erzeugen, oder trage manuell ein Secret im Webhook-Bereich ein.,Öffne den Setup Wizard, um automatisch ein sicheres Secret zu erzeugen, oder trage manuell ein Secret im Webhook-Bereich ein."
+⛑ Safety Mode,⛑ Safety Mode
+🧙 Setup Wizard,🧙 Setup Wizard

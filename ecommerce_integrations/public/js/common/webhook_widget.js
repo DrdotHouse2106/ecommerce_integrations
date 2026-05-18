@@ -38,7 +38,7 @@
 		const url = data.url || '';
 		const masked = '••••••••••••••••••••••••••••••••';
 		const secret_display = data.secret_set
-			? (secret_visible ? __('(Wert nur über Form-Feld sichtbar)') : masked)
+			? (secret_visible ? __('(value only visible via form field)') : masked)
 			: `<span class="text-warning">${__('Kein Secret gesetzt')}</span>`;
 
 		let status_html;
@@ -170,7 +170,7 @@
 						// Suggest generation by directing operator to the wizard.
 						frappe.msgprint({
 							title: __('Kein Webhook Secret'),
-							message: __('Öffne den Setup Wizard, um automatisch ein sicheres Secret zu erzeugen, oder trage manuell ein Secret im Webhook-Bereich ein.'),
+							message: __('Open the Setup Wizard to auto-generate a secure secret, or paste one into the webhook section manually.'),
 							indicator: 'orange',
 						});
 						return;

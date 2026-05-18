@@ -33,7 +33,7 @@
    "reqd": 1,
    "in_list_view": 1,
    "columns": 3,
-   "description": "Storefront-ID oder -Name im Zielsystem. Wird beim Sync gegen die Storefront-Tabelle des gewählten Backends aufgelöst."
+   "description": "Storefront ID or name in the target system. Resolved against the chosen backend's storefront table at sync time."
   },
   {
    "fieldname": "enabled",
@@ -42,7 +42,7 @@
    "default": "1",
    "in_list_view": 1,
    "columns": 1,
-   "description": "Wenn deaktiviert, wird dieses Sync-Ziel übersprungen."
+   "description": "When disabled, this sync target is skipped."
   },
   {
    "fieldname": "visibility",
@@ -51,14 +51,14 @@
    "options": "All (30)\nLinked Only (20)\nSearch Only (10)\nHidden (0)",
    "default": "All (30)",
    "columns": 2,
-   "description": "Shopware-Schalter. <strong>30 - All</strong> = überall sichtbar. <strong>20 - Linked</strong> = nur über Direktlink. <strong>10 - Search</strong> = nur in der Suche. <strong>0 - Hidden</strong> = nicht sichtbar. Medusa behandelt alles außer 'Hidden' als sichtbar."
+   "description": "Shopware switch. <strong>30 - All</strong> = visible everywhere. <strong>20 - Linked</strong> = direct link only. <strong>10 - Search</strong> = search only. <strong>0 - Hidden</strong> = not visible. Medusa treats everything except 'Hidden' as visible."
   },
   {
    "fieldname": "link_only",
-   "label": "Nur hinzufügen, nichts entfernen",
+   "label": "Add only, never remove",
    "fieldtype": "Check",
    "default": "0",
-   "description": "Wenn aktiviert: Der Sync fügt nur Artikel zur Backend-Kategorie hinzu. Artikel, die bereits dort sind aber nicht ins Regelergebnis passen, bleiben unangetastet. Sinnvoll beim Verknüpfen mit einer manuell gepflegten Kategorie."
+   "description": "When enabled: the sync only adds items to the backend category. Items already there but not matching the rule result are left alone. Useful when linking to a manually curated category."
   },
   {
    "fieldname": "external_id",

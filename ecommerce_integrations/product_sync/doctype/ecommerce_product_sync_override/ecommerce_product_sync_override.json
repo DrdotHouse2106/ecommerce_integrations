@@ -32,7 +32,7 @@
    "default": "pin",
    "in_list_view": 1,
    "columns": 2,
-   "description": "<b>pin</b> = verknüpft den Artikel manuell mit einer Backend-Produkt-UUID. <b>skip</b> = Artikel wird in diesem Sync übersprungen. <b>custom</b> = individuelle Namens-/Preis-/Beschreibungs-Felder werden angewendet."
+   "description": "<b>pin</b> = manually link the item to a backend product UUID. <b>skip</b> = skip the item in this sync. <b>custom</b> = apply per-item name/price/description fields."
   },
   {
    "fieldname": "pinned_external_id",
@@ -57,7 +57,7 @@
   },
   {
    "fieldname": "custom_description",
-   "label": "Custom Beschreibung",
+   "label": "Custom description",
    "fieldtype": "Small Text",
    "depends_on": "eval:doc.mode==='custom'"
   },
@@ -65,7 +65,7 @@
    "fieldname": "force_visibility_only_on_channels",
    "label": "Sichtbarkeit nur in (kommagetrennt)",
    "fieldtype": "Small Text",
-   "description": "Falls gesetzt: kommagetrennte sales_channel_ids, in denen dieser Artikel sichtbar sein soll (überstimmt die Sync-Default-Channels)."
+   "description": "When set: comma-separated sales_channel_ids where this item should be visible (overrides the sync's default channels)."
   }
  ],
  "index_web_pages_for_search": 0,

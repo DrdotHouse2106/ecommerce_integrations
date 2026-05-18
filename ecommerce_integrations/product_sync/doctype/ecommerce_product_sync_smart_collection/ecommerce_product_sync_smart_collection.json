@@ -17,11 +17,11 @@
    "reqd": 1,
    "in_list_view": 1,
    "columns": 6,
-   "description": "Verlinkte Smart Collection — ihre Regeln entscheiden, welche Items in den Sync wandern."
+   "description": "Linked Smart Collection — its rules decide which items enter the sync."
   },
   {
    "fieldname": "sales_channel_id",
-   "label": "Nur für Storefront (optional)",
+   "label": "Only for storefront (optional)",
    "fieldtype": "Data",
    "in_list_view": 1,
    "columns": 5,

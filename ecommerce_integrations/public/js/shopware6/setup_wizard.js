@@ -14,7 +14,7 @@
 	const TOTAL_STEPS = 5;
 
 	const STEP_TITLES = () => ([
-		__('Verbindung'),
+		__('Connection'),
 		__('Verbindung testen'),
 		__('Synchronisations-Modus wählen'),
 		__('Webhook einrichten'),
@@ -216,9 +216,9 @@
 				},
 				{ fieldname: 'mode_help', fieldtype: 'HTML',
 					options: `<ul>
-						<li><b>receive</b> — ${__('Empfang aus Shopware: Bestellungen, Kunden, Bestand kommen rein in ERPNext (sicher empfohlen für den Einstieg).')}</li>
+						<li><b>receive</b> — ${__('Receive from Shopware: orders, customers, stock flow into ERPNext (safe default for getting started).')}</li>
 						<li><b>manual</b> — ${__('Empfang + manueller Versand: Empfang automatisch, Produkt-/Kategorie-Sync läuft nur wenn du auf "Sync starten" klickst.')}</li>
-						<li><b>full</b> — ${__('Vollautomatisch (Fortgeschritten): Item-Saves pushen sofort nach Shopware, Catalog Mirror Cron läuft stündlich (mit Bedacht aktivieren).')}</li>
+						<li><b>full</b> — ${__('Fully automatic (advanced): item saves push to Shopware immediately, Catalog Mirror cron runs hourly (enable with care).')}</li>
 					</ul>` },
 			],
 			primary_action_label: __('Weiter'),
@@ -397,9 +397,9 @@
 	// form), we offer a single one-click follow-up.
 	function _offer_product_sync_followup(backend) {
 		const d = new frappe.ui.Dialog({
-			title: __('Nächster Schritt: Product Sync anlegen'),
+			title: __('Next step: create a Product Sync'),
 			fields: [{ fieldname: 'body', fieldtype: 'HTML', options: `
-				<p>${__('Damit Produkte aus ERPNext nach {0} fliessen, brauchst du einen <b>Product Sync</b>. Dort wählst du Auswahl (Kategorie, Smart Collection, …), Storefronts und Sync-Zeitplan.', [backend])}</p>
+				<p>${__('For products to flow from ERPNext to {0} you need a <b>Product Sync</b>. There you pick scope (category, smart collection, …), storefronts, and sync schedule.', [backend])}</p>
 				<p class="text-muted">${__('Tipp: ein einziger Product Sync deckt mehrere Storefronts ab — leg also nicht pro Storefront einen eigenen an.')}</p>
 			` }],
 			primary_action_label: __('Product Sync anlegen'),
@@ -408,7 +408,7 @@
 				frappe.new_doc('Ecommerce Product Sync', { backend: backend });
 			},
 		});
-		d.set_secondary_action_label(__('Später'));
+		d.set_secondary_action_label(__('Later'));
 		d.set_secondary_action(function () { d.hide(); });
 		d.show();
 	}

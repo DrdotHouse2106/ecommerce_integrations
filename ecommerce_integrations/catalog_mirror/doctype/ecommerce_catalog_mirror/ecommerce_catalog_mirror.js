@@ -337,7 +337,7 @@ function _wire_dialog_handlers(frm, d) {
         const exts = $w.find('.cm-orphan-cb:checked').map(function () { return $(this).data('ext'); }).get();
         if (!exts.length) return;
         frappe.confirm(
-            __('{0} Backend-Kategorien löschen? Diese Aktion kann nicht rückgängig gemacht werden.', [exts.length]),
+            __('Delete {0} backend categories? This action cannot be undone.', [exts.length]),
             () => _bulk_orphan_action(frm, d, exts, 'delete'),
         );
     });
@@ -354,7 +354,7 @@ function _update_orphan_bulk_state($w) {
     const checked = $w.find('.cm-orphan-cb:checked').length;
     const total = $w.find('.cm-orphan-cb').length;
     $w.find('.cm-orphans-bulk-delete, .cm-orphans-bulk-keep').prop('disabled', checked === 0);
-    $w.find('.cm-orphans-selcount').text(__('{0} ausgewählt', [checked]));
+    $w.find('.cm-orphans-selcount').text(__('{0} selected', [checked]));
     $w.find('.cm-orphan-cb-all').prop({
         checked: checked > 0 && checked === total,
         indeterminate: checked > 0 && checked < total,
@@ -372,7 +372,7 @@ function _bulk_orphan_action(frm, parent_dialog, exts, action) {
     const tick = () => {
         if (done >= total) {
             frappe.show_alert({
-                message: __('{0} Kategorien: {1}', [total, action === 'delete' ? __('Zum Löschen markiert') : __('Behalten')]),
+                message: __('{0} categories: {1}', [total, action === 'delete' ? __('Marked for deletion') : __('Behalten')]),
                 indicator: action === 'delete' ? 'red' : 'blue',
             });
             _refresh_preview_inplace(frm, parent_dialog);
@@ -393,7 +393,7 @@ function _bulk_orphan_action(frm, parent_dialog, exts, action) {
 // the diff collapse from "create everything" to "mostly noops".
 function _auto_adopt_by_path(frm, parent_dialog) {
     frappe.confirm(
-        __('Vorhandene Backend-Kategorien per Pfad-Match zuordnen? ' +
+        __('Match existing backend categories by path? ' +
             'Nicht-eindeutige Treffer und bereits zugeordnete Artikelgruppen werden übersprungen. ' +
             'Diese Aktion ist idempotent.'),
         () => frappe.call({
@@ -415,8 +415,8 @@ function _auto_adopt_by_path(frm, parent_dialog) {
                         '</table>',
                         [
                             __('Adoptiert'), m.adopted,
-                            __('Schon zugeordnet (übersprungen)'), m.skipped_already_mapped,
-                            __('Mehrdeutig (übersprungen)'), m.ambiguous,
+                            __('Already mapped (skipped)'), m.skipped_already_mapped,
+                            __('Ambiguous (skipped)'), m.ambiguous,
                             __('Kein Pfad-Treffer'), m.no_match,
                         ],
                     ),
@@ -465,10 +465,10 @@ function _render_preview(plan, frm) {
 function _render_summary_card(plan) {
     const root_live = plan.external_root_id
         ? `<code style="font-size:11px">${frappe.utils.escape_html(plan.external_root_id)}</code>`
-        : `<em class="text-muted">${__('noch nicht aufgelöst')}</em>`;
+        : `<em class="text-muted">${__('not yet resolved')}</em>`;
     const status_pill = plan.unresolved_external_root
-        ? `<span class="indicator-pill yellow">${__('Wurzel nicht aufgelöst')}</span>`
-        : `<span class="indicator-pill green">${__('Wurzel aufgelöst')}</span>`;
+        ? `<span class="indicator-pill yellow">${__('Root not resolved')}</span>`
+        : `<span class="indicator-pill green">${__('Root resolved')}</span>`;
     return `
         <div style="margin-bottom:1em;padding:0.75em 1em;
                     background:var(--bg-color, #fafbfc);
@@ -512,7 +512,7 @@ function _render_first_sync_banner(plan, c) {
                         <span>${__('Sieht nach erstem Sync aus')}</span>
                     </div>
                     <div class="small text-muted" style="margin-top:0.25em">
-                        ${__('Es gibt {0} geplante Neuanlagen und {1} verwaiste Live-Kategorien. ' +
+                        ${__('{0} planned creates and {1} orphan live categories. ' +
                               'Falls die Namen in beiden Bäumen schon übereinstimmen, kannst du sie ' +
                               'per Pfad zuordnen — danach bleiben fast nur noch Updates übrig.',
                               [c.create, c.orphan])}
@@ -535,7 +535,7 @@ function _render_action_banners(plan, c) {
                         border-radius:6px;display:flex;align-items:center;gap:8px">
                 <span style="color:#cf1322;display:inline-flex;align-items:center">${_icon('triangle-alert', 'sm')}</span>
                 <strong>${__('{0} stale Zuordnungen', [c.drift])}</strong>
-                <span class="text-muted small">— ${__('zeigen auf gelöschte Backend-Kategorien. Siehe Abschnitt unten.')}</span>
+                <span class="text-muted small">— ${__('point at deleted backend categories. See section below.')}</span>
             </div>`);
     }
     return banners.join('');
@@ -550,9 +550,9 @@ function _render_metrics_bar(c) {
         { color: '#52c41a', icon: _icon('plus', 'sm'),           label: __('Anlegen'),                value: c.create },
         { color: '#fa8c16', icon: _icon('pencil', 'sm'),         label: __('Aktualisieren'),          value: c.update },
         { color: '#faad14', icon: _icon('move', 'sm'),           label: __('Verschieben'),            value: c.move },
-        { color: 'inherit', icon: _icon('minus', 'sm'),          label: __('Keine Änderung'),         value: c.noop },
+        { color: 'inherit', icon: _icon('minus', 'sm'),          label: __('No change'),         value: c.noop },
         { color: '#cf1322', icon: _icon('circle-slash', 'sm'),   label: __('Verwaiste'),              value: c.orphan },
-        { color: '#cf1322', icon: _icon('unlink', 'sm'),         label: __('Verknüpfung verschoben'), value: c.drift },
+        { color: '#cf1322', icon: _icon('unlink', 'sm'),         label: __('Mapping moved'), value: c.drift },
     ];
     const html = cells.map((cell) => `
         <div style="flex:1;min-width:110px;padding:0.5em 0.75em;
@@ -626,7 +626,7 @@ function _render_tree_section(plan) {
                 ${_render_filter_chip('create', _icon('plus', 'xs') + ' ' + __('Anlegen'),       c.create, false)}
                 ${_render_filter_chip('update', _icon('pencil', 'xs') + ' ' + __('Aktualisieren'), c.update, false)}
                 ${_render_filter_chip('move',   _icon('move', 'xs') + ' ' + __('Verschieben'),   c.move,   false)}
-                ${_render_filter_chip('noop',   _icon('minus', 'xs') + ' ' + __('Keine Änderung'), c.noop,  false)}
+                ${_render_filter_chip('noop',   _icon('minus', 'xs') + ' ' + __('No change'), c.noop,  false)}
             </div>
             <div style="max-height:480px;overflow:auto;
                         border:1px solid var(--border-color);border-radius:4px">
@@ -688,7 +688,7 @@ function _render_tree_row(node) {
             diffs.push(`<span title="${frappe.utils.escape_html(node.current_name)} → ${frappe.utils.escape_html(node.proposed_name)}">${__('Name')}</span>`);
         }
         if ((node.current_description || '') !== (node.proposed_description || '')) {
-            diffs.push(__('Beschreibung'));
+            diffs.push(__('Description'));
         }
         if (node.current_active !== node.proposed_active) {
             diffs.push(__('aktiv-Flag'));
@@ -744,7 +744,7 @@ function _action_visuals(action) {
         create: { color: 'green',  label: __('Anlegen') },
         update: { color: 'orange', label: __('Update') },
         move:   { color: 'yellow', label: __('Verschieben') },
-        noop:   { color: 'gray',   label: __('Keine Änderung') },
+        noop:   { color: 'gray',   label: __('No change') },
         error:  { color: 'red',    label: __('Fehler') },
     };
     return map[action] || { color: 'gray', label: (action || '').toUpperCase() };
@@ -763,7 +763,7 @@ function _render_orphans_section(plan, orphan_policy) {
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5em">
                 <h6 style="margin:0;display:flex;align-items:center;gap:6px">
                     <span style="color:#cf1322;display:inline-flex;align-items:center">${_icon('circle-slash', 'sm')}</span>
-                    <span>${__('Backend-Kategorien ohne ERPNext-Pendant')}</span>
+                    <span>${__('Backend categories without ERPNext counterpart')}</span>
                     <span class="text-muted small">(${orphans.length} · ${__('Policy')}: ${frappe.utils.escape_html(orphan_policy || 'keep')})</span>
                 </h6>
                 <input type="search" class="form-control cm-orphans-search"
@@ -771,10 +771,10 @@ function _render_orphans_section(plan, orphan_policy) {
                        style="max-width:240px;height:28px;font-size:12px">
             </div>
             <div style="display:flex;gap:0.35em;margin:0.5em 0;align-items:center">
-                <span class="text-muted small cm-orphans-selcount">${__('0 ausgewählt')}</span>
+                <span class="text-muted small cm-orphans-selcount">${__('0 selected')}</span>
                 <div style="flex:1"></div>
-                <button class="btn btn-xs btn-default cm-orphans-bulk-keep" disabled>${__('Auswahl: Behalten')}</button>
-                <button class="btn btn-xs btn-danger cm-orphans-bulk-delete" disabled>${__('Auswahl: Löschen')}</button>
+                <button class="btn btn-xs btn-default cm-orphans-bulk-keep" disabled>${__('Keep selection')}</button>
+                <button class="btn btn-xs btn-danger cm-orphans-bulk-delete" disabled>${__('Delete selection')}</button>
             </div>
             <div style="max-height:380px;overflow:auto;
                         border:1px solid var(--border-color);border-radius:4px">
@@ -813,10 +813,10 @@ function _render_orphan_row(o) {
         <td style="text-align:right;white-space:nowrap">
             <button class="btn btn-xs btn-default cm-orphan-adopt"
                     data-ext="${ext}" data-name="${name}"
-                    title="${__('Mit Artikelgruppe verknüpfen')}">${_ci('link')}</button>
+                    title="${__('Link with item group')}">${_ci('link')}</button>
             <button class="btn btn-xs btn-danger cm-orphan-delete"
                     data-ext="${ext}"
-                    title="${__('Backend-Kategorie löschen')}">${_ci('trash')}</button>
+                    title="${__('Delete backend category')}">${_ci('trash')}</button>
             <button class="btn btn-xs btn-default cm-orphan-keep"
                     data-ext="${ext}"
                     title="${__('Behalten (Standard)')}">${_ci('check')}</button>
@@ -837,7 +837,7 @@ function _render_drift_section(plan) {
             <td>${frappe.utils.escape_html(d.proposed_name || '')}</td>
             <td style="text-align:right">
                 <button class="btn btn-xs btn-default cm-drift-clear" data-ig="${ig}">
-                    ${__('Zuordnung löschen & neu anlegen')}
+                    ${__('Clear mapping and re-create')}
                 </button>
             </td>
         </tr>`;
@@ -850,7 +850,7 @@ function _render_drift_section(plan) {
                 <span class="text-muted small">(${drift.length})</span>
             </h6>
             <div class="text-muted small" style="margin:0.25em 0">
-                ${__('Artikelgruppen, deren gespeicherte Backend-Kategorie nicht mehr im Live-Baum existiert.')}
+                ${__('Item groups whose stored backend category no longer exists in the live tree.')}
             </div>
             <div style="max-height:280px;overflow:auto;
                         border:1px solid var(--border-color);border-radius:4px;margin-top:0.5em">

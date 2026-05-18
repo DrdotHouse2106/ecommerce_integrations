@@ -78,15 +78,15 @@
                     description: __('Eigene Bezeichnung, z.B. "Hauptshop: Bestseller".'),
                 },
                 {
-                    fieldname: 'scope_mode', fieldtype: 'Select', label: __('Auswahl-Modus'),
+                    fieldname: 'scope_mode', fieldtype: 'Select', label: __('Scope mode'),
                     options: 'Catalog Mirror\nItem Group Subtree\nSmart Collection\nCustom Filter\nAll',
                     default: 'Item Group Subtree', reqd: 1,
-                    description: __('Welche Artikel der Sync abdeckt. Verfeinerung über das Formular.'),
+                    description: __('Which items the sync covers. Refine via the form.'),
                 },
                 // Conditional fields appear depending on scope_mode selection.
                 {
                     fieldname: 'linked_catalog_mirror', fieldtype: 'Link',
-                    options: 'Ecommerce Catalog Mirror', label: __('Verknüpfter Kategorie-Sync'),
+                    options: 'Ecommerce Catalog Mirror', label: __('Linked category sync'),
                     depends_on: "eval:doc.scope_mode==='Catalog Mirror'",
                     mandatory_depends_on: "eval:doc.scope_mode==='Catalog Mirror'",
                     get_query: function () {
@@ -95,7 +95,7 @@
                 },
                 {
                     fieldname: 'linked_smart_collection', fieldtype: 'Link',
-                    options: 'Ecommerce Smart Collection', label: __('Verknüpfte Kollektion'),
+                    options: 'Ecommerce Smart Collection', label: __('Linked collection'),
                     depends_on: "eval:doc.scope_mode==='Smart Collection'",
                     mandatory_depends_on: "eval:doc.scope_mode==='Smart Collection'",
                 },
@@ -109,12 +109,12 @@
                 {
                     fieldname: 'target_sales_channel', fieldtype: 'Autocomplete',
                     label: __('Ziel-Storefront (UUID)'),
-                    description: __('UUID aus dem Setting → Verfügbare Storefronts. Eine, weitere via Formular.'),
+                    description: __('UUID from Setting → Available Storefronts. One here, more via the form.'),
                 },
                 {
                     fieldname: 'is_active', fieldtype: 'Check', label: __('Aktiv (am Cron teilnehmen)'),
                     default: 0,
-                    description: __('Lass aus, bis ein Pre-Flight + Dry-Run grün sind.'),
+                    description: __('Leave off until pre-flight + dry-run are both green.'),
                 },
             ],
             primary_action_label: __('Create & Edit'),

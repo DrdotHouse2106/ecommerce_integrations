@@ -17,16 +17,16 @@
    "reqd": 1,
    "in_list_view": 1,
    "columns": 4,
-   "description": "UUID aus Shopware Setting → Verfügbare Storefronts; bei Medusa die Channel-ID."
+   "description": "UUID from Shopware Setting → Available Storefronts; for Medusa, the channel ID."
   },
   {
    "fieldname": "is_primary",
-   "label": "Primärer Channel",
+   "label": "Primary channel",
    "fieldtype": "Check",
    "default": "0",
    "in_list_view": 1,
    "columns": 2,
-   "description": "Markiere genau einen Channel als primär — wird für die Defaults beim Push genutzt."
+   "description": "Mark exactly one channel as primary — used for push defaults."
   },
   {
    "fieldname": "override_price_list",
@@ -35,7 +35,7 @@
    "options": "Price List",
    "in_list_view": 1,
    "columns": 4,
-   "description": "Wenn gesetzt, wird diese Price List für Preise in diesem Channel genutzt. Sonst die globale price_list_override des Sync-Docs."
+   "description": "When set, this price list is used for prices in this channel. Otherwise the Sync's global price_list_override."
   }
  ],
  "index_web_pages_for_search": 0,
