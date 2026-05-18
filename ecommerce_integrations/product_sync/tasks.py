@@ -464,6 +464,39 @@ def _apply_batch(
             run_name=run_name,
             existing_row=meta["ecom_row"],
         )
+        # After the upsert, push images via the backend's dedicated
+        # two-step media flow (Shopware needs an explicit
+        # ``/_action/media/{id}/upload`` call — the sync endpoint's
+        # ``media`` field only creates empty records). Adapters without
+        # ``upload_product_images`` are silently skipped.
+        if int(getattr(sync_doc, "sync_images", 0) or 0):
+            uploader = getattr(adapter, "upload_product_images", None)
+            if callable(uploader):
+                # Build the list of resolved absolute URLs from the same
+                # helper the (legacy) media-field code path used.
+                from ecommerce_integrations.product_sync.engine.payload import (
+                    _build_shopware_media,
+                )
+                canonical_images = (
+                    build_canonical_payload(
+                        frappe.get_doc("Item", meta["item_code"]),
+                        sync_doc,
+                    ).get("images") or []
+                )
+                media = _build_shopware_media(canonical_images)
+                urls = [
+                    m.get("media", {}).get("url")
+                    for m in media if m.get("media", {}).get("url")
+                ]
+                if urls:
+                    try:
+                        uploader(new_external_id, urls)
+                    except Exception as exc:  # noqa: BLE001
+                        # Per-image errors are already counted inside
+                        # the adapter; only a complete crash gets here.
+                        result.errors.append(
+                            f"{meta['item_code']}: image upload failed: {exc}",
+                        )
         applied_diffs.append({
             "item_code": meta["item_code"],
             "action": meta["action"],

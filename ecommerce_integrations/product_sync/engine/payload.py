@@ -113,18 +113,16 @@ def build_shopware_payload(
     if category_ids:
         payload["categories"] = [{"id": cid} for cid in category_ids]
 
-    # Images: Shopware wants ``media: [{media: {url, mediaFolderId}}]``
-    # for products that should reference externally-hosted media. We
-    # resolve canonical's relative ``/file/...`` URLs to absolute URLs
-    # via the ``image_public_base_url`` Setting (or the site's own
-    # ``frappe.utils.get_url()`` as a fallback). When neither yields a
-    # URL Shopware can reach, we SKIP the field entirely — Shopware's
-    # POST semantics treat a missing array as "leave alone", so we
-    # don't accidentally clear the existing media.
-    if int(getattr(sync, "sync_images", 0) or 0):
-        image_payload = _build_shopware_media(canonical.get("images") or [])
-        if image_payload:
-            payload["media"] = image_payload
+    # Images: deliberately NOT included in the sync-API payload.
+    # Shopware's sync endpoint with ``media: [{media: {url}}]`` only
+    # creates empty media records — it does NOT trigger the URL
+    # download. The correct pattern is a separate two-step call
+    # (``POST /_action/media/{id}/upload?fileName=&extension=`` with
+    # ``{"url": ...}``) which the orchestrator handles after the
+    # product upsert. See ``ShopwareProductAdapter.upload_product_images``
+    # for the actual fetch path. Including the field here would create
+    # empty media entities and trigger forever-drift on the next
+    # preview.
 
     # TODO Phase-5.1: per-channel prices via Shopware Rule engine
     # TODO Phase-5.1: properties (brand, manufacturer, attributes)
