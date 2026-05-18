@@ -311,42 +311,41 @@ def _resolve_tax_rate_pct(sync, item=None) -> float:
     Resolution order — narrowest-scope wins, exactly the same order
     ERPNext itself uses on Sales Invoices:
 
-    1. ``Item.taxes[0].item_tax_template`` — per-item override.
+    1. ``Item.taxes[].item_tax_template`` — per-item override.
        Catches mixed-rate catalogues (e.g. books at 7 % alongside
        other goods at 19 %).
     2. ``Sync.tax_template`` — operator-set default for the Sync.
     3. ``Shopware Setting.default_tax_rate`` — legacy fallback for
-       installs that still carry the column (a recent cleanup
-       removed the field on new installs).
+       installs that still carry the column.
     4. ``19.0`` — German standard rate.
+
+    The "rate" of a template is the highest non-zero ``tax_rate``
+    across its child rows — German-style charts of accounts have
+    many zero rows (Umsatzsteuer + Vorsteuer + innergem. Erwerb …)
+    and a handful at the actual sales-tax rate. Picking the max
+    picks the sales-tax rate without having to enumerate per-country
+    accounting conventions.
 
     Returns a percentage (19.0, not 0.19). Never raises.
     """
-    template_name = ""
-
-    # 1. Item-level template wins.
+    # Lazy import — the canonical module's helpers are the source of
+    # truth so the two callsites can't drift.
+    from ecommerce_integrations.product_sync.engine.canonical import (
+        _max_tax_rate_from_item,
+        _max_tax_rate_from_template,
+    )
     if item is not None:
-        for row in (getattr(item, "taxes", None) or []):
-            tpl = (getattr(row, "item_tax_template", "") or "").strip()
-            if tpl:
-                template_name = tpl
-                break
+        rate = _max_tax_rate_from_item(item)
+        if rate:
+            return rate
 
-    # 2. Sync-level default.
-    if not template_name:
-        template_name = (getattr(sync, "tax_template", "") or "").strip()
+    rate = _max_tax_rate_from_template(
+        (getattr(sync, "tax_template", "") or "").strip(),
+    )
+    if rate:
+        return rate
 
-    if template_name:
-        try:
-            tpl = frappe.get_cached_doc("Item Tax Template", template_name)
-            for row in (tpl.taxes or []):
-                rate = getattr(row, "tax_rate", None)
-                if rate is not None:
-                    return float(rate)
-        except Exception:  # noqa: BLE001
-            pass
-
-    # 3. Setting-level legacy fallback.
+    # Setting-level legacy fallback.
     try:
         setting = frappe.get_single("Shopware Setting")
         legacy = getattr(setting, "default_tax_rate", None)
@@ -355,7 +354,6 @@ def _resolve_tax_rate_pct(sync, item=None) -> float:
     except Exception:  # noqa: BLE001
         pass
 
-    # 4. German standard.
     return 19.0
 
 

@@ -476,6 +476,12 @@ class ShopwareProductAdapter(ProductAdapter):
                 images.append(url)
         images = sorted(set(images))
 
+        # Build the per-field properties + SEO snapshots from the same
+        # builders the live-canonical uses; this gives the differ a
+        # consistent shape to compare against the proposed canonical.
+        properties_dict = self._live_properties(merged)
+        seo_dict = self._live_seo(merged)
+
         return LiveProductNode(
             external_id=ext_id,
             sku=merged.get("productNumber") or None,
@@ -487,6 +493,8 @@ class ShopwareProductAdapter(ProductAdapter):
             sales_channel_ids=sc_ids,
             active=bool(merged.get("active", True)),
             images=images,
+            properties=properties_dict,
+            seo=seo_dict,
         )
 
     def _upsert_product_impl(
@@ -997,10 +1005,10 @@ class ShopwareProductAdapter(ProductAdapter):
         out: dict[str, Any] = {
             "v": PAYLOAD_VERSION,
             "item_code": _ns(merged.get("productNumber")),
-            # Shopware variants carry a ``parentId``; treat the same
-            # way the ERP side treats ``variant_of``.
+            # ``variant_of`` deliberately not emitted — ERPNext uses
+            # the parent item_code, Shopware uses its own parentId
+            # UUID. Hashing either side would force permanent drift.
             "is_variant": bool(merged.get("parentId")),
-            "variant_of": _ns(merged.get("parentId")) or None,
         }
         if _live_flag(sync, "sync_basic_fields", default=True):
             out["basic"] = self._live_basic(merged)
@@ -1046,7 +1054,7 @@ class ShopwareProductAdapter(ProductAdapter):
     ) -> dict[str, Any]:
         prices = merged.get("price") or []
         base = 0.0
-        currency = ""
+        currency_iso = ""
         if isinstance(prices, list) and prices:
             first = prices[0] or {}
             try:
@@ -1054,7 +1062,13 @@ class ShopwareProductAdapter(ProductAdapter):
                 base = round(float(first.get("gross") or first.get("net") or 0), 4)
             except (TypeError, ValueError):
                 base = 0.0
-            currency = _ns(first.get("currencyId"))
+            # Resolve the Shopware currency UUID to an ISO code so we
+            # hash on the same shape the canonical emits ("EUR", not a
+            # UUID). The mapping is reverse-cached per session to keep
+            # the per-item cost negligible.
+            currency_id = _ns(first.get("currencyId"))
+            if currency_id:
+                currency_iso = _resolve_iso_for_currency_id(currency_id) or ""
 
         # Tax rate from the product's ``tax`` association (Shopware
         # returns ``{taxRate: 19.0, ...}``). Falls back to 19 % so a
@@ -1076,7 +1090,7 @@ class ShopwareProductAdapter(ProductAdapter):
         # matches what ``_canonical_pricing`` does on the ERP side when
         # the sync has no per-channel overrides configured.
         return {
-            "currency": currency,
+            "currency": currency_iso,
             "base_price": base,
             "channel_prices": [],
             "tax_rate_pct": round(tax_rate_pct, 4),
@@ -1154,16 +1168,24 @@ class ShopwareProductAdapter(ProductAdapter):
     def _live_taxes(
         self, merged: dict[str, Any], sync,
     ) -> dict[str, Any]:
-        # ERP side reports the ``Item Tax Template`` name (a string
-        # the operator chose). Live side reports the resolved Shopware
-        # tax-id, which is not the same string. The hashes can only
-        # match in Phase 5 once we map tax_id → template name.
-        # TODO: resolve tax_id back to template name for parity.
-        tax_id = merged.get("taxId")
+        """Tax rate (%) Shopware reports via the ``tax`` association.
+
+        Hashes the same shape as ``_canonical_taxes``: a single
+        ``rate_pct`` float, normalised to 4 decimals. Mismatched
+        backend tax-entity names that used to force permanent drift
+        are gone — the percentage is the only anchor that survives
+        the round-trip cleanly.
+        """
+        rate = 0.0
         tax = merged.get("tax") or {}
-        if isinstance(tax, dict) and tax.get("name"):
-            return {"template": _ns(tax.get("name"))}
-        return {"template": _ns(tax_id)}
+        if isinstance(tax, dict):
+            raw = tax.get("taxRate")
+            if raw is not None:
+                try:
+                    rate = float(raw)
+                except (TypeError, ValueError):
+                    rate = 0.0
+        return {"rate_pct": round(rate, 4)}
 
     def _live_categories(self, merged: dict[str, Any]) -> dict[str, Any]:
         """Live category UUIDs Shopware reports for this product.
@@ -1182,7 +1204,8 @@ class ShopwareProductAdapter(ProductAdapter):
             for raw in merged.get("categoryIds") or []:
                 if raw:
                     ids.append(str(raw))
-        return {"item_group": "", "ids": sorted(set(ids))}
+        # Match canonical's shape: only the UUID set goes into the hash.
+        return {"ids": sorted(set(ids))}
 
 
 # ─── Module-level helpers ────────────────────────────────────────────
@@ -1205,6 +1228,47 @@ def _with_client(fn, *args, **kwargs):
         return fn(client, *inner_args, **inner_kwargs)
 
     return runner(*args, **kwargs)
+
+
+def _resolve_iso_for_currency_id(currency_id: str) -> str | None:
+    """Reverse of ``payload._resolve_shopware_currency_id``.
+
+    Map a Shopware ``currency.id`` UUID back to the ISO code so the
+    live-side canonical can hash the same shape the ERP-side emits.
+    Cached per-host to keep the per-item cost negligible during a
+    DETAIL preview's drift fetch.
+    """
+    if not currency_id:
+        return None
+    try:
+        import frappe
+        cache_key = f"_psync_shopware_currency_iso:{currency_id}"
+        cached = frappe.cache().get_value(cache_key)
+        if cached:
+            return cached or None
+
+        @temp_shopware_session
+        def _lookup(client):
+            resp = client.request_post(
+                "search/currency",
+                payload={
+                    "limit": 1,
+                    "filter": [{"type": "equals", "field": "id", "value": currency_id}],
+                    "includes": {"currency": ["id", "isoCode"]},
+                },
+            )
+            data = (resp or {}).get("data") or []
+            if data:
+                attrs = (data[0].get("attributes") or {})
+                return (data[0].get("isoCode") or attrs.get("isoCode") or "").upper() or None
+            return None
+
+        value = _lookup()
+        if value:
+            frappe.cache().set_value(cache_key, value, expires_in_sec=3600)
+        return value
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _ns(value) -> str:

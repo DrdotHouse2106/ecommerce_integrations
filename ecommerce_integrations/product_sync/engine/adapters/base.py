@@ -42,6 +42,10 @@ class LiveProductNode:
     the expected set) and the drift-detection path (compare per-field
     values against the proposed payload). ``images`` is a flat list of
     URLs; binary handling is the adapter's concern.
+
+    ``properties`` and ``seo`` are dicts in the same shape the
+    canonical payload uses, so the differ can do per-key comparisons
+    and surface meaningful field diffs to the operator.
     """
 
     external_id: str
@@ -54,6 +58,8 @@ class LiveProductNode:
     sales_channel_ids: list[str] = field(default_factory=list)
     active: bool = True
     images: list[str] = field(default_factory=list)
+    properties: dict = field(default_factory=dict)
+    seo: dict = field(default_factory=dict)
 
 
 @dataclass

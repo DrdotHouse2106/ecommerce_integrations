@@ -70,7 +70,11 @@ def build_canonical_payload(item, sync, ctx=None) -> dict[str, Any]:
         "v": PAYLOAD_VERSION,
         "item_code": _norm_str(item.item_code),
         "is_variant": bool(getattr(item, "variant_of", None)),
-        "variant_of": _norm_str(getattr(item, "variant_of", "")) or None,
+        # ``variant_of`` is NOT hashed: ERPNext stores the parent's
+        # item_code, Shopware stores its own parentId UUID — they can
+        # never match, so including either side would force every
+        # variant Item to look like permanent drift. The is_variant
+        # boolean is enough for hash parity.
     }
     if _flag(sync, "sync_basic_fields", default=True):
         payload["basic"] = _canonical_basic(item, sync)
@@ -269,35 +273,12 @@ def _canonical_pricing(item, sync, ctx=None) -> dict[str, Any]:
             })
         channel_prices.sort(key=lambda d: d["channel_id"])
 
-    # Resolve tax rate per item (item template wins, then sync default,
-    # else 19 % German fallback). Stored in the canonical so a
-    # mass tax-rate change re-hashes everything correctly.
-    tax_rate_pct = 0.0
-    for row in (getattr(item, "taxes", None) or []):
-        tpl = (getattr(row, "item_tax_template", "") or "").strip()
-        if not tpl:
-            continue
-        try:
-            t = frappe.get_cached_doc("Item Tax Template", tpl)
-            for sub in (t.taxes or []):
-                rate = getattr(sub, "tax_rate", None)
-                if rate is not None:
-                    tax_rate_pct = float(rate)
-                    break
-        except Exception:  # noqa: BLE001
-            pass
-        if tax_rate_pct:
-            break
-    if not tax_rate_pct and getattr(sync, "tax_template", ""):
-        try:
-            t = frappe.get_cached_doc("Item Tax Template", sync.tax_template)
-            for sub in (t.taxes or []):
-                rate = getattr(sub, "tax_rate", None)
-                if rate is not None:
-                    tax_rate_pct = float(rate)
-                    break
-        except Exception:  # noqa: BLE001
-            pass
+    # Tax rate resolution mirrors ``_canonical_taxes`` so the pricing
+    # gross/net derivation lines up exactly with what we hash under
+    # ``taxes``. 19 % fallback matches ``payload.py``.
+    tax_rate_pct = _max_tax_rate_from_item(item)
+    if not tax_rate_pct:
+        tax_rate_pct = _max_tax_rate_from_template(getattr(sync, "tax_template", ""))
     if not tax_rate_pct:
         tax_rate_pct = 19.0  # German default — same as payload builder
 
@@ -561,11 +542,63 @@ def _slugify(value: str) -> str:
 
 
 def _canonical_taxes(item, sync) -> dict[str, Any]:
-    """Item Tax Template + the resolved rate for the sync's first
-    target channel. Per-channel tax rate variance is a Phase-5
-    extension."""
-    template = _norm_str(getattr(sync, "tax_template", ""))
-    return {"template": template}
+    """Tax rate the apply step will push as ``taxId``.
+
+    Hashes the percentage (e.g. ``19.0``) — same anchor the live
+    side reads off Shopware's ``tax.taxRate``. The Item Tax
+    Template *name* is ERPNext-local and would force permanent
+    drift if hashed, so we resolve it to the rate first using the
+    same item-then-sync chain ``_resolve_tax_rate_pct`` uses.
+    """
+    rate_pct = _max_tax_rate_from_item(item)
+    if not rate_pct:
+        rate_pct = _max_tax_rate_from_template(getattr(sync, "tax_template", ""))
+    return {"rate_pct": _normalize_float(rate_pct)}
+
+
+def _max_tax_rate_from_item(item) -> float:
+    """Highest non-zero tax_rate across the Item's tax templates.
+
+    ``Item Tax Template`` contains many sub-rows (one per account,
+    e.g. "Vorsteuer", "Umsatzsteuer", "innergem. Erwerb", …). Most
+    are zero for any given country; the meaningful rate is the
+    highest non-zero. Picking the max matches what ERPNext itself
+    does at invoice-line time.
+    """
+    for row in (getattr(item, "taxes", None) or []):
+        tpl = (getattr(row, "item_tax_template", "") or "").strip()
+        rate = _max_tax_rate_from_template(tpl)
+        if rate:
+            return rate
+    return 0.0
+
+
+def _max_tax_rate_from_template(template_name: str) -> float:
+    """Highest non-zero ``tax_rate`` across the template's child rows.
+
+    Reads ``Item Tax Template.taxes[].tax_rate``. German-style charts
+    of accounts ship templates with many child rows (one per tax-
+    account: Umsatzsteuer, Vorsteuer, innergem. Erwerb, § 13b UStG,
+    etc.) where most rows are 0 % and only one or two carry the
+    actual sales-tax rate. Picking the max picks the sales-tax rate
+    without having to enumerate per-country accounting conventions.
+    """
+    if not template_name:
+        return 0.0
+    try:
+        import frappe
+        tpl = frappe.get_cached_doc("Item Tax Template", template_name)
+    except Exception:  # noqa: BLE001
+        return 0.0
+    best = 0.0
+    for sub in (tpl.taxes or []):
+        try:
+            rate = float(getattr(sub, "tax_rate", None) or 0)
+        except (TypeError, ValueError):
+            rate = 0.0
+        if rate > best:
+            best = rate
+    return best
 
 
 def _canonical_categories(item, sync) -> dict[str, Any]:
@@ -606,7 +639,10 @@ def _canonical_categories(item, sync) -> dict[str, Any]:
                         ids = [cat_id]
         except Exception:  # noqa: BLE001 — never crash the hash builder
             pass
-    return {"item_group": ig_name, "ids": ids}
+    # Only the resolved UUID list goes into the hash. The IG name is
+    # ERPNext-local and never appears on the Shopware side, so hashing
+    # it would force permanent drift (live always emits "").
+    return {"ids": ids}
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────

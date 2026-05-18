@@ -359,6 +359,13 @@ def _diff_proposed_against_live(
     """
     diffs: list[FieldDiff] = []
 
+    # Each section diff is gated on whether the corresponding canonical
+    # section is present. The canonical only emits a section when the
+    # matching ``sync_*_fields`` toggle is on, so a missing section
+    # means "we wouldn't push this anyway — don't surface it as drift".
+    # Without this gate every disabled section would still flag every
+    # item, misleading the operator about what apply would actually do.
+
     basic = proposed.get("basic") or {}
     if basic:
         _maybe_diff(diffs, "basic.name", live.name or "", basic.get("name") or "")
@@ -493,6 +500,58 @@ def _diff_proposed_against_live(
                 change_kind="modified",
             )
         )
+
+    # Properties: brand + manufacturer + attribute set. Gated on the
+    # presence of the proposed section (which itself is gated on
+    # ``sync_properties``).
+    proposed_props = proposed.get("properties")
+    live_props = (live.properties or {}) if proposed_props is not None else {}
+    proposed_props = proposed_props or {}
+    for key in ("brand", "manufacturer") if proposed.get("properties") is not None else ():
+        _maybe_diff(
+            diffs,
+            f"properties.{key}",
+            live_props.get(key) or "",
+            proposed_props.get(key) or "",
+        )
+    prop_attrs = {
+        (a.get("name") or "", a.get("value") or "")
+        for a in (proposed_props.get("attributes") or [])
+        if isinstance(a, dict)
+    }
+    live_attrs = {
+        (a.get("name") or "", a.get("value") or "")
+        for a in (live_props.get("attributes") or [])
+        if isinstance(a, dict)
+    }
+    if proposed.get("properties") is not None and prop_attrs != live_attrs:
+        added = sorted(prop_attrs - live_attrs)
+        removed = sorted(live_attrs - prop_attrs)
+        diffs.append(
+            FieldDiff(
+                field="properties.attributes",
+                current=f"{len(live_attrs)} Attribute",
+                proposed=f"{len(prop_attrs)} Attribute",
+                change_kind="modified",
+                preview_current=", ".join(f"{n}={v}" for n, v in list(live_attrs)[:3])[:200],
+                preview_proposed=f"+{len(added)} hinzu, −{len(removed)} entf.",
+            )
+        )
+
+    # SEO: slug, meta_title, meta_description. Gated on the canonical
+    # actually emitting a ``seo`` section (i.e. ``sync_seo_fields=1``)
+    # — otherwise the apply wouldn't push SEO and surfacing a diff
+    # would mislead the operator.
+    if proposed.get("seo") is not None:
+        proposed_seo = proposed.get("seo") or {}
+        live_seo = live.seo or {}
+        for key in ("slug", "meta_title", "meta_description"):
+            _maybe_diff_long(
+                diffs,
+                f"seo.{key}",
+                live_seo.get(key) or "",
+                proposed_seo.get(key) or "",
+            )
 
     return diffs
 
