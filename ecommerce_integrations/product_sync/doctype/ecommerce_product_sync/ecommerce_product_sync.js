@@ -62,9 +62,17 @@ function _render_dashboard_indicators(frm) {
 
 
 function _render_header_buttons(frm) {
-    // Primary: Preview
+    // Primary: fast preview (hash-only, no backend roundtrip).
+    // Three preview modes — fast is the default because it answers
+    // "what would change?" correctly without the backend wait, and
+    // power-users opt into the heavier ones from the menu.
     frm.add_custom_button(__('Vorschau'),
-        () => _open_preview_dialog(frm)).addClass('btn-primary');
+        () => _open_preview_dialog(frm, { mode: 'fast' })).addClass('btn-primary');
+
+    frm.add_custom_button(__('Detailvergleich (mit Backend)…'),
+        () => _open_preview_dialog(frm, { mode: 'detail' }), __('Vorschau'));
+    frm.add_custom_button(__('Vollständig (inkl. Orphans)…'),
+        () => _open_preview_dialog(frm, { mode: 'full' }), __('Vorschau'));
 
     // Apply Live with double-confirm
     frm.add_custom_button(__('Apply Live'), () => _apply_live(frm));
@@ -77,11 +85,11 @@ function _render_header_buttons(frm) {
     frm.add_custom_button(__('Test-Historie…'),
         () => _open_history_dialog(frm), __('Test Run'));
 
-    // Form-scoped keyboard shortcut: Ctrl+Enter = open preview
+    // Form-scoped keyboard shortcut: Ctrl+Enter = open fast preview
     frappe.ui.keys.add_shortcut({
         shortcut: 'ctrl+enter',
-        action: () => _open_preview_dialog(frm),
-        description: __('Vorschau öffnen'),
+        action: () => _open_preview_dialog(frm, { mode: 'fast' }),
+        description: __('Schnellvorschau öffnen'),
         page: frm.page,
         condition: () => !frm.is_new(),
     });
@@ -91,20 +99,32 @@ function _render_header_buttons(frm) {
 // ── Preview Dialog ──────────────────────────────────────────────────
 
 
-function _open_preview_dialog(frm) {
+function _open_preview_dialog(frm, { mode = 'fast' } = {}) {
     _run_preview_with_progress(frm, {
-        onDone: (plan) => _show_preview_dialog(frm, plan),
+        mode,
+        onDone: (plan) => _show_preview_dialog(frm, plan, { mode }),
     });
 }
+
+
+// Maps the three preview modes onto ``start_preview`` flags. The
+// names match the menu labels exactly so a future operator sees the
+// same vocabulary in three places (button, progress dialog, plan).
+const PREVIEW_MODES = {
+    fast:   { fetch_live: 0, detect_orphans: 0, label: 'Schnellvorschau' },
+    detail: { fetch_live: 1, detect_orphans: 0, label: 'Detailvergleich' },
+    full:   { fetch_live: 1, detect_orphans: 1, label: 'Vollständige Vorschau' },
+};
 
 
 // Kicks off a background preview (start_preview) and polls
 // get_preview_status until the plan is ready. Shows a progress
 // dialog with a percentage bar so 30 s+ runs don't look frozen and
 // don't time out at the gunicorn/nginx layer.
-function _run_preview_with_progress(frm, { onDone }) {
+function _run_preview_with_progress(frm, { onDone, mode = 'fast' }) {
+    const cfg = PREVIEW_MODES[mode] || PREVIEW_MODES.fast;
     const progressDialog = new frappe.ui.Dialog({
-        title: __('Vorschau wird gebaut…'),
+        title: __('{0} wird gebaut…', [__(cfg.label)]),
         size: 'small',
         fields: [{ fieldname: 'progress_html', fieldtype: 'HTML' }],
     });
@@ -146,7 +166,11 @@ function _run_preview_with_progress(frm, { onDone }) {
 
     frappe.call({
         method: 'ecommerce_integrations.product_sync.api.start_preview',
-        args: { sync: frm.doc.name, fetch_live: true },
+        args: {
+            sync: frm.doc.name,
+            fetch_live: cfg.fetch_live,
+            detect_orphans: cfg.detect_orphans,
+        },
         callback(r) {
             const runName = r.message && r.message.run_name;
             if (!runName) {
@@ -188,7 +212,7 @@ function _run_preview_with_progress(frm, { onDone }) {
 }
 
 
-function _show_preview_dialog(frm, plan) {
+function _show_preview_dialog(frm, plan, { mode = 'fast' } = {}) {
     const d = new frappe.ui.Dialog({
         title: __('Vorschau: {0}', [plan.title || frm.doc.name]),
         size: 'extra-large',
@@ -213,6 +237,7 @@ function _show_preview_dialog(frm, plan) {
 
     d._plan = plan;
     d._frm = frm;
+    d._mode = mode;
     d.fields_dict.preview_html.$wrapper.html(_render_preview(plan, frm));
     _wire_preview_handlers(frm, d);
     d.show();
@@ -221,8 +246,11 @@ function _show_preview_dialog(frm, plan) {
 
 function _refresh_preview_inplace(frm, d) {
     // Same background+poll contract as the initial open so we never
-    // re-introduce the timeout we just removed.
+    // re-introduce the timeout we just removed. Preserve the mode the
+    // dialog was opened in so "Neu laden" doesn't silently downgrade
+    // a Detailvergleich back to Schnellvorschau.
     _run_preview_with_progress(frm, {
+        mode: d._mode || 'fast',
         onDone: (plan) => {
             d._plan = plan;
             d.fields_dict.preview_html.$wrapper.html(_render_preview(plan, frm));

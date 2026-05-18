@@ -93,214 +93,27 @@ frappe.ui.form.on('Medusa Setting', {
 		});
 
 		// Complete Sync — primary action with safer dry-run default (U1)
-		frm.add_custom_button(__('Complete Sync'), function() {
-			let dlg = new frappe.ui.Dialog({
-				title: __('Complete Sync'),
-				size: 'large',
-				fields: [
-					{
-						fieldname: 'info_html', fieldtype: 'HTML',
-						options: '<div class="alert alert-info">' +
-							'<strong>' + __('Complete Sync') + '</strong> ' +
-							__('pushes all ERPNext products, categories and prices to Medusa. Runs as a background job.') +
-							'</div>'
-					},
-					{ fieldtype: 'Section Break', label: __('Options') },
-					{ fieldname: 'sync_categories', fieldtype: 'Check', label: __('Sync Categories'), default: 1 },
-					{ fieldname: 'sync_products', fieldtype: 'Check', label: __('Sync Products'), default: 1 },
-					{ fieldtype: 'Column Break' },
-					{ fieldname: 'sync_prices', fieldtype: 'Check', label: __('Sync Prices'), default: 1 },
-					{
-						fieldname: 'sync_stock', fieldtype: 'Check', label: __('Sync Stock'), default: 0,
-						description: __('Overwrites Medusa inventory with ERPNext values')
-					},
-					{ fieldtype: 'Section Break', label: __('Execution') },
-					{
-						fieldname: 'batch_size', fieldtype: 'Int', label: __('Batch Size'),
-						default: frm.doc.product_batch_size || 50
-					},
-					{
-						fieldname: 'dry_run', fieldtype: 'Check', label: __('Dry Run'), default: 1,
-						description: __('Preview changes without applying them. Recommended for first run.')
-					}
-				],
-				primary_action_label: __('Preview Changes'),
-				primary_action: function(values) {
-					let run_sync = function() {
-						dlg.hide();
-						frappe.call({
-							method: 'ecommerce_integrations.medusa.product_export.enqueue_full_sync',
-							args: values,
-							callback: function(r) {
-								if (r.message && r.message.success) {
-									frappe.show_alert({
-										message: values.dry_run
-											? __('Dry run started. Check logs for results.')
-											: __('Complete Sync started in background.'),
-										indicator: 'green'
-									});
-								} else {
-									frappe.msgprint({
-										title: __('Error'),
-										message: r.message?.message || __('Unknown error'),
-										indicator: 'red'
-									});
-								}
-							}
-						});
-					};
-					if (!values.dry_run) {
-						frappe.confirm(
-							__('Run LIVE Complete Sync against {0}? This will create/update/delete categories and products. Run a Dry Run first if unsure.',
-								[frm.doc.medusa_url || 'Medusa']),
-							run_sync
-						);
-					} else {
-						run_sync();
-					}
-				}
-			});
-			// Switch primary button style + label based on dry_run (U1)
-			let update_primary = function() {
-				let is_dry = dlg.get_value('dry_run');
-				dlg.set_primary_action(
-					is_dry ? __('Preview Changes') : __('Start Live Sync'),
-					dlg.primary_action
-				);
-				let $btn = dlg.get_primary_btn();
-				if ($btn) {
-					$btn.removeClass('btn-primary btn-danger');
-					$btn.addClass(is_dry ? 'btn-primary' : 'btn-danger');
-				}
-			};
-			dlg.fields_dict.dry_run.df.onchange = update_primary;
-			dlg.show();
-			update_primary();
+		// Product Sync öffnen — single source of truth for ERP → Medusa
+		// pushes. The legacy "Complete Sync" dialog used to live here
+		// but it duplicated what the Product Sync's preview + apply
+		// pipeline already does, without hash-delta detection or audit.
+		frm.add_custom_button(__('Product Sync öffnen'), function() {
+			frappe.set_route('List', 'Ecommerce Product Sync', { backend: 'Medusa' });
 		}).addClass('btn-primary-dark');
 
-		// === Sync to Medusa group (U3) ===
-		frm.add_custom_button(__('Categories'), function() {
-			new frappe.ui.Dialog({
-				title: __('Sync Categories'),
-				fields: [
-					{
-						fieldname: 'category_root', fieldtype: 'Link',
-						label: __('Root Category'), options: 'Item Group',
-						default: frm.doc.category_sync_root, reqd: 1
-					},
-					{ fieldname: 'dry_run', fieldtype: 'Check', label: __('Dry Run'), default: 1 }
-				],
-				primary_action_label: __('Sync'),
-				primary_action: function(values) {
-					this.hide();
-					frappe.call({
-						method: 'ecommerce_integrations.medusa.product_export.sync_categories',
-						args: values,
-						freeze: true,
-						freeze_message: __('Syncing categories...'),
-						callback: function(r) {
-							if (r.message) {
-								let s = r.message;
-								frappe.msgprint({
-									title: __('Category Sync'),
-									message: __('Total: {0}, Synced: {1}, Errors: {2}',
-										[s.total || 0, s.synced || 0, s.errors || 0]),
-									indicator: (s.errors || 0) ? 'orange' : 'green'
-								});
-							}
-						}
-					});
-				}
-			}).show();
-		}, __('Sync to Medusa'));
+		// Catalog Mirror öffnen — single source of truth for category
+		// pushes. Replaces the per-channel "Categories" sync dialog.
+		frm.add_custom_button(__('Catalog Mirror öffnen'), function() {
+			frappe.set_route('List', 'Ecommerce Catalog Mirror', { backend: 'Medusa' });
+		}, __('Sync öffnen'));
 
-		// Rebuild Prices (U2) — was "Force Price Sync"
-		frm.add_custom_button(__('Rebuild Prices…'), function() {
-			new frappe.ui.Dialog({
-				title: __('Rebuild Prices'),
-				fields: [
-					{
-						fieldname: 'warning_html', fieldtype: 'HTML',
-						options: '<div class="alert alert-warning"><strong>' + __('Warning') + ':</strong> ' +
-							__('This deletes all existing price rules in Medusa and recreates them from ERPNext. Run a Dry Run first.') +
-							'</div>'
-					},
-					{ fieldtype: 'Section Break', label: __('Filter (optional)') },
-					{ fieldname: 'item_group', fieldtype: 'Link', label: __('Item Group filter'), options: 'Item Group' },
-					{ fieldtype: 'Section Break', label: __('Execution') },
-					{
-						fieldname: 'dry_run', fieldtype: 'Check',
-						label: __('Dry Run'), default: 1,
-						description: __('Preview the operation without applying.')
-					}
-				],
-				primary_action_label: __('Start'),
-				primary_action: function(values) {
-					let run = () => {
-						this.hide();
-						frappe.call({
-							method: 'ecommerce_integrations.medusa.product_export.enqueue_force_price_sync',
-							args: {
-								item_group: values.item_group || null,
-								dry_run: values.dry_run ? 1 : 0
-							},
-							callback: function(r) {
-								if (r.message && r.message.success) {
-									frappe.show_alert({
-										message: values.dry_run
-											? __('Dry run started. Check logs for results.')
-											: __('Price sync started in background.'),
-										indicator: 'green'
-									});
-								}
-							}
-						});
-					};
-					if (!values.dry_run) {
-						frappe.confirm(__('Delete and recreate all price rules in Medusa?'), run);
-					} else {
-						run();
-					}
-				}
-			}).show();
-		}, __('Sync to Medusa'));
+		// Pull Sync öffnen — single source of truth for backend → ERP
+		// pulls (orders, customers). Replaces the legacy "Orders" /
+		// "Customers" buttons.
+		frm.add_custom_button(__('Pull Sync öffnen'), function() {
+			frappe.set_route('List', 'Ecommerce Pull Sync', { backend: 'Medusa' });
+		}, __('Sync öffnen'));
 
-		// === Import from Medusa group (U3) ===
-		// U7: replaced misleading from_date/to_date/limit dialog with simple confirm,
-		// because medusa.order.scheduled_sync.sync_new_orders ignores those args.
-		frm.add_custom_button(__('Orders'), function() {
-			frappe.confirm(
-				__('Import new Medusa orders since the last sync ({0})?',
-					[frm.doc.last_order_sync || __('never')]),
-				function() {
-					frappe.call({
-						method: 'ecommerce_integrations.medusa.order.scheduled_sync.sync_new_orders',
-						freeze: true,
-						freeze_message: __('Importing orders...'),
-						callback: function() {
-							frappe.show_alert({ message: __('Order import completed. Check logs for details.'), indicator: 'green' });
-						}
-					});
-				}
-			);
-		}, __('Import from Medusa'));
-
-		frm.add_custom_button(__('Customers'), function() {
-			frappe.confirm(
-				__('Import new Medusa customers since the last sync ({0})?',
-					[frm.doc.last_customer_sync || __('never')]),
-				function() {
-					frappe.call({
-						method: 'ecommerce_integrations.medusa.scheduled_customer_sync.sync_new_customers',
-						freeze: true,
-						freeze_message: __('Importing customers...'),
-						callback: function() {
-							frappe.show_alert({ message: __('Customer import completed. Check logs for details.'), indicator: 'green' });
-						}
-					});
-				}
-			);
-		}, __('Import from Medusa'));
 
 		// === Maintenance group (U3) ===
 		// Test Connection — explicit success/failure feedback (U6)

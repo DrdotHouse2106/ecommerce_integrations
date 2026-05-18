@@ -322,7 +322,7 @@
 								message: __('Medusa-Integration aktiviert.'),
 								indicator: 'green',
 							});
-							frm.reload_doc();
+							_offer_product_sync_followup('Medusa');
 						} else {
 							frappe.msgprint({
 								title: __('Fehler'),
@@ -335,6 +335,28 @@
 			},
 		});
 		d.set_secondary_action_label(__('Abbrechen'));
+		d.set_secondary_action(function () { d.hide(); });
+		d.show();
+	}
+
+	// After activation, the next thing the operator usually wants is
+	// to define which Items get pushed and where. Rather than spinning
+	// up that flow inside the wizard, we offer a single one-click
+	// follow-up that hands off to the dedicated Product Sync form.
+	function _offer_product_sync_followup(backend) {
+		const d = new frappe.ui.Dialog({
+			title: __('Nächster Schritt: Product Sync anlegen'),
+			fields: [{ fieldname: 'body', fieldtype: 'HTML', options: `
+				<p>${__('Damit Produkte aus ERPNext nach {0} fliessen, brauchst du einen <b>Product Sync</b>. Dort wählst du Auswahl (Kategorie, Smart Collection, …), Storefronts und Sync-Zeitplan.', [backend])}</p>
+				<p class="text-muted">${__('Tipp: ein einziger Product Sync deckt mehrere Storefronts ab — leg also nicht pro Storefront einen eigenen an.')}</p>
+			` }],
+			primary_action_label: __('Product Sync anlegen'),
+			primary_action: function () {
+				d.hide();
+				frappe.new_doc('Ecommerce Product Sync', { backend: backend });
+			},
+		});
+		d.set_secondary_action_label(__('Später'));
 		d.set_secondary_action(function () { d.hide(); });
 		d.show();
 	}

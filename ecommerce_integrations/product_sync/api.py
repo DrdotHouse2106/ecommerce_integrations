@@ -73,7 +73,8 @@ def start_preview(
     sync: str,
     *,
     max_items: int | None = None,
-    fetch_live: bool = True,
+    fetch_live: bool = False,
+    detect_orphans: bool = False,
     subset_item_codes: list[str] | None = None,
 ) -> dict:
     """Kick off a background preview run.
@@ -83,10 +84,24 @@ def start_preview(
     The caller polls :func:`get_preview_status` to track progress and
     pick up the final plan when ready.
 
-    This avoids the gunicorn/nginx 30–60 s request timeout that kills
-    the synchronous :func:`preview_sync` on five-figure catalogues —
-    Frappe's worker pool runs without HTTP timeouts and the SPA polls
-    the Run row for status + percentage.
+    Three preview modes, in increasing wall-time:
+
+    - **Fast** (defaults, ``fetch_live=False``, ``detect_orphans=False``):
+      pure hash-delta, no backend roundtrip. Bucket counts only —
+      missing per-field diffs and orphan list. Typical: ~30 s on 30k
+      items.
+    - **Detail compare** (``fetch_live=True``): also fetches live
+      Shopware/Medusa state for items where stored_hash !=
+      proposed_hash (drift candidates), so the UPDATE bucket shows
+      real per-field diffs. Adds 5–20 s depending on drift size.
+    - **Full** (``fetch_live=True`` + ``detect_orphans=True``):
+      additionally walks the target channels for backend products
+      not in any mapping. Can take several minutes on a five-figure
+      catalogue.
+
+    The default is Fast because it answers "what would change?"
+    correctly for 99 % of operator workflows; the heavier modes are
+    opt-in from the preview dialog.
     """
     if not frappe.has_permission(SYNC_DOCTYPE, "read", doc=sync):
         frappe.throw(_("Not permitted to read this Product Sync"))
@@ -110,14 +125,18 @@ def start_preview(
     run.insert()
     frappe.db.commit()  # noqa: SLF001 — make the row visible to the worker
 
+    # ``long`` queue: previews on big catalogues can run for minutes
+    # (especially Detail / Full modes with backend roundtrips). The
+    # short queue's worker pool is sized for sub-30 s jobs.
     frappe.enqueue(
         "ecommerce_integrations.product_sync.api._run_preview_in_background",
-        queue="short",
-        timeout=900,
+        queue="long",
+        timeout=1800,
         sync=sync,
         run_name=run.name,
         max_items=_coerce_int(max_items),
-        fetch_live=_coerce_bool(fetch_live, default=True),
+        fetch_live=_coerce_bool(fetch_live, default=False),
+        detect_orphans=_coerce_bool(detect_orphans, default=False),
         subset_item_codes=subset_item_codes,
     )
     return {"run_name": run.name, "status": "queued"}
@@ -129,6 +148,7 @@ def _run_preview_in_background(
     max_items: int | None,
     fetch_live: bool,
     subset_item_codes: list[str] | None,
+    detect_orphans: bool = False,
 ) -> None:
     """Background worker for :func:`start_preview`.
 
@@ -174,9 +194,14 @@ def _run_preview_in_background(
             fetch_live=fetch_live,
             subset_item_codes=subset_item_codes,
             on_progress=_on_progress,
+            detect_orphans=detect_orphans,
         )
         plan_dict = plan.to_dict() if hasattr(plan, "to_dict") else plan
-        frappe.db.set_value(
+        # Detail / Full previews can run for minutes during which the
+        # MySQL connection idles past ``wait_timeout``. The retry
+        # wrapper force-reconnects on (2006/2013) before re-running
+        # the set_value so we don't lose the result at the finish line.
+        _set_value_with_db_retry(
             _RUN_DOCTYPE, run_name,
             {
                 "status": "ok",
@@ -190,8 +215,11 @@ def _run_preview_in_background(
         frappe.db.commit()  # noqa: SLF001
     except Exception as exc:  # noqa: BLE001
         import traceback
-        frappe.db.rollback()
-        frappe.db.set_value(
+        try:
+            frappe.db.rollback()
+        except Exception:  # noqa: BLE001
+            _force_db_reconnect()
+        _set_value_with_db_retry(
             _RUN_DOCTYPE, run_name,
             {
                 "status": "error",
@@ -713,6 +741,43 @@ def list_for_backend(backend: str) -> list[dict]:
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────
+
+
+def _force_db_reconnect() -> None:
+    """Hard-reset the worker's MySQL handle.
+
+    ``frappe.connect()`` short-circuits when ``frappe.local.db`` is
+    already populated, so a stale handle survives a plain ``close()``
+    + ``connect()`` pair. Setting ``frappe.local.db = None`` first
+    forces a real fresh connection — required after a multi-minute
+    HTTPS-bound fetch tripped MySQL's ``wait_timeout``.
+    """
+    try:
+        frappe.db.close()
+    except Exception:  # noqa: BLE001
+        pass
+    frappe.local.db = None
+    frappe.connect(site=getattr(frappe.local, "site", None))
+
+
+def _set_value_with_db_retry(doctype: str, name: str, values: dict, **kwargs) -> None:
+    """``frappe.db.set_value`` with one auto-reconnect retry.
+
+    Wraps the single error we keep hitting on long-running preview
+    workers — ``(2006, 'Server has gone away')`` after the connection
+    sat idle through an HTTPS-bound drift fetch. One retry after a
+    forced reconnect is enough; if it fails twice the underlying
+    issue isn't the idle timeout and we let it raise.
+    """
+    try:
+        frappe.db.set_value(doctype, name, values, **kwargs)
+        return
+    except Exception as exc:  # noqa: BLE001
+        msg = str(exc)
+        if "gone away" not in msg and "2006" not in msg and "2013" not in msg:
+            raise
+        _force_db_reconnect()
+        frappe.db.set_value(doctype, name, values, **kwargs)
 
 
 def _coerce_int(v) -> int | None:

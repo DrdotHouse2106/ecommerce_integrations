@@ -87,6 +87,7 @@ def compute_product_diff(
     fetch_live: bool = True,
     subset_item_codes: list[str] | None = None,
     on_progress=None,
+    detect_orphans: bool = False,
 ) -> ProductSyncPreviewPlan:
     """Build a :class:`ProductSyncPreviewPlan` for one Sync.
 
@@ -94,10 +95,12 @@ def compute_product_diff(
         sync_doc: The ``Ecommerce Product Sync`` doc.
         max_items: Cap on items processed for preview. ``None`` = no
             cap (the default — accurate counts are the point).
-        fetch_live: When True, calls the backend adapter to fetch live
-            products for per-field diffs and orphan/drift detection.
-            Pass False for hash-only fast mode when the adapter is
-            slow or unavailable.
+        fetch_live: When True, fetch live backend state for **drift
+            candidates only** — items whose stored hash differs from
+            the freshly computed proposed hash. Noop items (hash
+            equal) never trigger a backend roundtrip, which is the
+            single biggest preview speedup for stable catalogues.
+            Pass False to skip the backend entirely (hash-only mode).
         subset_item_codes: Optional pre-filtered list of item_codes —
             the differ only processes these (used by the Subset-Test
             mode of the test runner).
@@ -106,6 +109,10 @@ def compute_product_diff(
             stream progress to the UI. The callback is the runner's
             responsibility to throttle (writes to a Run row are cheap
             in batches of ~100 ms but expensive every iteration).
+        detect_orphans: When True, walks the target channels for
+            backend products not in any mapping (the slow path that
+            used to fire on every preview). Default False so previews
+            are fast by default; the full report is opt-in.
     """
     backend = sync_doc.backend or ""
     integration_key = BACKEND_TO_INTEGRATION_KEY.get(backend, backend.lower())
@@ -150,164 +157,168 @@ def compute_product_diff(
     price_lists = _collect_price_lists(sync_doc)
     ctx = BulkContext(item_codes, price_lists)
 
-    # 3. Optionally pre-fetch live products for diff + orphan/drift.
+    # 3. Phase A — Hash-first classification.
+    #
+    # Walk every Item once and bucket it into CREATE / NOOP /
+    # drift-candidate based on (mapping, stored_hash) alone. No
+    # backend roundtrip yet. Hash equality is the cheap NOOP gate:
+    # ~30k items become a single in-memory pass, no HTTPS at all.
+    drift_candidates: list[tuple] = []  # (item, proposed, hash, name, mapping)
+    total = len(item_nodes)
+    for i, node in enumerate(item_nodes):
+        override = override_by_item.get(node.item_code)
+        if override and override.get("mode") == "skip":
+            _bump_progress(on_progress, i + 1, total)
+            continue
+
+        decision = resolve_item(node.item_code, backend)
+        if decision.sync_name and decision.sync_name != sync_doc.name:
+            plan.conflicts.append(
+                ConflictItem(
+                    item_code=node.item_code,
+                    competing_syncs=decision.competing_syncs or [],
+                    resolution=decision.source or "manual_review",
+                )
+            )
+            _bump_progress(on_progress, i + 1, total)
+            continue
+
+        item = ctx.item(node.item_code) if ctx is not None else None
+        if item is None:
+            try:
+                item = frappe.get_doc("Item", node.item_code)
+            except frappe.DoesNotExistError:
+                _bump_progress(on_progress, i + 1, total)
+                continue
+
+        proposed = build_canonical_payload(item, sync_doc, ctx=ctx)
+        proposed_hash = compute_hash(proposed)
+        proposed_name = proposed.get("basic", {}).get("name") or item.item_name
+
+        mapping = mapping_by_item.get(node.item_code)
+        if mapping is None or not mapping.get("integration_item_code"):
+            plan.creates.append(
+                ProductNodePlan(
+                    item_code=node.item_code,
+                    sku=item.item_code,
+                    proposed_name=proposed_name,
+                    action=ACTION_CREATE,
+                )
+            )
+            _bump_progress(on_progress, i + 1, total)
+            continue
+
+        external_id = mapping["integration_item_code"]
+        stored_hash = mapping.get("last_synced_hash") or ""
+        if stored_hash and stored_hash == proposed_hash:
+            plan.noops.append(
+                ProductNodePlan(
+                    item_code=node.item_code,
+                    sku=item.item_code,
+                    proposed_name=proposed_name,
+                    action=ACTION_NOOP,
+                    current_external_id=external_id,
+                )
+            )
+            _bump_progress(on_progress, i + 1, total)
+            continue
+
+        # Drift candidate — defer until we know whether to fetch live.
+        drift_candidates.append(
+            (item, proposed, proposed_hash, proposed_name, mapping),
+        )
+        _bump_progress(on_progress, i + 1, total)
+
+    # 4. Phase B — Backend roundtrip for drift candidates only.
     live_by_ext_id: dict[str, LiveProductNode] = {}
     adapter_available = False
     adapter = None
-    if fetch_live:
+    if fetch_live and (drift_candidates or detect_orphans):
         try:
             adapter = _get_adapter(backend)
-            if mapped_ext_ids:
-                # Fetch the mapped products first so the differ has live
-                # state for every update candidate.
-                for p in adapter.fetch_products(external_ids=mapped_ext_ids):
-                    live_by_ext_id[p.external_id] = p
             adapter_available = True
         except NotImplementedError:
             plan.notes.append(_(
                 "Backend-Adapter ist noch nicht implementiert — "
                 "Per-Feld-Diff und Orphan-Erkennung übersprungen."
             ))
-        except AdapterError as exc:
-            plan.notes.append(_("Backend-Fetch fehlgeschlagen: {0}").format(exc))
         except Exception as exc:  # noqa: BLE001 — never crash the differ
             plan.notes.append(
-                _("Unerwarteter Fehler beim Backend-Fetch: {0}").format(exc),
+                _("Unerwarteter Fehler beim Adapter-Load: {0}").format(exc),
             )
 
-    # 4. Walk each item, fill the appropriate bucket.
-    total = len(item_nodes)
-    for i, node in enumerate(item_nodes):
-        _classify_item(
-            plan=plan,
-            node=node,
-            sync_doc=sync_doc,
-            backend=backend,
-            mapping=mapping_by_item.get(node.item_code),
-            override=override_by_item.get(node.item_code),
-            live_by_ext_id=live_by_ext_id,
-            adapter_available=adapter_available,
-            ctx=ctx,
-        )
-        if on_progress is not None:
-            try:
-                on_progress(i + 1, total)
-            except Exception:  # noqa: BLE001
-                pass  # progress is best-effort, never fail the diff
+    if adapter_available and adapter is not None and drift_candidates:
+        drift_ext_ids = [
+            m["integration_item_code"]
+            for (_i, _p, _h, _n, m) in drift_candidates
+        ]
+        try:
+            for p in adapter.fetch_products(external_ids=drift_ext_ids):
+                live_by_ext_id[p.external_id] = p
+        except AdapterError as exc:
+            plan.notes.append(
+                _("Backend-Fetch (Drift-Kandidaten) fehlgeschlagen: {0}").format(exc),
+            )
 
-    # 5. Unmatched orphans: live products in the target channels not in
-    # any mapping row.
-    if adapter_available and adapter is not None:
+    # 5. Phase C — Resolve drift candidates → UPDATE or MAPPING_DRIFT.
+    for (item, proposed, proposed_hash, proposed_name, mapping) in drift_candidates:
+        external_id = mapping["integration_item_code"]
+        if adapter_available and external_id not in live_by_ext_id:
+            plan.mapping_drift.append(
+                MappingDriftItem(
+                    item_code=item.item_code,
+                    stale_external_id=external_id,
+                    proposed_name=proposed_name,
+                )
+            )
+            continue
+        live = live_by_ext_id.get(external_id) if adapter_available else None
+        diffs = _diff_proposed_against_live(proposed, live) if live else []
+        _apply_risk_flags(diffs)
+        plan.updates.append(
+            ProductNodePlan(
+                item_code=item.item_code,
+                sku=item.item_code,
+                proposed_name=proposed_name,
+                action=ACTION_UPDATE,
+                diffs=diffs,
+                current_external_id=external_id,
+                notes=(
+                    []
+                    if live is not None
+                    else [_(
+                        "Per-Feld-Diff nicht verfügbar — Backend-Adapter konnte "
+                        "Live-Stand nicht laden."
+                    )]
+                ),
+            )
+        )
+
+    # 6. Phase D — Orphan walk, opt-in only.
+    #
+    # Used to fire on every preview, but on a 30k+ catalogue the
+    # ``adapter.fetch_products(sales_channel_ids=...)`` call traverses
+    # the entire backend inventory and dominated wall-time (the famous
+    # "stuck at 99 %"). Now strictly opt-in via ``detect_orphans``.
+    if detect_orphans and adapter_available and adapter is not None:
         _detect_unmatched_orphans(plan, sync_doc, adapter, mapped_ext_ids)
+    elif not detect_orphans:
+        plan.notes.append(_(
+            "Orphan-Erkennung übersprungen (Schnellvorschau). "
+            "Für die vollständige Liste 'Detailvergleich' wählen."
+        ))
 
     return plan
 
 
-def _classify_item(
-    *,
-    plan: ProductSyncPreviewPlan,
-    node,
-    sync_doc,
-    backend: str,
-    mapping: dict | None,
-    override: dict | None,
-    live_by_ext_id: dict[str, LiveProductNode],
-    adapter_available: bool,
-    ctx=None,
-) -> None:
-    """Place one Item into the correct bucket of ``plan``."""
-    # Override mode=skip wins immediately, no further work.
-    if override and override.get("mode") == "skip":
+def _bump_progress(on_progress, current: int, total: int) -> None:
+    """Throttled progress shim — never raises, never fails the diff."""
+    if on_progress is None:
         return
-
-    # Conflict resolution.
-    decision = resolve_item(node.item_code, backend)
-    if decision.sync_name and decision.sync_name != sync_doc.name:
-        plan.conflicts.append(
-            ConflictItem(
-                item_code=node.item_code,
-                competing_syncs=decision.competing_syncs or [],
-                resolution=decision.source or "manual_review",
-            )
-        )
-        return
-
-    # Use the bulk-pre-loaded ItemSnapshot when available; fall back
-    # to a per-item get_doc only if the snapshot is missing (rare —
-    # walker raced with a delete, or a single-item caller skipped the
-    # bulk context).
-    item = ctx.item(node.item_code) if ctx is not None else None
-    if item is None:
-        try:
-            item = frappe.get_doc("Item", node.item_code)
-        except frappe.DoesNotExistError:
-            return
-
-    proposed = build_canonical_payload(item, sync_doc, ctx=ctx)
-    proposed_hash = compute_hash(proposed)
-    proposed_name = proposed.get("basic", {}).get("name") or item.item_name
-
-    # No mapping yet → CREATE.
-    if mapping is None or not mapping.get("integration_item_code"):
-        plan.creates.append(
-            ProductNodePlan(
-                item_code=node.item_code,
-                sku=item.item_code,
-                proposed_name=proposed_name,
-                action=ACTION_CREATE,
-            )
-        )
-        return
-
-    external_id = mapping["integration_item_code"]
-    stored_hash = mapping.get("last_synced_hash") or ""
-
-    # Mapping points at a live product that no longer exists → DRIFT.
-    if adapter_available and external_id not in live_by_ext_id:
-        plan.mapping_drift.append(
-            MappingDriftItem(
-                item_code=node.item_code,
-                stale_external_id=external_id,
-                proposed_name=proposed_name,
-            )
-        )
-        return
-
-    # Hash unchanged → NOOP (cheap path, no field-by-field work).
-    if stored_hash and stored_hash == proposed_hash:
-        plan.noops.append(
-            ProductNodePlan(
-                item_code=node.item_code,
-                sku=item.item_code,
-                proposed_name=proposed_name,
-                action=ACTION_NOOP,
-                current_external_id=external_id,
-            )
-        )
-        return
-
-    # Hash drift → UPDATE.
-    live = live_by_ext_id.get(external_id) if adapter_available else None
-    diffs = _diff_proposed_against_live(proposed, live) if live else []
-    _apply_risk_flags(diffs)
-    plan.updates.append(
-        ProductNodePlan(
-            item_code=node.item_code,
-            sku=item.item_code,
-            proposed_name=proposed_name,
-            action=ACTION_UPDATE,
-            diffs=diffs,
-            current_external_id=external_id,
-            notes=(
-                []
-                if live is not None
-                else [_(
-                    "Per-Feld-Diff nicht verfügbar — Backend-Adapter konnte "
-                    "Live-Stand nicht laden."
-                )]
-            ),
-        )
-    )
+    try:
+        on_progress(current, total)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _diff_proposed_against_live(

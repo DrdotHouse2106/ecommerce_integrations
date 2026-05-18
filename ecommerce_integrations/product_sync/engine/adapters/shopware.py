@@ -181,31 +181,29 @@ class ShopwareProductAdapter(ProductAdapter):
         category_ids: list[str] | None,
         external_ids: list[str] | None,
     ) -> Iterator[LiveProductNode]:
+        # Bulk-by-IDs path: when ``external_ids`` is set we know the
+        # exact universe up front, so we can chunk it into 500-ID
+        # ``equalsAny`` batches (Shopware's filter cap) and fire the
+        # batches in parallel. Each batch is exactly one page, so no
+        # inner pagination is needed. ``client`` comes from the
+        # surrounding ``temp_shopware_session`` and is reused across
+        # threads (the SDK wraps a ``requests.Session`` which is
+        # thread-safe for independent calls).
+        if external_ids:
+            yield from self._fetch_by_ids_parallel(client, external_ids)
+            return
+
+        # Fallback: filtered walk with serial pagination. Used for
+        # orphan detection (``sales_channel_ids`` / ``category_ids``)
+        # where the total count is unknown up front.
         filters = self._build_fetch_filters(
             sales_channel_ids=sales_channel_ids,
             category_ids=category_ids,
-            external_ids=external_ids,
+            external_ids=None,
         )
         page = 1
         while True:
-            criteria: dict[str, Any] = {
-                "page": page,
-                "limit": _FETCH_PAGE_SIZE,
-                # Associations carry the data we need for the hash. Drop
-                # an association here and the live-hash silently goes
-                # stale ("no images on live, push images every run").
-                "associations": {
-                    "tax": {},
-                    "media": {"associations": {"media": {}}},
-                    "properties": {"associations": {"group": {}}},
-                    "prices": {},
-                    "visibilities": {},
-                    "categories": {},
-                },
-            }
-            if filters:
-                criteria["filter"] = filters
-
+            criteria = self._build_fetch_criteria(page=page, filters=filters)
             try:
                 resp = client.request_post(
                     "search/product", payload=criteria,
@@ -222,11 +220,89 @@ class ShopwareProductAdapter(ProductAdapter):
                 node = self._row_to_live_node(row)
                 if node is not None:
                     yield node
-            # Same termination guard as the catalog adapter — if the
-            # page came back short, we're done.
             if len(data) < _FETCH_PAGE_SIZE:
                 return
             page += 1
+
+    def _fetch_by_ids_parallel(
+        self, client, external_ids: list[str],
+    ) -> Iterator[LiveProductNode]:
+        """Fire one HTTP request per 500-ID chunk, serially.
+
+        Despite the historical name, this path is now serial after
+        we hit two thread-related issues in production:
+
+        - ``frappe.flags`` (thread-local) isn't auto-propagated to
+          ``ThreadPoolExecutor`` workers, so the Shopware SDK's retry
+          path crashed inside threads with "object is not bound".
+        - Even after passing the client through, a multi-minute
+          IO-bound fetch left the worker's shared MySQL connection
+          idle long enough for ``wait_timeout`` to fire — the next
+          post-fetch DB write died with ``(2006)``. MySQLdb
+          connections aren't safe to share across worker threads in
+          unrelated code paths anyway.
+
+        The chunking itself is still the win: each chunk is one HTTP
+        roundtrip via ``equalsAny`` (no inner pagination), so wall
+        time scales with N / 500 instead of the old page-by-page walk.
+        On a 33 961-item drift fetch that's still ~10 × faster than
+        the pre-restructure path because the per-page overhead is
+        gone — and we don't have to reason about thread-vs-Frappe
+        edge cases.
+        """
+        cleaned = sorted({eid for eid in external_ids if eid})
+        if not cleaned:
+            return
+        for i in range(0, len(cleaned), _FETCH_PAGE_SIZE):
+            yield from self._fetch_chunk(
+                client, cleaned[i : i + _FETCH_PAGE_SIZE],
+            )
+
+    def _fetch_chunk(self, client, chunk: list[str]) -> Iterator[LiveProductNode]:
+        """Fetch one chunk (max 500 IDs) using the supplied client."""
+        criteria = self._build_fetch_criteria(
+            page=1,
+            filters=[{
+                "type": "equalsAny",
+                "field": "id",
+                "value": list(chunk),
+            }],
+        )
+        try:
+            resp = client.request_post("search/product", payload=criteria)
+        except Exception as e:
+            raise AdapterError(
+                f"Shopware product chunk fetch failed (size={len(chunk)}): {e}",
+            ) from e
+        for row in (resp or {}).get("data") or []:
+            node = self._row_to_live_node(row)
+            if node is not None:
+                yield node
+
+    def _build_fetch_criteria(
+        self, *, page: int, filters: list[dict[str, Any]] | None,
+    ) -> dict[str, Any]:
+        """One place that owns the canonical ``search/product`` payload.
+
+        Associations carry the data the live hash needs. Drop an
+        association and the live-hash silently goes stale (e.g.
+        "no images on live, push images every run").
+        """
+        criteria: dict[str, Any] = {
+            "page": page,
+            "limit": _FETCH_PAGE_SIZE,
+            "associations": {
+                "tax": {},
+                "media": {"associations": {"media": {}}},
+                "properties": {"associations": {"group": {}}},
+                "prices": {},
+                "visibilities": {},
+                "categories": {},
+            },
+        }
+        if filters:
+            criteria["filter"] = filters
+        return criteria
 
     def _build_fetch_filters(
         self,

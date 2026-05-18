@@ -75,19 +75,7 @@ def walk_items_for_sync(sync_doc) -> Iterator[ItemNode]:
         yield from _walk_via_item_group(sync_doc)
         return
     if scope == SCOPE_SMART_COLLECTION:
-        # Not yet wired to ``smart_collections.engine.resolver``.
-        # Surface a clear note via the preview's notes path rather
-        # than silently yield zero items (which used to mislead
-        # operators into "0 in scope" when the Sync was actually
-        # configured against an unimplemented mode).
-        frappe.log_error(
-            title="Product Sync: Smart Collection scope not implemented",
-            message=(
-                f"Sync '{sync_doc.name}' uses scope_mode='Smart Collection' "
-                "which has no walker implementation. Pick a different scope "
-                "or wait for the Smart-Collection-resolver wiring."
-            ),
-        )
+        yield from _walk_via_smart_collections(sync_doc)
         return
     if scope == SCOPE_CUSTOM_FILTER:
         # See note above; same fail-loud principle. Custom Filter
@@ -190,6 +178,88 @@ def _walk_via_item_group(sync_doc) -> Iterator[ItemNode]:
         yield from _select_items(sync_doc, ig_names={root_ig})
 
 
+def _walk_via_smart_collections(sync_doc) -> Iterator[ItemNode]:
+    """Yield items resolved by one or more linked Smart Collections.
+
+    Reads ``linked_smart_collections`` (child-table, multi-row) plus
+    the legacy single ``linked_smart_collection`` link for back-compat.
+    Each child row may carry an optional ``sales_channel_id`` filter:
+    when set, the collection's items are only emitted if the Sync
+    actually targets that channel (i.e. the channel id appears in
+    ``target_sales_channels``). Empty ``sales_channel_id`` = the
+    collection contributes to every channel of this Sync.
+
+    The union of all matching collections' item-codes is emitted —
+    duplicates are deduped here so the differ doesn't classify the
+    same Item twice.
+    """
+    rows: list = list(getattr(sync_doc, "linked_smart_collections", []) or [])
+    legacy_name = getattr(sync_doc, "linked_smart_collection", None)
+    if legacy_name and not any(
+        r.smart_collection == legacy_name for r in rows
+    ):
+        # Legacy single-link still wins when the new table is empty,
+        # so installs that never edited the form after the migration
+        # don't suddenly see an empty scope.
+        class _Row:
+            smart_collection = legacy_name
+            sales_channel_id = None
+        rows.append(_Row())
+
+    if not rows:
+        return
+
+    # Build the target-channel set once for the channel-filter check.
+    sync_channels = {
+        (ch.sales_channel_id or "").strip()
+        for ch in (getattr(sync_doc, "target_sales_channels", None) or [])
+        if (ch.sales_channel_id or "").strip()
+    }
+
+    try:
+        from ecommerce_integrations.smart_collections.engine.resolver import resolve
+    except Exception as exc:  # noqa: BLE001 — module missing on minimal installs
+        frappe.log_error(
+            title="Product Sync: Smart Collection resolver unavailable",
+            message=f"Sync '{sync_doc.name}': {exc}",
+        )
+        return
+
+    matched_codes: set[str] = set()
+    for row in rows:
+        sc_name = getattr(row, "smart_collection", None)
+        if not sc_name or not frappe.db.exists("Ecommerce Smart Collection", sc_name):
+            continue
+        row_channel = (getattr(row, "sales_channel_id", "") or "").strip()
+        if row_channel and sync_channels and row_channel not in sync_channels:
+            # Row-level channel restriction that doesn't match any of
+            # this Sync's targets. Skip rather than emit "would never
+            # be pushed anywhere" items.
+            continue
+        try:
+            collection = frappe.get_cached_doc(
+                "Ecommerce Smart Collection", sc_name,
+            )
+        except frappe.DoesNotExistError:
+            continue
+        try:
+            matched_codes.update(resolve(collection, persist_stats=False))
+        except Exception as exc:  # noqa: BLE001
+            frappe.log_error(
+                title=f"Product Sync: resolve('{sc_name}') failed",
+                message=str(exc),
+            )
+            continue
+
+    if not matched_codes:
+        return
+
+    yield from _select_items(
+        sync_doc,
+        item_codes=matched_codes,
+    )
+
+
 def _walk_all_items(sync_doc) -> Iterator[ItemNode]:
     """Yield every Item that survives the doc-level filters."""
     yield from _select_items(sync_doc)
@@ -205,6 +275,7 @@ def _select_items(
     *,
     ig_names: set[str] | None = None,
     lft_rgt: tuple[int, int] | None = None,
+    item_codes: set[str] | None = None,
 ) -> Iterator[ItemNode]:
     """Run the streaming SELECT that backs every scope branch.
 
@@ -240,6 +311,10 @@ def _select_items(
         where.append("g.lft >= %(lft)s AND g.rgt <= %(rgt)s")
         params["lft"] = lft_rgt[0]
         params["rgt"] = lft_rgt[1]
+    # ``item_codes`` filter is layered below — it composes with both
+    # the IG-name filter (Catalog Mirror, Item Group subtree) and
+    # the lft/rgt join, since callers may want to intersect a smart
+    # collection with another scope dimension later.
     elif ig_names is not None:
         if not ig_names:
             return
@@ -249,6 +324,14 @@ def _select_items(
         # friendliness).
         params["ig_names"] = tuple(sorted(ig_names))
         where.append("i.item_group IN %(ig_names)s")
+
+    if item_codes is not None:
+        if not item_codes:
+            return
+        # Same stability trick — sorted tuple gives a cache-friendly
+        # query string across previews of the same Sync.
+        params["item_codes"] = tuple(sorted(item_codes))
+        where.append("i.name IN %(item_codes)s")
 
     where_clause = (" WHERE " + " AND ".join(where)) if where else ""
 

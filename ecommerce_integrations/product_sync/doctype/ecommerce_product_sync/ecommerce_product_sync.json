@@ -17,6 +17,7 @@
   "scope_mode",
   "linked_catalog_mirror",
   "linked_smart_collection",
+  "linked_smart_collections",
   "root_item_group",
   "include_descendants",
   "custom_filter_rules",
@@ -141,11 +142,20 @@
   },
   {
    "fieldname": "linked_smart_collection",
-   "label": "Verknüpfte Kollektion",
+   "label": "Verknüpfte Kollektion (Legacy)",
    "fieldtype": "Link",
    "options": "Ecommerce Smart Collection",
+   "hidden": 1,
+   "description": "Altfeld — wurde durch die Tabelle 'Verknüpfte Kollektionen' ersetzt. Inhalt wird beim Patch in die Tabelle migriert; dieses Feld bleibt für Rückwärtskompatibilität erhalten."
+  },
+  {
+   "fieldname": "linked_smart_collections",
+   "label": "Verknüpfte Kollektionen",
+   "fieldtype": "Table",
+   "options": "Ecommerce Product Sync Smart Collection",
    "depends_on": "eval:doc.scope_mode==='Smart Collection'",
-   "mandatory_depends_on": "eval:doc.scope_mode==='Smart Collection'"
+   "mandatory_depends_on": "eval:doc.scope_mode==='Smart Collection'",
+   "description": "Eine oder mehrere Smart Collections — alle in Auswahl enthaltenen Artikel landen im Sync. Pro Zeile optional eine Storefront-ID filtern, damit die Kollektion nur an einen Channel gepushed wird."
   },
   {
    "fieldname": "root_item_group",

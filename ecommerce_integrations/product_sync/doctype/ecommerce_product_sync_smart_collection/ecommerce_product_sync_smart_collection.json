@@ -1,0 +1,44 @@
+{
+ "actions": [],
+ "creation": "2026-05-18 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "smart_collection",
+  "sales_channel_id"
+ ],
+ "fields": [
+  {
+   "fieldname": "smart_collection",
+   "label": "Smart Collection",
+   "fieldtype": "Link",
+   "options": "Ecommerce Smart Collection",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 6,
+   "description": "Verlinkte Smart Collection — ihre Regeln entscheiden, welche Items in den Sync wandern."
+  },
+  {
+   "fieldname": "sales_channel_id",
+   "label": "Nur für Storefront (optional)",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "columns": 5,
+   "description": "Wenn gesetzt, wird diese Kollektion nur gegen die angegebene Storefront-ID gepushed — sonst gegen alle Channels in target_sales_channels. Lass das Feld leer wenn die Kollektion universell ist."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-05-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "name": "Ecommerce Product Sync Smart Collection",
+ "owner": "Administrator",
+ "module": "Product Sync",
+ "permissions": [],
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 0
+}
