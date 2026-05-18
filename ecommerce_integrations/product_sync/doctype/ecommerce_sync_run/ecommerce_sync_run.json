@@ -31,6 +31,7 @@
   "updated_count",
   "deactivated_count",
   "deleted_count",
+  "ai_descriptions_generated",
   "metrics_section",
   "p50_ms",
   "p99_ms",
@@ -170,6 +171,13 @@
    "label": "Gelöscht",
    "fieldtype": "Int",
    "read_only": 1
+  },
+  {
+   "fieldname": "ai_descriptions_generated",
+   "label": "AI-Beschreibungen erzeugt",
+   "fieldtype": "Int",
+   "read_only": 1,
+   "description": "Wie viele Items im Pre-Pass über die AI-Description-Pipeline einen Text bekommen haben (nur wenn description_source=ai_generated und auto_generate_ai_descriptions aktiv)."
   },
   {
    "fieldname": "metrics_section",

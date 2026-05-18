@@ -146,7 +146,21 @@ def _apply_live(
 
     applied_diffs: list[dict] = []
     plan = None
+    ai_generated_count = 0
     try:
+        # 0. Optional: pre-pass to fill missing AI descriptions so the
+        #    diff sees the fresh copy and the apply step pushes content
+        #    instead of empty strings. Bounded by ``max_ai_pre_generate``
+        #    so a 33k-item Sync can't accidentally torch the token
+        #    budget on its first run.
+        if (
+            (sync_doc.description_source or "") == "ai_generated"
+            and int(getattr(sync_doc, "auto_generate_ai_descriptions", 0) or 0)
+        ):
+            ai_generated_count = _ai_pre_pass(
+                sync_doc, subset_item_codes=subset_item_codes,
+            )
+
         # 1. Build the diff (full set, no max_items cap for apply).
         plan = compute_product_diff(
             sync_doc,
@@ -270,6 +284,7 @@ def _apply_live(
             run, result, status=status,
             message=None, applied_diffs=applied_diffs,
             started_ts=started_ts,
+            ai_generated=ai_generated_count,
         )
         _release_sync(
             sync_doc.name, status=status,
@@ -452,6 +467,7 @@ def _finalize_run(
     status: str, message: str | None,
     applied_diffs: list[dict],
     started_ts: float,
+    ai_generated: int = 0,
 ) -> None:
     """Write final stats + applied_diffs onto the Run doc.
 
@@ -477,6 +493,7 @@ def _finalize_run(
             "updated_count": result.updated,
             "deactivated_count": result.deactivated,
             "deleted_count": result.deleted,
+            "ai_descriptions_generated": ai_generated,
             "error_summary": "\n".join(result.errors[:10]) if result.errors else "",
             "applied_diffs_json": frappe.as_json(applied_diffs, indent=1),
         },
@@ -587,3 +604,68 @@ def dispatch_due_syncs() -> dict:
     """
     from ecommerce_integrations.product_sync.scheduler import dispatch_due_syncs as _do
     return _do()
+
+
+# ─── AI pre-pass ─────────────────────────────────────────────────────
+
+
+def _ai_pre_pass(sync_doc, *, subset_item_codes: list[str] | None) -> int:
+    """Generate AI descriptions for in-scope Items that don't have one.
+
+    Walks the Sync's scope, picks items where ``ai_description_generated``
+    is falsy, hands a bounded batch to ``ai_description.gemini.
+    generate_descriptions_batch``. Returns the count of successful
+    generations. All failures are logged via the AI module's own
+    audit log (``AI Description Log``) — this function only reports
+    the headline number for the Sync Run audit row.
+
+    The batch ceiling comes from ``sync_doc.max_ai_pre_generate``;
+    setting it to 0 means "unbounded" (operator override for one-off
+    backfills). Default 100 keeps a single run from torching the
+    token budget on the first invocation of a 30k-item catalogue.
+    """
+    try:
+        from ecommerce_integrations.ai_description.gemini import (
+            generate_descriptions_batch,
+        )
+        from ecommerce_integrations.product_sync.walker import (
+            walk_items_for_sync,
+        )
+    except Exception:  # noqa: BLE001 — AI module is optional
+        return 0
+
+    max_gen_raw = getattr(sync_doc, "max_ai_pre_generate", 100)
+    try:
+        max_gen = int(max_gen_raw or 0)
+    except (TypeError, ValueError):
+        max_gen = 100
+    if max_gen < 0:
+        max_gen = 0
+
+    candidates: list[str] = []
+    subset_set = set(subset_item_codes or [])
+    for node in walk_items_for_sync(sync_doc):
+        if subset_set and node.item_code not in subset_set:
+            continue
+        already = frappe.db.get_value(
+            "Item", node.item_code, "ai_description_generated",
+        )
+        if already:
+            continue
+        candidates.append(node.item_code)
+        if max_gen and len(candidates) >= max_gen:
+            break
+
+    if not candidates:
+        return 0
+
+    try:
+        result = generate_descriptions_batch(candidates)
+    except Exception as exc:  # noqa: BLE001
+        frappe.log_error(
+            title=f"AI pre-pass failed for Sync {sync_doc.name}",
+            message=str(exc),
+        )
+        return 0
+
+    return int((result or {}).get("success", 0) or 0)

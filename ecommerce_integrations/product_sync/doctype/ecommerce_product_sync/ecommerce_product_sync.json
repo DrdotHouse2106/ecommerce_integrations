@@ -37,6 +37,12 @@
   "name_template",
   "description_source",
   "description_template",
+  "auto_generate_ai_descriptions",
+  "max_ai_pre_generate",
+  "seo_fallback_section",
+  "seo_meta_title_template",
+  "seo_meta_description_template",
+  "seo_slug_template",
   "column_break_behavior",
   "price_strategy",
   "price_list_override",
@@ -264,6 +270,50 @@
    "label": "Beschreibungs-Vorlage",
    "fieldtype": "Small Text",
    "depends_on": "eval:doc.description_source==='custom_template'"
+  },
+  {
+   "fieldname": "auto_generate_ai_descriptions",
+   "label": "Fehlende AI-Beschreibungen vor dem Sync erzeugen",
+   "fieldtype": "Check",
+   "default": "0",
+   "depends_on": "eval:doc.description_source==='ai_generated'",
+   "description": "Vor jedem Lauf einmalig generate_descriptions_batch() für Items aufrufen, die noch keine AI-Beschreibung haben. Begrenzt durch max_ai_pre_generate (Default 100) pro Lauf, damit ein einzelner Sync das Token-Budget nicht leerschöpft."
+  },
+  {
+   "fieldname": "max_ai_pre_generate",
+   "label": "Max. AI-Generierungen pro Lauf",
+   "fieldtype": "Int",
+   "default": "100",
+   "depends_on": "eval:doc.auto_generate_ai_descriptions",
+   "description": "Obergrenze für die Pre-Pass-Generierung pro Sync-Lauf. 0 = unbegrenzt (Vorsicht: jeder Eintrag kostet Gemini-Tokens)."
+  },
+  {
+   "fieldname": "seo_fallback_section",
+   "fieldtype": "Section Break",
+   "label": "SEO-Fallback (Jinja)",
+   "depends_on": "eval:doc.sync_seo_fields",
+   "description": "Wird gerendert, wenn das jeweilige Feld am Item leer ist. Variablen: {{ item }}, {{ sync }}, {{ brand }} (Channel-Branding falls vorhanden). Beispiele: '{{ item.item_name }} | {{ brand.brand_name or item.brand or \"\" }}' für Meta-Title."
+  },
+  {
+   "fieldname": "seo_meta_title_template",
+   "label": "Meta-Title-Vorlage",
+   "fieldtype": "Data",
+   "depends_on": "eval:doc.sync_seo_fields",
+   "description": "Fallback für item.meta_title. Beispiel: {{ item.item_name }} | {{ item.brand or '' }}"
+  },
+  {
+   "fieldname": "seo_meta_description_template",
+   "label": "Meta-Description-Vorlage",
+   "fieldtype": "Small Text",
+   "depends_on": "eval:doc.sync_seo_fields",
+   "description": "Fallback für item.meta_description. Renderfehler werden als leerer String behandelt, damit ein kaputtes Template den Sync nicht stoppt."
+  },
+  {
+   "fieldname": "seo_slug_template",
+   "label": "Slug-Vorlage",
+   "fieldtype": "Data",
+   "depends_on": "eval:doc.sync_seo_fields",
+   "description": "Fallback für item.seo_slug / item.slug. Wird beim Rendern automatisch slugified."
   },
   {
    "fieldname": "column_break_behavior",

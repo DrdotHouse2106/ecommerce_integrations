@@ -186,8 +186,23 @@ def _render_name(item, sync) -> str:
 
 
 def _render_description(item, sync) -> str:
-    """Render the sync's description_template if mode = custom_template;
-    else read description directly from Item."""
+    """Resolve the outbound product description from the Sync's source.
+
+    Three modes:
+
+    - ``custom_template`` — render the Sync's ``description_template``
+      against the Item via Frappe's sandboxed Jinja.
+    - ``ai_generated`` — read ``item.ai_long_description`` (set by the
+      AI Description module's ``update_item_with_description``).
+      Falls back to ``item.description`` when the AI has not yet
+      processed the Item, so the Sync still produces *something*
+      rather than blanking the backend's existing copy.
+    - default / ``item_description`` — return ``item.description``.
+
+    No I/O in this function: the AI module persists its output onto
+    the Item ahead of time (either by user action or by the Sync's
+    pre-pass). Reading is a cheap attribute lookup.
+    """
     source = (getattr(sync, "description_source", None) or "item_description").strip()
     if source == "custom_template":
         template = (getattr(sync, "description_template", None) or "").strip()
@@ -200,7 +215,14 @@ def _render_description(item, sync) -> str:
             return frappe.render_template(template, {"item": item.as_dict()})
         except Exception:
             return ""
-    # ai_generated falls back to item_description until Phase 5 wires AI
+    if source == "ai_generated":
+        ai_long = (getattr(item, "ai_long_description", "") or "").strip()
+        if ai_long:
+            return ai_long
+        ai_short = (getattr(item, "ai_short_description", "") or "").strip()
+        if ai_short:
+            return ai_short
+        return getattr(item, "description", "") or ""
     return getattr(item, "description", "") or ""
 
 
@@ -354,15 +376,112 @@ def _canonical_properties(item, sync) -> dict[str, Any]:
 
 
 def _canonical_seo(item, sync) -> dict[str, Any]:
-    """SEO fields. The ones we care about are usually Custom Fields
-    on Item (``meta_title``, ``meta_description``, ``slug``); fall
-    back to empty strings when absent."""
+    """SEO fields with a three-tier fallback chain.
+
+    For each of ``meta_title`` / ``meta_description`` / ``slug``:
+
+    1. Item field (``meta_title`` / ``meta_description`` / ``seo_slug``).
+    2. AI-generated field if present (``ai_seo_title`` /
+       ``ai_seo_description``) — populated by the AI Description module
+       when ``include_seo`` is enabled there.
+    3. Per-Sync Jinja template (``seo_meta_title_template`` /
+       ``seo_meta_description_template`` / ``seo_slug_template``)
+       rendered in Frappe's sandbox with ``{item, sync, brand}``.
+
+    Render errors are swallowed into an empty string so a broken
+    template can never block the differ — the operator sees the blank
+    field on the backend and knows where to look. The chain is
+    deterministic: same Item + same templates ⇒ same payload ⇒ same
+    hash.
+    """
+    slug = (
+        _norm_str(getattr(item, "seo_slug", ""))
+        or _norm_str(getattr(item, "slug", ""))
+    )
+    meta_title = (
+        _norm_str(getattr(item, "meta_title", ""))
+        or _norm_str(getattr(item, "ai_seo_title", ""))
+    )
+    meta_desc = (
+        _norm_str(getattr(item, "meta_description", ""))
+        or _norm_str(getattr(item, "ai_seo_description", ""))
+    )
+
+    if not meta_title:
+        meta_title = _norm_str(
+            _render_seo_template(sync, "seo_meta_title_template", item),
+        )
+    if not meta_desc:
+        meta_desc = _norm_str(
+            _render_seo_template(sync, "seo_meta_description_template", item),
+        )
+    if not slug:
+        rendered = _render_seo_template(sync, "seo_slug_template", item)
+        if rendered:
+            slug = _slugify(rendered)
+
     return {
-        "slug": _norm_str(getattr(item, "seo_slug", "")
-                          or getattr(item, "slug", "")),
-        "meta_title": _norm_str(getattr(item, "meta_title", "")),
-        "meta_description": _norm_str(getattr(item, "meta_description", "")),
+        "slug": slug,
+        "meta_title": meta_title,
+        "meta_description": meta_desc,
     }
+
+
+def _render_seo_template(sync, fieldname: str, item) -> str:
+    """Render a Sync-doc SEO template against ``item`` in the sandbox.
+
+    Returns an empty string on missing template, render error, or
+    sandboxed-feature violation. Frappe's ``render_template`` runs
+    inside the same Jinja sandbox we use for notifications, so the
+    template author can't escape into arbitrary Python.
+    """
+    template = (getattr(sync, fieldname, "") or "").strip()
+    if not template:
+        return ""
+    try:
+        import frappe  # local import — keeps the canonical module
+                       # importable from non-Frappe contexts (tests).
+        # ``brand`` is optional — only pull when the Sync has a single
+        # branding doc resolved; otherwise leave undefined so the
+        # template author sees an explicit "brand is undefined" error
+        # at design time rather than a silent empty string.
+        context: dict[str, Any] = {"item": item, "sync": sync}
+        try:
+            from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_channel_branding.ecommerce_channel_branding import (
+                get_branding,
+            )
+            channels = getattr(sync, "target_sales_channels", None) or []
+            if channels and len(channels) == 1:
+                ch = channels[0]
+                channel_name = (
+                    getattr(ch, "sales_channel", None)
+                    or getattr(ch, "channel", None)
+                )
+                if channel_name:
+                    context["brand"] = get_branding(channel_name)
+        except Exception:  # noqa: BLE001
+            # Branding is best-effort context. The template can still
+            # reference ``brand`` via ``brand|default('')`` and works
+            # for sites without the branding doctype installed.
+            pass
+        return frappe.render_template(template, context) or ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _slugify(value: str) -> str:
+    """Lowercase + hyphenate a rendered slug template.
+
+    Matches the slug shape Shopware and Medusa both accept (lowercase
+    ASCII, hyphens, no double hyphens, no leading/trailing hyphens).
+    Unicode characters are stripped rather than transliterated —
+    operators get a clean ASCII slug or no slug at all.
+    """
+    import re
+    s = (value or "").strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s)
+    s = re.sub(r"-+", "-", s).strip("-")
+    return s
 
 
 def _canonical_taxes(item, sync) -> dict[str, Any]:
