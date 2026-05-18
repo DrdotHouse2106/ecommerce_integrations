@@ -84,11 +84,18 @@ def build_shopware_payload(
                     "linked": True,
                 }]
 
+    # Categories: link the product to its Item-Group's backend category
+    # (written by Catalog Mirror on its own apply). When the mapping is
+    # missing we skip silently here — the pre-flight check warns the
+    # operator up-front, so reaching this branch with no mapping means
+    # they consciously chose to push without categories.
+    category_ids = _resolve_shopware_category_ids(item)
+    if category_ids:
+        payload["categories"] = [{"id": cid} for cid in category_ids]
+
     # TODO Phase-5.1: tax_id from sync.tax_template ↔ Shopware tax-rate mapping
     # TODO Phase-5.1: images — currently URL-only (no binary), needs
     #   evaluation of internal_host_patterns + binary fallback
-    # TODO Phase-5.1: categories from Item Group → Shopware category id
-    #   (use Item Group.shopware_category_id written by Catalog Mirror)
     # TODO Phase-5.1: properties (brand, manufacturer, attributes)
     return payload
 
@@ -155,14 +162,61 @@ def build_medusa_payload(
     if sc_ids:
         payload["sales_channels"] = [{"id": s} for s in sc_ids]
 
+    # Categories: same wiring as Shopware — read the Item-Group's
+    # ``medusa_category_id`` (written by Catalog Mirror) and ship it
+    # in Medusa's ``categories`` array. Missing mappings are silently
+    # dropped because the pre-flight check has already warned the
+    # operator about the unmapped IGs.
+    category_ids = _resolve_medusa_category_ids(item)
+    if category_ids:
+        payload["categories"] = [{"id": cid} for cid in category_ids]
+
     # TODO Phase-7.1: variants[].inventory_items linking (full Inventory module)
-    # TODO Phase-7.1: categories: [{id}] from Item Group → Medusa category
     # TODO Phase-7.1: images[] (url-only push; CDN-side)
     # TODO Phase-7.1: tags / type from properties.brand etc.
     return payload
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────
+
+
+def _resolve_shopware_category_ids(item) -> list[str]:
+    """Look up the Shopware-category UUID for an Item's Item Group.
+
+    Reads ``Item Group.shopware_category_id`` — populated by Catalog
+    Mirror's apply step. Returns ``[]`` if the Item has no item_group
+    or the IG has no mapping (e.g. Catalog Mirror never ran). Failures
+    are swallowed so a single broken row can't crash the apply loop.
+    """
+    ig = getattr(item, "item_group", None)
+    if not ig:
+        return []
+    try:
+        cat_id = frappe.db.get_value(
+            "Item Group", ig, "shopware_category_id",
+        )
+    except Exception:  # noqa: BLE001
+        return []
+    return [cat_id] if cat_id else []
+
+
+def _resolve_medusa_category_ids(item) -> list[str]:
+    """Mirror of :func:`_resolve_shopware_category_ids` for Medusa.
+
+    Reads ``Item Group.medusa_category_id`` (Catalog Mirror writes
+    this in the Medusa apply path). Same swallow-and-return-empty
+    semantics so a broken row doesn't stop the rest of the push.
+    """
+    ig = getattr(item, "item_group", None)
+    if not ig:
+        return []
+    try:
+        cat_id = frappe.db.get_value(
+            "Item Group", ig, "medusa_category_id",
+        )
+    except Exception:  # noqa: BLE001
+        return []
+    return [cat_id] if cat_id else []
 
 
 def _default_currency() -> str:

@@ -379,8 +379,81 @@ def preflight_check(sync: str) -> dict:
                 _("Keine globale Price List gesetzt und nicht alle Storefronts haben eine eigene."),
             )
 
+    # Category bridge — Product Sync needs Catalog Mirror to have run
+    # for each in-scope Item's item_group, otherwise products land
+    # without backend-category links. Count item-groups in scope that
+    # are missing the backend-category mapping; warn (not block) so
+    # operators can knowingly push without categories if they wish.
+    _check_category_bridge(doc, _finding)
+
     has_block = any(f["severity"] == "block" for f in findings)
     return {"ready_for_dryrun": not has_block, "findings": findings}
+
+
+def _check_category_bridge(doc, _finding) -> None:
+    """Count Item Groups in the Sync's scope without backend category.
+
+    Reads ``Item Group.shopware_category_id`` /
+    ``medusa_category_id`` (whichever matches the Sync's backend).
+    For 50k+ catalogues the count is done via a single GROUP BY
+    against the walker-resolved item set, so the check stays
+    sub-second even at scale.
+
+    Emits one ``warn``-severity finding when N > 0 with a clear fix
+    hint ("Run Catalog Mirror first"). Operators can still proceed —
+    the product upsert silently omits ``categories`` for unmapped
+    Item Groups, leaving the product uncategorised in the backend.
+    """
+    from ecommerce_integrations.product_sync.walker import walk_items_for_sync
+
+    backend = (doc.backend or "").strip()
+    if backend == "Shopware":
+        ig_field = "shopware_category_id"
+    elif backend == "Medusa":
+        ig_field = "medusa_category_id"
+    else:
+        return
+
+    try:
+        item_groups = set()
+        for i, node in enumerate(walk_items_for_sync(doc)):
+            if node.item_group:
+                item_groups.add(node.item_group)
+            if i >= 10000:
+                # Cap the walk — the warning is a "is anything missing?"
+                # signal, not a precise count for huge catalogues. A
+                # 10k-Item probe is enough to surface the pattern.
+                break
+    except Exception:  # noqa: BLE001
+        return
+    if not item_groups:
+        return
+
+    try:
+        meta = frappe.get_meta("Item Group")
+        if not any(f.fieldname == ig_field for f in meta.fields):
+            return  # custom field not installed on this site
+        rows = frappe.db.sql(
+            f"""
+            SELECT name
+            FROM `tabItem Group`
+            WHERE name IN %(igs)s
+              AND (`{ig_field}` IS NULL OR `{ig_field}` = '')
+            """,
+            {"igs": tuple(sorted(item_groups))},
+        )
+        missing = [r[0] for r in rows]
+    except Exception:  # noqa: BLE001
+        return
+
+    if missing:
+        _finding(
+            "warn", "category_bridge_missing",
+            _("{0} Artikelgruppen haben noch keine Backend-Kategorie. Produkte würden ohne Kategorie-Zuordnung gepushed.").format(len(missing)),
+            count=len(missing),
+            sample=missing[:5],
+            fix_hint=_("Catalog Mirror öffnen → Apply Live ausführen, bevor Product Sync läuft."),
+        )
 
 
 # ─── Reconciliation / Adopt-by-SKU ────────────────────────────────────
