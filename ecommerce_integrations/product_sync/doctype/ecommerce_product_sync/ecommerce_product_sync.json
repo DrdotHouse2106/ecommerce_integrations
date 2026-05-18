@@ -38,6 +38,8 @@
   "name_template",
   "description_source",
   "description_template",
+  "description_fallback",
+  "description_fallback_template",
   "auto_generate_ai_descriptions",
   "max_ai_pre_generate",
   "seo_fallback_section",
@@ -276,6 +278,22 @@
    "fieldtype": "Select",
    "options": "item_description\nai_generated\ncustom_template",
    "default": "item_description"
+  },
+  {
+   "fieldname": "description_fallback",
+   "label": "Fallback when AI description is missing",
+   "fieldtype": "Select",
+   "options": "item_description\nai_short_description\ncustom_template\nempty",
+   "default": "item_description",
+   "depends_on": "eval:doc.description_source==='ai_generated'",
+   "description": "Used when description_source=ai_generated but the Item has no ai_long_description. ``item_description`` pushes the raw Item.description (legacy default); ``ai_short_description`` uses the shorter AI hook; ``custom_template`` renders the fallback template below; ``empty`` pushes an empty string."
+  },
+  {
+   "fieldname": "description_fallback_template",
+   "label": "Fallback template (Jinja)",
+   "fieldtype": "Small Text",
+   "depends_on": "eval:doc.description_source==='ai_generated' && doc.description_fallback==='custom_template'",
+   "description": "Jinja template rendered when the AI description is missing. Variables: {{ item }}, {{ sync }}. Example: '{{ item.item_name }} — {{ item.item_group }}'."
   },
   {
    "fieldname": "description_template",

@@ -223,9 +223,28 @@ def _render_description(item, sync) -> str:
         ai_long = (getattr(item, "ai_long_description", "") or "").strip()
         if ai_long:
             return ai_long
-        ai_short = (getattr(item, "ai_short_description", "") or "").strip()
-        if ai_short:
-            return ai_short
+        # AI not available — consult the operator-configured fallback.
+        # Default is ``item_description`` for backwards compatibility
+        # with the older single-chain behaviour.
+        fallback = (getattr(sync, "description_fallback", "") or "item_description").strip()
+        if fallback == "empty":
+            return ""
+        if fallback == "ai_short_description":
+            return (getattr(item, "ai_short_description", "") or "").strip()
+        if fallback == "custom_template":
+            tpl = (getattr(sync, "description_fallback_template", "") or "").strip()
+            if not tpl:
+                return ""
+            if "{{" not in tpl and "{%" not in tpl:
+                return tpl
+            try:
+                import frappe
+                return frappe.render_template(
+                    tpl, {"item": item.as_dict(), "sync": sync},
+                ) or ""
+            except Exception:  # noqa: BLE001
+                return ""
+        # ``item_description`` (default) — same legacy chain.
         return getattr(item, "description", "") or ""
     return getattr(item, "description", "") or ""
 
@@ -323,7 +342,12 @@ def _canonical_pricing(item, sync, ctx=None) -> dict[str, Any]:
     if erp_is_gross:
         gross_price = base_net
     else:
-        gross_price = _normalize_float(base_net * (1.0 + tax_rate_pct / 100.0))
+        # Round to currency precision (2 decimals) instead of the
+        # 4-decimal canonical default. Shopware's gross prices round
+        # the same way; a 4-decimal canonical would chase sub-cent
+        # rounding errors (25.50 × 1.19 = 30.345, ERP-B2C list and
+        # Shopware both store 30.34) and flag every Item as drift.
+        gross_price = round(base_net * (1.0 + tax_rate_pct / 100.0), 2)
 
     return {
         "currency": _norm_str(currency),

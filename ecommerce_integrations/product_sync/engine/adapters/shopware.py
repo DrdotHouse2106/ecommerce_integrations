@@ -1059,7 +1059,10 @@ class ShopwareProductAdapter(ProductAdapter):
             first = prices[0] or {}
             try:
                 # Always read gross so we match the canonical's basis.
-                base = round(float(first.get("gross") or first.get("net") or 0), 4)
+                # 2-decimal precision (currency cents) to keep hash
+                # parity with the canonical — sub-cent rounding from
+                # net-to-gross computation would otherwise flap.
+                base = round(float(first.get("gross") or first.get("net") or 0), 2)
             except (TypeError, ValueError):
                 base = 0.0
             # Resolve the Shopware currency UUID to an ISO code so we
