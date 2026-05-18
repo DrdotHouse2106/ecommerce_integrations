@@ -26,7 +26,7 @@
  "time_interval": "Daily",
  "timeseries": 1,
  "timespan": "Last Month",
- "type": "Bar",
+ "type": "Line",
  "use_report_chart": 0,
  "value_based_on": "items_succeeded",
  "y_axis": []

@@ -8,7 +8,7 @@
  "doctype": "Dashboard Chart",
  "document_type": "Ecommerce Sync Run",
  "dynamic_filters_json": "[]",
- "filters_json": "[[\"Ecommerce Sync Run\",\"ai_descriptions_generated\",\">\",0,false]]",
+ "filters_json": "[]",
  "group_by_type": "Sum",
  "idx": 0,
  "is_public": 1,
