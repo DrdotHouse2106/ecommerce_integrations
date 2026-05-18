@@ -11,12 +11,13 @@
 
 	const _i = window.ecom_icon || (() => '');
 	const API_MODULE = 'ecommerce_integrations.shopware6.api.setup';
-	const TOTAL_STEPS = 5;
+	const TOTAL_STEPS = 6;
 
 	const STEP_TITLES = () => ([
 		__('Connection'),
 		__('Verbindung testen'),
 		__('Synchronisations-Modus wählen'),
+		__('Standardwerte für Aufträge'),
 		__('Webhook einrichten'),
 		__('Aktivieren'),
 	]);
@@ -65,7 +66,14 @@
 	}
 
 	function render_step(frm, state, idx) {
-		const renderers = [step1_connection, step2_test, step3_mode, step4_webhook, step5_activate];
+		const renderers = [
+			step1_connection,
+			step2_test,
+			step3_mode,
+			step4_defaults,
+			step5_webhook,
+			step6_activate,
+		];
 		renderers[idx](frm, state, idx);
 	}
 
@@ -233,8 +241,92 @@
 		d.show();
 	}
 
-	// ---- Step 4: Webhook setup --------------------------------------------
-	function step4_webhook(frm, state, idx) {
+	// ---- Step 4: Defaults for incoming orders -----------------------------
+	// Without these six values inbound orders fall on their face:
+	// Sales-Order creation needs a default Customer for guests, a default
+	// Warehouse for stock movements, a Price List for product-export prices,
+	// the Shipping + Discount items to capture line surcharges, and a Tax
+	// Template fallback so we know which VAT rate to apply on push.
+	function step4_defaults(frm, state, idx) {
+		const fields = [
+			{ fieldname: 'info', fieldtype: 'HTML',
+				options: `${progress_html(idx)}<p>${__('Diese Standardwerte werden benötigt, damit eingehende Bestellungen sauber als Auftrag angelegt werden können und ausgehende Produkt-Syncs ihre Preise korrekt setzen.')}</p>` },
+
+			{ fieldname: 'default_customer', fieldtype: 'Link', label: __('Fallback Customer (Gastbestellungen)'),
+				options: 'Customer',
+				default: frm.doc.default_customer || '',
+				description: __('Wird verwendet, wenn ein Gast bestellt oder kein bestehender Kunde gefunden wird.') },
+			{ fieldname: 'customer_group', fieldtype: 'Link', label: __('Standard-Kundengruppe'),
+				options: 'Customer Group',
+				default: frm.doc.customer_group || '',
+				description: __('Kundengruppe, der aus Shopware übernommene Kunden zugeordnet werden.') },
+			{ fieldname: 'default_warehouse', fieldtype: 'Link', label: __('Standard-Lager'),
+				options: 'Warehouse',
+				default: frm.doc.default_warehouse || '',
+				description: __('Lager für eingehende Bestellungen und Bestand-Push.') },
+
+			{ fieldname: 'cb_pricing', fieldtype: 'Column Break' },
+
+			{ fieldname: 'default_price_list', fieldtype: 'Link', label: __('Standard-Preisliste (Outbound)'),
+				options: 'Price List',
+				default: frm.doc.default_price_list || '',
+				description: __('Quelle der Preise beim Produkt-Push. Markiere die Preisliste in /app/price-list/<name> als "Prices include tax (gross)" falls sie Brutto-Preise enthält.') },
+			{ fieldname: 'tax_template', fieldtype: 'Link', label: __('Standard Item Tax Template'),
+				options: 'Item Tax Template',
+				default: frm.doc.tax_template || '',
+				description: __('Wird für Brutto/Netto-Umrechnung herangezogen wenn auf dem Item kein eigenes Template hängt. Fallback ist 19%.') },
+			{ fieldname: 'shipping_item', fieldtype: 'Link', label: __('Versandkosten-Artikel'),
+				options: 'Item',
+				default: frm.doc.shipping_item || '',
+				description: __('z.B. ein Service-Item "VERSAND". Wird als Position in eingehenden Aufträgen eingefügt.') },
+			{ fieldname: 'discount_item', fieldtype: 'Link', label: __('Rabatt-Artikel'),
+				options: 'Item',
+				default: frm.doc.discount_item || '',
+				description: __('z.B. ein Service-Item "RABATT". Promo-Rabatte aus Shopware werden hier mit negativem Betrag eingefügt.') },
+			{ fieldname: 'capture_shipping_as_line', fieldtype: 'Check', label: __('Versandkosten als Position erfassen'),
+				default: Number(frm.doc.capture_shipping_as_line || 0) || 1,
+				description: __('Empfohlen: aktiviert. Versandkosten werden als eigene Auftragsposition geführt.') },
+		];
+
+		const d = new frappe.ui.Dialog({
+			title: step_label(idx),
+			size: 'large',
+			fields: fields,
+			primary_action_label: __('Weiter'),
+			primary_action: function (v) {
+				// Persist every supplied value onto the Setting doc.
+				const keys = [
+					'default_customer', 'customer_group', 'default_warehouse',
+					'default_price_list', 'tax_template',
+					'shipping_item', 'discount_item', 'capture_shipping_as_line',
+				];
+				for (const k of keys) {
+					if (v[k] !== undefined && v[k] !== null && v[k] !== '') {
+						frm.set_value(k, v[k]);
+					}
+				}
+				frm.save().then(() => {
+					d.hide();
+					render_step(frm, state, idx + 1);
+				}).catch(() => {
+					// Don't block the wizard on a save failure — operator
+					// can patch manually later. Surface the failure though.
+					frappe.show_alert({
+						message: __('Standardwerte konnten nicht gespeichert werden — bitte manuell prüfen.'),
+						indicator: 'orange',
+					});
+					d.hide();
+					render_step(frm, state, idx + 1);
+				});
+			},
+		});
+		d.set_secondary_action_label(__('Zurück'));
+		d.set_secondary_action(function () { d.hide(); render_step(frm, state, idx - 1); });
+		d.show();
+	}
+
+	// ---- Step 5: Webhook setup --------------------------------------------
+	function step5_webhook(frm, state, idx) {
 		const d = new frappe.ui.Dialog({
 			title: step_label(idx),
 			size: 'large',
@@ -328,7 +420,7 @@
 	}
 
 	// ---- Step 5: Activate --------------------------------------------------
-	function step5_activate(frm, state, idx) {
+	function step6_activate(frm, state, idx) {
 		const mode_label_map = {
 			receive: __('Empfang aus Shopware'),
 			manual: __('Empfang + manueller Versand'),
