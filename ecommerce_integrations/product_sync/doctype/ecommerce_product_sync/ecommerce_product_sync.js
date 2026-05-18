@@ -115,9 +115,21 @@ function _run_preview_with_progress(frm, { onDone }) {
         progressDialog.hide();
     });
 
-    const renderProgress = ({ percent = 0, current = 0, total = 0 } = {}) => {
-        const pctText = total ? `${current.toLocaleString()} / ${total.toLocaleString()} (${percent}%)`
-                              : __('Auswahl wird ermittelt…');
+    const renderProgress = ({ percent = 0, current = 0, total = 0, status = 'running' } = {}) => {
+        // Three phases: (1) waiting for the worker to compute the total,
+        // (2) item-loop progress, (3) post-loop backend orphan/drift
+        // detection. Phase 3 is invisible from the server side because
+        // it doesn't fire on_progress, so we infer it: current == total
+        // but status is still 'running'. Without this branch the dialog
+        // looks frozen at "33,961 / 33,961 (99%)".
+        let label;
+        if (!total) {
+            label = __('Auswahl wird ermittelt…');
+        } else if (current >= total && status === 'running') {
+            label = __('Backend-Abgleich läuft (Orphan- und Drift-Erkennung — kann bei großen Katalogen mehrere Minuten dauern)…');
+        } else {
+            label = `${current.toLocaleString()} / ${total.toLocaleString()} (${percent}%)`;
+        }
         progressDialog.fields_dict.progress_html.$wrapper.html(`
             <div style="padding:8px 0;">
                 <div class="progress" style="height:14px;margin-bottom:8px;">
@@ -125,7 +137,7 @@ function _run_preview_with_progress(frm, { onDone }) {
                          role="progressbar"
                          style="width:${percent}%;background:var(--primary,#2490ef);"></div>
                 </div>
-                <div class="text-muted small" style="text-align:center;">${frappe.utils.escape_html(pctText)}</div>
+                <div class="text-muted small" style="text-align:center;">${frappe.utils.escape_html(label)}</div>
             </div>
         `);
     };

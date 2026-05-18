@@ -129,7 +129,13 @@ def execute() -> None:
         update_modified=True,
     )
     _ensure_chart_child_rows()
-    frappe.clear_cache(doctype="Workspace")
+    # Full cache clear, not just ``doctype="Workspace"`` — Frappe v16
+    # caches the ``get_desktop_page`` payload separately (per-user
+    # cache keys + a global app-level cache), and only the unscoped
+    # ``frappe.clear_cache()`` invalidates both layers. Without this
+    # the SPA keeps serving the pre-patch payload with zero chart
+    # blocks even though the child-table rows exist in the DB.
+    frappe.clear_cache()
     frappe.db.commit()  # noqa: SLF001
 
 
