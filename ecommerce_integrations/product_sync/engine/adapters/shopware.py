@@ -665,10 +665,17 @@ class ShopwareProductAdapter(ProductAdapter):
         external_id: str,
         image_urls: list[str],
     ) -> dict:
-        """Inner image-upload — runs under ``temp_shopware_session``."""
+        """Inner image-upload — runs under ``temp_shopware_session``.
+
+        Returns ``{uploaded, failed, skipped, media_map}``. ``media_map``
+        is ``{erp_basename: shopware_media_uuid}`` for successful uploads,
+        which the orchestrator persists on ``Ecommerce Item.
+        pushed_image_map`` so the next preview can short-circuit the
+        image diff.
+        """
         import uuid
 
-        counters = {"uploaded": 0, "failed": 0, "skipped": 0}
+        counters = {"uploaded": 0, "failed": 0, "skipped": 0, "media_map": {}}
         if not external_id or not image_urls:
             return counters
 
@@ -733,6 +740,11 @@ class ShopwareProductAdapter(ProductAdapter):
                 if 200 <= resp.status_code < 300:
                     counters["uploaded"] += 1
                     new_media_ids.append(media_id)
+                    # Track ERP basename → Shopware media UUID so the
+                    # differ can short-circuit on the next preview.
+                    erp_basename = url.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0].lower()
+                    if erp_basename:
+                        counters["media_map"][erp_basename] = media_id
                 else:
                     counters["failed"] += 1
             except Exception:  # noqa: BLE001

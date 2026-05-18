@@ -490,7 +490,30 @@ def _apply_batch(
                 ]
                 if urls:
                     try:
-                        uploader(new_external_id, urls)
+                        upload_result = uploader(new_external_id, urls) or {}
+                        # Persist ERP-basename → media-UUID map so the
+                        # next preview's image-diff can short-circuit
+                        # when the live Shopware media set matches.
+                        new_map = upload_result.get("media_map") or {}
+                        if new_map and meta.get("ecom_row"):
+                            existing_raw = frappe.db.get_value(
+                                _ECOMMERCE_ITEM_DOCTYPE,
+                                meta["ecom_row"]["name"],
+                                "pushed_image_map",
+                            ) or ""
+                            try:
+                                import json as _json
+                                merged = _json.loads(existing_raw) if existing_raw else {}
+                            except (ValueError, TypeError):
+                                merged = {}
+                            merged.update(new_map)
+                            frappe.db.set_value(
+                                _ECOMMERCE_ITEM_DOCTYPE,
+                                meta["ecom_row"]["name"],
+                                "pushed_image_map",
+                                frappe.as_json(merged),
+                                update_modified=False,
+                            )
                     except Exception as exc:  # noqa: BLE001
                         # Per-image errors are already counted inside
                         # the adapter; only a complete crash gets here.

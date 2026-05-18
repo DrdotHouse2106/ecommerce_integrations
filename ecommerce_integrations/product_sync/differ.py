@@ -295,7 +295,7 @@ def compute_product_diff(
             )
             continue
         live = live_by_ext_id.get(external_id) if adapter_available else None
-        diffs = _diff_proposed_against_live(proposed, live) if live else []
+        diffs = _diff_proposed_against_live(proposed, live, mapping=mapping) if live else []
         _apply_risk_flags(diffs)
         plan.updates.append(
             ProductNodePlan(
@@ -344,13 +344,18 @@ def _bump_progress(on_progress, current: int, total: int) -> None:
 
 
 def _diff_proposed_against_live(
-    proposed: dict, live: LiveProductNode,
+    proposed: dict, live: LiveProductNode, *, mapping: dict | None = None,
 ) -> list[FieldDiff]:
     """Field-by-field comparison: proposed canonical vs live snapshot.
 
     Compares the structured sections of the canonical payload to the
     flat ``LiveProductNode`` dataclass. Only emits FieldDiffs where
     values actually differ.
+
+    ``mapping`` is the ``tabEcommerce Item`` row for this Item (or
+    None on first sync). The image diff reads ``mapping.
+    pushed_image_map`` to short-circuit drift on basenames we've
+    already uploaded.
     """
     diffs: list[FieldDiff] = []
 
@@ -404,18 +409,68 @@ def _diff_proposed_against_live(
                 )
             )
 
+    # Image diff: three-stage comparison so we don't flag spurious
+    # drift on every preview.
+    #
+    # 1. Persisted ``pushed_image_map`` (ERP basename → Shopware
+    #    media UUID): if every proposed ERP image has a mapping AND
+    #    the live product reports those URLs, no diff.
+    # 2. Filename-basename comparison: ERPNext URLs (``/file/hash/
+    #    name.jpg``) and Shopware CDN URLs (``cdn.x/.../name.jpg``)
+    #    keep the same basename after a round-trip.
+    # 3. Count fallback when basenames don't anchor reliably.
+    def _basename(u: str) -> str:
+        tail = (u or "").rstrip("/").rsplit("/", 1)[-1]
+        tail = tail.split("?", 1)[0]
+        return tail.lower()
+
     prop_images = [img["url"] for img in proposed.get("images", [])]
     live_images = list(live.images or [])
-    if set(prop_images) != set(live_images):
-        added = sorted(set(prop_images) - set(live_images))
-        removed = sorted(set(live_images) - set(prop_images))
+    prop_names = {_basename(u) for u in prop_images if u}
+    live_names = {_basename(u) for u in live_images if u}
+
+    # Stage 1 — persisted map. The orchestrator wrote a dict of
+    # ``{erp_basename: shopware_media_uuid}`` after the last
+    # successful image upload. If every current proposed basename
+    # has a map entry AND the live image set contains the same
+    # basenames, suppress the diff. The differ doesn't receive the
+    # map directly — it's read off ``Ecommerce Item`` via the
+    # mapping dict in the caller's scope (``mapping`` argument).
+    pushed_map_json = (mapping or {}).get("pushed_image_map") or ""
+    if pushed_map_json and prop_names:
+        try:
+            import json as _json
+            pushed_map = _json.loads(pushed_map_json)
+            mapped_basenames = {k.lower() for k in pushed_map.keys()}
+            # Are ALL proposed images already pushed AND do they
+            # all appear in the live image set?
+            if prop_names.issubset(mapped_basenames) and prop_names.issubset(live_names):
+                # No diff — short-circuit.
+                pass
+            elif prop_names != live_names:
+                # Fall through to the normal diff path below.
+                pushed_map = None
+            else:
+                pushed_map = "match"
+        except (ValueError, TypeError):
+            pushed_map = None
+        if pushed_map == "match" or (
+            pushed_map and prop_names.issubset(mapped_basenames)
+            and prop_names.issubset(live_names)
+        ):
+            # Skip image diff — already correctly pushed.
+            return diffs
+
+    if prop_names != live_names:
+        added = sorted(prop_names - live_names)
+        removed = sorted(live_names - prop_names)
         diffs.append(
             FieldDiff(
                 field="images",
                 current=f"{len(live_images)} Bilder",
                 proposed=f"{len(prop_images)} Bilder",
                 change_kind="modified",
-                preview_current=", ".join(live_images[:3]),
+                preview_current=", ".join(list(live_names)[:3]),
                 preview_proposed=f"+{len(added)} hinzu, −{len(removed)} entf.",
             )
         )
@@ -534,6 +589,11 @@ def _load_mappings(
             "integration_item_code",
             "last_synced_hash",
             "last_synced_at",
+            # JSON map of ERP basename → Shopware media UUID written
+            # by the apply step. Differ uses it to short-circuit
+            # image-drift on items where every image has been
+            # uploaded already.
+            "pushed_image_map",
         ],
         limit=0,
     )
