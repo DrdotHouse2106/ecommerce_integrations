@@ -46,8 +46,11 @@ def preview_sync(
     fetch_live: bool = True,
     subset_item_codes: list[str] | None = None,
 ) -> dict:
-    """Dry-run preview. Returns the :class:`ProductSyncPreviewPlan` as
-    a JSON-serialisable dict ready for the JS dialog.
+    """Synchronous preview — returns the full plan in one round-trip.
+
+    Suitable for small scopes (≲ a few thousand Items). For large
+    catalogues use :func:`start_preview` / :func:`get_preview_status`
+    so the proxy doesn't kill the request at 30/60 s.
     """
     if not frappe.has_permission(SYNC_DOCTYPE, "read", doc=sync):
         frappe.throw(_("Not permitted to read this Product Sync"))
@@ -63,6 +66,196 @@ def preview_sync(
         subset_item_codes=subset_item_codes,
     )
     return plan.to_dict() if hasattr(plan, "to_dict") else plan
+
+
+@frappe.whitelist()
+def start_preview(
+    sync: str,
+    *,
+    max_items: int | None = None,
+    fetch_live: bool = True,
+    subset_item_codes: list[str] | None = None,
+) -> dict:
+    """Kick off a background preview run.
+
+    Creates an ``Ecommerce Sync Run`` row with ``mode='preview'``,
+    enqueues the differ on the short queue, returns ``{run_name}``.
+    The caller polls :func:`get_preview_status` to track progress and
+    pick up the final plan when ready.
+
+    This avoids the gunicorn/nginx 30–60 s request timeout that kills
+    the synchronous :func:`preview_sync` on five-figure catalogues —
+    Frappe's worker pool runs without HTTP timeouts and the SPA polls
+    the Run row for status + percentage.
+    """
+    if not frappe.has_permission(SYNC_DOCTYPE, "read", doc=sync):
+        frappe.throw(_("Not permitted to read this Product Sync"))
+
+    if isinstance(subset_item_codes, str):
+        subset_item_codes = [
+            s.strip() for s in subset_item_codes.splitlines() if s.strip()
+        ]
+
+    run = frappe.get_doc({
+        "doctype": _RUN_DOCTYPE,
+        "sync": sync,
+        "backend": frappe.db.get_value(SYNC_DOCTYPE, sync, "backend") or "",
+        "status": "running",
+        "mode": "preview",
+        "trigger_type": "manual",
+        "triggered_by": frappe.session.user,
+        "started_at": frappe.utils.now_datetime(),
+    })
+    run.flags.ignore_permissions = True
+    run.insert()
+    frappe.db.commit()  # noqa: SLF001 — make the row visible to the worker
+
+    frappe.enqueue(
+        "ecommerce_integrations.product_sync.api._run_preview_in_background",
+        queue="short",
+        timeout=900,
+        sync=sync,
+        run_name=run.name,
+        max_items=_coerce_int(max_items),
+        fetch_live=_coerce_bool(fetch_live, default=True),
+        subset_item_codes=subset_item_codes,
+    )
+    return {"run_name": run.name, "status": "queued"}
+
+
+def _run_preview_in_background(
+    sync: str,
+    run_name: str,
+    max_items: int | None,
+    fetch_live: bool,
+    subset_item_codes: list[str] | None,
+) -> None:
+    """Background worker for :func:`start_preview`.
+
+    Writes ``items_total`` + ``items_succeeded`` (= items processed)
+    onto the Run row so the JS poller can drive a percentage bar.
+    Throttles progress writes to once per ~500 ms to keep the row
+    write-rate manageable on large catalogues.
+    """
+    import time
+    from ecommerce_integrations.product_sync.differ import compute_product_diff
+
+    doc = frappe.get_doc(SYNC_DOCTYPE, sync)
+    last_write = [0.0]
+    last_total = [0]
+
+    def _on_progress(current: int, total: int) -> None:
+        # First call: write the total once so the UI knows the
+        # denominator straight away.
+        if last_total[0] != total:
+            frappe.db.set_value(
+                _RUN_DOCTYPE, run_name,
+                {"items_total": total},
+                update_modified=False,
+            )
+            frappe.db.commit()  # noqa: SLF001
+            last_total[0] = total
+        now = time.time()
+        # Throttle: only write every 500 ms or on the final tick.
+        if (now - last_write[0]) < 0.5 and current < total:
+            return
+        last_write[0] = now
+        frappe.db.set_value(
+            _RUN_DOCTYPE, run_name,
+            {"items_succeeded": current},
+            update_modified=False,
+        )
+        frappe.db.commit()  # noqa: SLF001
+
+    try:
+        plan = compute_product_diff(
+            doc,
+            max_items=max_items,
+            fetch_live=fetch_live,
+            subset_item_codes=subset_item_codes,
+            on_progress=_on_progress,
+        )
+        plan_dict = plan.to_dict() if hasattr(plan, "to_dict") else plan
+        frappe.db.set_value(
+            _RUN_DOCTYPE, run_name,
+            {
+                "status": "ok",
+                "finished_at": frappe.utils.now_datetime(),
+                "preview_plan_json": frappe.as_json(plan_dict, indent=1),
+                "items_succeeded": plan.items_in_scope,
+                "items_total": plan.items_in_scope,
+            },
+            update_modified=True,
+        )
+        frappe.db.commit()  # noqa: SLF001
+    except Exception as exc:  # noqa: BLE001
+        import traceback
+        frappe.db.rollback()
+        frappe.db.set_value(
+            _RUN_DOCTYPE, run_name,
+            {
+                "status": "error",
+                "finished_at": frappe.utils.now_datetime(),
+                "error_summary": str(exc)[:500],
+            },
+            update_modified=True,
+        )
+        frappe.db.commit()  # noqa: SLF001
+        frappe.log_error(
+            title=f"Product Sync preview failed: {sync}",
+            message=traceback.format_exc(),
+        )
+
+
+@frappe.whitelist()
+def get_preview_status(run_name: str) -> dict:
+    """Poll endpoint for a background preview.
+
+    Returns ``{status, current, total, percent, plan?, error?}``.
+    ``plan`` is only included when ``status == 'ok'``; ``error`` only
+    when ``status == 'error'``. While running, callers should poll
+    every 1–2 s.
+    """
+    if not frappe.db.exists(_RUN_DOCTYPE, run_name):
+        return {"status": "missing"}
+
+    row = frappe.db.get_value(
+        _RUN_DOCTYPE, run_name,
+        [
+            "sync", "status", "items_succeeded", "items_total",
+            "preview_plan_json", "error_summary",
+        ],
+        as_dict=True,
+    )
+    if not row:
+        return {"status": "missing"}
+
+    # Permission check via the parent Sync.
+    if not frappe.has_permission(SYNC_DOCTYPE, "read", doc=row.sync):
+        frappe.throw(_("Not permitted to read this Product Sync"))
+
+    current = int(row.items_succeeded or 0)
+    total = int(row.items_total or 0)
+    percent = int(current * 100 / total) if total else 0
+
+    out: dict = {
+        "status": row.status or "running",
+        "current": current,
+        "total": total,
+        "percent": min(percent, 99) if row.status == "running" else (
+            100 if row.status == "ok" else percent
+        ),
+    }
+    if row.status == "ok" and row.preview_plan_json:
+        try:
+            import json
+            out["plan"] = json.loads(row.preview_plan_json)
+        except (ValueError, TypeError):
+            out["status"] = "error"
+            out["error"] = _("Vorschau-JSON konnte nicht gelesen werden.")
+    elif row.status == "error":
+        out["error"] = row.error_summary or _("Unbekannter Fehler.")
+    return out
 
 
 @frappe.whitelist()

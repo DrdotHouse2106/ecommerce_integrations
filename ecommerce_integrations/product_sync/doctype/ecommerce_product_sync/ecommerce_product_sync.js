@@ -92,15 +92,85 @@ function _render_header_buttons(frm) {
 
 
 function _open_preview_dialog(frm) {
+    _run_preview_with_progress(frm, {
+        onDone: (plan) => _show_preview_dialog(frm, plan),
+    });
+}
+
+
+// Kicks off a background preview (start_preview) and polls
+// get_preview_status until the plan is ready. Shows a progress
+// dialog with a percentage bar so 30 s+ runs don't look frozen and
+// don't time out at the gunicorn/nginx layer.
+function _run_preview_with_progress(frm, { onDone }) {
+    const progressDialog = new frappe.ui.Dialog({
+        title: __('Vorschau wird gebaut…'),
+        size: 'small',
+        fields: [{ fieldname: 'progress_html', fieldtype: 'HTML' }],
+    });
+    progressDialog.set_secondary_action_label(__('Abbrechen'));
+    let cancelled = false;
+    progressDialog.set_secondary_action(() => {
+        cancelled = true;
+        progressDialog.hide();
+    });
+
+    const renderProgress = ({ percent = 0, current = 0, total = 0 } = {}) => {
+        const pctText = total ? `${current.toLocaleString()} / ${total.toLocaleString()} (${percent}%)`
+                              : __('Auswahl wird ermittelt…');
+        progressDialog.fields_dict.progress_html.$wrapper.html(`
+            <div style="padding:8px 0;">
+                <div class="progress" style="height:14px;margin-bottom:8px;">
+                    <div class="progress-bar progress-bar-striped active"
+                         role="progressbar"
+                         style="width:${percent}%;background:var(--primary,#2490ef);"></div>
+                </div>
+                <div class="text-muted small" style="text-align:center;">${frappe.utils.escape_html(pctText)}</div>
+            </div>
+        `);
+    };
+    renderProgress();
+    progressDialog.show();
+
     frappe.call({
-        method: 'ecommerce_integrations.product_sync.api.preview_sync',
-        // No max_items → differ processes the full scope. For large
-        // catalogs this can take 30–90 s; the freeze dialog stays put.
+        method: 'ecommerce_integrations.product_sync.api.start_preview',
         args: { sync: frm.doc.name, fetch_live: true },
-        freeze: true,
-        freeze_message: __('Vorschau wird gebaut (kann bei großen Katalogen 30–90 s dauern)…'),
         callback(r) {
-            if (r.message) _show_preview_dialog(frm, r.message);
+            const runName = r.message && r.message.run_name;
+            if (!runName) {
+                progressDialog.hide();
+                frappe.msgprint(__('Vorschau konnte nicht gestartet werden.'));
+                return;
+            }
+            const poll = () => {
+                if (cancelled) return;
+                frappe.call({
+                    method: 'ecommerce_integrations.product_sync.api.get_preview_status',
+                    args: { run_name: runName },
+                    callback(rr) {
+                        if (cancelled) return;
+                        const m = rr.message || {};
+                        if (m.status === 'ok' && m.plan) {
+                            progressDialog.hide();
+                            onDone(m.plan);
+                            return;
+                        }
+                        if (m.status === 'error') {
+                            progressDialog.hide();
+                            frappe.msgprint({
+                                title: __('Vorschau fehlgeschlagen'),
+                                message: frappe.utils.escape_html(m.error || ''),
+                                indicator: 'red',
+                            });
+                            return;
+                        }
+                        renderProgress(m);
+                        setTimeout(poll, 1500);
+                    },
+                });
+            };
+            // First poll quickly to fill in the total, then space out.
+            setTimeout(poll, 600);
         },
     });
 }
@@ -138,14 +208,12 @@ function _show_preview_dialog(frm, plan) {
 
 
 function _refresh_preview_inplace(frm, d) {
-    frappe.call({
-        method: 'ecommerce_integrations.product_sync.api.preview_sync',
-        // Full scope — same contract as the initial open.
-        args: { sync: frm.doc.name, fetch_live: true },
-        callback(r) {
-            if (!r.message) return;
-            d._plan = r.message;
-            d.fields_dict.preview_html.$wrapper.html(_render_preview(r.message, frm));
+    // Same background+poll contract as the initial open so we never
+    // re-introduce the timeout we just removed.
+    _run_preview_with_progress(frm, {
+        onDone: (plan) => {
+            d._plan = plan;
+            d.fields_dict.preview_html.$wrapper.html(_render_preview(plan, frm));
         },
     });
 }

@@ -229,7 +229,7 @@
    "fieldname": "mode",
    "label": "Modus",
    "fieldtype": "Select",
-   "options": "live\ndryrun\npreflight\nsandbox\nsubset\nrollback\npull",
+   "options": "live\ndryrun\npreflight\nsandbox\nsubset\nrollback\npull\npreview",
    "default": "live",
    "in_list_view": 1,
    "in_standard_filter": 1,

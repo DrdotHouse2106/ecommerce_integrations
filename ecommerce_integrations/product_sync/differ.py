@@ -86,6 +86,7 @@ def compute_product_diff(
     max_items: int | None = _DEFAULT_MAX_ITEMS_PREVIEW,
     fetch_live: bool = True,
     subset_item_codes: list[str] | None = None,
+    on_progress=None,
 ) -> ProductSyncPreviewPlan:
     """Build a :class:`ProductSyncPreviewPlan` for one Sync.
 
@@ -100,6 +101,11 @@ def compute_product_diff(
         subset_item_codes: Optional pre-filtered list of item_codes —
             the differ only processes these (used by the Subset-Test
             mode of the test runner).
+        on_progress: Optional ``callable(current: int, total: int)`` —
+            invoked while classifying items so a background runner can
+            stream progress to the UI. The callback is the runner's
+            responsibility to throttle (writes to a Run row are cheap
+            in batches of ~100 ms but expensive every iteration).
     """
     backend = sync_doc.backend or ""
     integration_key = BACKEND_TO_INTEGRATION_KEY.get(backend, backend.lower())
@@ -170,7 +176,8 @@ def compute_product_diff(
             )
 
     # 4. Walk each item, fill the appropriate bucket.
-    for node in item_nodes:
+    total = len(item_nodes)
+    for i, node in enumerate(item_nodes):
         _classify_item(
             plan=plan,
             node=node,
@@ -182,6 +189,11 @@ def compute_product_diff(
             adapter_available=adapter_available,
             ctx=ctx,
         )
+        if on_progress is not None:
+            try:
+                on_progress(i + 1, total)
+            except Exception:  # noqa: BLE001
+                pass  # progress is best-effort, never fail the diff
 
     # 5. Unmatched orphans: live products in the target channels not in
     # any mapping row.
