@@ -106,6 +106,16 @@ def add_order_item(
     if len(item_name) > 140:
         item_name = item_name[:137] + "..."
 
+    # Auto-heal "Mehrpreis"-style surcharge items: Shopware sells them as
+    # standalone line items, but they were imported into ERPNext as
+    # ``is_purchase_item=1, is_sales_item=0`` because they are not
+    # standalone catalogue products in the ERP's sense. The first time
+    # such an item arrives on an order we flip ``is_sales_item=1`` so the
+    # Sales Order can be saved — refusing the order would leave the
+    # operator with the choice of either toggling the flag manually for
+    # every surcharge variant or losing the order entirely.
+    _ensure_sales_item(item_code, line_item.get("productId"))
+
     so.append(
         "items",
         {
@@ -120,6 +130,35 @@ def add_order_item(
             "supplier": supplier,
         },
     )
+
+
+def _ensure_sales_item(item_code: str, shopware_product_id: str | None = None) -> None:
+    """Flip ``is_sales_item`` to 1 if needed so the Sales Order can be saved.
+
+    Idempotent: a no-op when the item is already a sales item or doesn't
+    exist. Writes via ``db_set`` to skip mandatory-field validation —
+    we're only touching this one boolean.
+    """
+    is_sales = frappe.db.get_value("Item", item_code, "is_sales_item")
+    if is_sales is None:  # item doesn't exist — let the upstream code raise
+        return
+    if is_sales:
+        return
+    try:
+        frappe.db.set_value("Item", item_code, "is_sales_item", 1,
+                            update_modified=False)
+        get_logger("shopware_order").info(
+            f"auto-enabled is_sales_item on {item_code} (Shopware product "
+            f"{shopware_product_id or '?'} appeared on an order)",
+            persist=True,
+            request_data={"item_code": item_code,
+                          "shopware_product_id": shopware_product_id},
+        )
+    except Exception as exc:  # noqa: BLE001 — must never break order import
+        get_logger("shopware_order").warning(
+            f"failed to auto-enable is_sales_item on {item_code}: {exc}",
+            persist=True,
+        )
 
 
 def _add_shipping_item(
