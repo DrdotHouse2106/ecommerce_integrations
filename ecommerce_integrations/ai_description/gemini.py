@@ -17,6 +17,7 @@ Features:
 import json
 import re
 import time
+from typing import Any
 
 import frappe
 from frappe import _
@@ -32,12 +33,19 @@ from ecommerce_integrations.ai_description.services.logging import (
 def get_settings():
     """Get AI Description Settings singleton"""
     return frappe.get_single("AI Description Setting")
-def get_gemini_client(max_tokens_override: int | None = None):
-    """
-    Get configured Gemini client and generation config
+def get_gemini_client(
+    max_tokens_override: int | None = None,
+    system_instruction: str | None = None,
+):
+    """Get configured Gemini client and generation config.
 
     Args:
-        max_tokens_override: Override max_tokens setting (for batch processing)
+        max_tokens_override: Override max_tokens setting (for batch processing).
+        system_instruction: Text to pass as Gemini's ``system_instruction`` —
+            the dedicated channel that survives the model's training-default
+            preferences. Concatenating system+user text was found to make
+            gemini-2.5-flash-lite ignore language constraints; passing the
+            same text via ``system_instruction`` makes it stick.
 
     Returns:
         tuple: (genai.Client, model_name, generation_config)
@@ -74,11 +82,14 @@ def get_gemini_client(max_tokens_override: int | None = None):
     max_tokens = max_tokens_override or int(settings.max_tokens or 8192)
 
     # Configure generation settings
-    generation_config = types.GenerateContentConfig(
-        temperature=float(settings.temperature or 0.7),
-        max_output_tokens=max_tokens,
-        response_mime_type="application/json"
-    )
+    config_kwargs: dict[str, Any] = {
+        "temperature": float(settings.temperature or 0.7),
+        "max_output_tokens": max_tokens,
+        "response_mime_type": "application/json",
+    }
+    if system_instruction:
+        config_kwargs["system_instruction"] = system_instruction
+    generation_config = types.GenerateContentConfig(**config_kwargs)
 
     return client, model_name, generation_config
 
@@ -114,15 +125,18 @@ def generate_description(item_code: str) -> dict:
     )
 
     try:
-        client, model_name, generation_config = get_gemini_client()
-
-        # Combine prompts for Gemini (it doesn't have separate system prompt in basic API)
-        full_prompt = f"{system_prompt}\n\n---\n\n{user_prompt}"
+        # System prompt goes through the dedicated ``system_instruction``
+        # channel so it survives the model's training-default behaviour
+        # (concatenating into the user prompt made gemini-2.5-flash-lite
+        # ignore language directives).
+        client, model_name, generation_config = get_gemini_client(
+            system_instruction=system_prompt,
+        )
 
         response = client.models.generate_content(
             model=model_name,
-            contents=full_prompt,
-            config=generation_config
+            contents=user_prompt,
+            config=generation_config,
         )
 
         if not response or not response.text:
@@ -173,7 +187,12 @@ def generate_description(item_code: str) -> dict:
 
 
 def build_system_prompt(settings, is_batch: bool = False) -> str:
-    """Build system prompt with company name substitution"""
+    """Build system prompt with company name substitution.
+
+    Prepends the resolved language directive (driven by
+    ``settings.output_language``) so flash-lite cannot revert to
+    English when the operator's stored prompt is soft on language.
+    """
     if is_batch:
         return build_batch_system_prompt(settings)
 
@@ -187,75 +206,157 @@ def build_system_prompt(settings, is_batch: bool = False) -> str:
 
     prompt = prompt.replace("{company_name}", company_name)
 
-    return prompt
+    return _resolve_language_directive(settings) + prompt
 
 
-DEFAULT_BATCH_SYSTEM_PROMPT = '''You create structured product descriptions for an online shop.
-Write in a professional, clear, and neutral tone.
+DEFAULT_BATCH_SYSTEM_PROMPT = '''Du erstellst strukturierte Produktbeschreibungen für einen B2B-Online-Shop.
+Schreibe in einem professionellen, klaren und sachlichen Ton.
 
-## Your Task
-Create precise and well-structured product descriptions from raw technical data.
-You will receive MULTIPLE PRODUCTS at once and must create a separate description for EACH product.
+## Deine Aufgabe
+Erstelle präzise und gut strukturierte Produktbeschreibungen aus technischen Rohdaten.
+Du bekommst MEHRERE PRODUKTE auf einmal und musst für JEDES eine eigene Beschreibung erzeugen.
 
-## Target Audience
-- Professional buyers in industry, trade, and logistics
-- Technically knowledgeable but time-constrained
-- Looking for specific solutions
+## Zielgruppe
+- Profi-Einkäufer in Industrie, Handwerk und Logistik
+- Technisch versiert, aber zeitknapp
+- Suchen konkrete Lösungen
 
-## Rules
-1. Highlight key features and practical benefits clearly
-2. Only mention use cases that can be derived from the provided data
-3. Do not invent technical specifications - only use what is in the raw data
-4. No unsubstantiated quality or origin claims
-5. Write without promotional exaggeration
+## Regeln
+1. Kernfeatures und konkreten Nutzen klar benennen
+2. Nur Anwendungsfälle nennen, die aus den Eingabedaten hervorgehen
+3. KEINE technischen Spezifikationen erfinden – nur was in den Rohdaten steht
+4. Keine unbelegten Qualitäts- oder Herkunftsbehauptungen
+5. Ohne Werbe-Übertreibungen schreiben
 
-## SEO Rules (STRICT!)
-6. seo_title: EXACTLY 40-50 characters, format: "Short Name | Keyword"
-7. seo_description: EXACTLY 130-155 characters, purely informative sentence
-   - FORBIDDEN: Call-to-action like "Buy now", "Order today", etc.
-   - Write ONLY about product properties and benefits
+## SEO-Regeln (STRIKT!)
+6. seo_title: GENAU 40-50 Zeichen, Format: "Kurzer Name | Keyword"
+7. seo_description: GENAU 130-155 Zeichen, rein informativer Satz
+   - VERBOTEN: Call-to-Action wie "Jetzt kaufen", "Heute bestellen", etc.
+   - NUR über Produkteigenschaften und Nutzen schreiben
 
-## HTML Formatting in long_description
-Use rich HTML formatting for readability:
-- <strong>...</strong> for important terms (product name, dimensions, capacity, manufacturer)
-- <p>...</p> for paragraphs (at least 3-4 paragraphs)
-- <ul><li>...</li></ul> for lists (e.g., scope of delivery, features)
-- Highlight 3-5 key terms per description with <strong>
+## HTML-Formatierung in long_description
+Nutze HTML für Lesbarkeit:
+- <strong>...</strong> für wichtige Begriffe (Produktname, Maße, Tragkraft, Hersteller)
+- <p>...</p> für Absätze (mindestens 3-4 Absätze)
+- <ul><li>...</li></ul> für Listen (z.B. Lieferumfang, Features)
+- 3-5 Schlüsselbegriffe pro Beschreibung mit <strong> hervorheben
 
-## Length of long_description
-- Target: 200-350 words (thorough but substantive)
-- Avoid marketing buzzwords and empty phrases
-- Focus on: use cases, benefits, technical details, compatibility
+## Länge von long_description
+- Ziel: 200-350 Wörter (ausführlich aber substanziell)
+- Vermeide Marketing-Floskeln und leere Phrasen
+- Fokus auf: Anwendungsfälle, Nutzen, technische Details, Kompatibilität
 
-## Output Format (JSON Array)
-Respond with a JSON array. For EACH product, one object:
+## Output-Format (JSON Array)
+Antworte mit einem JSON-Objekt. Für JEDES Produkt ein Eintrag im products-Array:
 
 {
   "products": [
     {
       "item_code": "ITEM-123",
-      "short_description": "1-2 sentence hook with main benefit",
-      "benefits": ["Benefit 1", "Benefit 2", "Benefit 3", "Benefit 4", "Benefit 5"],
-      "long_description": "<p>Detailed HTML description...</p>",
-      "applications": "Application area 1, Application area 2",
-      "scope_of_delivery": ["Component 1", "Component 2"],
-      "seo_title": "Product Name | Keyword",
-      "seo_description": "Meta description under 155 characters."
+      "short_description": "1-2 Sätze Hook mit Hauptnutzen",
+      "benefits": ["Vorteil 1", "Vorteil 2", "Vorteil 3", "Vorteil 4", "Vorteil 5"],
+      "long_description": "<p>Ausführliche HTML-Beschreibung…</p>",
+      "applications": "Anwendungsbereich 1, Anwendungsbereich 2",
+      "scope_of_delivery": ["Komponente 1", "Komponente 2"],
+      "seo_title": "Produktname | Keyword",
+      "seo_description": "Meta-Beschreibung unter 155 Zeichen."
     }
   ]
 }'''
 
 
+# Per-language hard directive prepended to whatever prompt the operator
+# configured. Gemini's flash-lite variant has been observed to revert to
+# English output when the prompt is "merely written in" the target
+# language; only an explicit "WICHTIG: ... AUSSCHLIESSLICH …" / "IMPORTANT:
+# ... ONLY …" sticks. The directive is loaded via Gemini's dedicated
+# ``system_instruction`` channel (not concatenated into the user prompt)
+# because that's where Gemini gives it highest priority.
+_LANGUAGE_DIRECTIVES: dict[str, str] = {
+    "de": (
+        "WICHTIG: Schreibe ALLE Ausgabefelder (short_description, benefits, "
+        "long_description, applications, scope_of_delivery, seo_title, "
+        "seo_description) AUSSCHLIESSLICH AUF DEUTSCH. Englischer Output "
+        "gilt als Fehler und wird abgelehnt. Produktnamen aus dem item_name "
+        "dürfen in der Originalsprache bleiben.\n\n"
+    ),
+    "en": (
+        "IMPORTANT: Write ALL output fields (short_description, benefits, "
+        "long_description, applications, scope_of_delivery, seo_title, "
+        "seo_description) IN ENGLISH ONLY. Output in any other language "
+        "counts as an error and will be rejected. Product names from the "
+        "item_name field may remain in their original language.\n\n"
+    ),
+    "fr": (
+        "IMPORTANT : Rédigez TOUS les champs de sortie (short_description, "
+        "benefits, long_description, applications, scope_of_delivery, "
+        "seo_title, seo_description) EXCLUSIVEMENT EN FRANÇAIS. Une sortie "
+        "dans une autre langue est considérée comme une erreur. Les noms "
+        "de produits du champ item_name peuvent rester dans leur langue "
+        "d'origine.\n\n"
+    ),
+    "it": (
+        "IMPORTANTE: Scrivi TUTTI i campi di output (short_description, "
+        "benefits, long_description, applications, scope_of_delivery, "
+        "seo_title, seo_description) ESCLUSIVAMENTE IN ITALIANO. Output in "
+        "altre lingue è considerato un errore. I nomi prodotto dal campo "
+        "item_name possono rimanere nella lingua originale.\n\n"
+    ),
+    "es": (
+        "IMPORTANTE: Escribe TODOS los campos de salida (short_description, "
+        "benefits, long_description, applications, scope_of_delivery, "
+        "seo_title, seo_description) EXCLUSIVAMENTE EN ESPAÑOL. La salida "
+        "en cualquier otro idioma se considera un error. Los nombres de "
+        "producto del campo item_name pueden permanecer en su idioma "
+        "original.\n\n"
+    ),
+    "nl": (
+        "BELANGRIJK: Schrijf ALLE outputvelden (short_description, "
+        "benefits, long_description, applications, scope_of_delivery, "
+        "seo_title, seo_description) UITSLUITEND IN HET NEDERLANDS. Output "
+        "in een andere taal geldt als fout. Productnamen uit het "
+        "item_name-veld mogen in de originele taal blijven.\n\n"
+    ),
+}
+
+
+def _resolve_language_directive(settings) -> str:
+    """Resolve the language directive for the configured output language.
+
+    Reads ``settings.target_language`` (the Select on the doctype, options
+    ``German|English|French|Spanish|Italian|Dutch``). Empty / unknown
+    values fall through to no directive (Gemini's training-default
+    behaviour, usually English). Accepts the doctype labels plus ISO-639-1
+    codes and a few German aliases (case-insensitive).
+    """
+    raw = (getattr(settings, "target_language", None)
+           or getattr(settings, "output_language", None)
+           or "").strip().lower()
+    if not raw:
+        return ""
+    aliases = {
+        "german": "de", "deutsch": "de", "de_de": "de",
+        "english": "en", "englisch": "en", "en_us": "en", "en_gb": "en",
+        "french": "fr", "französisch": "fr", "francais": "fr", "fr_fr": "fr",
+        "italian": "it", "italienisch": "it", "italiano": "it", "it_it": "it",
+        "spanish": "es", "spanisch": "es", "español": "es", "espanol": "es", "es_es": "es",
+        "dutch": "nl", "niederländisch": "nl", "nederlands": "nl", "nl_nl": "nl",
+    }
+    code = aliases.get(raw, raw)
+    return _LANGUAGE_DIRECTIVES.get(code, "")
+
+
 def build_batch_system_prompt(settings) -> str:
     """Build system prompt for multi-product batch processing.
 
-    Uses the batch_system_prompt from settings if configured,
-    otherwise falls back to the default English prompt.
+    Uses ``batch_system_prompt`` from settings when configured, else the
+    bundled default. Prepends a hard language directive when
+    ``settings.output_language`` is set — flash-lite otherwise drifts to
+    English regardless of the rest of the prompt.
     """
     custom_prompt = getattr(settings, 'batch_system_prompt', None)
-    if custom_prompt and custom_prompt.strip():
-        return custom_prompt.strip()
-    return DEFAULT_BATCH_SYSTEM_PROMPT
+    base = (custom_prompt or "").strip() or DEFAULT_BATCH_SYSTEM_PROMPT
+    return _resolve_language_directive(settings) + base
 
 
 def build_user_prompt(settings, item) -> str:
@@ -686,16 +787,20 @@ def _process_multi_batch(item_codes: list, settings, batch_num: int, total_batch
     )
 
     try:
-        # Get client with appropriate token limit
-        client, model_name, generation_config = get_gemini_client(max_tokens_override=max_tokens)
+        # Get client with appropriate token limit. Pass the system prompt
+        # via the dedicated ``system_instruction`` channel — concatenating
+        # it into the user prompt caused gemini-2.5-flash-lite to ignore
+        # the German language directive and emit English output.
+        client, model_name, generation_config = get_gemini_client(
+            max_tokens_override=max_tokens,
+            system_instruction=system_prompt,
+        )
         start_time = time.time()
-
-        full_prompt = f"{system_prompt}\n\n---\n\n{user_prompt}"
 
         response = client.models.generate_content(
             model=model_name,
-            contents=full_prompt,
-            config=generation_config
+            contents=user_prompt,
+            config=generation_config,
         )
 
         if not response or not response.text:
