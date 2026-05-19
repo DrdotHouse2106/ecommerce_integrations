@@ -82,12 +82,23 @@ def pull_orders(sync_doc) -> tuple[int, int]:
         # one ``RangeFilter``. We use ``gte`` because the watermark
         # itself is the cursor — overlapping by one second on retry
         # is fine, the existing-order guard de-dupes.
+        #
+        # Cursor field is ``orderDateTime`` (the business order date)
+        # rather than ``updatedAt``. Roughly half of Shopware orders
+        # carry ``updatedAt=NULL`` because they were never touched
+        # after creation, and a ``RangeFilter`` with ``gte`` excludes
+        # NULL rows — so a watermarked pull on ``updatedAt`` silently
+        # skips every untouched order. ``orderDateTime`` is always
+        # populated and matches the "pull new orders since X"
+        # semantics the operator actually wants.
         # TODO(phase-8.2): switch to ``gt`` once we persist watermarks
-        # at microsecond granularity to avoid the one-second overlap.
+        # at microsecond granularity to avoid the one-second overlap,
+        # and add a parallel ``updatedAt`` cursor for update-on-status
+        # so post-creation state changes flow without webhook.
         criteria = build_order_criteria(limit=_PAGE_SIZE)
         criteria.page = page  # type: ignore[attr-defined]
         criteria.filter.append(
-            RangeFilter(field="updatedAt", parameters={"gte": since_iso}),
+            RangeFilter(field="orderDateTime", parameters={"gte": since_iso}),
         )
 
         try:
