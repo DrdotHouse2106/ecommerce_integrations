@@ -264,19 +264,59 @@ def verify_payment_status_from_shopware(order_id: str, sales_order_name: str):
 
 
 def _mark_order_ready(sales_order_name: str):
-    """
-    Mark a Sales Order as ready for confirmation email.
+    """Mark a Sales Order as ready for the Auftragsbestätigung email.
 
-    Uses doc.save() to trigger the Value Change notification on
-    shopware_order_ready, which sends the "Bestellbestätigung" email.
+    Sets ``shopware_order_ready=1`` and ``ecommerce_order_confirmed=1``
+    which trigger the "Ecommerce Order Acknowledgment" Notification.
 
-    Args:
-        sales_order_name: ERPNext Sales Order name
+    Payment-method-aware gating mirrors Shopware's own Flow Builder
+    convention (see https://forum.shopware.com/t/95506):
+
+    * Deferred-payment methods (Vorkasse, Rechnung, SEPA-Lastschrift)
+      send the acknowledgment immediately on ``checkout.order.placed``,
+      because the customer needs the bank details / invoice to actually
+      pay. ``Unpaid`` is the expected, healthy state.
+    * Instant-clearing methods (PayPal, Klarna, Karte, Stripe, Apple/
+      Google Pay) wait until ``state_enter.order_transaction.state.paid``
+      because an ``Unpaid`` PayPal/Klarna order may never settle —
+      e.g. customer abandoned the PayPal flow, eCheck never clears,
+      Klarna's fraud review rejects.
+
+    The classification comes from
+    ``Shopware Setting → Payment Method Mappings → is_deferred_payment``
+    (operator-curated) with a name-based heuristic fallback so even an
+    un-mapped method gets the right treatment.
+
+    Always blocks on ``Failed`` / ``Cancelled`` regardless of method.
     """
     try:
         so = frappe.get_doc("Sales Order", sales_order_name)
         if so.get("shopware_order_ready"):
-            return  # Already marked as ready
+            return  # Already marked
+
+        payment_status = so.get("shopware_payment_status") or ""
+        payment_method = so.get("shopware_payment_method") or ""
+
+        # Final-failure states never get an acknowledgment
+        if payment_status in ("Failed", "Cancelled"):
+            return
+
+        # Money-has-arrived states always get one
+        if payment_status in ("Paid", "Partly Paid", "Refunded"):
+            pass  # fall through to mark-ready
+        else:
+            # Status is "Unpaid" (open/pending/in_progress/unconfirmed/…).
+            # For instant-clearing methods we wait — the next
+            # transaction.state.changed webhook will call us again when
+            # the state transitions to Paid.
+            if not _is_deferred_payment_method(payment_method):
+                frappe.logger("shopware6").info(
+                    f"Skipping acknowledgment for {sales_order_name}: "
+                    f"payment_method='{payment_method}' is instant-clearing "
+                    f"and status='{payment_status}' is not Paid yet. Will "
+                    f"re-evaluate on next transaction.state.changed."
+                )
+                return
 
         so.shopware_order_ready = 1
         so.ecommerce_order_confirmed = 1
@@ -287,3 +327,92 @@ def _mark_order_ready(sales_order_name: str):
         frappe.logger("shopware6").error(
             f"Failed to mark order {sales_order_name} as ready: {e}"
         )
+
+
+# Heuristic: methods whose technicalName contains any of these tokens
+# are treated as "customer pays out-of-band" — i.e. ``Unpaid`` is a
+# healthy state and the Auftragsbestätigung should be sent immediately.
+# Used only when the operator has not classified the method explicitly
+# on ``Shopware Setting → Payment Method Mappings``.
+#
+# Tokens are matched against the *flattened* form of the method name
+# (lowercased, with separators removed) so spelling variants like
+# ``s_e_p_a``, ``pre_payment``, ``cash-payment`` are caught alongside
+# ``sepa`` / ``prepayment`` / ``cashpayment``.
+_DEFERRED_PAYMENT_TOKENS: tuple[str, ...] = (
+    "prepayment", "vorkasse",
+    "invoice", "rechnung", "kaufaufrechnung",
+    "pui",  # PayPal Pay Upon Invoice — settles only after invoice payment
+    "cashondelivery", "cashpayment", "nachnahme", "cod",
+    "sepa", "lastschrift", "directdebit", "debit",
+)
+
+
+def _normalize_method_name(name: str) -> str:
+    """Lowercase + strip every separator/whitespace.
+
+    Maps ``"S_E_P_A"``, ``"swag-paypal-paypal"``, ``"Cash Payment"`` all
+    into a single canonical form so token containment checks fire
+    reliably regardless of plugin author quirks.
+    """
+    flat = (name or "").lower()
+    for ch in ("_", "-", " ", ".", "/"):
+        flat = flat.replace(ch, "")
+    return flat
+
+
+def _is_deferred_payment_method(payment_method: str) -> bool:
+    """Resolve whether ``payment_method`` waits for out-of-band payment.
+
+    Two-tier resolution:
+
+    1. **Explicit operator config** — look the method up on the
+       ``Shopware Setting`` Payment-Method-Mappings child table and
+       honour its ``is_deferred_payment`` flag. This is the source of
+       truth when the operator has set it.
+    2. **Heuristic fallback** — when no explicit mapping row matches
+       (e.g. a new method that hasn't been configured yet), check the
+       method's ``technicalName`` against ``_DEFERRED_PAYMENT_TOKENS``.
+       Conservative default: anything unknown is treated as
+       *instant-clearing*, so the worst-case for a misconfigured shop
+       is a delayed (not erroneously sent) acknowledgment, which the
+       operator can fix by ticking the box on the mapping row.
+
+    Returns ``False`` on an empty ``payment_method`` so the conservative
+    default kicks in even when the field hasn't been populated yet.
+    """
+    if not payment_method:
+        return False
+
+    normalized = _normalize_method_name(payment_method)
+
+    # Tier 1: explicit operator configuration. Priority within tier 1:
+    #
+    #   (a) exact match — wins outright. Otherwise a generic ``cash``
+    #       row would shadow a more-specific ``cash_payment`` *or*
+    #       vice-versa depending on iteration order.
+    #   (b) substring match, longest first — picks ``cash_payment``
+    #       over ``cash`` when the incoming method is
+    #       ``swag_cash_payment_handler``.
+    try:
+        setting = frappe.get_cached_doc(SETTING_DOCTYPE)
+        substring_candidates: list[tuple[str, bool]] = []
+        for row in (getattr(setting, "payment_method_mappings", None) or []):
+            row_method = _normalize_method_name(row.shopware_method or "")
+            if not row_method:
+                continue
+            row_deferred = bool(getattr(row, "is_deferred_payment", 0))
+            if row_method == normalized:
+                return row_deferred  # exact match — done
+            if row_method in normalized or normalized in row_method:
+                substring_candidates.append((row_method, row_deferred))
+        if substring_candidates:
+            substring_candidates.sort(key=lambda c: -len(c[0]))
+            return substring_candidates[0][1]
+    except Exception:
+        # Setting unavailable (e.g. install/migrate context). Fall
+        # through to the heuristic so we don't strand the email path.
+        pass
+
+    # Tier 2: name-based heuristic
+    return any(token in normalized for token in _DEFERRED_PAYMENT_TOKENS)
