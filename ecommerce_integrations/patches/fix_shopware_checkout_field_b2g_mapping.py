@@ -1,26 +1,24 @@
 """Re-shape the ``Shopware Checkout Field`` rows so XRechnung B2G data
-flows into the right ERPNext fields, hooking into Alyf's
-``eu_einvoice`` plugin instead of inventing parallel fields.
+flows into ERPNext's dedicated Customer fields.
 
 Background
 ----------
 
-The earlier seeded configuration conflated two distinct EN-16931 fields:
+The earlier seeded configuration conflated three distinct concepts:
 
-* ``BT-10`` Leitweg-ID — only relevant for invoicing German public-sector
-  buyers, lives on ``Customer.electronic_address`` (Alyf field) with
-  ``Customer.electronic_address_scheme = '0204'`` identifying it as a
-  Leitweg-ID per the BMI EAS-code list.
-* ``BT-13`` Buyer reference — generic per-order field (customer's PO,
+* ``BT-10`` Buyer reference — generic per-order field (customer's PO,
   cost-centre); already correctly mapped via ``po_number`` →
   ``Sales Order.po_no``.
+* Leitweg-ID — German B2G XRechnung routing identifier (BT-49 +
+  EAS ``0204``). Needs its own home on the Customer master so the
+  operator can see + edit it, and we can render it into XRechnung.
+* "Öffentlicher Auftraggeber" flag — toggles the XRechnung profile.
 
 Old state on the operator's site:
 
 * ``buyer_reference`` row matched ``leitweg_id, leitwegId,
   buyer_reference`` and wrote them all into the generic
-  ``Customer.buyer_reference``. Leitweg never reached Alyf's
-  ``electronic_address``.
+  ``Customer.buyer_reference``. Leitweg was mixed with anything else.
 * ``is_government_org`` had no mapping at all.
 * ``invoice_email`` was ``Info Only`` → silently ignored on import.
 
@@ -28,21 +26,22 @@ This patch
 ----------
 
 1. Drops the old ``buyer_reference`` row (its job is covered by
-   ``po_number`` already).
-2. Creates a new ``leitweg_id`` row (Customer Update →
-   ``electronic_address``). The companion EAS-scheme ``0204`` is
-   stamped by ``shopware6.customer.sync._ensure_leitweg_eas_scheme``
-   whenever the Leitweg-ID is non-empty.
-3. Promotes ``invoice_email`` to ``Sales Order Field`` →
-   ``contact_email`` so the alt-billing-email actually overrides the
-   per-order recipient.
-
-``is_government_org`` is deliberately left out of the auto-mapping —
-whether a customer counts as "öffentlicher Auftraggeber" is an Alyf
-``einvoice_profile`` decision (``XRECHNUNG_3.0`` vs others) that the
-operator should curate manually on the customer master, not flip per
-Shopware order. Storing the Shopware flag elsewhere risks two sources
-of truth diverging silently.
+   ``po_number`` already, and the row name itself implied semantics
+   that conflicted with the dedicated Leitweg-ID field).
+2. Upserts a ``leitweg_id`` row → Customer Update →
+   ``Customer.leitweg_id`` (the dedicated field declared in
+   ``shopware6.custom_fields``). A
+   ``Customer.before_save`` hook in
+   ``shopware6.customer.sync._mirror_leitweg_into_electronic_address``
+   automatically copies the value into Alyf's
+   ``electronic_address`` (+ EAS scheme ``0204``) so the existing
+   XRechnung renderer still picks it up.
+3. Upserts an ``is_government_org`` row → Customer Update →
+   ``Customer.is_government_org`` so the public-sector flag from
+   Shopware lands on the customer master.
+4. Promotes ``invoice_email`` from ``Info Only`` to ``Sales Order
+   Field`` → ``contact_email`` so the alt-billing-email actually
+   overrides the per-order recipient.
 
 All steps are idempotent and no-op safe (skip when the doctype is
 missing on this site).
@@ -72,10 +71,10 @@ def execute() -> None:
         return
     if not frappe.db.exists("DocType", _PARENT_DOCTYPE):
         return
-    # Only attempt to wire Alyf's ``electronic_address`` when the field
-    # actually exists — otherwise we'd write into thin air on sites that
-    # don't have ``eu_einvoice`` installed.
-    if not frappe.db.has_column("Customer", "electronic_address"):
+    # Only run when the dedicated Customer fields actually exist —
+    # ``shopware6.custom_fields`` ships them, but on a fresh install
+    # this patch may race with the custom-field sync.
+    if not frappe.db.has_column("Customer", "leitweg_id"):
         return
 
     parent = frappe.get_doc(_PARENT_DOCTYPE)
@@ -95,25 +94,45 @@ def execute() -> None:
             parent.append(_PARENT_TABLE_FIELD, d)
         changes.append("deleted buyer_reference row")
 
-    # 2. Real Leitweg-ID mapping → eu_einvoice's electronic_address.
+    # 2. Leitweg-ID → dedicated Customer.leitweg_id field.
     leitweg_row = _find_row(parent, "leitweg_id")
     if leitweg_row:
-        if (leitweg_row.target_field != "electronic_address"
+        if (leitweg_row.target_field != "leitweg_id"
                 or leitweg_row.mapping_type != "Customer Update"):
             leitweg_row.source_field_names = "leitweg_id, leitwegId, leitweg"
             leitweg_row.mapping_type = "Customer Update"
-            leitweg_row.target_field = "electronic_address"
-            changes.append("updated leitweg_id row → electronic_address")
+            leitweg_row.target_field = "leitweg_id"
+            changes.append("updated leitweg_id row → Customer.leitweg_id")
     else:
         parent.append(_PARENT_TABLE_FIELD, {
             "field_key": "leitweg_id",
             "source_field_names": "leitweg_id, leitwegId, leitweg",
             "mapping_type": "Customer Update",
-            "target_field": "electronic_address",
+            "target_field": "leitweg_id",
         })
-        changes.append("created leitweg_id row → electronic_address")
+        changes.append("created leitweg_id row → Customer.leitweg_id")
 
-    # 3. invoice_email: promote from Info Only → Sales Order Field.
+    # 3. Government-org flag → dedicated Customer.is_government_org field.
+    gov_row = _find_row(parent, "is_government_org")
+    if gov_row:
+        if (gov_row.target_field != "is_government_org"
+                or gov_row.mapping_type != "Customer Update"):
+            gov_row.source_field_names = "is_government_org, isGovernmentOrg"
+            gov_row.mapping_type = "Customer Update"
+            gov_row.target_field = "is_government_org"
+            changes.append("updated is_government_org row → "
+                           "Customer.is_government_org")
+    else:
+        parent.append(_PARENT_TABLE_FIELD, {
+            "field_key": "is_government_org",
+            "source_field_names": "is_government_org, isGovernmentOrg",
+            "mapping_type": "Customer Update",
+            "target_field": "is_government_org",
+        })
+        changes.append("created is_government_org row → "
+                       "Customer.is_government_org")
+
+    # 4. invoice_email: promote from Info Only → Sales Order Field.
     inv_row = _find_row(parent, "invoice_email")
     if inv_row and inv_row.mapping_type != "Sales Order Field":
         inv_row.mapping_type = "Sales Order Field"

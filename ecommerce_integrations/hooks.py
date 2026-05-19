@@ -227,6 +227,14 @@ doc_events = {
 			"ecommerce_integrations.medusa.status_sync.on_sales_order_cancel",
 		],
 	},
+	# Mirror our friendly ``Customer.leitweg_id`` field into Alyf's
+	# canonical ``electronic_address`` + EAS scheme ``0204`` so the
+	# eu_einvoice XRechnung renderer picks up the Leitweg-ID without
+	# the operator having to maintain two parallel fields.
+	"Customer": {
+		"before_save": "ecommerce_integrations.shopware6.customer.sync.mirror_leitweg_into_electronic_address",
+		"after_insert": "ecommerce_integrations.shopware6.customer.sync.mirror_leitweg_into_electronic_address",
+	},
 	"Delivery Note": {
 		"before_insert": "ecommerce_integrations.ecommerce_integrations.channel_propagation.propagate_to_delivery_note",
 		"validate": "ecommerce_integrations.ecommerce_integrations.channel_propagation.propagate_to_delivery_note",

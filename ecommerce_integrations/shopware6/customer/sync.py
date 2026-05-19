@@ -563,3 +563,57 @@ def sync_old_customers(client: Shopware6AdminAPIClientBase):
     except Exception as e:
         logger = get_logger("scheduled_old_customer_sync")
         logger.error("Scheduled old customer sync failed", exception=e, persist=True)
+
+
+# ---------------------------------------------------------------------- #
+# B2G / XRechnung integration                                            #
+# ---------------------------------------------------------------------- #
+
+
+# EAS-code list entry that flags ``electronic_address`` as a German
+# Leitweg-ID. See https://www.xrepository.de/details/urn:xoev-de:kosit:codeliste:eas
+_LEITWEG_EAS_CODE = "0204"
+
+
+def mirror_leitweg_into_electronic_address(doc, method=None):
+    """Customer hook: copy ``leitweg_id`` into Alyf's ``electronic_address``.
+
+    Operator surface keeps a friendly named ``Customer.leitweg_id`` field
+    (declared in ``shopware6.custom_fields``). The eu_einvoice (Alyf)
+    XRechnung renderer however reads from ``Customer.electronic_address``
+    + ``electronic_address_scheme = '0204'``. Without this bridge the
+    operator would have to type the Leitweg-ID twice.
+
+    Rules:
+
+    * Skip when ``leitweg_id`` is unset.
+    * Skip when ``electronic_address`` already holds a *different* value
+      so an operator override on Alyf's field isn't silently overwritten.
+    * Only stamp ``electronic_address_scheme`` when it's currently empty;
+      preserves manually-configured schemes like PEPPOL ``0192`` /
+      GLN ``0088``.
+    * No-op when Alyf's fields aren't installed on this site (the meta
+      check keeps the hook portable across deployments).
+    """
+    leitweg = (getattr(doc, "leitweg_id", None) or "").strip()
+    if not leitweg:
+        return
+
+    meta = doc.meta
+    if not meta.has_field("electronic_address"):
+        return  # eu_einvoice not installed
+
+    current_address = (getattr(doc, "electronic_address", None) or "").strip()
+    if not current_address:
+        doc.electronic_address = leitweg
+    elif current_address == leitweg:
+        pass  # already in sync, nothing to do
+    else:
+        # Operator manually set a different electronic_address — don't
+        # clobber. They may have a non-Leitweg use case here.
+        return
+
+    if meta.has_field("electronic_address_scheme"):
+        current_scheme = (getattr(doc, "electronic_address_scheme", None) or "").strip()
+        if not current_scheme:
+            doc.electronic_address_scheme = _LEITWEG_EAS_CODE

@@ -69,24 +69,33 @@ def process_checkout_fields(
                 customer_updates[row.target_field] = value
 
     if customer_updates:
-        # Auto-stamp the EAS scheme when the checkout pushed a Leitweg-ID
-        # into Alyf's ``electronic_address``. ``eu_einvoice`` ignores
-        # the address without a scheme code, so writing only one of the
-        # two leaves the XRechnung path broken. ``0204`` is the BMI
-        # EAS-code list entry for "Leitweg-ID"; we only stamp it when
-        # the customer master doesn't already carry a different scheme
-        # (e.g. operator manually configured PEPPOL ``0192`` or
-        # GLN ``0088``).
-        if (
-            customer_updates.get("electronic_address")
-            and customer_meta
-            and customer_meta.has_field("electronic_address_scheme")
-        ):
-            existing_scheme = frappe.db.get_value(
-                "Customer", customer, "electronic_address_scheme",
-            )
-            if not existing_scheme:
-                customer_updates["electronic_address_scheme"] = "0204"
+        # When the operator's mapping pushed ``leitweg_id``, also mirror
+        # it into Alyf's ``electronic_address`` + EAS scheme ``0204``
+        # so the eu_einvoice XRechnung renderer picks it up. We can't
+        # rely on the ``Customer.before_save`` hook for this because
+        # ``frappe.db.set_value`` is a direct UPDATE — it bypasses
+        # ``doc_events``. Doing the mirror inline here keeps the fast
+        # per-order write path and avoids loading the full customer
+        # doc just to fire hooks.
+        leitweg = (customer_updates.get("leitweg_id") or "").strip() \
+            if isinstance(customer_updates.get("leitweg_id"), str) \
+            else customer_updates.get("leitweg_id")
+        if leitweg and customer_meta and customer_meta.has_field("electronic_address"):
+            current_ea = frappe.db.get_value(
+                "Customer", customer,
+                ["electronic_address", "electronic_address_scheme"],
+                as_dict=True,
+            ) or {}
+            current_addr = (current_ea.get("electronic_address") or "").strip()
+            # Only fill when empty OR already equal to the new Leitweg-ID;
+            # never clobber an operator-set non-Leitweg electronic_address.
+            if not current_addr or current_addr == str(leitweg).strip():
+                customer_updates["electronic_address"] = leitweg
+                if (
+                    customer_meta.has_field("electronic_address_scheme")
+                    and not (current_ea.get("electronic_address_scheme") or "").strip()
+                ):
+                    customer_updates["electronic_address_scheme"] = "0204"
 
         frappe.db.set_value("Customer", customer, customer_updates, update_modified=False)
 

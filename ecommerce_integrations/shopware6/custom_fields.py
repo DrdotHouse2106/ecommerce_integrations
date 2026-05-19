@@ -154,15 +154,36 @@ CUSTOM_FIELDS = {
             "translatable": 0,
             "description": "Which shop this customer first registered from",
         },
-        # XRechnung / B2G Leitweg-ID intentionally NOT added here —
-        # ``eu_einvoice`` (Alyf) already ships the canonical fields:
-        # ``Customer.electronic_address_scheme`` (Link to Common Code,
-        # set to ``0204`` for German Leitweg-ID) plus
-        # ``Customer.electronic_address`` (Data, the actual Leitweg-ID
-        # string). The Shopware Checkout Field mapping with key
-        # ``leitweg_id`` routes the value into ``electronic_address``
-        # via ``Customer Update``; the EAS scheme is auto-set to
-        # ``0204`` by ``shopware6.customer.sync._ensure_leitweg_eas_scheme``.
+        # XRechnung / B2G snapshot fields. The Shopware Plugin X stamps
+        # ``leitweg_id`` + ``is_government_org`` onto every order coming
+        # from a public-sector buyer; we mirror them onto the Customer
+        # master via the ``Ecommerce Checkout Field`` mappings so the
+        # values persist beyond the single order and stay queryable on
+        # the customer card.
+        #
+        # The values are intentionally a *snapshot* — Alyf's
+        # ``eu_einvoice`` reads from ``Customer.electronic_address`` +
+        # ``Customer.electronic_address_scheme = '0204'`` for the actual
+        # XRechnung BT-49 render. Mirroring ``leitweg_id`` into Alyf's
+        # field is handled by a ``Customer.before_save`` hook in
+        # ``shopware6/customer/sync.py`` so the operator's Leitweg-ID
+        # in this friendly field automatically populates the EN-16931
+        # path too.
+        {
+            "fieldname": "leitweg_id",
+            "label": "Leitweg-ID",
+            "fieldtype": "Data",
+            "insert_after": "tax_id",
+            "translatable": 0,
+            "description": "B2G routing identifier (Format 991-12345-67). Auto-mirrored to electronic_address + EAS scheme 0204 for XRechnung BT-49.",
+        },
+        {
+            "fieldname": "is_government_org",
+            "label": "Öffentlicher Auftraggeber",
+            "fieldtype": "Check",
+            "insert_after": "leitweg_id",
+            "description": "Tick when this customer is a public-sector entity. Influences einvoice_profile selection on Sales Invoice.",
+        },
     ],
     "Sales Order": [
         {
