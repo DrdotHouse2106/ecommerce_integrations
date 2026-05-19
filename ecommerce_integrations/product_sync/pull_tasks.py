@@ -326,10 +326,89 @@ def list_pull_syncs_for_backend(backend: str) -> list[dict]:
 
 @frappe.whitelist()
 def run_pull_now(sync: str) -> dict:
-    """Trigger a manual pull. Wraps :func:`apply_pull` with permission
-    enforcement so the Setting-form widget can offer a "Run Now" button
-    without exposing the bare ``apply_pull`` entry point.
+    """Trigger a manual pull through the long queue.
+
+    Cron already enqueues pull jobs; the manual Setting widget follows
+    the same path so large Shopware pulls do not time out in the browser.
     """
     if not frappe.has_permission(_PULL_SYNC_DOCTYPE, "write", doc=sync):
         frappe.throw(_("Not permitted to run this Pull Sync"))
-    return apply_pull(sync, trigger_type="manual")
+    status = (frappe.db.get_value(_PULL_SYNC_DOCTYPE, sync, "sync_status") or "").lower()
+    if status == "running":
+        return {
+            "sync": sync,
+            "status": "running",
+            "message": _("Pull is already running for this sync."),
+        }
+    frappe.enqueue(
+        "ecommerce_integrations.product_sync.pull_tasks.apply_pull",
+        queue="long",
+        timeout=3600,
+        is_async=True,
+        job_name=f"product_sync:pull:{sync}",
+        sync_name=sync,
+        trigger_type="manual",
+    )
+    frappe.db.set_value(
+        _PULL_SYNC_DOCTYPE, sync,
+        {"sync_status": "pending", "last_error": ""},
+        update_modified=False,
+    )
+    frappe.db.commit()
+    return {
+        "sync": sync,
+        "status": "queued",
+        "message": _("Pull was queued in the background."),
+    }
+
+
+@frappe.whitelist()
+def get_pull_status(sync: str) -> dict:
+    """Poll endpoint for a queued/running Pull Sync."""
+    if not frappe.has_permission(_PULL_SYNC_DOCTYPE, "read", doc=sync):
+        frappe.throw(_("Not permitted to read this Pull Sync"))
+    row = frappe.db.get_value(
+        _PULL_SYNC_DOCTYPE, sync,
+        [
+            "sync_status", "last_synced_at", "last_heartbeat_at",
+            "last_error", "items_pulled_total", "items_failed_total",
+        ],
+        as_dict=True,
+    ) or {}
+    runs = frappe.get_all(
+        _RUN_DOCTYPE,
+        filters={"sync": sync, "mode": "pull"},
+        fields=[
+            "name", "status", "items_total", "items_succeeded",
+            "items_failed", "started_at", "finished_at", "error_summary",
+        ],
+        order_by="creation desc",
+        limit=1,
+    )
+    run = runs[0] if runs else {}
+    sync_status = (row.get("sync_status") or "pending").lower()
+    if sync_status in ("pending", "running"):
+        status = sync_status
+    else:
+        status = (run.get("status") or sync_status).lower()
+    total = int(run.get("items_total") or 0)
+    current = int(run.get("items_succeeded") or row.get("items_pulled_total") or 0)
+    percent = int(current * 100 / total) if total else 0
+    if status == "running":
+        percent = min(percent, 99)
+    elif status in ("ok", "partial", "error") and total:
+        percent = 100
+    return {
+        "sync": sync,
+        "status": status,
+        "run": run.get("name"),
+        "current": current,
+        "total": total,
+        "percent": percent,
+        "failed": int(run.get("items_failed") or row.get("items_failed_total") or 0),
+        "started_at": run.get("started_at"),
+        "finished_at": run.get("finished_at"),
+        "last_heartbeat_at": row.get("last_heartbeat_at"),
+        "last_synced_at": row.get("last_synced_at"),
+        "error": run.get("error_summary") or row.get("last_error") or "",
+    }

@@ -10,7 +10,7 @@
      kind: "acknowledgment" (received) or "confirmation" (approved) --#}
 {%- macro render_email(doc, brand, kind) -%}
 {% if kind == "confirmation" %}
-  {% set title = brand.order_confirmation_title %}
+  {% set title = _(brand.order_confirmation_title) %}
   {% set greeting = brand.email_confirmation_greeting %}
   {% set body = brand.email_confirmation_body %}
 {% elif kind == "invoice" %}
@@ -18,7 +18,7 @@
   {% set greeting = brand.email_invoice_greeting %}
   {% set body = brand.email_invoice_body %}
 {% else %}
-  {% set title = brand.order_ack_title %}
+  {% set title = _(brand.order_ack_title) %}
   {% set greeting = brand.email_acknowledgment_greeting %}
   {% set body = brand.email_acknowledgment_body %}
 {% endif %}
@@ -114,13 +114,13 @@
           {% endfor %}
         {% endif %}
         <tr style="background-color:#f8f9fa;">
-          <td colspan="3" style="padding:12px;text-align:right;font-size:10pt;font-weight:700;border-top:2px solid {{ brand.primary_color }};">{{ _("Grand Total") }}{% if tax_ns.applies %} (brutto){% endif %}:</td>
+          <td colspan="3" style="padding:12px;text-align:right;font-size:10pt;font-weight:700;border-top:2px solid {{ brand.primary_color }};">{{ _("Grand Total") }}{% if tax_ns.applies %} ({{ _("gross") }}){% endif %}:</td>
           <td style="padding:12px;text-align:right;font-size:11pt;font-weight:700;color:{{ brand.primary_color }};border-top:2px solid {{ brand.primary_color }};">{{ doc.get_formatted("grand_total") }}</td>
         </tr>
       </table>
       {% if tax_ns.applies %}
       <p style="margin:0 0 20px 0;font-size:8pt;color:#888;text-align:right;font-style:italic;">
-        {% if tax_ns.inclusive %}Alle Preise verstehen sich inkl. gesetzlicher MwSt.{% else %}Alle Preise verstehen sich zzgl. gesetzlicher MwSt.{% endif %}
+        {% if tax_ns.inclusive %}{{ _("All prices include statutory VAT.") }}{% else %}{{ _("All prices exclude statutory VAT.") }}{% endif %}
       </p>
       {% endif %}
       {% endif %}

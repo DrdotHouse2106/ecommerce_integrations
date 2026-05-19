@@ -154,7 +154,8 @@
    "label": "Sender Name"
   },
   {
-   "description": "Language used to render emails and PDFs sent to customers via this channel. Falls back to the customer's language or the system default if empty.",
+   "default": "de",
+   "description": "Language used to render emails and PDFs sent to customers via this channel. Defaults to German; set a channel-specific language when needed.",
    "fieldname": "language",
    "fieldtype": "Link",
    "label": "Language",
@@ -197,15 +198,15 @@
    "label": "Texts: Order Acknowledgment & Confirmation"
   },
   {
-   "default": "Bestellbestätigung",
-   "description": "Title on the order receipt PDF (sent to the customer immediately after order entry)",
+   "default": "Order Acknowledgment",
+   "description": "Title on the order receipt PDF (sent to the customer immediately after order entry). Translated at render time via the channel language.",
    "fieldname": "order_ack_title",
    "fieldtype": "Data",
    "label": "Order Acknowledgment Title"
   },
   {
-   "default": "Wir haben Ihre Bestellung erhalten und prüfen sie:",
-   "description": "Intro sentence on the order receipt PDF",
+   "default": "{{ _(\"We have received your order and are reviewing it:\") }}",
+   "description": "Intro sentence on the order receipt PDF. Jinja supported — wrap fixed text in {{ _(\"...\") }} to translate via the channel language.",
    "fieldname": "order_ack_intro",
    "fieldtype": "Small Text",
    "label": "Order Acknowledgment Intro"
@@ -215,15 +216,15 @@
    "fieldtype": "Column Break"
   },
   {
-   "default": "Auftragsbestätigung",
-   "description": "Title on the order confirmation PDF (after office release)",
+   "default": "Order Confirmation",
+   "description": "Title on the order confirmation PDF (after office release). Translated at render time via the channel language.",
    "fieldname": "order_confirmation_title",
    "fieldtype": "Data",
    "label": "Order Confirmation Title"
   },
   {
-   "default": "Hiermit bestätigen wir Ihre Bestellung:",
-   "description": "Intro sentence on the order confirmation PDF",
+   "default": "{{ _(\"We hereby confirm your order:\") }}",
+   "description": "Intro sentence on the order confirmation PDF. Jinja supported — wrap fixed text in {{ _(\"...\") }} to translate via the channel language.",
    "fieldname": "order_confirmation_intro",
    "fieldtype": "Small Text",
    "label": "Order Confirmation Intro"
@@ -235,14 +236,15 @@
    "label": "Texts: Delivery Note"
   },
   {
-   "default": "Lieferschein",
-   "description": "Titel auf der Lieferschein-PDF",
+   "default": "Delivery Note",
+   "description": "Title on the delivery note PDF. Translated at render time via the channel language.",
    "fieldname": "delivery_note_title",
    "fieldtype": "Data",
    "label": "Delivery Note Title"
   },
   {
-   "default": "Anbei erhalten Sie Ihre Lieferung:",
+   "default": "{{ _(\"Enclosed please find your delivery:\") }}",
+   "description": "Intro sentence on the delivery note PDF. Jinja supported — wrap fixed text in {{ _(\"...\") }} to translate via the channel language.",
    "fieldname": "delivery_note_intro",
    "fieldtype": "Small Text",
    "label": "Delivery Note Intro"
@@ -254,8 +256,8 @@
    "label": "Texts: Email Bodies"
   },
   {
-   "default": "Bestellbestätigung {{ doc.name }}",
-   "description": "Subject line of the order receipt email. Jinja supported (e.g. {{ doc.name }} for the order number).",
+   "default": "{{ _(\"Order Acknowledgment\") }} {{ doc.name }}",
+   "description": "Subject line of the order receipt email. Jinja supported — wrap fixed text in {{ _(\"...\") }} to translate via the channel language. Placeholders: {{ doc.name }} for the order number.",
    "fieldname": "email_acknowledgment_subject",
    "fieldtype": "Data",
    "label": "Acknowledgment Email Subject"
@@ -268,8 +270,8 @@
    "label": "Acknowledgment Email Greeting"
   },
   {
-   "default": "<p>vielen Dank für Ihre Bestellung. Wir haben Ihren Auftrag erhalten und werden ihn schnellstmöglich bearbeiten.</p><p>Nachfolgend finden Sie eine Übersicht Ihrer bestellten Artikel.</p>",
-   "description": "Body of the order receipt email (HTML, Jinja placeholders supported: {{ doc.name }}, {{ doc.grand_total }}, plus {{ first_name }}, {{ last_name }}, {{ salutation }}, {{ gender }}, {{ auto_greeting }}).",
+   "default": "<p>{{ _(\"thank you for your order. We have received your request and will process it as quickly as possible.\") }}</p><p>{{ _(\"Below you will find an overview of the items you ordered.\") }}</p>",
+   "description": "Body of the order receipt email (HTML, Jinja placeholders supported: {{ doc.name }}, {{ doc.grand_total }}, plus {{ first_name }}, {{ last_name }}, {{ salutation }}, {{ gender }}, {{ auto_greeting }}). Wrap fixed text in {{ _(\"...\") }} to translate via the channel language.",
    "fieldname": "email_acknowledgment_body",
    "fieldtype": "Text Editor",
    "label": "Acknowledgment Email Body"
@@ -279,8 +281,8 @@
    "fieldtype": "Column Break"
   },
   {
-   "default": "Auftragsbestätigung {{ doc.name }}",
-   "description": "Subject line of the order confirmation email. Jinja supported (e.g. {{ doc.name }} for the order number).",
+   "default": "{{ _(\"Order Confirmation\") }} {{ doc.name }}",
+   "description": "Subject line of the order confirmation email. Jinja supported — wrap fixed text in {{ _(\"...\") }} to translate via the channel language. Placeholders: {{ doc.name }} for the order number.",
    "fieldname": "email_confirmation_subject",
    "fieldtype": "Data",
    "label": "Confirmation Email Subject"
@@ -293,28 +295,29 @@
    "label": "Confirmation Email Greeting"
   },
   {
-   "default": "<p>hiermit bestätigen wir verbindlich Ihre Bestellung. Details entnehmen Sie bitte der angehängten Auftragsbestätigung.</p>",
+   "default": "<p>{{ _(\"we hereby confirm your order as binding. Please find the details in the attached order confirmation.\") }}</p>",
+   "description": "Body of the order confirmation email (HTML, Jinja placeholders supported). Wrap fixed text in {{ _(\"...\") }} to translate via the channel language.",
    "fieldname": "email_confirmation_body",
    "fieldtype": "Text Editor",
    "label": "Confirmation Email Body"
   },
   {
-   "default": "Ihre Rechnung {{ doc.name }}",
-   "description": "Subject line of the invoice email. Jinja supported (e.g. {{ doc.name }} for the invoice number).",
+   "default": "{{ _(\"Your invoice\") }} {{ doc.name }}",
+   "description": "Subject line of the invoice email. Jinja supported — wrap fixed text in {{ _(\"...\") }} to translate via the channel language. Placeholders: {{ doc.name }} for the invoice number.",
    "fieldname": "email_invoice_subject",
    "fieldtype": "Data",
    "label": "Invoice Email Subject"
   },
   {
    "default": "{{ auto_greeting }},",
-   "description": "Anrede am Anfang der Rechnungs-E-Mail. Jinja-Platzhalter erlaubt: {{ first_name }}, {{ last_name }}, {{ salutation }}, {{ gender }}, {{ customer_name }}, {{ auto_greeting }}.",
+   "description": "Greeting at the top of the invoice email. Jinja placeholders allowed: {{ first_name }}, {{ last_name }}, {{ salutation }}, {{ gender }}, {{ customer_name }}, {{ auto_greeting }} (locale-aware auto-greeting with fallback to 'Dear Sir or Madam').",
    "fieldname": "email_invoice_greeting",
    "fieldtype": "Small Text",
    "label": "Invoice Email Greeting"
   },
   {
-   "default": "<p>anbei erhalten Sie Ihre Rechnung im PDF-Format. Falls aktiviert, ist eine elektronische Rechnung (XRechnung/ZUGFeRD) sowohl als XML-Datei als auch eingebettet im PDF beigefügt.</p><p>Zahlungsdetails entnehmen Sie bitte der Rechnung.</p>",
-   "description": "Body of the invoice email (HTML, Jinja placeholders supported).",
+   "default": "<p>{{ _(\"please find your invoice attached as a PDF. If enabled, an electronic invoice (XRechnung/ZUGFeRD) is included both as a separate XML file and embedded into the PDF.\") }}</p><p>{{ _(\"Please find the payment details on the invoice.\") }}</p>",
+   "description": "Body of the invoice email (HTML, Jinja placeholders supported). Wrap fixed text in {{ _(\"...\") }} to translate via the channel language.",
    "fieldname": "email_invoice_body",
    "fieldtype": "Text Editor",
    "label": "Invoice Email Body"

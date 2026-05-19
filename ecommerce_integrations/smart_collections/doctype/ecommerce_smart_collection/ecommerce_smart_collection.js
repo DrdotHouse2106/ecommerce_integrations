@@ -133,18 +133,17 @@ function _show_sync_preview_dialog(frm, plan) {
 					frappe.call({
 						method: 'ecommerce_integrations.smart_collections.tasks.sync_collection_now',
 						args: { collection: frm.doc.name },
-						freeze: true,
-						freeze_message: __('Syncing to backends…'),
 						callback(r) {
-							if (r.message?.skipped) {
+							const res = r.message || {};
+							if (res.skipped) {
 								frappe.show_alert({
-									message: __('Skipped: {0}', [r.message.reason]),
+									message: __('Skipped: {0}', [res.reason]),
 									indicator: 'orange',
 								});
 							} else {
 								frappe.show_alert({
-									message: __('Sync complete'),
-									indicator: 'green',
+									message: res.message || __('Sync queued'),
+									indicator: res.status === 'queued' ? 'blue' : 'green',
 								});
 								frm.reload_doc();
 							}

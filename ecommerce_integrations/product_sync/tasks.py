@@ -171,11 +171,29 @@ def _apply_live(
             )
 
         # 1. Build the diff (full set, no max_items cap for apply).
+        last_diff_progress_write = [0.0]
+
+        def _on_diff_progress(current: int, total: int) -> None:
+            now_ts = time.time()
+            if (now_ts - last_diff_progress_write[0]) < 1.0 and current < total:
+                return
+            last_diff_progress_write[0] = now_ts
+            frappe.db.set_value(
+                _RUN_DOCTYPE, run.name,
+                {
+                    "items_total": total,
+                    "items_succeeded": current,
+                },
+                update_modified=False,
+            )
+            frappe.db.commit()  # make live-diff progress visible to the UI
+
         plan = compute_product_diff(
             sync_doc,
             max_items=None,
             fetch_live=True,
             subset_item_codes=subset_item_codes,
+            on_progress=_on_diff_progress,
         )
         # Persist the plan up-front so the operator can see what was
         # intended even if the apply loop crashes halfway. Use
@@ -276,7 +294,15 @@ def _apply_live(
             # next run will treat the item as a fresh create.
             _clear_mapping(drift.item_code, integration_key)
 
-        # 6. Final status.
+        # 6. Smart Collection category links. Product upsert creates/updates
+        #    the Medusa/Shopware product mappings; Smart Collection targets
+        #    own the category-product link table, so rerun the linked
+        #    collections after products exist. This keeps Smart-Collection
+        #    scoped Product Syncs category-complete without a second manual
+        #    click.
+        _sync_linked_smart_collection_categories(sync_doc, result)
+
+        # 7. Final status.
         status = STATUS_OK if not result.errors else STATUS_PARTIAL
         _finalize_run(
             run, result, status=status,
@@ -304,6 +330,55 @@ def _apply_live(
         result.status = STATUS_ERROR
         result.message = msg
         return result
+
+
+def _sync_linked_smart_collection_categories(sync_doc, result: ProductSyncRunResult) -> None:
+    """Refresh category-product links for Smart Collection scoped syncs.
+
+    The Product Sync payload links products to Item Group categories only.
+    For Smart Collections, the backend category and its product links are
+    managed by the Smart Collections module, which resolves ERP item codes
+    to the freshly written Ecommerce Item mappings. Running it here after
+    product upsert makes the manual Product Sync end-to-end for Medusa and
+    Shopware without blocking the browser.
+    """
+    if (sync_doc.scope_mode or "") != "Smart Collection":
+        return
+
+    names: list[str] = []
+    seen: set[str] = set()
+
+    legacy = (getattr(sync_doc, "linked_smart_collection", None) or "").strip()
+    if legacy:
+        names.append(legacy)
+        seen.add(legacy)
+
+    for row in (getattr(sync_doc, "linked_smart_collections", None) or []):
+        name = (row.smart_collection or "").strip()
+        if name and name not in seen:
+            names.append(name)
+            seen.add(name)
+
+    if not names:
+        return
+
+    from ecommerce_integrations.smart_collections.tasks import sync_collection
+
+    ok = 0
+    for name in names:
+        try:
+            outcome = sync_collection(name)
+            targets = outcome.get("targets") if isinstance(outcome, dict) else []
+            if any(t.get("status") == "error" for t in (targets or [])):
+                result.errors.append(f"smart collection {name}: target sync error")
+            else:
+                ok += 1
+        except Exception as exc:  # noqa: BLE001
+            result.errors.append(f"smart collection {name}: {exc}")
+
+    if ok:
+        msg = _("Smart Collection category links refreshed: {0}.").format(ok)
+        result.message = (result.message + " " if result.message else "") + msg
 
 
 # ─── Per-item application ────────────────────────────────────────────
@@ -685,6 +760,7 @@ def _create_run_doc(
     })
     doc.flags.ignore_permissions = True
     doc.insert()
+    frappe.db.commit()  # make the audit row visible while the worker is still running
     return doc
 
 

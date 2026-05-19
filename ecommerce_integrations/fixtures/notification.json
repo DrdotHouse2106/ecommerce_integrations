@@ -41,7 +41,7 @@
   "sender_email": null,
   "set_property_after_alert": null,
   "slack_webhook_url": null,
-  "subject": "Entwurf: Versand {{doc.name}} - {{doc.customer_name}}",
+  "subject": "{{ _(\"Draft: Shipment\") }} {{doc.name}} - {{doc.customer_name}}",
   "value_changed": null
  },
  {
@@ -86,7 +86,7 @@
   "sender_email": null,
   "set_property_after_alert": null,
   "slack_webhook_url": null,
-  "subject": "Ihre Bestellung bei {{ doc.ecommerce_sales_channel_name or \"uns\" }} ist eingegangen",
+  "subject": "{{ _(\"Your order at {0} has been received\").format(doc.ecommerce_sales_channel_name or _(\"us\")) }}",
   "value_changed": "ecommerce_order_confirmed"
  },
  {
@@ -131,7 +131,7 @@
   "sender_email": null,
   "set_property_after_alert": null,
   "slack_webhook_url": null,
-  "subject": "Auftragsbestätigung {{ doc.name }} - {{ doc.ecommerce_sales_channel_name or \"\" }}",
+  "subject": "{{ _(\"Order Confirmation\") }} {{ doc.name }} - {{ doc.ecommerce_sales_channel_name or \"\" }}",
   "value_changed": "status"
  },
  {
@@ -176,7 +176,7 @@
   "sender_email": null,
   "set_property_after_alert": null,
   "slack_webhook_url": null,
-  "subject": "Ihre Rechnung {{ doc.name }} - {{ doc.ecommerce_sales_channel_name or \"\" }}",
+  "subject": "{{ _(\"Your invoice\") }} {{ doc.name }} - {{ doc.ecommerce_sales_channel_name or \"\" }}",
   "value_changed": null
  }
 ]

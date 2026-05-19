@@ -134,10 +134,9 @@ class MedusaCategoryAdapter(CategoryAdapter):
             if not category:
                 return LiveCategoryState(exists=False)
 
-            # Pull linked products via the dedicated products endpoint.
-            # Medusa v2 caps a single page at a few hundred, so paginate
-            # offset/limit until exhausted (the same pattern the rest of
-            # the Medusa module uses — see ``medusa_request_all``).
+            # Pull linked products through the product list filter. Some
+            # Medusa v2 builds support POST on ``/product-categories/{id}/products``
+            # for mutations but do not expose GET on that subresource.
             linked: set[str] = set()
             total = 0
             offset = 0
@@ -146,17 +145,21 @@ class MedusaCategoryAdapter(CategoryAdapter):
             while True:
                 try:
                     page = medusa_request(
-                        session, base_url, "GET",
-                        f"{API_CATEGORIES}/{target.external_id}/products",
-                        params={"limit": page_size, "offset": offset, "fields": "id"},
+                        session,
+                        base_url,
+                        "GET",
+                        "/admin/products",
+                        params={
+                            "category_id[]": [target.external_id],
+                            "limit": page_size,
+                            "offset": offset,
+                            "fields": "id",
+                        },
                     )
                 except Exception as e:
-                    if "404" in str(e):
-                        page = {}
-                    else:
-                        raise AdapterError(
-                            f"Medusa category-product fetch failed: {e}",
-                        ) from e
+                    raise AdapterError(
+                        f"Medusa category-product fetch failed: {e}",
+                    ) from e
                 products = (page or {}).get("products") or []
                 total = (page or {}).get("count", total) or total
                 for p in products:
@@ -214,9 +217,11 @@ class MedusaCategoryAdapter(CategoryAdapter):
                 count = 0
                 try:
                     count_resp = medusa_request(
-                        session, base_url, "GET",
-                        f"{API_CATEGORIES}/{ext_id}/products",
-                        params={"limit": 1, "fields": "id"},
+                        session,
+                        base_url,
+                        "GET",
+                        "/admin/products",
+                        params={"category_id[]": [ext_id], "limit": 1, "fields": "id"},
                     )
                     count = int((count_resp or {}).get("count") or 0)
                 except Exception:

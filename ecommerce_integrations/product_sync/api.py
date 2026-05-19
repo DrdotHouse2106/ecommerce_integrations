@@ -440,19 +440,16 @@ def preflight_check(sync: str) -> dict:
 
 
 def _check_category_bridge(doc, _finding) -> None:
-    """Count Item Groups in the Sync's scope without backend category.
+    """Check that category handling is ready for this Product Sync.
 
-    Reads ``Item Group.shopware_category_id`` /
-    ``medusa_category_id`` (whichever matches the Sync's backend).
-    For 50k+ catalogues the count is done via a single GROUP BY
-    against the walker-resolved item set, so the check stays
-    sub-second even at scale.
-
-    Emits one ``warn``-severity finding when N > 0 with a clear fix
-    hint ("Run Catalog Mirror first"). Operators can still proceed —
-    the product upsert silently omits ``categories`` for unmapped
-    Item Groups, leaving the product uncategorised in the backend.
+    Catalog-Mirror / Item-Group scopes rely on Item Group backend category
+    fields. Smart-Collection scopes are different: category links are owned by
+    the Smart Collection sync itself, so validate those targets instead.
     """
+    if (doc.scope_mode or "") == "Smart Collection":
+        _check_smart_collection_category_bridge(doc, _finding)
+        return
+
     from ecommerce_integrations.product_sync.walker import walk_items_for_sync
 
     backend = (doc.backend or "").strip()
@@ -662,23 +659,126 @@ def _write_ecommerce_item(
 
 
 @frappe.whitelist()
-def apply_live(sync: str, *, with_snapshot: bool = True) -> dict:
-    """Run a live apply: pushes the diff via the registered adapter
-    and persists an ``Ecommerce Sync Run`` audit row.
+def start_apply(sync: str, *, with_snapshot: bool = True) -> dict:
+    """Enqueue a live Product Sync apply and return immediately.
 
-    Returns the in-process result of :func:`apply_sync` with
-    ``dry_run=False``. The ``with_snapshot`` flag is reserved for the
-    rollback path that captures the pre-apply backend state.
+    Cron already runs Product Sync applies through the long queue; the
+    manual UI path must use the same contract so large Shopware/Medusa
+    catalogues do not block the browser request. ``with_snapshot`` is
+    reserved for the rollback path and intentionally ignored for now.
     """
     if not frappe.has_permission(SYNC_DOCTYPE, "write", doc=sync):
         frappe.throw(_("Not permitted to apply this Product Sync"))
-    from ecommerce_integrations.product_sync.tasks import apply_sync
 
-    result = apply_sync(sync, dry_run=False)
+    status = (frappe.db.get_value(SYNC_DOCTYPE, sync, "sync_status") or "").lower()
+    if status == "running":
+        return {
+            "sync": sync,
+            "status": "running",
+            "message": _("Apply is already running for this Product Sync."),
+        }
+
+    frappe.enqueue(
+        "ecommerce_integrations.product_sync.tasks.apply_sync",
+        queue="long",
+        timeout=3600,
+        is_async=True,
+        job_name=f"product_sync:apply:{sync}",
+        sync_name=sync,
+        dry_run=False,
+        mode="live",
+        trigger_type="manual",
+        triggered_by=frappe.session.user,
+    )
+    frappe.db.set_value(
+        SYNC_DOCTYPE, sync,
+        {"sync_status": "pending", "last_error": ""},
+        update_modified=False,
+    )
+    frappe.db.commit()  # make queued state visible before the worker claims it
     return {
-        "sync": result.sync,
-        "status": result.status,
-        "message": result.message,
+        "sync": sync,
+        "status": "queued",
+        "message": _("Apply was queued in the background."),
+    }
+
+
+@frappe.whitelist()
+def apply_live(sync: str, *, with_snapshot: bool = True) -> dict:
+    """Backward-compatible manual apply endpoint.
+
+    Historically this executed the full apply synchronously in the web
+    request. It now delegates to :func:`start_apply` so old buttons or
+    bookmarks also use the background worker path.
+    """
+    return start_apply(sync, with_snapshot=with_snapshot)
+
+
+@frappe.whitelist()
+def get_apply_status(sync: str) -> dict:
+    """Poll endpoint for a queued/running live Product Sync apply."""
+    if not frappe.has_permission(SYNC_DOCTYPE, "read", doc=sync):
+        frappe.throw(_("Not permitted to read this Product Sync"))
+
+    sync_row = frappe.db.get_value(
+        SYNC_DOCTYPE, sync,
+        [
+            "sync_status", "last_heartbeat_at", "last_synced_at",
+            "last_error", "items_in_scope", "items_synced",
+            "items_failed", "items_skipped",
+        ],
+        as_dict=True,
+    ) or {}
+
+    runs = frappe.get_all(
+        _RUN_DOCTYPE,
+        filters={"sync": sync, "mode": ["!=", "preview"]},
+        fields=[
+            "name", "status", "mode", "items_total", "items_succeeded",
+            "items_failed", "items_skipped", "created_count", "updated_count",
+            "deleted_count", "deactivated_count", "started_at", "finished_at",
+            "error_summary",
+        ],
+        order_by="creation desc",
+        limit=1,
+    )
+    run = runs[0] if runs else {}
+
+    run_status = (run.get("status") or "").lower() if run else ""
+    sync_status = (sync_row.get("sync_status") or "pending").lower()
+    if sync_status in ("pending", "running"):
+        status = sync_status
+    else:
+        status = run_status or sync_status
+
+    total = int(run.get("items_total") or sync_row.get("items_in_scope") or 0)
+    current = int(run.get("items_succeeded") or sync_row.get("items_synced") or 0)
+    failed = int(run.get("items_failed") or sync_row.get("items_failed") or 0)
+    percent = int(current * 100 / total) if total else 0
+    if status == "running":
+        percent = min(percent, 99)
+    elif status in ("ok", "partial", "error") and total:
+        percent = 100
+
+    return {
+        "sync": sync,
+        "status": status or "pending",
+        "current": current,
+        "total": total,
+        "percent": percent,
+        "failed": failed,
+        "skipped": int(run.get("items_skipped") or sync_row.get("items_skipped") or 0),
+        "run": run.get("name"),
+        "mode": run.get("mode"),
+        "created": int(run.get("created_count") or 0),
+        "updated": int(run.get("updated_count") or 0),
+        "deleted": int(run.get("deleted_count") or 0),
+        "deactivated": int(run.get("deactivated_count") or 0),
+        "started_at": run.get("started_at"),
+        "finished_at": run.get("finished_at"),
+        "last_heartbeat_at": sync_row.get("last_heartbeat_at"),
+        "last_synced_at": sync_row.get("last_synced_at"),
+        "error": run.get("error_summary") or sync_row.get("last_error") or "",
     }
 
 
@@ -967,3 +1067,119 @@ def _coerce_bool(v, *, default: bool) -> bool:
     if s in ("0", "false", "no", "off", ""):
         return False
     return default
+
+
+def _check_smart_collection_category_bridge(doc, _finding) -> None:
+    """Verify Smart Collection category sync covers this Product Sync."""
+    backend = (doc.backend or "").strip()
+    if not backend:
+        return
+
+    sc_names = {
+        (row.smart_collection or "").strip()
+        for row in (doc.linked_smart_collections or [])
+        if (row.smart_collection or "").strip()
+    }
+    legacy = (doc.linked_smart_collection or "").strip()
+    if legacy:
+        sc_names.add(legacy)
+    if not sc_names:
+        _finding(
+            "block", "no_smart_collections",
+            _("Smart Collection scope requires at least one linked collection."),
+        )
+        return
+
+    channel_names = _target_sales_channel_names(doc)
+    rows = frappe.db.sql(
+        """
+        SELECT parent, sales_channel, external_id, sync_status
+        FROM `tabEcommerce Smart Collection Target`
+        WHERE parent IN %(parents)s
+          AND backend = %(backend)s
+          AND enabled = 1
+        """,
+        {"parents": tuple(sorted(sc_names)), "backend": backend},
+        as_dict=True,
+    )
+    by_parent: dict[str, list[dict]] = {}
+    for row in rows:
+        if channel_names and (row.sales_channel or "") not in channel_names:
+            continue
+        by_parent.setdefault(row.parent, []).append(row)
+
+    missing_target = []
+    missing_external = []
+    not_ok = []
+    for name in sorted(sc_names):
+        targets = by_parent.get(name) or []
+        if not targets:
+            missing_target.append(name)
+            continue
+        if not any((t.get("external_id") or "").strip() for t in targets):
+            missing_external.append(name)
+        bad = [t for t in targets if (t.get("sync_status") or "") not in ("", "ok")]
+        if bad:
+            not_ok.append(name)
+
+    if missing_target:
+        _finding(
+            "block", "smart_collection_target_missing",
+            _(
+                "{0} linked Smart Collections have no enabled {1} target "
+                "for this storefront."
+            ).format(len(missing_target), backend),
+            count=len(missing_target),
+            sample=missing_target[:5],
+            fix_hint=_("Add/enable the matching Smart Collection target first."),
+        )
+    if missing_external:
+        _finding(
+            "warn", "smart_collection_category_not_synced",
+            _(
+                "{0} linked Smart Collection categories have not been synced "
+                "to the backend yet."
+            ).format(len(missing_external)),
+            count=len(missing_external),
+            sample=missing_external[:5],
+            fix_hint=_("Run Smart Collection sync before Product Sync, then rerun it after new products are created."),
+        )
+    if not_ok:
+        _finding(
+            "warn", "smart_collection_sync_not_ok",
+            _("{0} linked Smart Collection targets are not in OK status.").format(
+                len(not_ok),
+            ),
+            count=len(not_ok),
+            sample=not_ok[:5],
+            fix_hint=_("Open Smart Collections and resolve target errors before Product Sync."),
+        )
+    if not (missing_target or missing_external or not_ok):
+        _finding(
+            "ok", "smart_collection_categories_ready",
+            _("Linked Smart Collection categories are synced for this backend/storefront."),
+            count=len(sc_names),
+        )
+
+
+def _target_sales_channel_names(doc) -> set[str]:
+    """Map Product Sync channel IDs to Smart Collection target channel names."""
+    channel_ids = {
+        (row.sales_channel_id or "").strip()
+        for row in (doc.target_sales_channels or [])
+        if (row.sales_channel_id or "").strip()
+    }
+    if not channel_ids:
+        return set()
+    if (doc.backend or "") == "Medusa" and frappe.db.exists("DocType", "Medusa Sales Channel"):
+        rows = frappe.get_all(
+            "Medusa Sales Channel",
+            filters={"sales_channel_id": ("in", sorted(channel_ids))},
+            fields=["sales_channel_name", "short_code", "sales_channel_id"],
+            limit=0,
+        )
+        out = set()
+        for row in rows:
+            out.add(row.sales_channel_name or row.short_code or row.sales_channel_id)
+        return {v for v in out if v}
+    return channel_ids

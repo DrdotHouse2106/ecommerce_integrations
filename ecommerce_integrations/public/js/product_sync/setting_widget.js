@@ -330,28 +330,21 @@
         frappe.call({
             method: 'ecommerce_integrations.product_sync.pull_tasks.run_pull_now',
             args: { sync: sync_name },
-            freeze: true,
-            freeze_message: __('Running pull…'),
             callback: function (r) {
                 const result = r.message || {};
                 const status = (result.status || 'unknown').toLowerCase();
-                const indicator = (status === 'ok') ? 'green'
-                    : (status === 'error') ? 'red' : 'orange';
-                let msg = __('Pull finished: {0}', [status]);
-                if (result.counts) {
-                    const c = result.counts;
-                    msg += ' — ' + __('orders {0}/{1}, customers {2}/{3}, inventory {4}/{5}', [
-                        c.orders_pulled || 0, c.orders_failed || 0,
-                        c.customers_pulled || 0, c.customers_failed || 0,
-                        c.inventory_pulled || 0, c.inventory_failed || 0,
-                    ]);
-                }
-                frappe.show_alert({ message: msg, indicator: indicator });
+                const indicator = (status === 'queued') ? 'blue'
+                    : (status === 'running') ? 'orange'
+                    : (status === 'error') ? 'red' : 'green';
+                frappe.show_alert({
+                    message: result.message || __('Pull queued: {0}', [status]),
+                    indicator: indicator,
+                });
                 if (on_done) on_done();
             },
             error: function () {
                 frappe.show_alert({
-                    message: __('Pull failed — see Error Log.'),
+                    message: __('Pull could not be queued — see Error Log.'),
                     indicator: 'red',
                 });
             },

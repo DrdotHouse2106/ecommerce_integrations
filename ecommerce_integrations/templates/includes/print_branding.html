@@ -310,11 +310,11 @@ html, body { margin: 0; padding: 0; height: 100%; }
      `doc_kind` selects which title/intro to use: "acknowledgment" or "confirmation". --#}
 {%- macro render_order_document(doc, brand, doc_kind) -%}
 {% if doc_kind == "confirmation" %}
-  {% set title = brand.order_confirmation_title %}
-  {% set intro_text = brand.order_confirmation_intro %}
+  {% set title = _(brand.order_confirmation_title) %}
+  {% set intro_text = render_branding_text(brand.order_confirmation_intro, doc) %}
 {% else %}
-  {% set title = brand.order_ack_title %}
-  {% set intro_text = brand.order_ack_intro %}
+  {% set title = _(brand.order_ack_title) %}
+  {% set intro_text = render_branding_text(brand.order_ack_intro, doc) %}
 {% endif %}
 {% set company_doc = frappe.get_doc("Company", doc.company) %}
 {% set bank_accounts = frappe.get_all("Bank Account", filters={"company": doc.company, "is_company_account": 1}, fields=["iban", "bank", "branch_code"], order_by="is_default desc", limit=1) %}

@@ -720,20 +720,99 @@ function _apply_live(frm) {
 
 
 function _do_apply_live(frm) {
+    const progressDialog = new frappe.ui.Dialog({
+        title: __('Apply Live läuft im Hintergrund…'),
+        size: 'small',
+        fields: [{ fieldname: 'progress_html', fieldtype: 'HTML' }],
+    });
+    progressDialog.set_secondary_action_label(__('Schließen'));
+    let closed = false;
+    progressDialog.set_secondary_action(() => {
+        closed = true;
+        progressDialog.hide();
+        frm.reload_doc();
+    });
+
+    const renderProgress = ({ percent = 0, current = 0, total = 0, status = 'queued', failed = 0, error = '' } = {}) => {
+        const normalized = (status || 'queued').toLowerCase();
+        let label;
+        if (normalized === 'queued' || normalized === 'pending') {
+            label = __('Queued — waiting for a long worker…');
+        } else if (normalized === 'running' && !total) {
+            label = __('Worker started — building live diff…');
+        } else if (normalized === 'running') {
+            label = `${current.toLocaleString()} / ${total.toLocaleString()} (${percent}%)`;
+        } else if (normalized === 'ok') {
+            label = __('Finished successfully.');
+        } else if (normalized === 'partial') {
+            label = __('Finished with {0} failed items.', [failed || 0]);
+        } else if (normalized === 'error') {
+            label = error || __('Apply failed.');
+        } else {
+            label = normalized;
+        }
+        const color = normalized === 'error' ? '#d93025'
+            : normalized === 'partial' ? '#fa8c16'
+            : 'var(--primary,#2490ef)';
+        progressDialog.fields_dict.progress_html.$wrapper.html(`
+            <div style="padding:8px 0;">
+                <div class="progress" style="height:14px;margin-bottom:8px;">
+                    <div class="progress-bar progress-bar-striped ${normalized === 'running' ? 'active' : ''}"
+                         role="progressbar"
+                         style="width:${percent || 4}%;background:${color};"></div>
+                </div>
+                <div class="text-muted small" style="text-align:center;">${frappe.utils.escape_html(label)}</div>
+            </div>
+        `);
+    };
+
+    const finish = (m) => {
+        progressDialog.hide();
+        const status = (m.status || 'unknown').toLowerCase();
+        frappe.show_alert({
+            message: __('Apply Status: {0}', [status]),
+            indicator: status === 'ok' ? 'green' :
+                      (status === 'partial' ? 'orange' : 'red'),
+        });
+        frm.reload_doc();
+    };
+
+    const poll = () => {
+        if (closed) return;
+        frappe.call({
+            method: 'ecommerce_integrations.product_sync.api.get_apply_status',
+            args: { sync: frm.doc.name },
+            callback(rr) {
+                if (closed) return;
+                const m = rr.message || {};
+                renderProgress(m);
+                const status = (m.status || '').toLowerCase();
+                if (['ok', 'partial', 'error'].includes(status)) {
+                    finish(m);
+                    return;
+                }
+                setTimeout(poll, 2000);
+            },
+            error() {
+                if (closed) return;
+                renderProgress({ status: 'error', error: __('Could not read apply status.') });
+            },
+        });
+    };
+
+    renderProgress();
+    progressDialog.show();
+
     frappe.call({
-        method: 'ecommerce_integrations.product_sync.api.apply_live',
+        method: 'ecommerce_integrations.product_sync.api.start_apply',
         args: { sync: frm.doc.name, with_snapshot: true },
-        freeze: true,
-        freeze_message: __('Apply running…'),
         callback(r) {
-            if (!r.message) return;
-            const res = r.message;
-            frappe.show_alert({
-                message: __('Apply Status: {0} — {1}', [res.status, res.message || '']),
-                indicator: res.status === 'ok' ? 'green' :
-                          (res.status === 'partial' ? 'orange' : 'red'),
-            });
-            frm.reload_doc();
+            const m = r.message || {};
+            renderProgress(m);
+            setTimeout(poll, 800);
+        },
+        error() {
+            renderProgress({ status: 'error', error: __('Could not enqueue apply.') });
         },
     });
 }

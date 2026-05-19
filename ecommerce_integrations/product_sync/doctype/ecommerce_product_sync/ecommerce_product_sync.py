@@ -21,21 +21,40 @@ class EcommerceProductSync(Document):
         self._validate_cron()
 
     def _validate_unique_per_scope(self) -> None:
-        # Refuse another Sync with the same (backend, scope_mode, scope_key)
-        # to avoid two Syncs racing on the same set of items.
-        scope_key = (
-            self.linked_catalog_mirror
-            or self.linked_smart_collection
-            or self.root_item_group
-            or ""
-        )
+        # Refuse another Sync with the same backend + scope. Smart Collection
+        # scope is multi-row, so compare the normalized collection set instead
+        # of the legacy single-link field.
         if not self.backend or not self.scope_mode:
             return
-        # TODO(phase-2): once a clean Phase 1 install is verified, narrow
-        # this guard further (e.g. compare the resolved item set rather
-        # than the raw scope key) — for now the coarse uniqueness check
-        # is what mirrors the Catalog Mirror behaviour.
-        _ = scope_key  # reserved for the upcoming finer-grained check
+
+        if self.scope_mode == "Smart Collection":
+            current_set = _smart_collection_set(self)
+            if not current_set:
+                frappe.throw(
+                    _("Smart Collection scope requires at least one linked collection."),
+                )
+            candidates = frappe.get_all(
+                self.doctype,
+                filters={
+                    "backend": self.backend,
+                    "scope_mode": self.scope_mode,
+                    "name": ("!=", self.name or ""),
+                },
+                pluck="name",
+            )
+            duplicates = []
+            for name in candidates:
+                other = frappe.get_doc(self.doctype, name)
+                if _smart_collection_set(other) == current_set:
+                    duplicates.append(name)
+            if duplicates:
+                frappe.throw(
+                    _("Another Product Sync already covers the same Smart Collection scope: {0}").format(
+                        ", ".join(duplicates),
+                    ),
+                )
+            return
+
         existing = frappe.get_all(
             self.doctype,
             filters={
@@ -101,3 +120,15 @@ class EcommerceProductSync(Document):
             frappe.throw(_("cron_schedule is required when cron_preset is 'custom'."))
         # Defer real cron syntax validation to Phase 6 — keeping the field
         # free-form here avoids depending on croniter for Phase 1 anlage.
+
+
+def _smart_collection_set(doc) -> tuple[str, ...]:
+    names = {
+        (row.smart_collection or "").strip()
+        for row in (doc.linked_smart_collections or [])
+        if (row.smart_collection or "").strip()
+    }
+    legacy = (doc.linked_smart_collection or "").strip()
+    if legacy:
+        names.add(legacy)
+    return tuple(sorted(names))

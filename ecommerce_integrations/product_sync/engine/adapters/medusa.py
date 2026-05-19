@@ -71,8 +71,8 @@ _FETCH_PAGE_SIZE = 200
 # ``_build_live_canonical`` — drop a field here and the live-hash
 # silently goes stale.
 _FETCH_FIELDS = (
-    "*,variants.*,variants.prices.*,sales_channels.*,"
-    "categories.*,thumbnail,images.*"
+    "id,title,description,status,metadata,variants.*,variants.prices.*,"
+    "sales_channels.*,categories.*,thumbnail,images.*"
 )
 
 # Match-workflow result cap. The Match UI shows the top handful;
@@ -240,10 +240,43 @@ class MedusaProductAdapter(ProductAdapter):
         category_ids: list[str] | None,
         external_ids: list[str] | None,
     ) -> Iterator[LiveProductNode]:
+        native_ids: list[str] = []
+        legacy_external_ids = external_ids
+        if external_ids:
+            native_ids = [v for v in external_ids if str(v or "").startswith("prod_")]
+            legacy_external_ids = [v for v in external_ids if v not in native_ids]
+
+        for product_id in native_ids:
+            try:
+                resp = medusa_request(
+                    session,
+                    base_url,
+                    "GET",
+                    f"/admin/products/{product_id}",
+                    params={"fields": _FETCH_FIELDS},
+                )
+            except Exception as e:
+                if "404" in str(e):
+                    continue
+                raise AdapterError(
+                    f"Medusa product fetch failed (id={product_id!r}): {e}",
+                ) from e
+            product = (resp or {}).get("product") or {}
+            node = self._node_from_product(product)
+            if node is not None and _matches_filters(
+                node,
+                sales_channel_ids=sales_channel_ids,
+                category_ids=category_ids,
+            ):
+                yield node
+
+        if external_ids and not legacy_external_ids:
+            return
+
         params = self._build_fetch_params(
             sales_channel_ids=sales_channel_ids,
             category_ids=category_ids,
-            external_ids=external_ids,
+            external_ids=legacy_external_ids,
         )
         offset = 0
         while True:
@@ -286,15 +319,21 @@ class MedusaProductAdapter(ProductAdapter):
     ) -> dict[str, Any]:
         """Compose the query-param dict for ``/admin/products``.
 
-        Medusa accepts repeated query keys for list-valued filters
-        (``external_id[]=a&external_id[]=b``). ``requests`` serialises
-        a list-valued dict entry to repeated keys automatically when
-        we pass it as the value for ``external_id[]`` — that's the
-        idiom used elsewhere in the Medusa module.
+        Medusa accepts repeated query keys for list-valued filters.
+        Product Sync stores Medusa's internal ``prod_...`` id in
+        ``tabEcommerce Item.integration_item_code``; legacy rows may
+        still contain an operator ``external_id``. Use the native id
+        filter for normal rows and keep the external-id filter as a
+        compatibility fallback.
         """
         params: dict[str, Any] = {"fields": _FETCH_FIELDS}
         if external_ids:
-            params["external_id[]"] = list(external_ids)
+            native_ids = [v for v in external_ids if str(v or "").startswith("prod_")]
+            legacy_external_ids = [v for v in external_ids if v not in native_ids]
+            if native_ids:
+                params["id[]"] = list(native_ids)
+            if legacy_external_ids:
+                params["external_id[]"] = list(legacy_external_ids)
         if sales_channel_ids:
             params["sales_channel_id[]"] = list(sales_channel_ids)
         if category_ids:
@@ -442,12 +481,32 @@ class MedusaProductAdapter(ProductAdapter):
     def _resolve_product_id(
         self, session, base_url: str, external_id: str,
     ) -> str | None:
-        """Look up the Medusa-internal ``id`` for an ``external_id``.
+        """Look up the Medusa-internal ``id`` for a stored mapping.
 
-        Returns ``None`` when no product carries that external_id —
-        the caller decides whether to treat that as "create" (upsert)
-        or "nothing to do" (deactivate/delete).
+        Current mappings store Medusa's internal ``prod_...`` id. Older
+        rows may still store an operator ``external_id``; those are
+        resolved via list lookup below. Returns ``None`` when no product
+        exists for the stored value.
         """
+        if str(external_id or "").startswith("prod_"):
+            try:
+                resp = medusa_request(
+                    session,
+                    base_url,
+                    "GET",
+                    f"/admin/products/{external_id}",
+                    params={"fields": "id"},
+                )
+            except Exception as e:
+                if "404" in str(e):
+                    return None
+                raise AdapterError(
+                    f"Medusa product lookup failed "
+                    f"(id={external_id!r}): {e}",
+                ) from e
+            product = (resp or {}).get("product") or {}
+            return product.get("id") or None
+
         try:
             resp = medusa_request(
                 session,
@@ -772,6 +831,23 @@ class MedusaProductAdapter(ProductAdapter):
 
 
 # ─── Module-level helpers ────────────────────────────────────────────
+
+
+def _matches_filters(
+    node: LiveProductNode,
+    *,
+    sales_channel_ids: list[str] | None,
+    category_ids: list[str] | None,
+) -> bool:
+    if sales_channel_ids:
+        wanted_channels = set(sales_channel_ids)
+        if not wanted_channels.intersection(node.sales_channel_ids or []):
+            return False
+    if category_ids:
+        wanted_categories = set(category_ids)
+        if not wanted_categories.intersection(node.category_ids or []):
+            return False
+    return True
 
 
 def _ns(value) -> str:

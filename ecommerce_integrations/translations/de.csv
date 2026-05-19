@@ -961,3 +961,98 @@ Zurück,Zurück
 Öffne den Setup Wizard," um automatisch ein sicheres Secret zu erzeugen, oder trage manuell ein Secret im Webhook-Bereich ein.,Öffne den Setup Wizard, um automatisch ein sicheres Secret zu erzeugen, oder trage manuell ein Secret im Webhook-Bereich ein."
 ⛑ Safety Mode,⛑ Safety Mode
 🧙 Setup Wizard,🧙 Setup Wizard
+Channel Name,Channel-Name
+Display Name,Anzeigename
+Support Email,Support-E-Mail
+Branding Colors,Markenfarben
+Primary Color,Primärfarbe
+Dark Color,Dunkle Farbe
+Logo Data URI,Logo Daten-URI
+Email Sending,E-Mail-Versand
+Outgoing Email Account (Orders),Postausgangs-Konto (Bestellungen)
+Outgoing Email Account (Invoices),Postausgangs-Konto (Rechnungen)
+Sender Name,Absendername
+Reply-To Email,Antwort-an-Adresse
+BCC Email,BCC-Empfänger
+E-Invoice,E-Rechnung
+Attach E-Invoice (XML + ZUGFeRD),E-Rechnung anhängen (XML + ZUGFeRD)
+Texts: Order Acknowledgment & Confirmation,Texte: Bestell- & Auftragsbestätigung
+Order Acknowledgment Title,Titel Bestellbestätigung
+Order Acknowledgment Intro,Einleitung Bestellbestätigung
+Order Confirmation Title,Titel Auftragsbestätigung
+Order Confirmation Intro,Einleitung Auftragsbestätigung
+Texts: Delivery Note,Texte: Lieferschein
+Delivery Note Title,Titel Lieferschein
+Delivery Note Intro,Einleitung Lieferschein
+Texts: Email Bodies,Texte: E-Mail-Inhalte
+Acknowledgment Email Subject,Betreff Bestellbestätigungs-E-Mail
+Acknowledgment Email Greeting,Anrede Bestellbestätigungs-E-Mail
+Acknowledgment Email Body,Inhalt Bestellbestätigungs-E-Mail
+Confirmation Email Subject,Betreff Auftragsbestätigungs-E-Mail
+Confirmation Email Greeting,Anrede Auftragsbestätigungs-E-Mail
+Confirmation Email Body,Inhalt Auftragsbestätigungs-E-Mail
+Invoice Email Subject,Betreff Rechnungs-E-Mail
+Invoice Email Greeting,Anrede Rechnungs-E-Mail
+Invoice Email Body,Inhalt Rechnungs-E-Mail
+Texts: Signature & Imprint,Texte: Signatur & Impressum
+Email Signature HTML,E-Mail-Signatur (HTML)
+Imprint HTML,Impressum (HTML)
+Privacy Policy URL,URL Datenschutzerklärung
+Terms URL,URL AGB
+Ecommerce Channel Branding,E-Commerce-Channel-Branding
+Matches doc.ecommerce_sales_channel_name. Suggestions are pulled from Medusa Sales Channels and existing Sales Orders.,Entspricht doc.ecommerce_sales_channel_name. Vorschläge stammen aus Medusa Sales Channels und vorhandenen Aufträgen.
+Human-readable shop/company name shown on documents and emails,"Lesbarer Shop-/Firmenname, der auf Dokumenten und E-Mails angezeigt wird"
+"e.g., yourshop.com (shown in document header)",z. B. yourshop.com (wird im Dokumentkopf angezeigt)
+"Main brand color (e.g., #C41E3A)",Hauptmarkenfarbe (z. B. #C41E3A)
+Darker shade for hover/borders (optional),Dunklerer Ton für Hover/Rahmen (optional)
+Uploaded image file (preferred),Hochgeladene Bilddatei (bevorzugt)
+Inline data URI fallback (used when Logo file is unavailable in PDFs),"Inline-Data-URI als Fallback (wird verwendet, wenn die Logo-Datei in PDFs nicht erreichbar ist)"
+"Email Account used for order-related notifications (acknowledgment, order confirmation, delivery note, …). Falls back to the default outgoing account if empty.","E-Mail-Konto für bestellbezogene Benachrichtigungen (Bestellbestätigung, Auftragsbestätigung, Lieferschein …). Fällt auf das System-Standard-Postausgangskonto zurück, wenn leer."
+"Email Account used for invoice-related notifications (Sales Invoice, Payment Entry, Payment Request). Falls back to the Orders account, then the system default.","E-Mail-Konto für rechnungsbezogene Benachrichtigungen (Verkaufsrechnung, Zahlungseingang, Zahlungsaufforderung). Fällt zunächst auf das Bestellungen-Konto und dann auf den System-Standard zurück."
+"Display name in the From header (e.g., 'My Shop')",Anzeigename im Absender-Header (z. B. 'Mein Shop')
+Language used to render emails and PDFs sent to customers via this channel. Falls back to the customer's language or the system default if empty.,"Sprache, in der E-Mails und PDFs für Kunden dieses Channels gerendert werden. Fällt auf die Sprache des Kunden bzw. den System-Standard zurück, wenn leer."
+Internal BCC for every outgoing notification (optional),Interne BCC-Adresse für alle ausgehenden Benachrichtigungen (optional)
+"When enabled, Sales Invoice emails sent through this channel get an XRechnung/ZUGFeRD XML attached as a separate file AND embedded into the PDF (Factur-X). Requires the eu_einvoice app and a configured E-Invoice Profile on the customer/company.","Wenn aktiviert, werden Rechnungs-E-Mails dieses Channels mit einer XRechnung/ZUGFeRD-XML versehen — als separater Anhang UND eingebettet ins PDF (Factur-X). Setzt die App eu_einvoice und ein konfiguriertes E-Invoice-Profil bei Kunde/Firma voraus."
+Title on the order receipt PDF (sent to the customer immediately after order entry). Translated at render time via the channel language.,Titel auf der Bestellbestätigungs-PDF (wird dem Kunden sofort nach Bestelleingang geschickt). Wird beim Rendern in die Channel-Sprache übersetzt.
+"Intro sentence on the order receipt PDF. Jinja supported — wrap fixed text in {{ _(""..."") }} to translate via the channel language.","Einleitungssatz auf der Bestellbestätigungs-PDF. Jinja unterstützt — feste Texte in {{ _(""..."") }} setzen, damit sie in die Channel-Sprache übersetzt werden."
+Title on the order confirmation PDF (after office release). Translated at render time via the channel language.,Titel auf der Auftragsbestätigungs-PDF (nach Freigabe durch das Büro). Wird beim Rendern in die Channel-Sprache übersetzt.
+"Intro sentence on the order confirmation PDF. Jinja supported — wrap fixed text in {{ _(""..."") }} to translate via the channel language.","Einleitungssatz auf der Auftragsbestätigungs-PDF. Jinja unterstützt — feste Texte in {{ _(""..."") }} setzen, damit sie in die Channel-Sprache übersetzt werden."
+Title on the delivery note PDF. Translated at render time via the channel language.,Titel auf der Lieferschein-PDF. Wird beim Rendern in die Channel-Sprache übersetzt.
+"Intro sentence on the delivery note PDF. Jinja supported — wrap fixed text in {{ _(""..."") }} to translate via the channel language.","Einleitungssatz auf der Lieferschein-PDF. Jinja unterstützt — feste Texte in {{ _(""..."") }} setzen, damit sie in die Channel-Sprache übersetzt werden."
+"Subject line of the order receipt email. Jinja supported — wrap fixed text in {{ _(""..."") }} to translate via the channel language. Placeholders: {{ doc.name }} for the order number.","Betreffzeile der Bestellbestätigungs-E-Mail. Jinja unterstützt — feste Texte in {{ _(""..."") }} setzen, damit sie in die Channel-Sprache übersetzt werden. Platzhalter: {{ doc.name }} für die Auftragsnummer."
+"Subject line of the order confirmation email. Jinja supported — wrap fixed text in {{ _(""..."") }} to translate via the channel language. Placeholders: {{ doc.name }} for the order number.","Betreffzeile der Auftragsbestätigungs-E-Mail. Jinja unterstützt — feste Texte in {{ _(""..."") }} setzen, damit sie in die Channel-Sprache übersetzt werden. Platzhalter: {{ doc.name }} für die Auftragsnummer."
+"Subject line of the invoice email. Jinja supported — wrap fixed text in {{ _(""..."") }} to translate via the channel language. Placeholders: {{ doc.name }} for the invoice number.","Betreffzeile der Rechnungs-E-Mail. Jinja unterstützt — feste Texte in {{ _(""..."") }} setzen, damit sie in die Channel-Sprache übersetzt werden. Platzhalter: {{ doc.name }} für die Rechnungsnummer."
+"Body of the order receipt email (HTML, Jinja placeholders supported: {{ doc.name }}, {{ doc.grand_total }}, plus {{ first_name }}, {{ last_name }}, {{ salutation }}, {{ gender }}, {{ auto_greeting }}). Wrap fixed text in {{ _(""..."") }} to translate via the channel language.","Hauptinhalt der Bestellbestätigungs-E-Mail (HTML, Jinja-Platzhalter unterstützt: {{ doc.name }}, {{ doc.grand_total }}, sowie {{ first_name }}, {{ last_name }}, {{ salutation }}, {{ gender }}, {{ auto_greeting }}). Feste Texte in {{ _(""..."") }} setzen, damit sie in die Channel-Sprache übersetzt werden."
+"Body of the order confirmation email (HTML, Jinja placeholders supported). Wrap fixed text in {{ _(""..."") }} to translate via the channel language.","Hauptinhalt der Auftragsbestätigungs-E-Mail (HTML, Jinja-Platzhalter unterstützt). Feste Texte in {{ _(""..."") }} setzen, damit sie in die Channel-Sprache übersetzt werden."
+"Body of the invoice email (HTML, Jinja placeholders supported). Wrap fixed text in {{ _(""..."") }} to translate via the channel language.","Hauptinhalt der Rechnungs-E-Mail (HTML, Jinja-Platzhalter unterstützt). Feste Texte in {{ _(""..."") }} setzen, damit sie in die Channel-Sprache übersetzt werden."
+"Greeting at the top of the invoice email. Jinja placeholders allowed: {{ first_name }}, {{ last_name }}, {{ salutation }}, {{ gender }}, {{ customer_name }}, {{ auto_greeting }} (locale-aware auto-greeting with fallback to 'Dear Sir or Madam').","Anrede am Anfang der Rechnungs-E-Mail. Jinja-Platzhalter erlaubt: {{ first_name }}, {{ last_name }}, {{ salutation }}, {{ gender }}, {{ customer_name }}, {{ auto_greeting }} (sprachabhängige Auto-Anrede mit Fallback auf 'Sehr geehrte Damen und Herren')."
+Email signature HTML appended to all emails,"E-Mail-Signatur-HTML, die an alle E-Mails angehängt wird"
+"Imprint / Impressum HTML — shown in email and PDF footers (e.g., company address, CEO, commercial register, VAT ID)","Impressums-HTML — wird in E-Mail- und PDF-Fußzeilen angezeigt (z. B. Firmenanschrift, Geschäftsführung, Handelsregister, USt-IdNr.)"
+"Full URL to your privacy policy page (e.g., https://shop.example.com/datenschutz)",Vollständige URL zur Datenschutzerklärung-Seite (z. B. https://shop.example.com/datenschutz)
+Full URL to your terms and conditions page,Vollständige URL zur AGB-Seite
+Order Acknowledgment PDF,Bestellbestätigung (PDF)
+Order Confirmation PDF,Auftragsbestätigung (PDF)
+Delivery Note PDF,Lieferschein (PDF)
+Order Acknowledgment Email,Bestellbestätigung (E-Mail)
+Order Confirmation Email,Auftragsbestätigung (E-Mail)
+Popup blocked,Popup blockiert
+Allow popups for this site to see the preview.,"Bitte erlauben Sie Popups für diese Seite, um die Vorschau anzuzeigen."
+Rendering preview...,Vorschau wird erstellt …
+Order Acknowledgment,Bestellbestätigung
+Order Confirmation,Auftragsbestätigung
+Delivery Note,Lieferschein
+Your invoice,Ihre Rechnung
+We have received your order and are reviewing it:,Wir haben Ihre Bestellung erhalten und prüfen sie:
+We hereby confirm your order:,Hiermit bestätigen wir Ihre Bestellung:
+Enclosed please find your delivery:,Anbei erhalten Sie Ihre Lieferung:
+thank you for your order. We have received your request and will process it as quickly as possible.,vielen Dank für Ihre Bestellung. Wir haben Ihren Auftrag erhalten und werden ihn schnellstmöglich bearbeiten.
+Below you will find an overview of the items you ordered.,Nachfolgend finden Sie eine Übersicht Ihrer bestellten Artikel.
+we hereby confirm your order as binding. Please find the details in the attached order confirmation.,hiermit bestätigen wir verbindlich Ihre Bestellung. Details entnehmen Sie bitte der angehängten Auftragsbestätigung.
+"please find your invoice attached as a PDF. If enabled, an electronic invoice (XRechnung/ZUGFeRD) is included both as a separate XML file and embedded into the PDF.","anbei erhalten Sie Ihre Rechnung im PDF-Format. Falls aktiviert, ist eine elektronische Rechnung (XRechnung/ZUGFeRD) sowohl als XML-Datei als auch eingebettet im PDF beigefügt."
+Please find the payment details on the invoice.,Zahlungsdetails entnehmen Sie bitte der Rechnung.
+All prices include statutory VAT.,Alle Preise verstehen sich inkl. gesetzlicher MwSt.
+All prices exclude statutory VAT.,Alle Preise verstehen sich zzgl. gesetzlicher MwSt.
+gross,brutto
+Draft: Shipment,Entwurf: Versand
+Your order at {0} has been received,Ihre Bestellung bei {0} ist eingegangen
+us,uns

@@ -51,17 +51,34 @@ def preview_mirror(mirror: str) -> dict:
 
 @frappe.whitelist()
 def apply_mirror_now(mirror: str) -> dict:
-    """Apply the mirror's diff against the live backend.
+    """Queue the mirror's live apply against the backend.
 
-    Write-only — guarded by ``write`` permission so a read-only user
-    can't trigger backend mutations through this endpoint.
+    The scheduler/dashboard bulk path already uses background jobs; the
+    single-form button follows that contract too so large Shopware
+    category trees do not hold a web request open.
     """
     if not frappe.has_permission(_MIRROR_DOCTYPE, "write", doc=mirror):
         frappe.throw(_("Not permitted to apply this Catalog Mirror"))
-    from ecommerce_integrations.catalog_mirror.tasks import apply_mirror
-
-    result = apply_mirror(mirror, dry_run=False)
-    return result.to_dict() if hasattr(result, "to_dict") else result
+    frappe.enqueue(
+        "ecommerce_integrations.catalog_mirror.tasks.apply_mirror",
+        queue="long",
+        timeout=3600,
+        is_async=True,
+        job_name=f"catalog_mirror:apply:{mirror}",
+        mirror_name=mirror,
+        dry_run=False,
+    )
+    frappe.db.set_value(
+        _MIRROR_DOCTYPE, mirror,
+        {"sync_status": "pending", "last_error": ""},
+        update_modified=False,
+    )
+    frappe.db.commit()
+    return {
+        "mirror": mirror,
+        "status": "queued",
+        "message": _("Catalog Mirror apply was queued in the background."),
+    }
 
 
 @frappe.whitelist()

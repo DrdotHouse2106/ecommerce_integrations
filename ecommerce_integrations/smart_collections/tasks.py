@@ -78,10 +78,29 @@ _HEARTBEAT_TIMEOUT_MIN = 30
 
 @frappe.whitelist()
 def sync_collection_now(collection: str) -> dict:
-    """Whitelisted entry — used by the form button on a Smart Collection."""
+    """Queue a manual Smart Collection sync from the form button."""
     if not frappe.has_permission(_COLLECTION_DOCTYPE, "write", doc=collection):
         frappe.throw(_("Not permitted to sync this collection"))
-    return sync_collection(collection)
+    frappe.enqueue(
+        "ecommerce_integrations.smart_collections.tasks.sync_collection",
+        queue="long",
+        timeout=3600,
+        is_async=True,
+        job_name=f"smart_collection:sync:{collection}",
+        collection_name=collection,
+    )
+    frappe.db.sql(
+        """UPDATE `tabEcommerce Smart Collection Target`
+           SET sync_status = 'pending', last_error = ''
+           WHERE parent = %s AND parenttype = %s AND enabled = 1""",
+        (collection, _COLLECTION_DOCTYPE),
+    )
+    frappe.db.commit()
+    return {
+        "collection": collection,
+        "status": "queued",
+        "message": _("Smart Collection sync was queued in the background."),
+    }
 
 
 def sync_collection(collection_name: str, *, dry_run: bool = False):

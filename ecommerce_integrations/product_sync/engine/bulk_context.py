@@ -179,7 +179,7 @@ class BulkContext:
         if not price_lists:
             return
         rows = frappe.db.sql(
-            """SELECT item_code, price_list, rate
+            """SELECT item_code, price_list, price_list_rate
                FROM `tabItem Price` ip1
                WHERE item_code IN %(codes)s
                  AND price_list IN %(lists)s
@@ -195,7 +195,7 @@ class BulkContext:
             as_dict=True,
         )
         for r in rows:
-            self._prices[(r["item_code"], r["price_list"])] = float(r["rate"] or 0)
+            self._prices[(r["item_code"], r["price_list"])] = float(r["price_list_rate"] or 0)
 
     def _load_images(self, item_codes: list[str]) -> None:
         rows = frappe.db.sql(
