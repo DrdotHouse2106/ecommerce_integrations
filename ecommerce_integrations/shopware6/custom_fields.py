@@ -154,6 +154,15 @@ CUSTOM_FIELDS = {
             "translatable": 0,
             "description": "Which shop this customer first registered from",
         },
+        # XRechnung / B2G Leitweg-ID intentionally NOT added here —
+        # ``eu_einvoice`` (Alyf) already ships the canonical fields:
+        # ``Customer.electronic_address_scheme`` (Link to Common Code,
+        # set to ``0204`` for German Leitweg-ID) plus
+        # ``Customer.electronic_address`` (Data, the actual Leitweg-ID
+        # string). The Shopware Checkout Field mapping with key
+        # ``leitweg_id`` routes the value into ``electronic_address``
+        # via ``Customer Update``; the EAS scheme is auto-set to
+        # ``0204`` by ``shopware6.customer.sync._ensure_leitweg_eas_scheme``.
     ],
     "Sales Order": [
         {

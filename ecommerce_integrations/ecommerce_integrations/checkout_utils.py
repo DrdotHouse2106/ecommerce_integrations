@@ -69,6 +69,25 @@ def process_checkout_fields(
                 customer_updates[row.target_field] = value
 
     if customer_updates:
+        # Auto-stamp the EAS scheme when the checkout pushed a Leitweg-ID
+        # into Alyf's ``electronic_address``. ``eu_einvoice`` ignores
+        # the address without a scheme code, so writing only one of the
+        # two leaves the XRechnung path broken. ``0204`` is the BMI
+        # EAS-code list entry for "Leitweg-ID"; we only stamp it when
+        # the customer master doesn't already carry a different scheme
+        # (e.g. operator manually configured PEPPOL ``0192`` or
+        # GLN ``0088``).
+        if (
+            customer_updates.get("electronic_address")
+            and customer_meta
+            and customer_meta.has_field("electronic_address_scheme")
+        ):
+            existing_scheme = frappe.db.get_value(
+                "Customer", customer, "electronic_address_scheme",
+            )
+            if not existing_scheme:
+                customer_updates["electronic_address_scheme"] = "0204"
+
         frappe.db.set_value("Customer", customer, customer_updates, update_modified=False)
 
     return service_items
