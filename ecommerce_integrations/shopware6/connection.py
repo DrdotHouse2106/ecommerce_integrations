@@ -525,7 +525,7 @@ def webhook_handler():
         try:
             data = json.loads(frappe.request.data)
         except json.JSONDecodeError as e:
-            from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
+            from ecommerce_integrations.shopware6.utils import create_shopware_log
             create_shopware_log(
                 method="webhook_handler",
                 request_data={"payload_length": len(frappe.request.data or b"")},

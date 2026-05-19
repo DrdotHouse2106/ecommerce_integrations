@@ -109,7 +109,7 @@ class WebhookEventQueue:
         event_hash = self._compute_event_hash(entity_id, payload, timestamp, event_id=event_id)
         cache_key = f"shopware_webhook_processed:{event_hash}"
 
-        processed_at = self.cache.get(cache_key)
+        processed_at = self.cache.get_value(cache_key)
         if processed_at:
             # Check if within dedup window
             elapsed = time_diff_in_seconds(now_datetime(), processed_at)
@@ -118,7 +118,7 @@ class WebhookEventQueue:
 
         # Also mark this hash as processed (so subsequent retries within the
         # window hit the cache above without re-running the handler).
-        self.cache.set(cache_key, now_datetime(), expires_in_sec=DEDUP_WINDOW)
+        self.cache.set_value(cache_key, now_datetime(), expires_in_sec=DEDUP_WINDOW)
         return False
 
     def _mark_processing(
@@ -131,13 +131,13 @@ class WebhookEventQueue:
         """Mark an event as being processed."""
         event_hash = self._compute_event_hash(entity_id, payload, timestamp, event_id=event_id)
         cache_key = f"shopware_webhook_processing:{event_hash}"
-        self.cache.set(cache_key, now_datetime(), expires_in_sec=EVENT_LOCK_TIMEOUT)
+        self.cache.set_value(cache_key, now_datetime(), expires_in_sec=EVENT_LOCK_TIMEOUT)
 
     def _mark_completed(self, entity_id: str, timestamp: str | None = None) -> None:
         """Mark an event as completed."""
         # Use a simple key for deduplication
         cache_key = f"shopware_webhook_completed:{entity_id}"
-        self.cache.set(cache_key, now_datetime(), expires_in_sec=DEDUP_WINDOW)
+        self.cache.set_value(cache_key, now_datetime(), expires_in_sec=DEDUP_WINDOW)
 
     def _compute_event_hash(
         self,
@@ -225,7 +225,7 @@ def is_event_processed(entity_id: str, within_seconds: int = DEDUP_WINDOW) -> bo
     cache = frappe.cache()
     cache_key = f"shopware_webhook_completed:{entity_id}"
 
-    completed_at = cache.get(cache_key)
+    completed_at = cache.get_value(cache_key)
     if completed_at:
         elapsed = time_diff_in_seconds(now_datetime(), completed_at)
         return elapsed < within_seconds
