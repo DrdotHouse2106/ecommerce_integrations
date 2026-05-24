@@ -895,23 +895,60 @@ class ShopwareProductAdapter(ProductAdapter):
 
         # 3. Link new media records to the product. We append rather
         #    than replace — Shopware's POST semantics on product_media
-        #    are upsert-by-(productId,mediaId).
+        #    are upsert-by-(productId,mediaId). Supply deterministic
+        #    ``id`` on each row so we have something to point at when
+        #    we patch ``product.coverId`` below.
         if new_media_ids:
+            import hashlib as _hl
+            pm_rows = [
+                {
+                    "id": _hl.md5(f"pm::{external_id}::{mid}".encode()).hexdigest(),
+                    "productId": external_id,
+                    "mediaId": mid,
+                    "position": idx,
+                }
+                for idx, mid in enumerate(new_media_ids)
+            ]
             try:
                 client.request_post("_action/sync", payload={
                     "pm": {
                         "entity": "product_media",
                         "action": "upsert",
-                        "payload": [
-                            {"productId": external_id, "mediaId": mid, "position": idx}
-                            for idx, mid in enumerate(new_media_ids)
-                        ],
+                        "payload": pm_rows,
                     },
                 })
             except Exception:  # noqa: BLE001
                 # Best-effort link — media still exist and can be linked
                 # manually by the operator if this fails.
-                pass
+                pm_rows = []
+
+            # 4. Set the first product_media as cover if the product
+            #    doesn't already have one. Without ``coverId`` set, the
+            #    Store API returns ``cover: null`` and the storefront
+            #    falls back to a placeholder — uploaded media exist but
+            #    don't display. We check current cover first so a
+            #    re-sync doesn't churn an operator's manual cover pick.
+            if pm_rows:
+                try:
+                    cur = client.request_post("search/product", payload={
+                        "filter": [{"type": "equals", "field": "id", "value": external_id}],
+                        "includes": {"product": ["coverId"]},
+                        "limit": 1,
+                    })
+                    has_cover = bool(
+                        ((cur.get("data") or [{}])[0]).get("coverId")
+                    )
+                except Exception:  # noqa: BLE001
+                    has_cover = False
+                if not has_cover:
+                    try:
+                        client.request_patch(
+                            f"product/{external_id}",
+                            payload={"coverId": pm_rows[0]["id"]},
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+
         return counters
 
     def _push_properties_impl(
