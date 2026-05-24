@@ -124,13 +124,50 @@ def build_shopware_payload(
     # empty media entities and trigger forever-drift on the next
     # preview.
 
+    # Manufacturer (== ``Item.brand`` for our purposes — Shopware has
+    # no separate "brand" concept; the manufacturer entity carries
+    # that semantically). Nested upsert with a deterministic id keyed
+    # off the manufacturer name: same input → same id → Shopware does
+    # an UPDATE on the existing row instead of an INSERT-collision,
+    # so re-running the sync doesn't spawn duplicate manufacturers
+    # and we don't need an out-of-band "ensure manufacturer exists"
+    # round-trip per item.
+    brand = (canonical.get("properties") or {}).get("brand")
+    if brand:
+        import hashlib as _hl
+        payload["manufacturer"] = {
+            "id": _hl.md5(f"manufacturer::{brand}".encode()).hexdigest(),
+            "name": brand,
+        }
+
+    # Variant link: when this Item is a variant of a template
+    # (``Item.variant_of`` set), Shopware needs the template's
+    # external_id as ``parentId`` so the variant shows up under its
+    # template instead of as a standalone product (the user-reported
+    # symptom: PARENT-suffixed templates appearing as orphan landing
+    # pages on the storefront because their children weren't linked
+    # back). Skip silently when the template hasn't been pushed yet
+    # — the next sync round will pick it up once the template lands
+    # an external_id.
+    variant_of = getattr(item, "variant_of", None) or ""
+    if variant_of:
+        parent_ext = frappe.db.get_value(
+            "Ecommerce Item",
+            {"erpnext_item_code": variant_of, "integration": "shopware6"},
+            "integration_item_code",
+        )
+        if parent_ext:
+            payload["parentId"] = parent_ext
+
     # TODO Phase-5.1: per-channel prices via Shopware Rule engine
-    # TODO Phase-5.1: properties (brand, manufacturer, attributes)
+    # TODO Phase-5.1: properties (attributes — Shopware property groups)
     return payload
 
 
 def build_medusa_payload(
-    item, sync, canonical: dict[str, Any], *, external_id: str | None = None,
+    item, sync, canonical: dict[str, Any], *,
+    external_id: str | None = None,
+    variant_id: str | None = None,
 ) -> dict[str, Any]:
     """Medusa v2 product payload.
 
@@ -139,6 +176,14 @@ def build_medusa_payload(
     item_code so subsequent upserts can find the row by lookup. POST
     semantics (not PATCH) mean nested arrays REPLACE — variants and
     images are sent as full state.
+
+    ``variant_id``: stored on ``tabEcommerce Item.variant_id``. When the
+    Medusa product carries MULTIPLE variants (each ERPNext item maps to
+    one of them via its own ``variant_id``), passing the id here makes
+    Medusa patch that specific variant instead of trying to ADD a new
+    one — which would otherwise fail with
+    ``"Product variant with sku: X, already exists."`` and abort every
+    item that shares the product.
     """
     basic = canonical.get("basic") or {}
     pricing = canonical.get("pricing") or {}
@@ -165,6 +210,13 @@ def build_medusa_payload(
         "manage_inventory": True,
         "prices": [],
     }
+    # Patch-vs-create: include the variant id when we have one. Without
+    # it, Medusa interprets the entry as "add a new variant" and rejects
+    # with a SKU-conflict 400 when an existing variant already holds the
+    # same SKU (which is always the case for an UPDATE on a previously
+    # synced item).
+    if variant_id:
+        variant["id"] = variant_id
     ean = basic.get("ean")
     if ean:
         variant["ean"] = ean

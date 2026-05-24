@@ -356,6 +356,12 @@ class ShopwareProductAdapter(ProductAdapter):
                 "prices": {},
                 "visibilities": {},
                 "categories": {},
+                # Manufacturer carries the brand name. Without this
+                # ``_live_properties`` returned ``brand=""`` hardcoded
+                # and 100 % of items showed a brand-drift on every
+                # preview, even when ERPNext's ``Item.brand`` and the
+                # Shopware ``manufacturer.name`` already agreed.
+                "manufacturer": {},
             },
         }
         if filters:
@@ -464,16 +470,31 @@ class ShopwareProductAdapter(ProductAdapter):
                 sc_ids.append(sc_id)
         sc_ids = sorted(set(sc_ids))
 
-        # Image URLs. Shopware nests as ``media[].media.url``. Sort so
-        # the hash is stable across reorderings on the backend.
+        # Image URLs + media UUIDs. Shopware nests as ``media[].media.url``
+        # with the media id at ``media[].mediaId`` (or ``media[].media.id``).
+        # We keep both in parallel so the differ can match the
+        # ``pushed_image_map`` (ERP basename → media UUID) against the
+        # live id set — which is necessary because Shopware renames
+        # uploaded files to ``<sku>_<idx>.jpg``, so URL-basename
+        # matching against the ERP filename always fails.
         images: list[str] = []
+        image_ids: list[str] = []
         for m in merged.get("media") or []:
             if not isinstance(m, dict):
                 continue
             inner = m.get("media") or {}
             url = inner.get("url") if isinstance(inner, dict) else None
+            mid = (
+                m.get("mediaId")
+                or (inner.get("id") if isinstance(inner, dict) else None)
+            )
             if url:
                 images.append(url)
+            if mid:
+                image_ids.append(mid)
+        # Sort URLs for stable hashing; keep image_ids unsorted (they
+        # don't anchor the hash and the order isn't load-bearing for
+        # the differ's set-comparison).
         images = sorted(set(images))
 
         # Build the per-field properties + SEO snapshots from the same
@@ -493,6 +514,7 @@ class ShopwareProductAdapter(ProductAdapter):
             sales_channel_ids=sc_ids,
             active=bool(merged.get("active", True)),
             images=images,
+            image_ids=image_ids,
             properties=properties_dict,
             seo=seo_dict,
         )
@@ -639,7 +661,32 @@ class ShopwareProductAdapter(ProductAdapter):
 
         # Visibilities — only set when caller actually passed channels.
         # Empty list means "no opinion", not "remove all visibilities".
-        if target_sales_channels:
+        #
+        # Critical: only set on CREATE (no external_id). On UPDATE the
+        # product already has a row in ``product_visibility`` for the
+        # target channel; re-sending that row through ``/api/_action/sync``
+        # triggers a fresh INSERT (the bulk endpoint does not upsert
+        # m2m rows by natural key, even with an explicit id supplied),
+        # which trips
+        # ``1062 Duplicate entry … uniq.product_id__sales_channel_id``.
+        # Because /sync is atomic per call, ONE collision aborts the
+        # entire 25-item batch — so a single re-sync run can land
+        # every batch in FailedJobRegistry.
+        #
+        # Visibility *changes* (channel added/removed for an item) are
+        # handled out-of-band by the channel-assignment helper, not the
+        # bulk upsert, so dropping them here on UPDATE is safe.
+        if external_id:
+            # Update path: strip any inherited visibilities (the
+            # canonical payload builder sets one row per target
+            # channel by default — see ``engine/payload.py``). Re-
+            # sending those triggers the unique-key collision
+            # described above.
+            out.pop("visibilities", None)
+        elif target_sales_channels:
+            # Create path: replace any inherited visibilities with the
+            # caller's authoritative target_sales_channels list so the
+            # new product is born with the right channel set.
             out["visibilities"] = [
                 {
                     "salesChannelId": sc_id,
@@ -687,28 +734,28 @@ class ShopwareProductAdapter(ProductAdapter):
         if not external_id or not image_urls:
             return counters
 
-        # The SDK forbids query strings in its request paths, so we
-        # bypass it for the per-media upload call by talking to the
-        # underlying ``requests.Session`` directly. The session has the
-        # OAuth token + idempotency key headers already set; we only
-        # need to compose the absolute URL.
-        sess = getattr(client, "session", None) or getattr(client, "_session", None)
-        base_url = (
-            getattr(client, "base_url", None) or getattr(client, "url", None)
-        )
-        if not base_url:
-            # Fall back to the Setting; the SDK normally has it but
-            # different SDK versions expose it differently.
-            try:
-                import frappe
-                base_url = (
-                    frappe.db.get_single_value("Shopware Setting", "shop_url") or ""
-                ).rstrip("/")
-            except Exception:  # noqa: BLE001
-                base_url = ""
-        if not sess or not base_url:
-            counters["failed"] = len(image_urls)
-            return counters
+        # Use the library's own ``request_post`` with
+        # ``additional_query_params``. The earlier "bypass the SDK
+        # and hit session.post directly" workaround broke OAuth: the
+        # SDK injects the Bearer token through an authlib auth
+        # handler that's bound to its request methods, not to the
+        # underlying httpx session. Direct ``session.post()`` calls
+        # therefore went out without ``Authorization`` and Shopware
+        # rejected every upload with 401 — silently, because the
+        # adapter only counted the failures. ``additional_query_params``
+        # lets us send the required ``fileName`` / ``extension`` query
+        # string without dropping out of the auth-aware code path.
+
+        # Resolve the Product Media folder once per batch. Without an
+        # explicit ``mediaFolderId`` the created media entity lands in
+        # Shopware's "Unsorted" bucket, which the admin UI then surfaces
+        # under a generic root instead of the product-media section
+        # (and breaks thumbnail-config / file-rules that hang off the
+        # folder). ``_resolve_product_media_folder_id`` returns the
+        # default Shopware-shipped "Product Media" folder id or — if
+        # the operator renamed/removed it — falls back to None so we
+        # stay backwards-compatible with the legacy behaviour.
+        media_folder_id = _resolve_product_media_folder_id(client)
 
         new_media_ids: list[str] = []
         for url in image_urls:
@@ -716,46 +763,104 @@ class ShopwareProductAdapter(ProductAdapter):
             if not url:
                 counters["skipped"] += 1
                 continue
-            # 1. Create empty Media record
+            # 1. Create empty Media record (with media folder so it
+            #    lands in the right Admin UI section + inherits
+            #    thumbnail config).
             media_id = uuid.uuid4().hex
+            media_row: dict = {"id": media_id}
+            if media_folder_id:
+                media_row["mediaFolderId"] = media_folder_id
             try:
                 client.request_post("_action/sync", payload={
                     "media": {
                         "entity": "media",
                         "action": "upsert",
-                        "payload": [{"id": media_id}],
+                        "payload": [media_row],
                     },
                 })
-            except Exception as exc:  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 counters["failed"] += 1
                 continue
 
             # 2. Trigger Shopware to fetch the URL into that media slot.
-            #    File-name + extension derived from the URL; Shopware
-            #    requires extension as a query param.
+            #    File-name + extension are query params; Shopware
+            #    persists them as the storage filename.
             tail = url.rsplit("/", 1)[-1]
             if "." in tail:
                 stem, ext = tail.rsplit(".", 1)
                 ext = ext.split("?")[0].lower() or "jpg"
             else:
                 stem, ext = tail or "image", "jpg"
-            upload_path = (
-                f"{base_url.rstrip('/')}/api/_action/media/{media_id}/upload"
-                f"?fileName={stem}&extension={ext}"
-            )
+            uploaded_ok = False
             try:
-                resp = sess.post(upload_path, json={"url": url}, timeout=30)
-                if 200 <= resp.status_code < 300:
-                    counters["uploaded"] += 1
-                    new_media_ids.append(media_id)
-                    # Track ERP basename → Shopware media UUID so the
-                    # differ can short-circuit on the next preview.
-                    erp_basename = url.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0].lower()
-                    if erp_basename:
-                        counters["media_map"][erp_basename] = media_id
+                client.request_post(
+                    f"_action/media/{media_id}/upload",
+                    payload={"url": url},
+                    additional_query_params={
+                        "fileName": stem,
+                        "extension": ext,
+                    },
+                )
+                uploaded_ok = True
+            except Exception as exc:  # noqa: BLE001
+                # Bytes fallback — required when Shopware can't fetch
+                # the URL itself (private host, ``CONTENT__MEDIA_ILLEGAL_URL``
+                # from its url-allowlist, slow upstream, etc.). The
+                # operator opts in via
+                # ``Ecommerce Product Sync.image_strategy = 'url_with_bytes_fallback'``;
+                # we treat that as "any error from the URL-fetch path
+                # → try sending the bytes directly". A pure URL-only
+                # strategy lets uploads silently fail with the failure
+                # counter incrementing while the run reports overall
+                # success — products end up with ``media=0`` and the
+                # operator only spots it on storefront inspection.
+                msg = str(exc)
+                try:
+                    file_bytes, mime_type = _fetch_local_file_bytes(url)
+                except Exception:  # noqa: BLE001
+                    file_bytes, mime_type = (None, None)
+                if file_bytes:
+                    try:
+                        client.request_post(
+                            f"_action/media/{media_id}/upload",
+                            payload=file_bytes,
+                            content_type=mime_type or "image/jpeg",
+                            additional_query_params={
+                                "fileName": stem,
+                                "extension": ext,
+                            },
+                        )
+                        uploaded_ok = True
+                    except Exception as exc2:  # noqa: BLE001
+                        try:
+                            import frappe as _f
+                            _f.logger("product_sync.shopware").warning(
+                                f"image bytes-upload failed for "
+                                f"{external_id} {stem}.{ext}: "
+                                f"url-err={msg[:120]} bytes-err={str(exc2)[:120]}"
+                            )
+                        except Exception:  # noqa: BLE001
+                            pass
                 else:
-                    counters["failed"] += 1
-            except Exception:  # noqa: BLE001
+                    try:
+                        import frappe as _f
+                        _f.logger("product_sync.shopware").warning(
+                            f"image url-upload failed and bytes unavailable "
+                            f"for {external_id} {stem}.{ext}: {msg[:200]}"
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+
+            if uploaded_ok:
+                counters["uploaded"] += 1
+                new_media_ids.append(media_id)
+                erp_basename = (
+                    url.rstrip("/").rsplit("/", 1)[-1]
+                    .split("?", 1)[0].lower()
+                )
+                if erp_basename:
+                    counters["media_map"][erp_basename] = media_id
+            else:
                 counters["failed"] += 1
 
         # 3. Link new media records to the product. We append rather
@@ -1132,11 +1237,11 @@ class ShopwareProductAdapter(ProductAdapter):
         return out
 
     def _live_properties(self, merged: dict[str, Any]) -> dict[str, Any]:
-        # Brand/manufacturer come from associations Shopware doesn't
-        # expand by default; without them the ERP-side hash that
-        # includes brand will always disagree. We TODO this rather than
-        # ship a half-wrong hash that nobody can debug.
-        # TODO: expand ``manufacturer`` association to fill brand.
+        # Brand lives on the expanded ``manufacturer`` association,
+        # not in the ``properties`` array. The fetch criteria above
+        # explicitly includes ``manufacturer`` so the name is reachable
+        # here; without it brand would be "" and 100 % of items would
+        # report a brand-drift on every preview.
         attrs_list: list[dict[str, str]] = []
         for prop in merged.get("properties") or []:
             if not isinstance(prop, dict):
@@ -1152,8 +1257,25 @@ class ShopwareProductAdapter(ProductAdapter):
                     "value": _ns(value),
                 })
         attrs_list.sort(key=lambda d: (d["name"], d["value"]))
+
+        # Pull brand from ``manufacturer.name`` (or translated.name as a
+        # fallback for non-default locales). Shopware's ``manufacturer``
+        # association maps to ERPNext's ``Item.brand`` — Shopware has no
+        # separate Brand concept, so the manufacturer is the brand.
+        # ``properties.manufacturer`` stays empty to match what the
+        # canonical builder emits from ``Item.manufacturer`` (a
+        # separate, usually-empty Item field).
+        mfr = merged.get("manufacturer") or {}
+        brand_name = ""
+        if isinstance(mfr, dict):
+            brand_name = (
+                mfr.get("name")
+                or (mfr.get("translated") or {}).get("name")
+                or ""
+            )
+
         return {
-            "brand": "",
+            "brand": _ns(brand_name),
             "manufacturer": "",
             "attributes": attrs_list,
         }
@@ -1212,6 +1334,130 @@ class ShopwareProductAdapter(ProductAdapter):
 
 
 # ─── Module-level helpers ────────────────────────────────────────────
+
+
+_PRODUCT_MEDIA_FOLDER_ID_CACHE: dict[str, str | None] = {}
+
+
+def _resolve_product_media_folder_id(client) -> str | None:
+    """Return the Shopware ``media_folder.id`` for the product-media bucket.
+
+    Shopware ships a default folder named "Product Media" linked to the
+    ``product`` entity definition (visible in Admin → Media → Files);
+    new product images should land there so they inherit the folder's
+    thumbnail config and admin-UI grouping. Without ``mediaFolderId``
+    on the create, the media entity lands in the unsorted root bucket.
+
+    Lookup strategy (first hit wins, cached per-process):
+
+    1. Folder whose ``defaultFolder.entity == 'product'`` — the
+       canonical link Shopware itself uses for product uploads.
+    2. Folder named ``"Product Media"`` (or its translated alias) as
+       a fallback for installations where the default folder was
+       renamed.
+    3. ``None`` — caller skips the ``mediaFolderId`` field, matching
+       the legacy behaviour so we stay backwards-compatible.
+    """
+    base_id = id(client)  # different client → different cache slot
+    key = f"client::{base_id}"
+    if key in _PRODUCT_MEDIA_FOLDER_ID_CACHE:
+        return _PRODUCT_MEDIA_FOLDER_ID_CACHE[key]
+
+    folder_id: str | None = None
+    try:
+        # Direct filter on the to-one association — Shopware indexes
+        # ``media_folder.default_folder.entity`` so this is a single
+        # row lookup, not a tablescan. Stable across Shopware versions
+        # (the relation has been in place since 6.0) and storefront
+        # locales (the filter targets the entity-key, not the
+        # translated folder name).
+        resp = client.request_post("search/media-folder", payload={
+            "filter": [{
+                "type": "equals",
+                "field": "defaultFolder.entity",
+                "value": "product",
+            }],
+            "limit": 1,
+        })
+        rows = resp.get("data") or []
+        if rows:
+            folder_id = rows[0].get("id")
+        if not folder_id:
+            # Fallback: scan media-default-folder ourselves in case the
+            # joined filter has been disabled on this install. Returns
+            # the same id by a different path.
+            ddf = client.request_post("search/media-default-folder", payload={
+                "filter": [{"type": "equals", "field": "entity", "value": "product"}],
+                "associations": {"folder": {}},
+                "limit": 1,
+            })
+            ddf_rows = ddf.get("data") or []
+            if ddf_rows:
+                folder = ddf_rows[0].get("folder") or {}
+                folder_id = folder.get("id") if isinstance(folder, dict) else None
+    except Exception:  # noqa: BLE001
+        folder_id = None
+
+    _PRODUCT_MEDIA_FOLDER_ID_CACHE[key] = folder_id
+    return folder_id
+
+
+def _fetch_local_file_bytes(url: str) -> tuple[bytes | None, str | None]:
+    """Read the raw bytes of a Frappe-served file referenced by ``url``.
+
+    Used by the bytes-fallback path of the image uploader when Shopware
+    rejects the URL (private host, ``CONTENT__MEDIA_ILLEGAL_URL``,
+    timeout, …). Reads from the local File DocType (private +
+    public + DFP External Storage cases all surface through
+    ``frappe.utils.file_manager.get_file``), so we avoid an extra
+    HTTP roundtrip back to ourselves.
+
+    Returns ``(bytes, mime_type)`` on success, ``(None, None)`` if
+    the URL doesn't map to a Frappe File the orchestrator can read.
+    """
+    if not url:
+        return (None, None)
+    # Extract the file_url portion (everything from ``/files/`` or
+    # ``/private/files/`` onward, or the ``/file/<hash>/<name>`` shape
+    # the ERPNext custom router emits).
+    import re as _re
+    import mimetypes as _mt
+    path = ""
+    m = _re.search(r"(/files/.*|/private/files/.*|/file/[^/]+/[^/?#]+)", url)
+    if m:
+        path = m.group(1)
+    else:
+        return (None, None)
+
+    try:
+        import frappe as _f
+        # Prefer the canonical lookup chain. ``get_file_data_from_hash``
+        # handles ``/file/<hash>/<name>`` and ``/files/<name>``.
+        file_doc = None
+        if path.startswith("/file/"):
+            hash_part = path.split("/", 3)[2]
+            row = _f.db.get_value(
+                "File", {"file_url": ("like", f"%/{hash_part}/%")},
+                ["name", "file_url"], as_dict=True,
+            )
+            if row:
+                file_doc = _f.get_doc("File", row["name"])
+        if file_doc is None:
+            row = _f.db.get_value(
+                "File", {"file_url": path},
+                ["name"], as_dict=True,
+            )
+            if row:
+                file_doc = _f.get_doc("File", row["name"])
+        if file_doc is None:
+            return (None, None)
+        content = file_doc.get_content()
+        if isinstance(content, str):
+            content = content.encode("utf-8")
+        mime, _ = _mt.guess_type(file_doc.file_name or "")
+        return (content, mime or "application/octet-stream")
+    except Exception:  # noqa: BLE001
+        return (None, None)
 
 
 def _with_client(fn, *args, **kwargs):
