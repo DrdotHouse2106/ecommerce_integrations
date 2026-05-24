@@ -136,6 +136,13 @@ def get_throttle_status() -> dict:
 _OVERLOAD_STATUS_CODES = {429, 502, 503, 504}
 _OVERLOAD_EXCEPTIONS = (requests.exceptions.ConnectionError, requests.exceptions.Timeout)
 
+# Hard cap on each individual Medusa HTTP request. Without this, a hung
+# Medusa response blocks the apply-live worker forever, leaving the parent
+# sync's claim dangling (the historical "stuck at 99%" bug for
+# SYNC-RUN-2026-00267 and earlier). Tuple is (connect, read) per
+# ``requests`` convention; the read timeout covers slow-byte-stream replies.
+MEDUSA_REQUEST_TIMEOUT = (10, 60)
+
 
 def get_throttle() -> AdaptiveThrottle:
     """Get the shared throttle instance (useful for monitoring)."""
@@ -157,7 +164,11 @@ def get_medusa_session() -> tuple:
         "Accept": "application/json",
         "Authorization": f"Basic {api_key}",
     })
-    session.timeout = 60
+    # NOTE: ``session.timeout`` is a no-op — ``requests`` ignores attributes
+    # set on the Session and only honours ``timeout`` passed per-request.
+    # We keep the attribute for introspection; the actual default is
+    # enforced in ``medusa_request`` via ``MEDUSA_REQUEST_TIMEOUT``.
+    session.timeout = MEDUSA_REQUEST_TIMEOUT
 
     return session, base_url
 
@@ -231,6 +242,11 @@ def medusa_request(session, base_url, method, path, **kwargs):
     """
     _throttle.wait()
 
+    # Enforce a per-request timeout so a hung Medusa never blocks the worker
+    # indefinitely. Callers can override with kwargs["timeout"] for slow
+    # endpoints; we only fill in the default when no timeout was passed.
+    kwargs.setdefault("timeout", MEDUSA_REQUEST_TIMEOUT)
+
     url = f"{base_url}{path}"
     try:
         response = session.request(method, url, **kwargs)
@@ -246,6 +262,16 @@ def medusa_request(session, base_url, method, path, **kwargs):
         if is_overload:
             _throttle.record_error(is_overload=True)
         # Don't throttle on 4xx client errors (validation, auth) — only on server overload
+        #
+        # Surface the response body in the exception message so callers (and
+        # the Product Sync apply-live logger) can see WHY Medusa rejected
+        # the request without a separate debug session. Bare ``raise`` only
+        # gives ``"400 Bad Request for url: …"`` which is useless for
+        # diagnosing payload/schema mismatches.
+        if e.response is not None:
+            body = (e.response.text or "")[:2000]
+            if body:
+                e.args = (f"{e.args[0]} | response_body={body}",) + e.args[1:]
         raise
     except _OVERLOAD_EXCEPTIONS:
         _throttle.record_error(is_overload=True)
