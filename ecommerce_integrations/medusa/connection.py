@@ -136,11 +136,10 @@ def get_throttle_status() -> dict:
 _OVERLOAD_STATUS_CODES = {429, 502, 503, 504}
 _OVERLOAD_EXCEPTIONS = (requests.exceptions.ConnectionError, requests.exceptions.Timeout)
 
-# Hard cap on each individual Medusa HTTP request. Without this, a hung
-# Medusa response blocks the apply-live worker forever, leaving the parent
-# sync's claim dangling (the historical "stuck at 99%" bug for
-# SYNC-RUN-2026-00267 and earlier). Tuple is (connect, read) per
-# ``requests`` convention; the read timeout covers slow-byte-stream replies.
+# Hard cap on each individual Medusa HTTP request — without it a hung
+# Medusa response blocks the worker indefinitely and the parent Sync's
+# claim never gets released. Tuple is (connect, read) per ``requests``
+# convention; the read timeout covers slow-byte-stream replies.
 MEDUSA_REQUEST_TIMEOUT = (10, 60)
 
 

@@ -189,11 +189,9 @@ def _apply_live(
             if (now_ts - last_diff_progress_write[0]) < 1.0 and current < total:
                 return
             last_diff_progress_write[0] = now_ts
-            # ``update_modified=True`` here is load-bearing: the
-            # ``recover_stale_product_syncs`` sweeper compares the Run row's
-            # ``modified`` against the heartbeat timeout. Without bumping it
-            # the diff phase can hang for hours without anyone noticing
-            # (the original "stuck at 99%" symptom).
+            # ``update_modified=True`` is load-bearing here: the stale-run
+            # sweeper compares ``modified`` against the heartbeat timeout,
+            # so without bumping it a hung diff phase stays invisible.
             frappe.db.set_value(
                 _RUN_DOCTYPE, run.name,
                 {
@@ -224,15 +222,12 @@ def _apply_live(
         # _finalize_run writes (same row, same writer).
         #
         # On a 5000+-item plan the raw JSON dump can exceed MariaDB's
-        # ``max_allowed_packet`` (the original "stuck at 99%" cascade
-        # had this very write throw ``(1153, 'Got a packet bigger than
-        # max_allowed_packet bytes')``, killing the DB connection and
-        # leaving the parent Sync's claim dangling). Route through
-        # ``_maybe_gzip_plan_json`` so big plans land as gzip+base64
-        # (12 MB → ~1 MB) — full plan still recoverable via
-        # ``_maybe_gunzip_plan_json`` on the read side. Wrapped in
-        # try/except so any future packet-limit edge case logs a
-        # warning instead of aborting the apply.
+        # ``max_allowed_packet`` and the resulting ``(1153)`` kills the
+        # DB connection mid-apply. Route through ``_maybe_gzip_plan_json``
+        # (typical 12 MB → ~1 MB) — recoverable via
+        # ``_maybe_gunzip_plan_json`` on read. Wrapped in try/except so a
+        # future packet-limit edge case logs a warning instead of
+        # aborting the apply.
         try:
             from ecommerce_integrations.product_sync.api import _maybe_gzip_plan_json
             plan_json = frappe.as_json(plan.to_dict(), indent=1)
@@ -1124,13 +1119,11 @@ def _ai_pre_pass(sync_doc, *, subset_item_codes: list[str] | None) -> int:
 
 # ─── Stale-run recovery ──────────────────────────────────────────────
 # Mirrors ``catalog_mirror.tasks.recover_stale_mirrors`` /
-# ``smart_collections.tasks.recover_stale_targets``. Wired into
-# ``hooks.scheduler_events["hourly"]`` so a worker killed mid-apply
-# (OOM, SIGKILL, container restart) doesn't leave the Product Sync
-# permanently locked. Without this, the parent ``Ecommerce Product Sync``
-# row stays ``sync_status='running'`` and ``claim_sync`` refuses every
-# subsequent retrigger — an operator has to reset by hand (which is
-# exactly what happened with SYNC-RUN-2026-00267 stuck for 16+ hours).
+# ``smart_collections.tasks.recover_stale_targets``. Wired into the
+# hourly scheduler so a worker killed mid-apply (OOM, SIGKILL, container
+# restart) doesn't leave the parent Sync row flagged ``running``
+# forever — ``claim_sync`` refuses every retrigger until the claim is
+# released.
 
 
 def recover_stale_product_syncs() -> dict:
