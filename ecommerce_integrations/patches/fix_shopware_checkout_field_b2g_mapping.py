@@ -6,9 +6,14 @@ Background
 
 The earlier seeded configuration conflated three distinct concepts:
 
-* ``BT-10`` Buyer reference — generic per-order field (customer's PO,
-  cost-centre); already correctly mapped via ``po_number`` →
-  ``Sales Order.po_no``.
+* Shopware's ``custom_po_number`` (front-end labelled "Kommission" /
+  "PO Number") — the buyer's internal reference (cost-centre,
+  commission). Semantically this is **BT-10 Buyer reference**, which
+  ``eu_einvoice`` reads from ``Sales Order.buyer_reference`` (XRechnung
+  ``trade.agreement.buyer_reference``). ``Sales Order.po_no`` is a
+  different field — **BT-13 Purchase order reference** —
+  (``trade.agreement.buyer_order.issuer_assigned_id``), reserved for
+  cases where the buyer assigns a distinct PO number.
 * Leitweg-ID — German B2G XRechnung routing identifier (BT-49 +
   EAS ``0204``). Needs its own home on the Customer master so the
   operator can see + edit it, and we can render it into XRechnung.
@@ -16,7 +21,7 @@ The earlier seeded configuration conflated three distinct concepts:
 
 Old state on the operator's site:
 
-* ``buyer_reference`` row matched ``leitweg_id, leitwegId,
+* A ``buyer_reference`` row matched ``leitweg_id, leitwegId,
   buyer_reference`` and wrote them all into the generic
   ``Customer.buyer_reference``. Leitweg was mixed with anything else.
 * ``is_government_org`` had no mapping at all.
@@ -25,9 +30,13 @@ Old state on the operator's site:
 This patch
 ----------
 
-1. Drops the old ``buyer_reference`` row (its job is covered by
-   ``po_number`` already, and the row name itself implied semantics
-   that conflicted with the dedicated Leitweg-ID field).
+1. Drops the old mis-purposed ``buyer_reference`` row (it was mixing
+   Leitweg-ID into ``Customer.buyer_reference``). The ``po_number``
+   row stays in charge of routing the buyer reference — its target
+   should be ``Sales Order.buyer_reference`` (BT-10), set in the
+   ``Shopware Setting.checkout_fields`` table as operator data. (We
+   intentionally do not flip the target here: existing installs may
+   have re-routed it elsewhere on purpose.)
 2. Upserts a ``leitweg_id`` row → Customer Update →
    ``Customer.leitweg_id`` (the dedicated field declared in
    ``shopware6.custom_fields``). A
@@ -81,8 +90,11 @@ def execute() -> None:
     rows = parent.get(_PARENT_TABLE_FIELD) or []
     changes: list[str] = []
 
-    # 1. Drop the misnamed ``buyer_reference`` row (covered by
-    #    ``po_number`` → ``Sales Order.po_no``).
+    # 1. Drop the mis-purposed ``buyer_reference`` row (it was a
+    #    Leitweg-mixing-pot, not a real BT-10 mapping). The ``po_number``
+    #    row should carry BT-10 → ``Sales Order.buyer_reference``; we
+    #    don't enforce the target here because operators may have
+    #    re-routed it intentionally.
     keep = [r for r in rows if (r.field_key or "") != "buyer_reference"]
     if len(keep) != len(rows):
         # Re-assign idx so the child table stays compact

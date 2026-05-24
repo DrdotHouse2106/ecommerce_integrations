@@ -98,13 +98,22 @@ class ShopwareOrder:
 
 
 @temp_shopware_session
-def sync_order_by_id(client: Shopware6AdminAPIClientBase, order_id: str) -> str | None:
+def sync_order_by_id(
+    client: Shopware6AdminAPIClientBase,
+    order_id: str,
+    webhook_custom_fields: dict[str, Any] | None = None,
+) -> str | None:
     """
     Sync a specific order from Shopware by ID.
 
     Args:
         client: Shopware API client
         order_id: Shopware order ID
+        webhook_custom_fields: Optional customFields dict received with the
+            webhook event. Merged into ``order_data.customFields`` (webhook
+            wins) before mapping resolution, so checkout-field mappings work
+            even when Shopware returns ``customFields: null`` on the order
+            entity itself.
 
     Returns:
         ERPNext Sales Order name if created
@@ -123,6 +132,10 @@ def sync_order_by_id(client: Shopware6AdminAPIClientBase, order_id: str) -> str 
         frappe.throw(_("Order not found in Shopware: {0}").format(order_id))
 
     order_data = orders[0]
+    if webhook_custom_fields:
+        merged = dict(order_data.get("customFields") or {})
+        merged.update(webhook_custom_fields)
+        order_data["customFields"] = merged
     return create_sales_order(order_data)
 
 
@@ -314,11 +327,15 @@ def create_sales_order(order_data: dict[str, Any]) -> str:
 
         frappe.db.commit()
 
+        # Note: do NOT pass `request_data` here. When this runs inside the
+        # webhook flow (frappe.flags.request_id set), `create_log` reuses the
+        # existing log and would clobber the original webhook payload with
+        # this 2-key summary — making post-mortem diagnosis impossible. The
+        # original payload (including customFields) is far more valuable.
         create_shopware_log(
             status="Success",
             method="create_sales_order",
             message=f"Created Sales Order {so.name} from Shopware order {order_number}",
-            request_data={"order_id": order_id, "order_number": order_number},
         )
 
         # Schedule async verification of payment status
@@ -465,8 +482,13 @@ def sync_order_from_webhook(payload: dict[str, Any], request_id: str | None = No
                 if request_id:
                     update_shopware_log(request_id, status="Skipped", message=f"Order {order_id} already synced as {existing_so}")
             else:
-                # New order - sync it
-                sync_order_by_id(order_id)
+                # New order - sync it. We forward the webhook's customFields
+                # so all `Shopware Setting.checkout_fields` mappings see them
+                # — Shopware's order entity often returns `customFields: null`
+                # on freshly-written orders, but the webhook payload is
+                # authoritative (the storefront subscriber reads them
+                # in-flight at write-time).
+                sync_order_by_id(order_id, webhook_custom_fields=webhook_custom_fields)
                 if request_id:
                     update_shopware_log(request_id, status="Success", message=f"Synced order {order_id}")
         else:
