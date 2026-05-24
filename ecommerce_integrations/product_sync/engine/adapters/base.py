@@ -58,6 +58,13 @@ class LiveProductNode:
     sales_channel_ids: list[str] = field(default_factory=list)
     active: bool = True
     images: list[str] = field(default_factory=list)
+    # Backend-internal media UUIDs in the same order as ``images``.
+    # Populated when the adapter has them (Shopware media id, Medusa
+    # image id, …). The differ uses these — paired with the
+    # ``pushed_image_map`` stored on Ecommerce Item — to recognise
+    # "image was already pushed" and suppress spurious image-drift
+    # caused by the backend renaming files on upload.
+    image_ids: list[str] = field(default_factory=list)
     properties: dict = field(default_factory=dict)
     seo: dict = field(default_factory=dict)
 

@@ -31,6 +31,8 @@ etc.) at apply time.
 
 from __future__ import annotations
 
+import re
+
 import frappe
 from frappe import _
 
@@ -78,6 +80,17 @@ _ECOMMERCE_ITEM_DOCTYPE = "Ecommerce Item"
 # Risk thresholds for FieldDiff.risk_flag classification.
 _PRICE_JUMP_PCT = 20.0
 _STOCK_DROP_PCT = 50.0
+
+# How many drift candidates to backend-fetch + diff per round-trip
+# before dropping the live nodes and moving on. Caps the differ's
+# resident memory to ~``_LIVE_FETCH_CHUNK`` LiveProductNode objects
+# (each ~30–80 KB for Shopware with expanded associations) regardless
+# of catalogue size. The old "load all live products into one dict"
+# design blew past 4 GB on a 34k-item Shopware catalogue and OOM'd.
+# 500 is a sweet spot: large enough to amortise the per-call Shopware
+# search overhead, small enough that the working set stays under
+# ~40 MB even with the biggest products.
+_LIVE_FETCH_CHUNK = 500
 
 
 def compute_product_diff(
@@ -229,8 +242,22 @@ def compute_product_diff(
         )
         _bump_progress(on_progress, i + 1, total)
 
-    # 4. Phase B — Backend roundtrip for drift candidates only.
-    live_by_ext_id: dict[str, LiveProductNode] = {}
+    # 4./5. Phases B + C combined — streaming roundtrip + diff.
+    #
+    # The old design accumulated every drift candidate's
+    # :class:`LiveProductNode` into ``live_by_ext_id`` before iterating
+    # the diffs. On a 34k-mapped catalogue with most items in the drift
+    # bucket (any hash-affecting field touched since the last apply)
+    # that dict grew to gigabytes of resident memory — the Shopware
+    # LiveProductNode carries expanded media, properties, prices,
+    # categories and visibilities, easily 30–80 KB each — and the
+    # worker hit OOM before the apply loop ever ran.
+    #
+    # The chunked design below bounds RSS to ~``_LIVE_FETCH_CHUNK``
+    # live nodes at once: fetch one chunk, diff each candidate, drop
+    # the chunk before fetching the next. Same correctness — each
+    # candidate sees its own live node — without the "load everything
+    # then iterate" memory spike.
     adapter_available = False
     adapter = None
     if fetch_live and (drift_candidates or detect_orphans):
@@ -247,55 +274,11 @@ def compute_product_diff(
                 _("Unexpected error loading adapter: {0}").format(exc),
             )
 
-    if adapter_available and adapter is not None and drift_candidates:
-        import time as _t
-        drift_ext_ids = [
-            m["integration_item_code"]
-            for (_i, _p, _h, _n, m) in drift_candidates
-        ]
-        fetch_total = len(drift_ext_ids)
-        fetched = 0
-        last_keepalive = _t.time()
-        try:
-            for p in adapter.fetch_products(external_ids=drift_ext_ids):
-                live_by_ext_id[p.external_id] = p
-                fetched += 1
-                # Two reasons to tick periodically during the backend
-                # fetch: (a) drive the worker's progress writer so the
-                # bar moves past 99% instead of looking frozen,
-                # (b) keep the MySQL connection warm. A long IO-bound
-                # fetch with no DB activity blows past ``wait_timeout``
-                # and the post-fetch ``set_value`` dies with (2006).
-                now = _t.time()
-                if now - last_keepalive > 2.0:
-                    last_keepalive = now
-                    _bump_progress(
-                        on_progress,
-                        total + fetched, total + fetch_total,
-                    )
-                    try:
-                        frappe.db.sql("SELECT 1")
-                    except Exception:  # noqa: BLE001
-                        pass
-        except AdapterError as exc:
-            plan.notes.append(
-                _("Backend-Fetch (Drift-Kandidaten) fehlgeschlagen: {0}").format(exc),
-            )
-
-    # 5. Phase C — Resolve drift candidates → UPDATE or MAPPING_DRIFT.
-    for (item, proposed, proposed_hash, proposed_name, mapping) in drift_candidates:
-        external_id = mapping["integration_item_code"]
-        if adapter_available and external_id not in live_by_ext_id:
-            plan.mapping_drift.append(
-                MappingDriftItem(
-                    item_code=item.item_code,
-                    stale_external_id=external_id,
-                    proposed_name=proposed_name,
-                )
-            )
-            continue
-        live = live_by_ext_id.get(external_id) if adapter_available else None
-        diffs = _diff_proposed_against_live(proposed, live, mapping=mapping) if live else []
+    def _emit_update(item, proposed_name, external_id, live, mapping):
+        diffs = (
+            _diff_proposed_against_live(proposed, live, mapping=mapping)
+            if live else []
+        )
         _apply_risk_flags(diffs)
         plan.updates.append(
             ProductNodePlan(
@@ -315,6 +298,74 @@ def compute_product_diff(
                 ),
             )
         )
+
+    if not adapter_available or adapter is None:
+        # Hash-only path: every drift candidate becomes a no-diff
+        # update (apply will re-push). Identical to the legacy
+        # ``adapter_available=False`` branch in step 5.
+        for (item, proposed, _h, proposed_name, mapping) in drift_candidates:
+            _emit_update(
+                item, proposed_name, mapping["integration_item_code"],
+                None, mapping,
+            )
+    elif drift_candidates:
+        import time as _t
+        index_by_ext = {
+            mapping["integration_item_code"]: (item, proposed, proposed_name, mapping)
+            for (item, proposed, _h, proposed_name, mapping) in drift_candidates
+        }
+        ext_ids = list(index_by_ext.keys())
+        fetch_total = len(ext_ids)
+        fetched = 0
+        last_keepalive = _t.time()
+        for chunk_start in range(0, fetch_total, _LIVE_FETCH_CHUNK):
+            chunk = ext_ids[chunk_start:chunk_start + _LIVE_FETCH_CHUNK]
+            chunk_live: dict[str, LiveProductNode] = {}
+            try:
+                for p in adapter.fetch_products(external_ids=chunk):
+                    chunk_live[p.external_id] = p
+                    fetched += 1
+                    now = _t.time()
+                    if now - last_keepalive > 2.0:
+                        last_keepalive = now
+                        _bump_progress(
+                            on_progress,
+                            total + fetched, total + fetch_total,
+                        )
+                        try:
+                            frappe.db.sql("SELECT 1")
+                        except Exception:  # noqa: BLE001
+                            pass
+            except AdapterError as exc:
+                plan.notes.append(
+                    _("Backend-Fetch (Drift-Kandidaten) fehlgeschlagen: {0}")
+                    .format(exc),
+                )
+                # Emit the remaining candidates in this chunk as
+                # no-diff updates so the apply pass still runs.
+                for ext_id in chunk:
+                    item, proposed, proposed_name, mapping = index_by_ext[ext_id]
+                    _emit_update(item, proposed_name, ext_id, None, mapping)
+                continue
+
+            # Diff each candidate in this chunk, then drop the live
+            # nodes (chunk_live falls out of scope at the next loop
+            # iteration; Python's refcounting frees the memory then).
+            for ext_id in chunk:
+                item, proposed, proposed_name, mapping = index_by_ext[ext_id]
+                if ext_id not in chunk_live:
+                    plan.mapping_drift.append(
+                        MappingDriftItem(
+                            item_code=item.item_code,
+                            stale_external_id=ext_id,
+                            proposed_name=proposed_name,
+                        )
+                    )
+                    continue
+                _emit_update(
+                    item, proposed_name, ext_id, chunk_live[ext_id], mapping,
+                )
+            chunk_live.clear()
 
     # 6. Phase D — Orphan walk, opt-in only.
     #
@@ -416,16 +467,19 @@ def _diff_proposed_against_live(
                 )
             )
 
-    # Image diff: three-stage comparison so we don't flag spurious
-    # drift on every preview.
+    # Image diff: two-stage comparison so we don't flag spurious drift.
     #
-    # 1. Persisted ``pushed_image_map`` (ERP basename → Shopware
-    #    media UUID): if every proposed ERP image has a mapping AND
-    #    the live product reports those URLs, no diff.
-    # 2. Filename-basename comparison: ERPNext URLs (``/file/hash/
-    #    name.jpg``) and Shopware CDN URLs (``cdn.x/.../name.jpg``)
-    #    keep the same basename after a round-trip.
-    # 3. Count fallback when basenames don't anchor reliably.
+    # 1. **Authoritative**: ``pushed_image_map`` (ERP basename →
+    #    backend media UUID) written by the orchestrator after every
+    #    successful upload. If every proposed image's map-value is
+    #    present in the live media-id set, the images on the backend
+    #    are the ones we pushed — no drift. Basenames on the live
+    #    side are unreliable here because Shopware renames uploaded
+    #    files to ``<sku>_<idx>.jpg``; only the media UUID survives
+    #    the round-trip.
+    # 2. **Fallback**: ERPNext-basename ↔ live-URL-basename set
+    #    comparison. Used when no map exists yet (first sync of a
+    #    fresh item, or legacy items the backfill couldn't pair).
     def _basename(u: str) -> str:
         tail = (u or "").rstrip("/").rsplit("/", 1)[-1]
         tail = tail.split("?", 1)[0]
@@ -433,41 +487,39 @@ def _diff_proposed_against_live(
 
     prop_images = [img["url"] for img in proposed.get("images", [])]
     live_images = list(live.images or [])
+    live_image_ids = set(live.image_ids or [])
     prop_names = {_basename(u) for u in prop_images if u}
     live_names = {_basename(u) for u in live_images if u}
 
-    # Stage 1 — persisted map. The orchestrator wrote a dict of
-    # ``{erp_basename: shopware_media_uuid}`` after the last
-    # successful image upload. If every current proposed basename
-    # has a map entry AND the live image set contains the same
-    # basenames, suppress the diff. The differ doesn't receive the
-    # map directly — it's read off ``Ecommerce Item`` via the
-    # mapping dict in the caller's scope (``mapping`` argument).
     pushed_map_json = (mapping or {}).get("pushed_image_map") or ""
     if pushed_map_json and prop_names:
         try:
             import json as _json
             pushed_map = _json.loads(pushed_map_json)
-            mapped_basenames = {k.lower() for k in pushed_map.keys()}
-            # Are ALL proposed images already pushed AND do they
-            # all appear in the live image set?
-            if prop_names.issubset(mapped_basenames) and prop_names.issubset(live_names):
-                # No diff — short-circuit.
-                pass
-            elif prop_names != live_names:
-                # Fall through to the normal diff path below.
-                pushed_map = None
-            else:
-                pushed_map = "match"
         except (ValueError, TypeError):
             pushed_map = None
-        if pushed_map == "match" or (
-            pushed_map and prop_names.issubset(mapped_basenames)
-            and prop_names.issubset(live_names)
-        ):
-            # Skip image diff — already correctly pushed.
-            return diffs
+        if pushed_map:
+            mapped_basenames = {k.lower() for k in pushed_map.keys()}
+            # All proposed basenames have a mapping entry?
+            if prop_names.issubset(mapped_basenames):
+                # Resolve each proposed basename to its tracked
+                # backend media UUID and check that the live product
+                # really still hosts it. ``image_ids`` is populated
+                # by the adapter (Shopware: ``media[].mediaId``).
+                resolved_ids = {
+                    pushed_map[k] for k in (
+                        n if n in pushed_map else next(
+                            (mk for mk in pushed_map if mk.lower() == n), None
+                        )
+                        for n in prop_names
+                    ) if k
+                }
+                if resolved_ids and resolved_ids.issubset(live_image_ids):
+                    # Stage-1 short-circuit: every proposed image is
+                    # present in the live set under its tracked UUID.
+                    return diffs
 
+    # Stage 2 fallback (no map / partial coverage): basename set check.
     if prop_names != live_names:
         added = sorted(prop_names - live_names)
         removed = sorted(live_names - prop_names)
@@ -570,7 +622,12 @@ def _maybe_diff(diffs: list[FieldDiff], field: str, cur, prop) -> None:
 
 
 def _maybe_diff_long(diffs: list[FieldDiff], field: str, cur: str, prop: str) -> None:
-    if cur == prop:
+    """Long-text diff (description) — normalises HTML noise before
+    comparison so trivial markup differences (``<br />`` vs ``<br>``,
+    duplicated whitespace, leading/trailing spaces) don't surface as
+    drift. Real content changes still pass through.
+    """
+    if cur == prop or _norm_html_for_diff(cur) == _norm_html_for_diff(prop):
         return
     diffs.append(
         FieldDiff(
@@ -582,6 +639,29 @@ def _maybe_diff_long(diffs: list[FieldDiff], field: str, cur: str, prop: str) ->
             preview_proposed=(prop or "")[:200],
         )
     )
+
+
+# Pre-compiled patterns for the HTML normaliser. Kept narrow on
+# purpose — only the self-closing void elements that have caused
+# false-positive drift in production. Add more here if a new pattern
+# emerges; don't reach for a full HTML parser unless we need it.
+_NORM_VOID_BR = re.compile(r"<\s*br\s*/?\s*>", re.IGNORECASE)
+_NORM_VOID_HR = re.compile(r"<\s*hr\s*/?\s*>", re.IGNORECASE)
+
+
+def _norm_html_for_diff(s: str | None) -> str:
+    """Canonicalise HTML so two semantically equal descriptions compare equal.
+
+    - Collapses all whitespace runs to a single space.
+    - Normalises self-closing void tags (``<br />`` → ``<br>``).
+    - Strips leading/trailing whitespace.
+    """
+    if not s:
+        return ""
+    s = _NORM_VOID_BR.sub("<br>", s)
+    s = _NORM_VOID_HR.sub("<hr>", s)
+    s = " ".join(s.split())
+    return s.strip()
 
 
 def _classify(cur, prop) -> str:

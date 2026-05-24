@@ -359,12 +359,18 @@ def _canonical_pricing(item, sync, ctx=None) -> dict[str, Any]:
 
 def _lookup_item_price(item_code: str, price_list: str, currency: str) -> float | None:
     """Fallback per-item SQL lookup used when no :class:`BulkContext`
-    is provided. The differ always provides one; only standalone test
-    callers hit this path."""
+    is provided.
+
+    Note: the Item Price column is ``price_list_rate`` (a decimal
+    field) — there is no bare ``rate`` column. An earlier version of
+    this helper queried ``rate`` and crashed inside the apply loop
+    whenever a per-item lookup path was hit (test callers, plus any
+    code path that reaches canonical without a BulkContext).
+    """
     import frappe
 
     rows = frappe.db.sql(
-        """SELECT rate FROM `tabItem Price`
+        """SELECT price_list_rate FROM `tabItem Price`
            WHERE item_code = %s AND price_list = %s
            ORDER BY modified DESC LIMIT 1""",
         (item_code, price_list),
