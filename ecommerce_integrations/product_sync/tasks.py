@@ -66,6 +66,17 @@ _CANCEL_CHECK_EVERY_N_ITEMS = 25
 # apply this drops from 33 961 round trips to ~1 359.
 _APPLY_BATCH_SIZE = 25
 
+# How long a Sync Run may stay in ``running`` without a heartbeat
+# before ``recover_stale_product_syncs`` flips it to ``error``. The
+# scheduler runs hourly, so 30 min is a comfortable lower bound
+# (matches the Catalog Mirror / Smart Collections sweepers).
+_HEARTBEAT_TIMEOUT_MIN = 30
+
+
+def _logger():
+    """Module logger for apply-live progress. Lands in bench logs."""
+    return frappe.logger("product_sync.apply", allow_site=True, file_count=10)
+
 
 def apply_sync(
     sync_name: str,
@@ -178,12 +189,24 @@ def _apply_live(
             if (now_ts - last_diff_progress_write[0]) < 1.0 and current < total:
                 return
             last_diff_progress_write[0] = now_ts
+            # ``update_modified=True`` here is load-bearing: the
+            # ``recover_stale_product_syncs`` sweeper compares the Run row's
+            # ``modified`` against the heartbeat timeout. Without bumping it
+            # the diff phase can hang for hours without anyone noticing
+            # (the original "stuck at 99%" symptom).
             frappe.db.set_value(
                 _RUN_DOCTYPE, run.name,
                 {
                     "items_total": total,
                     "items_succeeded": current,
                 },
+                update_modified=True,
+            )
+            # Mirror the heartbeat onto the parent Sync row so the cron
+            # sweeper's parent-level check also catches a stuck diff.
+            frappe.db.set_value(
+                SYNC_DOCTYPE, sync_doc.name,
+                {"last_heartbeat_at": now_datetime()},
                 update_modified=False,
             )
             frappe.db.commit()  # make live-diff progress visible to the UI
@@ -199,14 +222,42 @@ def _apply_live(
         # intended even if the apply loop crashes halfway. Use
         # db.set_value to avoid the check_if_latest race with later
         # _finalize_run writes (same row, same writer).
-        frappe.db.set_value(
-            _RUN_DOCTYPE, run.name,
-            {
-                "preview_plan_json": frappe.as_json(plan.to_dict(), indent=1),
-                "items_total": len(plan.creates) + len(plan.updates),
-            },
-            update_modified=False,
-        )
+        #
+        # On a 5000+-item plan the raw JSON dump can exceed MariaDB's
+        # ``max_allowed_packet`` (the original "stuck at 99%" cascade
+        # had this very write throw ``(1153, 'Got a packet bigger than
+        # max_allowed_packet bytes')``, killing the DB connection and
+        # leaving the parent Sync's claim dangling). Route through
+        # ``_maybe_gzip_plan_json`` so big plans land as gzip+base64
+        # (12 MB → ~1 MB) — full plan still recoverable via
+        # ``_maybe_gunzip_plan_json`` on the read side. Wrapped in
+        # try/except so any future packet-limit edge case logs a
+        # warning instead of aborting the apply.
+        try:
+            from ecommerce_integrations.product_sync.api import _maybe_gzip_plan_json
+            plan_json = frappe.as_json(plan.to_dict(), indent=1)
+            stored = _maybe_gzip_plan_json(plan_json)
+            frappe.db.set_value(
+                _RUN_DOCTYPE, run.name,
+                {
+                    "preview_plan_json": stored,
+                    "items_total": len(plan.creates) + len(plan.updates),
+                },
+                update_modified=False,
+            )
+        except Exception as exc:  # noqa: BLE001 — never let plan persistence kill the apply
+            _logger().error(
+                f"apply-live: failed to persist preview_plan_json for "
+                f"sync={sync_doc.name} run={run.name}: {type(exc).__name__}: {exc}"
+            )
+            try:
+                frappe.db.set_value(
+                    _RUN_DOCTYPE, run.name,
+                    {"items_total": len(plan.creates) + len(plan.updates)},
+                    update_modified=False,
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
         # 2. Get the adapter (lazy import to keep tasks importable
         # even on sites without the backend installed).
@@ -242,11 +293,20 @@ def _apply_live(
         for node in plan.updates:
             to_process.append((node, ACTION_UPDATE))
 
-        for batch_start in range(0, len(to_process), _APPLY_BATCH_SIZE):
+        total_to_process = len(to_process)
+        _logger().info(
+            f"apply-live start: sync={sync_doc.name} backend={backend} "
+            f"to_process={total_to_process} batch_size={_APPLY_BATCH_SIZE} run={run.name}"
+        )
+        for batch_start in range(0, total_to_process, _APPLY_BATCH_SIZE):
             batch = to_process[batch_start:batch_start + _APPLY_BATCH_SIZE]
             # Heartbeat + cancel check between batches.
             if _is_cancelled(run.name):
                 result.message = _("Run wurde durch den Operator abgebrochen.")
+                _logger().info(
+                    f"apply-live cancelled: sync={sync_doc.name} run={run.name} "
+                    f"at item {batch_start}/{total_to_process}"
+                )
                 _finalize_run(
                     run, result, status=STATUS_PARTIAL,
                     message=result.message, applied_diffs=applied_diffs,
@@ -259,7 +319,16 @@ def _apply_live(
                 return result
             _heartbeat(run.name)
             _publish_progress(
-                sync_doc.name, run.name, batch_start, len(to_process), result,
+                sync_doc.name, run.name, batch_start, total_to_process, result,
+            )
+            # Per-batch INFO log — lets us locate the last known position
+            # in bench logs when the worker is killed (OOM, SIGKILL) before
+            # the top-level except handler can write to Error Log.
+            _logger().info(
+                f"apply-live batch: sync={sync_doc.name} run={run.name} "
+                f"{batch_start}/{total_to_process} "
+                f"(created={result.created} updated={result.updated} "
+                f"skipped={result.skipped} errs={len(result.errors)})"
             )
 
             _apply_batch(
@@ -321,6 +390,9 @@ def _apply_live(
         # Top-level catastrophic failure — bail with full traceback.
         tb = traceback.format_exc()
         msg = f"unexpected error: {type(exc).__name__}: {exc}"
+        _logger().error(
+            f"apply-live crashed: sync={sync_doc.name} run={run.name} {msg}\n{tb}"
+        )
         _finalize_run(
             run, result, status=STATUS_ERROR,
             message=msg, applied_diffs=applied_diffs, started_ts=started_ts,
@@ -435,10 +507,11 @@ def _apply_batch(
         ecom_row = frappe.db.get_value(
             _ECOMMERCE_ITEM_DOCTYPE,
             {"erpnext_item_code": node.item_code, "integration": integration_key},
-            ["name", "integration_item_code"],
+            ["name", "integration_item_code", "variant_id"],
             as_dict=True,
         )
         external_id = ecom_row.get("integration_item_code") if ecom_row else None
+        variant_id = ecom_row.get("variant_id") if ecom_row else None
 
         if backend == BACKEND_SHOPWARE:
             payload = build_shopware_payload(
@@ -446,7 +519,8 @@ def _apply_batch(
             )
         elif backend == BACKEND_MEDUSA:
             payload = build_medusa_payload(
-                item, sync_doc, canonical, external_id=external_id,
+                item, sync_doc, canonical,
+                external_id=external_id, variant_id=variant_id,
             )
         else:
             applied_diffs.append({
@@ -563,6 +637,39 @@ def _apply_batch(
                     m.get("media", {}).get("url")
                     for m in media if m.get("media", {}).get("url")
                 ]
+                # Skip image-upload when every canonical image has
+                # already been pushed (basename present in
+                # ``pushed_image_map``). Without this guard, every
+                # chunked re-sync of a 34k catalogue creates a fresh
+                # media record per image — duplicating the
+                # ``tabmedia`` rows and bloating Shopware storage on
+                # each pass. The differ uses the same map to suppress
+                # spurious image-drift, so checking it here keeps the
+                # short-circuit symmetric.
+                if urls and meta.get("ecom_row"):
+                    try:
+                        import json as _json
+                        existing_map_raw = frappe.db.get_value(
+                            _ECOMMERCE_ITEM_DOCTYPE,
+                            meta["ecom_row"]["name"],
+                            "pushed_image_map",
+                        ) or ""
+                        existing_map = (
+                            _json.loads(existing_map_raw)
+                            if existing_map_raw else {}
+                        )
+                        existing_basenames = {
+                            k.lower() for k in (existing_map or {}).keys()
+                        }
+                    except (ValueError, TypeError):
+                        existing_basenames = set()
+                    needed_basenames = {
+                        (u.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]).lower()
+                        for u in urls
+                    }
+                    if needed_basenames and needed_basenames.issubset(existing_basenames):
+                        urls = []  # all already pushed → nothing to do
+
                 if urls:
                     try:
                         upload_result = uploader(new_external_id, urls) or {}
@@ -595,6 +702,44 @@ def _apply_batch(
                         result.errors.append(
                             f"{meta['item_code']}: image upload failed: {exc}",
                         )
+
+        # Push ecommerce_properties (universal child-table) as Shopware
+        # property_group + property_group_option, linked to the product
+        # via the m2m. The build_shopware_payload pipeline deliberately
+        # does NOT include these in the bulk upsert payload — they need
+        # an out-of-band three-step flow (group → option → product m2m)
+        # that doesn't fit cleanly into ``/_action/sync``. Adapters
+        # without ``push_product_properties`` are silently skipped.
+        if int(getattr(sync_doc, "sync_properties", 0) or 0):
+            pusher = getattr(adapter, "push_product_properties", None)
+            if callable(pusher):
+                ecom_props = []
+                try:
+                    rows = frappe.get_all(
+                        "Item Ecommerce Property",
+                        filters={
+                            "parent": meta["item_code"],
+                            "parenttype": "Item",
+                            "sync_to_shopware": 1,
+                        },
+                        fields=["property_name", "property_value"],
+                        order_by="idx",
+                    )
+                    ecom_props = [
+                        {"name": r["property_name"], "value": r["property_value"]}
+                        for r in rows
+                        if r.get("property_name") and r.get("property_value")
+                    ]
+                except Exception:  # noqa: BLE001
+                    ecom_props = []
+                if ecom_props:
+                    try:
+                        pusher(new_external_id, ecom_props)
+                    except Exception as exc:  # noqa: BLE001
+                        result.errors.append(
+                            f"{meta['item_code']}: properties push failed: {exc}",
+                        )
+
         applied_diffs.append({
             "item_code": meta["item_code"],
             "action": meta["action"],
@@ -636,15 +781,19 @@ def _apply_one_item(
     ecom_row = frappe.db.get_value(
         _ECOMMERCE_ITEM_DOCTYPE,
         {"erpnext_item_code": item_code, "integration": integration_key},
-        ["name", "integration_item_code"],
+        ["name", "integration_item_code", "variant_id"],
         as_dict=True,
     )
     external_id = ecom_row.get("integration_item_code") if ecom_row else None
+    variant_id = ecom_row.get("variant_id") if ecom_row else None
 
     if sync_doc.backend == BACKEND_SHOPWARE:
         payload = build_shopware_payload(item, sync_doc, canonical, external_id=external_id)
     elif sync_doc.backend == BACKEND_MEDUSA:
-        payload = build_medusa_payload(item, sync_doc, canonical, external_id=external_id)
+        payload = build_medusa_payload(
+            item, sync_doc, canonical,
+            external_id=external_id, variant_id=variant_id,
+        )
     else:
         raise ValueError(f"Unknown backend: {sync_doc.backend}")
 
@@ -971,3 +1120,83 @@ def _ai_pre_pass(sync_doc, *, subset_item_codes: list[str] | None) -> int:
         return 0
 
     return int((result or {}).get("success", 0) or 0)
+
+
+# ─── Stale-run recovery ──────────────────────────────────────────────
+# Mirrors ``catalog_mirror.tasks.recover_stale_mirrors`` /
+# ``smart_collections.tasks.recover_stale_targets``. Wired into
+# ``hooks.scheduler_events["hourly"]`` so a worker killed mid-apply
+# (OOM, SIGKILL, container restart) doesn't leave the Product Sync
+# permanently locked. Without this, the parent ``Ecommerce Product Sync``
+# row stays ``sync_status='running'`` and ``claim_sync`` refuses every
+# subsequent retrigger — an operator has to reset by hand (which is
+# exactly what happened with SYNC-RUN-2026-00267 stuck for 16+ hours).
+
+
+def recover_stale_product_syncs() -> dict:
+    """Sweep Product Sync rows + Run rows stuck in ``running``.
+
+    A run is considered stale when its ``modified`` (the heartbeat
+    timestamp from ``_heartbeat``) is older than
+    ``_HEARTBEAT_TIMEOUT_MIN``. Marks the run as error+finished and
+    releases the parent sync claim so the next trigger can fire.
+    """
+    from frappe.utils import add_to_date
+
+    if frappe.flags.in_install or frappe.flags.in_migrate:
+        return {"recovered": 0}
+    if not frappe.db.exists("DocType", _RUN_DOCTYPE):
+        return {"recovered": 0}
+
+    cutoff = add_to_date(now_datetime(), minutes=-_HEARTBEAT_TIMEOUT_MIN)
+
+    stale_runs = frappe.get_all(
+        _RUN_DOCTYPE,
+        filters={
+            "status": "running",
+            "modified": ["<", cutoff],
+        },
+        fields=["name", "sync"],
+    )
+
+    recovered_runs = 0
+    released_syncs: set[str] = set()
+    for r in stale_runs:
+        frappe.db.set_value(
+            _RUN_DOCTYPE, r.name,
+            {
+                "status": STATUS_ERROR,
+                "finished_at": now_datetime(),
+                "error_summary": _("heartbeat timeout — worker likely killed (OOM / SIGKILL / container restart)"),
+            },
+            update_modified=False,
+        )
+        recovered_runs += 1
+        if r.sync and r.sync not in released_syncs:
+            # Only release the parent if it's still flagged 'running'
+            # AND points at this stale run (don't accidentally release
+            # a newer concurrent run that just started).
+            current = frappe.db.get_value(
+                SYNC_DOCTYPE, r.sync,
+                ["sync_status", "last_heartbeat_at"],
+                as_dict=True,
+            )
+            if (
+                current
+                and (current.sync_status or "").lower() == "running"
+                and current.last_heartbeat_at
+                and current.last_heartbeat_at < cutoff
+            ):
+                _release_sync(
+                    r.sync, status=STATUS_ERROR,
+                    last_error=_("heartbeat timeout — stale run recovered"),
+                )
+                released_syncs.add(r.sync)
+
+    frappe.db.commit()
+    if recovered_runs:
+        _logger().info(
+            f"recover_stale_product_syncs: recovered {recovered_runs} run(s) / "
+            f"released {len(released_syncs)} parent sync(s)"
+        )
+    return {"recovered_runs": recovered_runs, "released_syncs": list(released_syncs)}

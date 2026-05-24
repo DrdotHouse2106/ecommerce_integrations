@@ -169,6 +169,36 @@ class ShopwareProductAdapter(ProductAdapter):
             image_urls=list(image_urls or []),
         )
 
+    def push_product_properties(
+        self,
+        external_id: str,
+        properties: list[dict],
+    ) -> dict:
+        """Sync ``ecommerce_properties`` to Shopware property groups.
+
+        Shopware models a "property" as ``property_group`` → many
+        ``property_group_option`` rows; products reference one option
+        per (group, value) pair through the ``properties`` m2m link.
+        This helper resolves both — creating the group / option when
+        missing — then patches the product with the option ids so the
+        storefront's "Eigenschaften" tab populates.
+
+        ``properties`` is a list of ``{"name": <group>, "value":
+        <option>}`` dicts in the same shape the canonical builder
+        emits via ``Item.ecommerce_properties`` (``property_name`` /
+        ``property_value`` on the child row).
+
+        Returns ``{linked, failed, skipped}``. A missing/blank value
+        is counted as skipped — bools / numbers must be stringified
+        by the caller (canonical does this) so Shopware accepts them
+        as ``property_group_option.name``.
+        """
+        return _with_client(
+            self._push_properties_impl,
+            external_id=external_id,
+            properties=list(properties or []),
+        )
+
     def deactivate_product(self, external_id: str) -> None:
         _with_client(self._deactivate_impl, external_id)
 
@@ -882,6 +912,73 @@ class ShopwareProductAdapter(ProductAdapter):
                 # Best-effort link — media still exist and can be linked
                 # manually by the operator if this fails.
                 pass
+        return counters
+
+    def _push_properties_impl(
+        self,
+        client,
+        *,
+        external_id: str,
+        properties: list[dict],
+    ) -> dict:
+        """Inner property-sync — runs under ``temp_shopware_session``.
+
+        Reuses the existing ``shopware6.export.property_handler``
+        helpers (``get_or_create_property_group`` /
+        ``get_or_create_property_option``) so we share their cache +
+        idempotent-by-id semantics. After resolving all option ids,
+        we PATCH the product with ``properties: [{id: opt}, ...]``
+        which Shopware treats as a full set-replace on the m2m link.
+
+        Returns ``{linked, failed, skipped}``. Failures inside the
+        helpers are swallowed (they log + return None); we only count
+        the option-resolution and the final PATCH outcomes.
+        """
+        from ecommerce_integrations.shopware6.export.property_handler import (
+            get_or_create_property_group,
+            get_or_create_property_option,
+        )
+
+        counters = {"linked": 0, "failed": 0, "skipped": 0}
+        if not external_id or not properties:
+            return counters
+
+        option_ids: list[str] = []
+        for p in properties:
+            name = (p.get("name") or "").strip()
+            value = p.get("value")
+            value = str(value).strip() if value is not None else ""
+            if not name or not value:
+                counters["skipped"] += 1
+                continue
+            try:
+                group_id = get_or_create_property_group(client, name)
+                if not group_id:
+                    counters["failed"] += 1
+                    continue
+                opt_id = get_or_create_property_option(
+                    client, group_id, name, value,
+                )
+                if not opt_id:
+                    counters["failed"] += 1
+                    continue
+                option_ids.append(opt_id)
+            except Exception:  # noqa: BLE001
+                counters["failed"] += 1
+
+        if option_ids:
+            # ``properties`` is the m2m to property_group_option. PATCH
+            # with the full id list = full replace, which is what we
+            # want — the canonical Item row is the source of truth.
+            try:
+                client.request_patch(
+                    f"product/{external_id}",
+                    payload={"properties": [{"id": oid} for oid in option_ids]},
+                )
+                counters["linked"] = len(option_ids)
+            except Exception:  # noqa: BLE001
+                counters["failed"] += len(option_ids)
+
         return counters
 
     def _deactivate_impl(self, client, external_id: str) -> None:
