@@ -302,6 +302,9 @@ scheduler_events = {
 		"ecommerce_integrations.smart_collections.tasks.recover_stale_targets",
 		# Catalog Mirror: re-flag mirrors stuck in 'running' past heartbeat
 		"ecommerce_integrations.catalog_mirror.tasks.recover_stale_mirrors",
+		# Product Sync: re-flag apply-live runs stuck in 'running' past heartbeat
+		# (worker OOM/SIGKILL/restart leaves the parent sync's claim dangling).
+		"ecommerce_integrations.product_sync.tasks.recover_stale_product_syncs",
 		# Shopware6: re-enqueue items from the DLQ for retry (failed batch items).
 		"ecommerce_integrations.shopware6.bulk_sync_dlq.retry_failed_items_from_dlq",
 	],
