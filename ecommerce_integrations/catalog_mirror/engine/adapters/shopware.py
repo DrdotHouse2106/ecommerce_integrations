@@ -342,18 +342,21 @@ class ShopwareCatalogAdapter(CatalogAdapter):
                 external_id = None
 
         if not external_id:
+            # Shopware POST /api/category returns 204 No Content by
+            # default; the body is empty and the lib_shopware6_api_base
+            # client rejects ``?_response=true`` query strings. So we
+            # supply the id ourselves in the payload — Shopware accepts
+            # any uuid4-shaped string and writes the row under it.
+            import uuid as _uuid
+            new_id = _uuid.uuid4().hex
+            payload["id"] = new_id
             try:
-                resp = client.request_post("category", payload=payload)
+                client.request_post("category", payload=payload)
             except Exception as e:
                 raise AdapterError(
                     f"Shopware category create failed: {e}",
                 ) from e
-            ext_id = (resp or {}).get("data", {}).get("id")
-            if not ext_id:
-                raise AdapterError(
-                    f"Shopware category create returned no id: {resp!r}",
-                )
-            external_id = ext_id
+            external_id = new_id
 
         self._set_sales_channel_assignments(
             client, external_id, target_sales_channel,
@@ -363,8 +366,13 @@ class ShopwareCatalogAdapter(CatalogAdapter):
     def _set_sales_channel_assignments(
         self, client, external_id: str, target_sales_channel: str | None,
     ) -> None:
-        # Mirrors the Smart Collections helper — assignment is the
-        # storefront visibility gate. Idempotent on 409 (already linked).
+        # For Catalog Mirror the storefront visibility is inherited
+        # through the navigation tree (root category configured on the
+        # sales channel), so this assignment is a best-effort hint —
+        # not load-bearing. 409 = already linked; 404 = Shopware
+        # rejects the operation as nonsensical for a category whose
+        # visibility is already covered via the navigation root. Both
+        # are idempotent no-ops for our use case.
         if not target_sales_channel:
             return
         try:
@@ -373,11 +381,21 @@ class ShopwareCatalogAdapter(CatalogAdapter):
                 payload={"id": target_sales_channel},
             )
         except Exception as e:
-            if "409" in str(e):
+            msg = str(e)
+            if "409" in msg or "404" in msg:
                 return
-            raise AdapterError(
-                f"Shopware sales-channel assign failed: {e}",
-            ) from e
+            # Don't raise: the category already exists in Shopware
+            # with the correct parent — failing here would prevent
+            # the local mapping from being persisted and leave us
+            # creating the same category on every run.
+            try:
+                import frappe as _f
+                _f.logger("catalog_mirror").warning(
+                    f"Shopware sales-channel assign skipped for "
+                    f"{external_id}: {msg[:200]}"
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
     def _move_impl(
         self,

@@ -321,11 +321,41 @@ def _apply_live(mirror) -> MirrorRunResult:
 
     # Apply non-root creates parent-first (the differ emits them in
     # pre-order so a simple iteration preserves the invariant).
+    #
+    # ``plan.proposed_parent_external_id`` was resolved at differ-time:
+    # if the parent IG was itself a pending CREATE in this same run,
+    # the differ saw no mapping and emitted ``None``. Falling back to
+    # ``root_external_id`` in that case silently re-parents the child
+    # to the mirror root — without this guard, a fresh import where
+    # several new sub-IGs land in the same run leaks their leaf-most
+    # children directly under the mirror root instead of nesting them
+    # under the just-created intermediate IGs. Re-resolve from the
+    # in-flight ``mapping`` dict (populated as creates succeed below)
+    # before falling back, and only fall back to root when the IG's
+    # ERPNext parent is the mirror root itself.
     for plan in diff.creates:
         if plan.item_group == erp_tree.name:
             continue
         try:
-            parent_ext = plan.proposed_parent_external_id or root_external_id
+            parent_ext = plan.proposed_parent_external_id
+            if not parent_ext:
+                parent_ig = frappe.db.get_value(
+                    "Item Group", plan.item_group, "parent_item_group",
+                )
+                if parent_ig and parent_ig != erp_tree.name:
+                    parent_ext = mapping.get(parent_ig)
+                    if not parent_ext:
+                        # Parent IG isn't mapped yet AND isn't the
+                        # mirror root → would land under root by
+                        # accident. Skip this create; the next mirror
+                        # run will pick it up once the parent is mapped.
+                        result.errors.append(
+                            f"create {plan.item_group}: parent "
+                            f"{parent_ig!r} not yet mapped; deferring"
+                        )
+                        continue
+                else:
+                    parent_ext = root_external_id
             ext_id = adapter.upsert_node(
                 external_id=None,
                 parent_external_id=parent_ext,
@@ -588,8 +618,19 @@ def _record_failure(mirror, log_name, exc, short_msg: str) -> MirrorRunResult:
 def _start_log(mirror) -> str | None:
     if not frappe.db.exists("DocType", _LOG_DOCTYPE):
         return None
+    # ``integration`` is a Link to Module Def — must use the Module Def name
+    # (``shopware6`` / ``medusa``), not the user-facing backend label
+    # (``Shopware`` / ``Medusa``) or its lowercase form (``shopware``).
+    # See product_sync/constants.py — same bug pattern as the Product Sync
+    # orchestrator used to have.
+    from ecommerce_integrations.product_sync.constants import (
+        BACKEND_TO_INTEGRATION_KEY,
+    )
     log = frappe.new_doc(_LOG_DOCTYPE)
-    log.integration = (mirror.backend or "").lower() or "catalog_mirror"
+    log.integration = (
+        BACKEND_TO_INTEGRATION_KEY.get(mirror.backend or "")
+        or "catalog_mirror"
+    )
     log.method = (
         f"catalog_mirror.tasks.apply_mirror({mirror.name})"
     )
