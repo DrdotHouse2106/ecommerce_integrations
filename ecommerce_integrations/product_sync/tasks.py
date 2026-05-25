@@ -698,6 +698,33 @@ def _apply_batch(
                             f"{meta['item_code']}: image upload failed: {exc}",
                         )
 
+                # Delta media reconciliation: delete product_media rows
+                # whose media UUID isn't in the (now-updated) pushed
+                # image map. Without this the storefront accumulates
+                # stale photos across re-syncs — old product
+                # photography that the operator replaced, orphans from
+                # prior mis-mappings, etc. The cover gets re-pointed
+                # automatically if it landed on a deleted row.
+                reconciler = getattr(adapter, "reconcile_product_media", None)
+                if callable(reconciler) and meta.get("ecom_row"):
+                    try:
+                        import json as _json2
+                        final_map_raw = frappe.db.get_value(
+                            _ECOMMERCE_ITEM_DOCTYPE,
+                            meta["ecom_row"]["name"],
+                            "pushed_image_map",
+                        ) or ""
+                        final_map = (
+                            _json2.loads(final_map_raw) if final_map_raw else {}
+                        )
+                        keep_ids = list(final_map.values())
+                        if keep_ids:
+                            reconciler(new_external_id, keep_ids)
+                    except Exception as exc:  # noqa: BLE001
+                        result.errors.append(
+                            f"{meta['item_code']}: media reconcile failed: {exc}",
+                        )
+
         # Push ecommerce_properties (universal child-table) as Shopware
         # property_group + property_group_option, linked to the product
         # via the m2m. The build_shopware_payload pipeline deliberately

@@ -136,6 +136,45 @@ class ShopwareProductAdapter(ProductAdapter):
             target_sales_channels=target_sales_channels,
         )
 
+    def reconcile_product_media(
+        self,
+        external_id: str,
+        keep_media_ids: list[str],
+    ) -> dict:
+        """Delete product_media rows whose media UUID isn't in
+        ``keep_media_ids``.
+
+        Without this every re-sync only ADDS media — the storefront
+        accumulates stale photos (orphans from prior incorrect mappings,
+        replaced product photography that wasn't unlinked, etc.). The
+        canonical image set on the ERPNext side is the source of truth;
+        anything live but not in the keep list is a leftover.
+
+        ``keep_media_ids`` is the values list from
+        ``Ecommerce Item.pushed_image_map`` — only what THIS sync has
+        pushed. We deliberately don't touch media added manually in
+        Shopware Admin (those won't appear in the map either; the
+        operator would lose them on every cron tick).
+
+        Wait — that last clause has the opposite problem: if we ONLY
+        delete things outside the map, manual admin uploads still get
+        deleted because they're not in the map. So this helper takes
+        ``keep_media_ids`` (which the caller assembles to include both
+        the pushed map AND any media id the operator wants preserved).
+        For the orchestrator's current use case (Bauer / BRAND_B
+        cleanup) the keep list is purely the pushed map — those
+        catalogues are sync-only and admin-edits aren't expected.
+
+        Returns ``{deleted, kept, failed}``. Also re-points
+        ``product.coverId`` if the prior cover lived on one of the
+        deleted product_media rows.
+        """
+        return _with_client(
+            self._reconcile_media_impl,
+            external_id=external_id,
+            keep_media_ids=set(keep_media_ids or ()),
+        )
+
     def upload_product_images(
         self,
         external_id: str,
@@ -1008,6 +1047,77 @@ class ShopwareProductAdapter(ProductAdapter):
                         )
                     except Exception:  # noqa: BLE001
                         pass
+
+        return counters
+
+    def _reconcile_media_impl(
+        self,
+        client,
+        *,
+        external_id: str,
+        keep_media_ids: set[str],
+    ) -> dict:
+        counters = {"deleted": 0, "kept": 0, "failed": 0}
+        if not external_id:
+            return counters
+
+        # Pull live media + current cover so we can re-point coverId if
+        # it lives on a soon-to-be-deleted row.
+        r = client.request_post("search/product", payload={
+            "filter": [{"type": "equals", "field": "id", "value": external_id}],
+            "associations": {
+                "media": {"associations": {"media": {}}},
+            },
+            "includes": {
+                "product": ["coverId"],
+                "product_media": ["id"],
+                "media": ["id"],
+            },
+            "limit": 1,
+        })
+        product = ((r.get("data") or [{}])[0]) or {}
+        cur_cover = product.get("coverId")
+        live_pm = product.get("media") or []
+
+        to_delete: list[str] = []
+        kept_pm: list[str] = []
+        for pm in live_pm:
+            mid = (pm.get("media") or {}).get("id")
+            pm_id = pm.get("id")
+            if not pm_id or not mid:
+                continue
+            if mid in keep_media_ids:
+                kept_pm.append(pm_id)
+            else:
+                to_delete.append(pm_id)
+
+        counters["kept"] = len(kept_pm)
+
+        if to_delete:
+            try:
+                client.request_post("_action/sync", payload={
+                    "del": {
+                        "entity": "product_media",
+                        "action": "delete",
+                        "payload": [{"id": pmid} for pmid in to_delete],
+                    },
+                })
+                counters["deleted"] = len(to_delete)
+            except Exception:  # noqa: BLE001
+                counters["failed"] = len(to_delete)
+
+            # Cover repair: if the current cover was on a deleted row,
+            # re-point to the first survivor. Without this Shopware
+            # returns the placeholder image because the cover link is
+            # broken.
+            if cur_cover in to_delete and kept_pm:
+                try:
+                    client.request_patch(
+                        f"product/{external_id}",
+                        payload={"coverId": kept_pm[0]},
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
 
         return counters
 
