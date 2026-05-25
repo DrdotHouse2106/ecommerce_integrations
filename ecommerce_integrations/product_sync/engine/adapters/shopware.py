@@ -141,33 +141,33 @@ class ShopwareProductAdapter(ProductAdapter):
         external_id: str,
         keep_media_ids: list[str],
     ) -> dict:
-        """Delete product_media rows whose media UUID isn't in
-        ``keep_media_ids``.
+        """Reconcile a product's media set against the keep list.
 
-        Without this every re-sync only ADDS media — the storefront
-        accumulates stale photos (orphans from prior incorrect mappings,
-        replaced product photography that wasn't unlinked, etc.). The
-        canonical image set on the ERPNext side is the source of truth;
-        anything live but not in the keep list is a leftover.
+        Three responsibilities, all idempotent:
 
-        ``keep_media_ids`` is the values list from
-        ``Ecommerce Item.pushed_image_map`` — only what THIS sync has
-        pushed. We deliberately don't touch media added manually in
-        Shopware Admin (those won't appear in the map either; the
-        operator would lose them on every cron tick).
+        1. **Delete stale product_media rows.** Any live row whose
+           media UUID isn't in ``keep_media_ids`` is removed. Without
+           this every re-sync only ADDS media — the storefront
+           accumulates orphan photos across runs (replaced product
+           photography that wasn't unlinked, leftovers from prior
+           mis-mappings, etc.).
+        2. **Ensure ``product.coverId`` points at a real row.** Sets
+           the cover to the first survivor when the prior cover was on
+           a deleted row OR when no cover was ever set. Without this
+           the Store API returns ``cover: null`` and the storefront
+           falls back to a placeholder even though media exist.
+        3. **Retrofit ``media.mediaFolderId``.** Media records created
+           before the folder fix landed in Shopware's "Unsorted"
+           bucket, which suppresses thumbnail generation. Moves them
+           into the resolved Product Media folder.
 
-        Wait — that last clause has the opposite problem: if we ONLY
-        delete things outside the map, manual admin uploads still get
-        deleted because they're not in the map. So this helper takes
-        ``keep_media_ids`` (which the caller assembles to include both
-        the pushed map AND any media id the operator wants preserved).
-        For the orchestrator's current use case (Bauer / BRAND_B
-        cleanup) the keep list is purely the pushed map — those
-        catalogues are sync-only and admin-edits aren't expected.
+        ``keep_media_ids`` is what the caller wants preserved — for
+        the standard flow this is the values list from
+        ``Ecommerce Item.pushed_image_map`` (= only media that this
+        sync has pushed). Callers that want to preserve admin uploads
+        should fold those ids into the keep list before invoking.
 
-        Returns ``{deleted, kept, failed}``. Also re-points
-        ``product.coverId`` if the prior cover lived on one of the
-        deleted product_media rows.
+        Returns ``{deleted, kept, failed, cover_set, folder_set}``.
         """
         return _with_client(
             self._reconcile_media_impl,
@@ -1057,21 +1057,26 @@ class ShopwareProductAdapter(ProductAdapter):
         external_id: str,
         keep_media_ids: set[str],
     ) -> dict:
-        counters = {"deleted": 0, "kept": 0, "failed": 0}
+        counters = {"deleted": 0, "kept": 0, "failed": 0, "cover_set": 0, "folder_set": 0}
         if not external_id:
             return counters
 
-        # Pull live media + current cover so we can re-point coverId if
-        # it lives on a soon-to-be-deleted row.
+        # Pull live media + current cover + each media's folder so we
+        # can (a) repoint cover to a survivor when the prior cover gets
+        # deleted, (b) ensure a cover exists at all (re-syncs where
+        # uploads were short-circuited never reached the cover-set
+        # branch in ``_upload_images_impl``), and (c) move media into
+        # the Product Media folder when they were created without one
+        # (older sync runs predate the folder fix).
         r = client.request_post("search/product", payload={
             "filter": [{"type": "equals", "field": "id", "value": external_id}],
             "associations": {
                 "media": {"associations": {"media": {}}},
             },
             "includes": {
-                "product": ["coverId"],
-                "product_media": ["id"],
-                "media": ["id"],
+                "product": ["coverId", "media"],
+                "product_media": ["id", "mediaId", "media"],
+                "media": ["id", "mediaFolderId"],
             },
             "limit": 1,
         })
@@ -1081,13 +1086,17 @@ class ShopwareProductAdapter(ProductAdapter):
 
         to_delete: list[str] = []
         kept_pm: list[str] = []
+        media_missing_folder: list[str] = []
         for pm in live_pm:
-            mid = (pm.get("media") or {}).get("id")
+            m = pm.get("media") or {}
+            mid = m.get("id")
             pm_id = pm.get("id")
             if not pm_id or not mid:
                 continue
             if mid in keep_media_ids:
                 kept_pm.append(pm_id)
+                if not m.get("mediaFolderId"):
+                    media_missing_folder.append(mid)
             else:
                 to_delete.append(pm_id)
 
@@ -1106,16 +1115,40 @@ class ShopwareProductAdapter(ProductAdapter):
             except Exception:  # noqa: BLE001
                 counters["failed"] = len(to_delete)
 
-            # Cover repair: if the current cover was on a deleted row,
-            # re-point to the first survivor. Without this Shopware
-            # returns the placeholder image because the cover link is
-            # broken.
-            if cur_cover in to_delete and kept_pm:
+        # Cover repair / ensure: re-point coverId if the prior cover
+        # lived on a deleted row OR if no cover was ever set. Without
+        # this Shopware returns the placeholder image (Store API
+        # ``cover: null``) and the storefront falls back to a generic
+        # image even though product_media rows exist.
+        if kept_pm and (cur_cover in to_delete or not cur_cover):
+            try:
+                client.request_patch(
+                    f"product/{external_id}",
+                    payload={"coverId": kept_pm[0]},
+                )
+                counters["cover_set"] = 1
+            except Exception:  # noqa: BLE001
+                pass
+
+        # Folder retrofit: media records created by older sync runs
+        # have ``mediaFolderId=None`` and land in Shopware's
+        # "Unsorted" bucket — which suppresses thumbnail generation
+        # for that product. Move them into the Product Media folder.
+        if media_missing_folder:
+            folder_id = _resolve_product_media_folder_id(client)
+            if folder_id:
                 try:
-                    client.request_patch(
-                        f"product/{external_id}",
-                        payload={"coverId": kept_pm[0]},
-                    )
+                    client.request_post("_action/sync", payload={
+                        "mv": {
+                            "entity": "media",
+                            "action": "upsert",
+                            "payload": [
+                                {"id": mid, "mediaFolderId": folder_id}
+                                for mid in media_missing_folder
+                            ],
+                        },
+                    })
+                    counters["folder_set"] = len(media_missing_folder)
                 except Exception:  # noqa: BLE001
                     pass
 
