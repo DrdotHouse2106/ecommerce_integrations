@@ -688,6 +688,17 @@ class ShopwareProductAdapter(ProductAdapter):
         out: dict[str, Any] = dict(payload or {})
         if external_id:
             out["id"] = external_id
+        else:
+            # Pre-generate the id on CREATE so the caller can read it
+            # back from the prepared payload — Shopware's
+            # ``/_action/sync`` endpoint returns a sparse response that
+            # does NOT echo new ids, so without this the orchestrator
+            # records the create as "no external_id from backend" and
+            # leaves the Ecommerce Item mapping unset (forcing the next
+            # sync to try the create again, which then collides with
+            # the now-existing product).
+            import uuid as _uuid
+            out["id"] = _uuid.uuid4().hex
 
         # Visibilities — only set when caller actually passed channels.
         # Empty list means "no opinion", not "remove all visibilities".
