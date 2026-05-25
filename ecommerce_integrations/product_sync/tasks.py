@@ -735,6 +735,83 @@ def _apply_batch(
                             f"{meta['item_code']}: properties push failed: {exc}",
                         )
 
+        # Variant configurator wiring: when this Item is a variant or
+        # a template-with-variants, push the property_group_option link
+        # so the storefront renders the variant selector. Without this
+        # variants are linked via ``parentId`` but the PDP shows them
+        # as standalone single products (no option picker).
+        if int(getattr(sync_doc, "include_variants", 1) or 0):
+            opt_pusher = getattr(adapter, "push_variant_options", None)
+            cfg_pusher = getattr(adapter, "push_template_configurator", None)
+            try:
+                item_doc = frappe.get_doc("Item", meta["item_code"])
+            except frappe.DoesNotExistError:
+                item_doc = None
+            if item_doc is not None and callable(opt_pusher) and callable(cfg_pusher):
+                variant_of = getattr(item_doc, "variant_of", None) or ""
+                has_variants = bool(int(getattr(item_doc, "has_variants", 0) or 0))
+                attrs = getattr(item_doc, "attributes", []) or []
+
+                if variant_of and attrs:
+                    # Variant: set its option ids on the live product.
+                    av = [
+                        {"name": a.attribute, "value": a.attribute_value}
+                        for a in attrs if a.attribute and a.attribute_value
+                    ]
+                    if av:
+                        try:
+                            opt_pusher(new_external_id, av)
+                        except Exception as exc:  # noqa: BLE001
+                            result.errors.append(
+                                f"{meta['item_code']}: variant options push failed: {exc}"
+                            )
+
+                if has_variants:
+                    # Template: walk every variant child, collect their
+                    # option ids, set as ``configuratorSettings`` so the
+                    # storefront knows which axes to show on the PDP.
+                    variant_rows = frappe.get_all(
+                        "Item",
+                        filters={"variant_of": meta["item_code"], "disabled": 0},
+                        pluck="name",
+                    )
+                    option_ids: list[str] = []
+                    seen_opts: set[str] = set()
+                    for vcode in variant_rows:
+                        vext = frappe.db.get_value(
+                            _ECOMMERCE_ITEM_DOCTYPE,
+                            {"erpnext_item_code": vcode, "integration": integration_key},
+                            "integration_item_code",
+                        )
+                        if not vext:
+                            continue
+                        try:
+                            v_doc = frappe.get_doc("Item", vcode)
+                        except frappe.DoesNotExistError:
+                            continue
+                        av = [
+                            {"name": a.attribute, "value": a.attribute_value}
+                            for a in (v_doc.attributes or [])
+                            if a.attribute and a.attribute_value
+                        ]
+                        if not av:
+                            continue
+                        try:
+                            res = opt_pusher(vext, av) or {}
+                        except Exception:  # noqa: BLE001
+                            continue
+                        for oid in res.get("option_ids") or []:
+                            if oid not in seen_opts:
+                                seen_opts.add(oid)
+                                option_ids.append(oid)
+                    if option_ids:
+                        try:
+                            cfg_pusher(new_external_id, option_ids)
+                        except Exception as exc:  # noqa: BLE001
+                            result.errors.append(
+                                f"{meta['item_code']}: template configurator push failed: {exc}"
+                            )
+
         applied_diffs.append({
             "item_code": meta["item_code"],
             "action": meta["action"],

@@ -169,6 +169,55 @@ class ShopwareProductAdapter(ProductAdapter):
             image_urls=list(image_urls or []),
         )
 
+    def push_variant_options(
+        self,
+        external_id: str,
+        attribute_values: list[dict],
+    ) -> dict:
+        """Assign a variant's option ids so Shopware groups it under its
+        template's configurator.
+
+        Without this every child product (``parentId`` set) shows up as
+        a separate PDP — the storefront doesn't render the option
+        selector because the m2m ``product_option`` table is empty.
+
+        ``attribute_values`` is a list of ``{"name": <attr>, "value":
+        <val>}`` dicts in the same shape the ``Item Variant Attribute``
+        child rows expose. Resolves each via the existing
+        ``get_or_create_variant_option`` helper so the same property
+        group + option entities are shared with the template's
+        configurator settings.
+
+        Returns ``{set, failed, skipped, option_ids}`` — caller uses
+        ``option_ids`` to drive the template's
+        ``push_template_configurator``.
+        """
+        return _with_client(
+            self._push_variant_options_impl,
+            external_id=external_id,
+            attribute_values=list(attribute_values or []),
+        )
+
+    def push_template_configurator(
+        self,
+        external_id: str,
+        option_ids: list[str],
+    ) -> dict:
+        """Wire a template's ``configuratorSettings`` so the storefront
+        renders the variant-selector on its PDP.
+
+        Without this the template is a regular product with hidden
+        ``parentId=null`` children but no UI for the customer to pick a
+        variant. Idempotent via deterministic
+        ``product_configurator_setting.id`` (md5 of product_id +
+        option_id) — re-running doesn't duplicate rows.
+        """
+        return _with_client(
+            self._push_template_configurator_impl,
+            external_id=external_id,
+            option_ids=list(option_ids or []),
+        )
+
     def push_product_properties(
         self,
         external_id: str,
@@ -960,6 +1009,92 @@ class ShopwareProductAdapter(ProductAdapter):
                     except Exception:  # noqa: BLE001
                         pass
 
+        return counters
+
+    def _push_variant_options_impl(
+        self,
+        client,
+        *,
+        external_id: str,
+        attribute_values: list[dict],
+    ) -> dict:
+        from ecommerce_integrations.shopware6.export.property_handler import (
+            get_or_create_property_group,
+            get_or_create_variant_option,
+        )
+
+        counters = {
+            "set": 0, "failed": 0, "skipped": 0, "option_ids": [],
+        }
+        if not external_id or not attribute_values:
+            return counters
+
+        option_ids: list[str] = []
+        for av in attribute_values:
+            name = (av.get("name") or "").strip()
+            value = av.get("value")
+            value = str(value).strip() if value is not None else ""
+            if not name or not value:
+                counters["skipped"] += 1
+                continue
+            try:
+                group_id = get_or_create_property_group(client, name)
+                if not group_id:
+                    counters["failed"] += 1
+                    continue
+                opt_id = get_or_create_variant_option(
+                    client, group_id, name, value,
+                )
+                if not opt_id:
+                    counters["failed"] += 1
+                    continue
+                option_ids.append(opt_id)
+            except Exception:  # noqa: BLE001
+                counters["failed"] += 1
+
+        if option_ids:
+            try:
+                client.request_patch(
+                    f"product/{external_id}",
+                    payload={"options": [{"id": oid} for oid in option_ids]},
+                )
+                counters["set"] = len(option_ids)
+            except Exception:  # noqa: BLE001
+                counters["failed"] += len(option_ids)
+
+        counters["option_ids"] = option_ids
+        return counters
+
+    def _push_template_configurator_impl(
+        self,
+        client,
+        *,
+        external_id: str,
+        option_ids: list[str],
+    ) -> dict:
+        import hashlib as _hl
+        counters = {"set": 0, "failed": 0}
+        if not external_id or not option_ids:
+            return counters
+        rows = [
+            {
+                "id": _hl.md5(f"cs::{external_id}::{oid}".encode()).hexdigest(),
+                "productId": external_id,
+                "optionId": oid,
+            }
+            for oid in option_ids
+        ]
+        try:
+            client.request_post("_action/sync", payload={
+                "cs": {
+                    "entity": "product_configurator_setting",
+                    "action": "upsert",
+                    "payload": rows,
+                },
+            })
+            counters["set"] = len(rows)
+        except Exception:  # noqa: BLE001
+            counters["failed"] = len(rows)
         return counters
 
     def _push_properties_impl(
