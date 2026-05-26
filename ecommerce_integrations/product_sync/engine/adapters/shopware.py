@@ -122,25 +122,7 @@ class ShopwareProductAdapter(ProductAdapter):
         ]
 
         def _resolve_then_bulk(client):
-            # Resolve ``deliveryTime`` strings → ``deliveryTimeId`` uuids
-            # inside the same session as the bulk push. The canonical
-            # payload carries the free-form string ("10-15 Tage") to
-            # keep canonical I/O-free; we substitute the actual id once
-            # per distinct string per batch.
-            from ecommerce_integrations.shopware6.export.product_mapper import (
-                get_or_create_delivery_time,
-            )
-            cache: dict[str, str] = {}
-            for p in prepared:
-                name = (p.pop("deliveryTime", None) or "").strip()
-                if not name:
-                    continue
-                dt_id = cache.get(name)
-                if dt_id is None:
-                    dt_id = get_or_create_delivery_time(client, name) or ""
-                    cache[name] = dt_id
-                if dt_id:
-                    p["deliveryTimeId"] = dt_id
+            self._resolve_delivery_time_ids(client, prepared)
             return self._bulk_upsert(client, prepared)
 
         return _with_client(_resolve_then_bulk)
@@ -673,16 +655,7 @@ class ShopwareProductAdapter(ProductAdapter):
             payload=payload,
             target_sales_channels=target_sales_channels,
         )
-        # Resolve ``deliveryTime`` string → uuid; mirror of the bulk
-        # path so single-item upserts keep ``deliveryTimeId`` in sync.
-        dt_name = (prepared.pop("deliveryTime", None) or "").strip()
-        if dt_name:
-            from ecommerce_integrations.shopware6.export.product_mapper import (
-                get_or_create_delivery_time,
-            )
-            dt_id = get_or_create_delivery_time(client, dt_name)
-            if dt_id:
-                prepared["deliveryTimeId"] = dt_id
+        self._resolve_delivery_time_ids(client, [prepared])
         results = self._bulk_upsert(client, [prepared])
         if not results:
             raise AdapterError(
@@ -787,6 +760,31 @@ class ShopwareProductAdapter(ProductAdapter):
                         parts.append(str(e))
                 errs[idx] = "; ".join(parts) or "unknown error"
         return errs
+
+    def _resolve_delivery_time_ids(self, client, prepared: list[dict]) -> None:
+        """Substitute ``deliveryTime`` strings with ``deliveryTimeId`` uuids
+        in-place across a batch of prepared payloads.
+
+        The canonical payload carries the free-form string
+        ("10-15 Tage") so canonical stays I/O-free; this helper resolves
+        each distinct string to its Shopware ``delivery_time`` uuid once
+        per batch via ``get_or_create_delivery_time``. Same session as
+        the bulk push so a single OAuth handshake covers both.
+        """
+        from ecommerce_integrations.shopware6.export.product_mapper import (
+            get_or_create_delivery_time,
+        )
+        cache: dict[str, str] = {}
+        for p in prepared:
+            name = (p.pop("deliveryTime", None) or "").strip()
+            if not name:
+                continue
+            dt_id = cache.get(name)
+            if dt_id is None:
+                dt_id = get_or_create_delivery_time(client, name) or ""
+                cache[name] = dt_id
+            if dt_id:
+                p["deliveryTimeId"] = dt_id
 
     def _prepare_upsert_payload(
         self,
@@ -1734,6 +1732,10 @@ class ShopwareProductAdapter(ProductAdapter):
             "brand": _ns(brand_name),
             "manufacturer": "",
             "attributes": attrs_list,
+            # Shopware ``properties`` are the ecommerce_properties from
+            # ERPNext.  Sorted identically to the canonical builder so
+            # the hash comparison picks up adds/removes/value changes.
+            "ecommerce_properties": attrs_list,
         }
 
     def _live_seo(self, merged: dict[str, Any]) -> dict[str, Any]:

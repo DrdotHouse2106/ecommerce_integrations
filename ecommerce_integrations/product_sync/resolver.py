@@ -25,9 +25,11 @@ Precedence (locked):
      with Smart Collections so operators can do quick triage.
    - ``skip`` → no Sync wins; the Item is dropped from this run.
 
-Phase 1 implements the contract with a *simple* O(N×M) scan (every
-active Sync × every item). Phase 5 replaces ``find_active_syncs_covering_item``
-with an indexed materialised lookup once the membership table exists.
+``find_active_syncs_covering_item`` walks each active Sync's scope
+exactly once per run via the ``_SCOPE_CACHE`` below, then probes
+the cached frozen sets — O(C) per item where C is the (small)
+number of active candidate Syncs. The differ resets the cache
+between runs so scope-doc edits show up on the next pass.
 """
 
 from __future__ import annotations
