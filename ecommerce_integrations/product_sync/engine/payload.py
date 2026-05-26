@@ -66,11 +66,10 @@ def build_shopware_payload(
         payload["visibilities"] = visibilities
 
     # Pricing: single base-price for the system default currency.
-    # ERPNext stores either net or gross prices depending on the
-    # Setting's ``default_price_list_includes_tax`` flag; we read it
-    # and convert so Shopware receives BOTH ``gross`` and ``net``
-    # correctly. Sending equal gross/net (the old bug) caused 19 %
-    # price drops on every push.
+    # ``canonical.base_price`` is always normalised to GROSS by
+    # ``_canonical_pricing`` (net→gross conversion already applied
+    # there when ``erp_is_gross=False``). We derive net from that
+    # gross price so Shopware receives both sides correctly.
     if int(getattr(sync, "sync_pricing", 0) or 0):
         base_price = pricing.get("base_price")
         currency_code = pricing.get("currency") or _default_currency()
@@ -78,11 +77,10 @@ def build_shopware_payload(
             currency_id = _resolve_shopware_currency_id(currency_code)
             if currency_id:
                 tax_rate_pct = _resolve_tax_rate_pct(sync, item=item)
-                erp_is_gross = _erp_prices_are_gross()
                 gross, net = _compute_gross_net(
                     float(base_price),
                     tax_rate_pct,
-                    erp_is_gross=erp_is_gross,
+                    erp_is_gross=True,
                 )
                 price_row: dict[str, Any] = {
                     "currencyId": currency_id,
@@ -420,18 +418,6 @@ def _resolve_tax_rate_pct(sync, item=None) -> float:
     return 19.0
 
 
-def _erp_prices_are_gross() -> bool:
-    """True when the ERP price list contains gross prices.
-
-    Reads ``Shopware Setting.default_price_list_includes_tax``. The
-    decision drives gross/net derivation in :func:`_compute_gross_net`.
-    """
-    try:
-        setting = frappe.get_single("Shopware Setting")
-        return bool(int(getattr(setting, "default_price_list_includes_tax", 0) or 0))
-    except Exception:  # noqa: BLE001
-        return False
-
 
 def _compute_gross_net(
     base_price: float, tax_rate_pct: float, *, erp_is_gross: bool,
@@ -497,6 +483,38 @@ def _resolve_shopware_tax_id(tax_rate_pct: float) -> str | None:
         return None
 
 
+def _resolve_image_public_base() -> str:
+    """Resolve the public URL base used to absolutize image paths.
+
+    Memoised on ``frappe.local`` for the duration of the current
+    request/job — ``frappe.get_single`` re-loads child tables every
+    call (no built-in cache), and on a 37k-item apply that adds up
+    to hours of pure DB I/O just to read one varchar.
+    """
+    cached = getattr(getattr(frappe, "local", None), "_shopware_image_base", None)
+    if cached is not None:
+        return cached
+    base = ""
+    try:
+        base = (
+            frappe.db.get_single_value("Shopware Setting", "image_public_base_url")
+            or ""
+        ).strip()
+    except Exception:  # noqa: BLE001
+        pass
+    if not base:
+        try:
+            base = (frappe.utils.get_url() or "").strip()
+        except Exception:  # noqa: BLE001
+            base = ""
+    base = base.rstrip("/")
+    try:
+        frappe.local._shopware_image_base = base  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001
+        pass
+    return base
+
+
 def _build_shopware_media(images: list[dict]) -> list[dict]:
     """Translate canonical's image list into Shopware ``media`` format.
 
@@ -519,18 +537,7 @@ def _build_shopware_media(images: list[dict]) -> list[dict]:
     """
     if not images:
         return []
-    public_base = ""
-    try:
-        setting = frappe.get_single("Shopware Setting")
-        public_base = (getattr(setting, "image_public_base_url", "") or "").strip()
-    except Exception:  # noqa: BLE001
-        pass
-    if not public_base:
-        try:
-            public_base = (frappe.utils.get_url() or "").strip()
-        except Exception:  # noqa: BLE001
-            public_base = ""
-    public_base = public_base.rstrip("/")
+    public_base = _resolve_image_public_base()
 
     out: list[dict] = []
     for img in images:
