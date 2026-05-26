@@ -48,7 +48,7 @@ from typing import Any
 # payload shape (added/removed top-level keys, changed semantics). Do
 # NOT bump for "we now collect a new property" — that is data drift,
 # not schema drift, and will naturally produce different hashes.
-PAYLOAD_VERSION = 1
+PAYLOAD_VERSION = 2
 
 # Float precision for hashing. 4 decimals is "1/100th of a cent" —
 # plenty for retail prices and stock floats; small enough to swallow
@@ -106,6 +106,96 @@ def compute_hash(payload: dict[str, Any]) -> str:
 def compute_hash_for(item, sync) -> str:
     """Build canonical payload and hash it in one go."""
     return compute_hash(build_canonical_payload(item, sync))
+
+
+# ─── Per-field delta — canonical (de)serialisation ─────────────────────
+
+
+def encode_canonical(payload: dict[str, Any]) -> str:
+    """gzip-then-base64 the canonical so it fits a single
+    ``Ecommerce Item.last_synced_canonical`` (Long Text) column.
+
+    Typical compression on the canonical's repetitive JSON shape is
+    ~10×, so a 5–10 kB raw payload lands at ~500–1000 bytes stored.
+    """
+    import base64
+    import gzip
+    raw = _serialise(payload).encode("utf-8")
+    return base64.b64encode(gzip.compress(raw, mtime=0)).decode("ascii")
+
+
+def decode_canonical(stored: str | None) -> dict[str, Any] | None:
+    """Reverse of :func:`encode_canonical`. Returns ``None`` on missing
+    or corrupt input — callers treat that as "no prior canonical
+    stored, push everything"."""
+    if not stored:
+        return None
+    import base64
+    import gzip
+    try:
+        return json.loads(gzip.decompress(base64.b64decode(stored)).decode("utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+# Top-level canonical sections that the apply path treats as
+# independent change-units. A section listed here corresponds to one
+# block of ``build_*_payload`` output AND/OR one Phase-C enrichment
+# call — the apply path uses set membership to decide what to push.
+CANONICAL_SECTIONS: tuple[str, ...] = (
+    "basic",
+    "pricing",
+    "inventory",
+    "images",
+    "properties",
+    "seo",
+    "taxes",
+    "categories",
+)
+
+
+def changed_sections(
+    stored: dict[str, Any] | None,
+    proposed: dict[str, Any],
+) -> set[str]:
+    """Return the canonical section names whose serialised form
+    differs between ``stored`` and ``proposed``.
+
+    Sections present only in ``proposed`` (e.g. a new field gated by a
+    just-flipped sync toggle) count as changed. Sections present only
+    in ``stored`` but removed from ``proposed`` ALSO count as changed
+    — the apply path may want to push a clearing value.
+
+    When ``stored`` is ``None`` every section in ``proposed`` is
+    returned: first-time pushes have no prior canonical to compare
+    against and need the full payload.
+    """
+    if stored is None:
+        return {sec for sec in CANONICAL_SECTIONS if sec in proposed}
+    changed: set[str] = set()
+    for sec in CANONICAL_SECTIONS:
+        cur = stored.get(sec)
+        prop = proposed.get(sec)
+        # Compare the deterministically-serialised form so dict-key
+        # order or list-internal ordering quirks don't leak through.
+        if _serialise_value(cur) != _serialise_value(prop):
+            changed.add(sec)
+    return changed
+
+
+def _serialise_value(value: Any) -> str:
+    """Stable string repr of a canonical sub-value — same rules as the
+    top-level :func:`_serialise` so nested comparisons match the hash
+    semantics exactly."""
+    if value is None:
+        return "null"
+    return json.dumps(
+        value,
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=_default,
+    )
 
 
 def diff_payloads(
@@ -447,7 +537,9 @@ def _canonical_images(item, sync, ctx=None) -> list[dict[str, Any]]:
 
 
 def _canonical_properties(item, sync) -> dict[str, Any]:
-    """Brand, manufacturer, and Item Attribute values."""
+    """Brand, manufacturer, Item Attribute values, and ecommerce properties."""
+    import frappe
+
     out: dict[str, Any] = {
         "brand": _norm_str(getattr(item, "brand", "")),
         "manufacturer": _norm_str(getattr(item, "manufacturer", "")),
@@ -460,6 +552,30 @@ def _canonical_properties(item, sync) -> dict[str, Any]:
             attrs.append({"name": name, "value": value})
     attrs.sort(key=lambda d: (d["name"], d["value"]))
     out["attributes"] = attrs
+
+    # Include ecommerce_properties flagged for Shopware sync.
+    # Sorted by (name, value) for stable hash comparison with the
+    # live Shopware side (properties have no ordering in Shopware).
+    ecom_props = []
+    try:
+        rows = frappe.get_all(
+            "Item Ecommerce Property",
+            filters={
+                "parent": item.item_code,
+                "parenttype": "Item",
+                "sync_to_shopware": 1,
+            },
+            fields=["property_name", "property_value"],
+        )
+        for r in rows:
+            pn = _norm_str(r.get("property_name"))
+            pv = _norm_str(r.get("property_value"))
+            if pn and pv:
+                ecom_props.append({"name": pn, "value": pv})
+    except Exception:  # noqa: BLE001
+        pass
+    ecom_props.sort(key=lambda d: (d["name"], d["value"]))
+    out["ecommerce_properties"] = ecom_props
     return out
 
 

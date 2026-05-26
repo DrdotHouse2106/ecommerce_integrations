@@ -29,7 +29,12 @@ _SHOPWARE_VISIBILITY_ALL = 30
 
 
 def build_shopware_payload(
-    item, sync, canonical: dict[str, Any], *, external_id: str | None = None,
+    item,
+    sync,
+    canonical: dict[str, Any],
+    *,
+    external_id: str | None = None,
+    changed_sections: set[str] | None = None,
 ) -> dict[str, Any]:
     """Build the Shopware product-payload from canonical + sync settings.
 
@@ -37,18 +42,42 @@ def build_shopware_payload(
     as ``POST /api/product`` — flat dict with ``id``, ``name``,
     ``productNumber``, etc. Missing fields are left untouched on the
     server (partial-update semantics).
+
+    When ``changed_sections`` is supplied the function emits ONLY the
+    payload keys whose source canonical section is in the set. This
+    keeps update payloads minimal — a delivery-time-only change pushes
+    ``{id, deliveryTime}`` instead of every field including images,
+    prices, categories, etc. Pass ``None`` (the default) to keep the
+    legacy full-payload behaviour, which is what fresh creates need.
+
+    The mapping from canonical section to payload key follows the
+    section builders in :mod:`canonical`:
+
+    - ``basic``      → name, productNumber, description, active,
+                       deliveryTime
+    - ``inventory``  → stock
+    - ``pricing``    → price, taxId
+    - ``categories`` → categories
+    - ``properties`` → manufacturer
+    - ``parentId`` is always emitted on UPDATE so the variant→template
+      link survives a partial push (no canonical section drives it).
     """
+    full = changed_sections is None
+
+    def _wants(section: str) -> bool:
+        return full or section in (changed_sections or set())
     basic = canonical.get("basic") or {}
     pricing = canonical.get("pricing") or {}
     inventory = canonical.get("inventory") or {}
 
-    payload: dict[str, Any] = {
-        "name": basic.get("name") or item.item_code,
-        "productNumber": basic.get("sku") or item.item_code,
-        "description": basic.get("description") or "",
-        "active": bool(basic.get("is_active", True)),
-        "stock": int(inventory.get("qty") or 0),
-    }
+    payload: dict[str, Any] = {}
+    if _wants("basic"):
+        payload["name"] = basic.get("name") or item.item_code
+        payload["productNumber"] = basic.get("sku") or item.item_code
+        payload["description"] = basic.get("description") or ""
+        payload["active"] = bool(basic.get("is_active", True))
+    if _wants("inventory"):
+        payload["stock"] = int(inventory.get("qty") or 0)
     if external_id:
         payload["id"] = external_id
 
@@ -70,7 +99,7 @@ def build_shopware_payload(
     # ``_canonical_pricing`` (net→gross conversion already applied
     # there when ``erp_is_gross=False``). We derive net from that
     # gross price so Shopware receives both sides correctly.
-    if int(getattr(sync, "sync_pricing", 0) or 0):
+    if int(getattr(sync, "sync_pricing", 0) or 0) and _wants("pricing"):
         base_price = pricing.get("base_price")
         currency_code = pricing.get("currency") or _default_currency()
         if base_price is not None:
@@ -107,9 +136,10 @@ def build_shopware_payload(
     # missing we skip silently here — the pre-flight check warns the
     # operator up-front, so reaching this branch with no mapping means
     # they consciously chose to push without categories.
-    category_ids = _resolve_shopware_category_ids(item)
-    if category_ids:
-        payload["categories"] = [{"id": cid} for cid in category_ids]
+    if _wants("categories"):
+        category_ids = _resolve_shopware_category_ids(item)
+        if category_ids:
+            payload["categories"] = [{"id": cid} for cid in category_ids]
 
     # Images: deliberately NOT included in the sync-API payload.
     # Shopware's sync endpoint with ``media: [{media: {url}}]`` only
@@ -129,9 +159,10 @@ def build_shopware_payload(
     # per-item overhead is a cached dict lookup. Setting
     # ``deliveryTimeId`` on the product is what surfaces the
     # "Lieferzeit" badge on the PDP + listing.
-    delivery_time_str = (basic.get("delivery_time") or "").strip()
-    if delivery_time_str:
-        payload["deliveryTime"] = delivery_time_str
+    if _wants("basic"):
+        delivery_time_str = (basic.get("delivery_time") or "").strip()
+        if delivery_time_str:
+            payload["deliveryTime"] = delivery_time_str
 
     # Manufacturer (== ``Item.brand`` for our purposes — Shopware has
     # no separate "brand" concept; the manufacturer entity carries
@@ -141,13 +172,14 @@ def build_shopware_payload(
     # so re-running the sync doesn't spawn duplicate manufacturers
     # and we don't need an out-of-band "ensure manufacturer exists"
     # round-trip per item.
-    brand = (canonical.get("properties") or {}).get("brand")
-    if brand:
-        import hashlib as _hl
-        payload["manufacturer"] = {
-            "id": _hl.md5(f"manufacturer::{brand}".encode()).hexdigest(),
-            "name": brand,
-        }
+    if _wants("properties"):
+        brand = (canonical.get("properties") or {}).get("brand")
+        if brand:
+            import hashlib as _hl
+            payload["manufacturer"] = {
+                "id": _hl.md5(f"manufacturer::{brand}".encode()).hexdigest(),
+                "name": brand,
+            }
 
     # Variant link: when this Item is a variant of a template
     # (``Item.variant_of`` set), Shopware needs the template's
