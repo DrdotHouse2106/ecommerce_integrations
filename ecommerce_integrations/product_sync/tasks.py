@@ -573,15 +573,35 @@ def _apply_batch(
         ecom_row = frappe.db.get_value(
             _ECOMMERCE_ITEM_DOCTYPE,
             {"erpnext_item_code": node.item_code, "integration": integration_key},
-            ["name", "integration_item_code", "variant_id"],
+            ["name", "integration_item_code", "variant_id", "last_synced_canonical"],
             as_dict=True,
         )
         external_id = ecom_row.get("integration_item_code") if ecom_row else None
         variant_id = ecom_row.get("variant_id") if ecom_row else None
 
+        # Per-field delta: decode the stored canonical (if any) and
+        # compute which sections actually changed. The first push for
+        # a mapped item, and creates (no external_id), always send the
+        # full payload — ``stored_canonical=None`` makes
+        # ``changed_sections`` return every section in ``proposed``.
+        from ecommerce_integrations.product_sync.engine.canonical import (
+            changed_sections as _changed_sections,
+            decode_canonical,
+        )
+        stored_canonical = decode_canonical(
+            (ecom_row or {}).get("last_synced_canonical")
+        )
+        delta_sections: set[str] = _changed_sections(stored_canonical, canonical)
+        # On CREATE (no external_id) the adapter needs every field —
+        # Shopware's sync endpoint treats missing keys as "no change"
+        # which on insert means "empty value". Force the full payload.
+        partial_sections = None if not external_id else delta_sections
+
         if backend == BACKEND_SHOPWARE:
             payload = build_shopware_payload(
-                item, sync_doc, canonical, external_id=external_id,
+                item, sync_doc, canonical,
+                external_id=external_id,
+                changed_sections=partial_sections,
             )
         elif backend == BACKEND_MEDUSA:
             payload = build_medusa_payload(
@@ -616,6 +636,12 @@ def _apply_batch(
             # phase was Item-doc reads, not Shopware roundtrips.
             "item_doc": item,
             "canonical": canonical,
+            # The set of canonical sections that actually changed —
+            # used by Phase C to skip enrichments whose source section
+            # is unchanged (e.g., skip property push when ``properties``
+            # is not in the set). On CREATE the set is irrelevant
+            # because we send the full payload.
+            "delta_sections": delta_sections,
         })
 
     if not prepared:
@@ -706,6 +732,7 @@ def _apply_batch(
             proposed_hash=meta["proposed_hash"],
             run_name=run_name,
             existing_row=meta["ecom_row"],
+            canonical=meta.get("canonical"),
         )
         # After the upsert, push images via the backend's dedicated
         # two-step media flow (Shopware needs an explicit
@@ -717,8 +744,19 @@ def _apply_batch(
         # image block (upload + reconcile) can be skipped, which is
         # the difference between a delta-aware re-sync and a
         # full-rewalk after every canonical-schema bump.
-        _images_in_sync = False
-        if int(getattr(sync_doc, "sync_images", 0) or 0):
+        #
+        # Per-section delta: when the stored canonical's ``images``
+        # section is byte-identical to the new ``images`` section, the
+        # item didn't drift in this dimension and Phase-C image work
+        # can be skipped wholesale. This is the cheap fast-path that
+        # turns 37k re-pushes (after a non-image schema bump) into
+        # 37k no-ops on the image side.
+        _delta_sections = meta.get("delta_sections") or set()
+        _images_in_sync = (
+            "images" not in _delta_sections and meta.get("ecom_row")
+            and bool(meta.get("ecom_row", {}).get("last_synced_canonical"))
+        )
+        if int(getattr(sync_doc, "sync_images", 0) or 0) and not _images_in_sync:
             uploader = getattr(adapter, "upload_product_images", None)
             if callable(uploader):
                 # Build the list of resolved absolute URLs from the same
@@ -867,7 +905,20 @@ def _apply_batch(
         # an out-of-band three-step flow (group → option → product m2m)
         # that doesn't fit cleanly into ``/_action/sync``. Adapters
         # without ``push_product_properties`` are silently skipped.
-        if int(getattr(sync_doc, "sync_properties", 0) or 0):
+        #
+        # Per-section delta: properties live under the ``properties``
+        # canonical section, so skip the push when that section didn't
+        # drift since the last apply. On items that never had a stored
+        # canonical (first push, legacy rows) the section is treated
+        # as drifted and the push runs.
+        _properties_in_sync = (
+            "properties" not in _delta_sections and meta.get("ecom_row")
+            and bool(meta.get("ecom_row", {}).get("last_synced_canonical"))
+        )
+        if (
+            int(getattr(sync_doc, "sync_properties", 0) or 0)
+            and not _properties_in_sync
+        ):
             pusher = getattr(adapter, "push_product_properties", None)
             if callable(pusher):
                 ecom_props = []
@@ -902,7 +953,21 @@ def _apply_batch(
         # so the storefront renders the variant selector. Without this
         # variants are linked via ``parentId`` but the PDP shows them
         # as standalone single products (no option picker).
-        if int(getattr(sync_doc, "include_variants", 1) or 0):
+        #
+        # Per-section delta: variant attribute values live under the
+        # ``properties`` canonical section ("attributes" sub-key in
+        # ``_canonical_properties``). When that section didn't drift,
+        # neither the variant option assignment nor the template
+        # configurator needs touching — they're idempotent and
+        # already-applied on the live product.
+        _variants_in_sync = (
+            "properties" not in _delta_sections and meta.get("ecom_row")
+            and bool(meta.get("ecom_row", {}).get("last_synced_canonical"))
+        )
+        if (
+            int(getattr(sync_doc, "include_variants", 1) or 0)
+            and not _variants_in_sync
+        ):
             opt_pusher = getattr(adapter, "push_variant_options", None)
             cfg_pusher = getattr(adapter, "push_template_configurator", None)
             # Reuse the Item doc loaded in Phase A — re-fetching the
@@ -1071,32 +1136,46 @@ def _persist_item_success(
     proposed_hash: str,
     run_name: str,
     existing_row: dict | None,
+    canonical: dict | None = None,
 ) -> None:
-    """Upsert tabEcommerce Item with the new external_id + hash."""
+    """Upsert tabEcommerce Item with the new external_id + hash.
+
+    When ``canonical`` is supplied the full payload is gzip-base64
+    encoded and stored on ``last_synced_canonical`` so the next
+    differ can compute per-field changes instead of just hash
+    equality. Callers that don't yet have the canonical (older code
+    paths, partial recovery flows) can omit it — the field stays
+    ``NULL`` and the next push falls back to full-payload behaviour.
+    """
+    from ecommerce_integrations.product_sync.engine.canonical import (
+        encode_canonical,
+    )
     now = now_datetime()
+    encoded_canonical = encode_canonical(canonical) if canonical else None
+    fields = {
+        "integration_item_code": external_id,
+        "last_synced_hash": proposed_hash,
+        "last_synced_at": now,
+        "last_sync_run": run_name,
+    }
+    if encoded_canonical is not None:
+        fields["last_synced_canonical"] = encoded_canonical
     if existing_row:
         frappe.db.set_value(
             _ECOMMERCE_ITEM_DOCTYPE,
             existing_row["name"],
-            {
-                "integration_item_code": external_id,
-                "last_synced_hash": proposed_hash,
-                "last_synced_at": now,
-                "last_sync_run": run_name,
-            },
+            fields,
             update_modified=False,
         )
     else:
-        doc = frappe.get_doc({
+        doc_values = {
             "doctype": _ECOMMERCE_ITEM_DOCTYPE,
             "erpnext_item_code": item_code,
             "integration": integration,
-            "integration_item_code": external_id,
             "sku": item_code,
-            "last_synced_hash": proposed_hash,
-            "last_synced_at": now,
-            "last_sync_run": run_name,
-        })
+            **fields,
+        }
+        doc = frappe.get_doc(doc_values)
         doc.flags.ignore_permissions = True
         doc.insert()
 
