@@ -327,44 +327,74 @@ def resolve_item(item_code: str, backend: str) -> ProductDecision:
     )
 
 
+# Process-local scope cache, populated lazily and shared across all
+# ``resolve_item`` calls within one differ run. Keys are Sync names,
+# values are the frozen set of item_codes that fall in that Sync's
+# scope. Without this cache ``find_active_syncs_covering_item`` was
+# O(N × walk(sync)) per call — for a 37k-item catalogue with one
+# active Sync that's ~1.4B inner iterations per full diff, which is
+# why cron-triggered apply runs were crawling at <1 item/sec.
+_SCOPE_CACHE: dict[str, frozenset[str]] = {}
+_CANDIDATES_CACHE: dict[str, list[str]] = {}
+
+
+def clear_scope_cache() -> None:
+    """Invalidate the resolver's process-local scope cache.
+
+    The differ calls this at the top of every run so a Sync whose
+    scope changed between runs picks up the new membership. Within
+    one run the cache is safe to share — Sync scopes don't shift
+    mid-run.
+    """
+    _SCOPE_CACHE.clear()
+    _CANDIDATES_CACHE.clear()
+
+
+def _scope_set(sync_name: str) -> frozenset[str]:
+    """Return the frozen set of item_codes covered by ``sync_name``.
+
+    Lazily populates ``_SCOPE_CACHE``. Walking a Sync's scope is the
+    expensive operation we want to do once per Sync per run, not once
+    per (item, Sync) pair.
+    """
+    cached = _SCOPE_CACHE.get(sync_name)
+    if cached is not None:
+        return cached
+    from ecommerce_integrations.product_sync.walker import walk_items_for_sync
+    try:
+        sync = frappe.get_doc(SYNC_DOCTYPE, sync_name)
+    except Exception:  # noqa: BLE001
+        result: frozenset[str] = frozenset()
+    else:
+        result = frozenset(n.item_code for n in walk_items_for_sync(sync))
+    _SCOPE_CACHE[sync_name] = result
+    return result
+
+
 def find_active_syncs_covering_item(item_code: str, backend: str) -> list[str]:
     """Return the names of every active Sync whose scope covers ``item_code``.
 
-    Phase 1 implementation walks each Sync's scope on demand. This is
-    O(N×M) and slow on large fleets; Phase 5 replaces it with an
-    indexed lookup (a materialised ``(sync, item_code)`` table updated
-    on doc save).
-
-    TODO(phase 5): replace with an indexed lookup once the membership
-    materialisation lands. The signature is stable — callers don't need
-    to change.
+    Uses the process-local ``_SCOPE_CACHE`` so the per-Sync walk runs
+    at most once per run regardless of how many items the differ
+    classifies. Callers that mutate Sync scopes should invoke
+    :func:`clear_scope_cache` before the next dispatch.
     """
     if not frappe.db.exists("DocType", SYNC_DOCTYPE):
         return []
 
-    candidates = frappe.get_all(
-        SYNC_DOCTYPE,
-        filters={"is_active": 1, "backend": backend},
-        pluck="name",
-    )
+    candidates = _CANDIDATES_CACHE.get(backend)
+    if candidates is None:
+        candidates = frappe.get_all(
+            SYNC_DOCTYPE,
+            filters={"is_active": 1, "backend": backend},
+            pluck="name",
+        )
+        _CANDIDATES_CACHE[backend] = candidates
+
     if not candidates:
         return []
 
-    # Lazy import — keeps the resolver importable in contexts where the
-    # walker hasn't been migrated in yet (e.g. mid-install).
-    from ecommerce_integrations.product_sync.walker import walk_items_for_sync
-
-    covering: list[str] = []
-    for name in candidates:
-        try:
-            sync = frappe.get_doc(SYNC_DOCTYPE, name)
-        except Exception:
-            continue
-        for node in walk_items_for_sync(sync):
-            if node.item_code == item_code:
-                covering.append(name)
-                break
-    return covering
+    return [name for name in candidates if item_code in _scope_set(name)]
 
 
 # ---------------------------------------------------------------------------

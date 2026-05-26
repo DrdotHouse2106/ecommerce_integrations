@@ -61,7 +61,7 @@ from ecommerce_integrations.product_sync.engine.preview import (
     ProductNodePlan,
     ProductSyncPreviewPlan,
 )
-from ecommerce_integrations.product_sync.resolver import resolve_item
+from ecommerce_integrations.product_sync.resolver import clear_scope_cache, resolve_item
 from ecommerce_integrations.product_sync.walker import walk_items_for_sync
 
 # Phase-5 default: no cap. Preview must give the operator accurate
@@ -129,6 +129,13 @@ def compute_product_diff(
     """
     backend = sync_doc.backend or ""
     integration_key = BACKEND_TO_INTEGRATION_KEY.get(backend, backend.lower())
+
+    # Invalidate the resolver's per-run scope cache so a Sync whose
+    # scope changed since the last differ run picks up the new
+    # membership. Within this run the cache is shared across every
+    # ``resolve_item`` call so the per-Sync scope walk runs once total
+    # instead of once per item.
+    clear_scope_cache()
 
     plan = ProductSyncPreviewPlan(
         sync=sync_doc.name,
