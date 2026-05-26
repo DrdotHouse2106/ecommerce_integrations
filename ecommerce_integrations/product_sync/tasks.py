@@ -712,6 +712,12 @@ def _apply_batch(
         # ``/_action/media/{id}/upload`` call — the sync endpoint's
         # ``media`` field only creates empty records). Adapters without
         # ``upload_product_images`` are silently skipped.
+        # Track whether this item's images are already perfectly in
+        # sync with what was last pushed — if so the whole Phase-C
+        # image block (upload + reconcile) can be skipped, which is
+        # the difference between a delta-aware re-sync and a
+        # full-rewalk after every canonical-schema bump.
+        _images_in_sync = False
         if int(getattr(sync_doc, "sync_images", 0) or 0):
             uploader = getattr(adapter, "upload_product_images", None)
             if callable(uploader):
@@ -737,6 +743,7 @@ def _apply_batch(
                 # each pass. The differ uses the same map to suppress
                 # spurious image-drift, so checking it here keeps the
                 # short-circuit symmetric.
+                existing_basenames: set[str] = set()
                 if urls and meta.get("ecom_row"):
                     try:
                         import json as _json
@@ -760,6 +767,24 @@ def _apply_batch(
                     }
                     if needed_basenames and needed_basenames.issubset(existing_basenames):
                         urls = []  # all already pushed → nothing to do
+                        # Exact-match check: if pushed_image_map's
+                        # basenames equal the canonical set (not just a
+                        # superset), there are no stale media to delete
+                        # either — reconcile would be a pure no-op
+                        # round-trip. Set the flag so the reconcile
+                        # block below skips. Items with new images, OR
+                        # items where pushed_image_map has *extra*
+                        # entries (potential stale media), still go
+                        # through reconcile.
+                        if needed_basenames == existing_basenames:
+                            _images_in_sync = True
+                elif not urls:
+                    # Item has no images at all — nothing to upload,
+                    # nothing to reconcile. (Items previously synced
+                    # with images would have a non-empty
+                    # ``pushed_image_map``; if both are empty the item
+                    # is truly image-less.)
+                    _images_in_sync = True
 
                 if urls:
                     try:
@@ -801,8 +826,22 @@ def _apply_batch(
                 # photography that the operator replaced, orphans from
                 # prior mis-mappings, etc. The cover gets re-pointed
                 # automatically if it landed on a deleted row.
+                #
+                # When ``_images_in_sync`` is set the canonical image
+                # set is byte-for-byte the same as what was last
+                # pushed — reconcile would issue one Shopware search +
+                # zero deletes, which is pure latency. Skipping it
+                # here is the difference between "delta sync touches
+                # only what changed" and "delta sync re-walks every
+                # item's Phase-C every cron tick after a
+                # canonical-schema bump invalidates the run-level
+                # hash".
                 reconciler = getattr(adapter, "reconcile_product_media", None)
-                if callable(reconciler) and meta.get("ecom_row"):
+                if (
+                    callable(reconciler)
+                    and meta.get("ecom_row")
+                    and not _images_in_sync
+                ):
                     try:
                         import json as _json2
                         final_map_raw = frappe.db.get_value(
