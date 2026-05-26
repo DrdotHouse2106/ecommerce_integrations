@@ -598,6 +598,15 @@ def _apply_batch(
             "action": action,
             "ecom_row": ecom_row,
             "proposed_hash": proposed_hash,
+            # Stash the freshly-loaded Item doc + canonical payload so
+            # Phase C's image / variant-configurator branches can reuse
+            # them instead of issuing two more ``frappe.get_doc("Item",
+            # ...)`` calls per item (and ``build_canonical_payload``
+            # again for the image URLs). On a 37k batched apply the
+            # redundant loads dominated wall-time — most of the apply
+            # phase was Item-doc reads, not Shopware roundtrips.
+            "item_doc": item,
+            "canonical": canonical,
         })
 
     if not prepared:
@@ -684,10 +693,7 @@ def _apply_batch(
                     _build_shopware_media,
                 )
                 canonical_images = (
-                    build_canonical_payload(
-                        frappe.get_doc("Item", meta["item_code"]),
-                        sync_doc,
-                    ).get("images") or []
+                    (meta.get("canonical") or {}).get("images") or []
                 )
                 media = _build_shopware_media(canonical_images)
                 urls = [
@@ -832,10 +838,10 @@ def _apply_batch(
         if int(getattr(sync_doc, "include_variants", 1) or 0):
             opt_pusher = getattr(adapter, "push_variant_options", None)
             cfg_pusher = getattr(adapter, "push_template_configurator", None)
-            try:
-                item_doc = frappe.get_doc("Item", meta["item_code"])
-            except frappe.DoesNotExistError:
-                item_doc = None
+            # Reuse the Item doc loaded in Phase A — re-fetching the
+            # full doc here was the single biggest contributor to apply
+            # wall-time on a 37k catalogue.
+            item_doc = meta.get("item_doc")
             if item_doc is not None and callable(opt_pusher) and callable(cfg_pusher):
                 variant_of = getattr(item_doc, "variant_of", None) or ""
                 has_variants = bool(int(getattr(item_doc, "has_variants", 0) or 0))
