@@ -85,6 +85,47 @@ DEFAULT_BACKOFF_FACTOR = 2.0
 DEFAULT_MAX_DELAY = 30.0
 
 
+def _load_shopware_config() -> ConfShopware6ApiBase:
+    """Read the Shopware Setting once and assemble the API config.
+
+    Memoised on ``frappe.local`` for the duration of the request /
+    worker job. ``frappe.get_doc(SETTING_DOCTYPE)`` reloads every
+    child table from the DB on each call (Single doctypes are NOT
+    cached by Frappe), so on a 37k-item apply the per-call
+    ``get_shopware_client`` invocation became the dominant
+    wall-time — each ``temp_shopware_session`` reloaded the same
+    setting just to extract a handful of unchanging fields.
+    """
+    cached = getattr(getattr(frappe, "local", None), "_shopware_client_config", None)
+    if cached is not None:
+        return cached
+
+    setting = frappe.get_doc(SETTING_DOCTYPE)
+    if not setting.enable_shopware:
+        frappe.throw(_("Shopware 6 integration is not enabled."))
+
+    shop_url = setting.shop_url.rstrip("/")
+    if not shop_url.startswith("http"):
+        shop_url = f"https://{shop_url}"
+
+    config = ConfShopware6ApiBase(
+        shopware_admin_api_url=f"{shop_url}/api",
+        grant_type=setting.grant_type or "resource_owner",
+    )
+    if setting.grant_type == "user_credentials":
+        config.username = setting.api_username
+        config.password = setting.get_password("api_password")
+    else:
+        config.client_id = setting.client_id
+        config.client_secret = setting.get_password("client_secret")
+
+    try:
+        frappe.local._shopware_client_config = config  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001
+        pass
+    return config
+
+
 def get_shopware_client() -> Shopware6AdminAPIClientBase:
     """
     Create and return a configured Shopware 6 Admin API client.
@@ -92,39 +133,19 @@ def get_shopware_client() -> Shopware6AdminAPIClientBase:
     Uses the credentials stored in Shopware Setting DocType.
     Supports both 'resource_owner' (Integration) and 'user_credentials' grant types.
 
+    The setting itself is loaded once per ``frappe.local`` lifetime
+    via :func:`_load_shopware_config`; every fresh client built here
+    reuses the cached config so the per-call cost is just the
+    ``Shopware6AdminAPIClientBase`` construction (cheap) plus the
+    inevitable OAuth handshake.
+
     Returns:
         Shopware6AdminAPIClientBase: Configured API client with OAuth2 authentication
 
     Raises:
         frappe.ValidationError: If Shopware integration is not enabled or configured
     """
-    setting = frappe.get_doc(SETTING_DOCTYPE)
-
-    if not setting.enable_shopware:
-        frappe.throw(_("Shopware 6 integration is not enabled."))
-
-    # Build the API URL from shop URL
-    shop_url = setting.shop_url.rstrip("/")
-    if not shop_url.startswith("http"):
-        shop_url = f"https://{shop_url}"
-
-    admin_api_url = f"{shop_url}/api"
-
-    # Create configuration based on grant type
-    config = ConfShopware6ApiBase(
-        shopware_admin_api_url=admin_api_url,
-        grant_type=setting.grant_type or "resource_owner",
-    )
-
-    if setting.grant_type == "user_credentials":
-        # User credentials (password) grant type
-        config.username = setting.api_username
-        config.password = setting.get_password("api_password")
-    else:
-        # Resource owner (Integration/Client credentials) grant type - default
-        config.client_id = setting.client_id
-        config.client_secret = setting.get_password("client_secret")
-
+    config = _load_shopware_config()
     client = Shopware6AdminAPIClientBase(config=config)
     _patch_client_timeout(client, timeout=60)
     _patch_client_binary_upload(client)
@@ -314,6 +335,15 @@ def temp_shopware_session(
     Note: In test mode (frappe.flags.in_test), the function is called without
     the client argument to allow mocking.
     """
+    def _close_client(client):
+        """Close the underlying httpx session to free file descriptors."""
+        session = getattr(client, "session", None)
+        if session is not None:
+            try:
+                session.close()
+            except Exception:  # noqa: BLE001
+                pass
+
     def decorator(fn: Callable) -> Callable:
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
@@ -341,42 +371,48 @@ def temp_shopware_session(
             last_exception = None
             delay = initial_delay
 
-            for attempt in range(max_retries + 1):
-                try:
-                    return fn(client, *args, **kwargs)
-                except (Exception, ShopwareAPIError) as e:
-                    last_exception = e
+            try:
+                for attempt in range(max_retries + 1):
+                    try:
+                        return fn(client, *args, **kwargs)
+                    except (Exception, ShopwareAPIError) as e:
+                        last_exception = e
 
-                    # Check if this is a retriable gateway error
-                    if not is_retriable_error(e):
-                        raise
+                        # Check if this is a retriable gateway error
+                        if not is_retriable_error(e):
+                            raise
 
-                    # If we've exhausted retries, raise the last exception
-                    if attempt >= max_retries:
-                        logger = get_logger("retry_on_gateway_errors")
-                        logger.error(f"Gateway error after {max_retries} retries in {fn.__name__}", exception=e, persist=True)
-                        raise
+                        # If we've exhausted retries, raise the last exception
+                        if attempt >= max_retries:
+                            logger = get_logger("retry_on_gateway_errors")
+                            logger.error(f"Gateway error after {max_retries} retries in {fn.__name__}", exception=e, persist=True)
+                            raise
 
-                    # Log the retry attempt (as info, not error, to avoid log spam)
-                    frappe.logger().warning(
-                        f"Shopware gateway error in {fn.__name__} (attempt {attempt + 1}/{max_retries + 1}): {e}. "
-                        f"Retrying in {delay:.1f}s..."
-                    )
+                        # Log the retry attempt (as info, not error, to avoid log spam)
+                        frappe.logger().warning(
+                            f"Shopware gateway error in {fn.__name__} (attempt {attempt + 1}/{max_retries + 1}): {e}. "
+                            f"Retrying in {delay:.1f}s..."
+                        )
 
-                    # Wait before retrying with exponential backoff
-                    time.sleep(delay)
-                    delay = min(delay * backoff_factor, max_delay)
+                        # Wait before retrying with exponential backoff
+                        time.sleep(delay)
+                        delay = min(delay * backoff_factor, max_delay)
 
-                    # Get a fresh client for retry (in case of connection issues),
-                    # but reuse the SAME idempotency key so Shopware can detect
-                    # a replay of a write whose response we lost.
-                    client = get_shopware_client()
-                    if idempotency_key:
-                        _attach_idempotency_key(client, idempotency_key)
+                        # Close the old client before creating a fresh one.
+                        _close_client(client)
 
-            # Should not reach here, but just in case
-            if last_exception:
-                raise last_exception
+                        # Get a fresh client for retry (in case of connection issues),
+                        # but reuse the SAME idempotency key so Shopware can detect
+                        # a replay of a write whose response we lost.
+                        client = get_shopware_client()
+                        if idempotency_key:
+                            _attach_idempotency_key(client, idempotency_key)
+
+                # Should not reach here, but just in case
+                if last_exception:
+                    raise last_exception
+            finally:
+                _close_client(client)
 
         return wrapper
 
