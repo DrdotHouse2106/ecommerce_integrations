@@ -230,31 +230,50 @@ def _apply_live(
         # ``_maybe_gunzip_plan_json`` on read. Wrapped in try/except so a
         # future packet-limit edge case logs a warning instead of
         # aborting the apply.
-        try:
-            from ecommerce_integrations.product_sync.api import _maybe_gzip_plan_json
-            plan_json = frappe.as_json(plan.to_dict(), indent=1)
-            stored = _maybe_gzip_plan_json(plan_json)
-            frappe.db.set_value(
-                _RUN_DOCTYPE, run.name,
-                {
-                    "preview_plan_json": stored,
-                    "items_total": len(plan.creates) + len(plan.updates),
-                },
-                update_modified=False,
-            )
-        except Exception as exc:  # noqa: BLE001 — never let plan persistence kill the apply
-            _logger().error(
-                f"apply-live: failed to persist preview_plan_json for "
-                f"sync={sync_doc.name} run={run.name}: {type(exc).__name__}: {exc}"
-            )
+        # Cron-triggered runs skip ``preview_plan_json`` persistence —
+        # serialising 37k+ ``ProductNodePlan`` rows to indented JSON
+        # ate minutes of wall time and gigabytes of RSS before any
+        # apply could happen. The UI's "what was planned" view is the
+        # only consumer of ``preview_plan_json``; cron has no UI and
+        # the per-item outcome is already audited via the
+        # ``applied_diffs`` rows written during apply. Manual desk
+        # runs still get the full plan dump.
+        items_total_post_diff = len(plan.creates) + len(plan.updates)
+        if trigger_type == "cron":
             try:
                 frappe.db.set_value(
                     _RUN_DOCTYPE, run.name,
-                    {"items_total": len(plan.creates) + len(plan.updates)},
+                    {"items_total": items_total_post_diff},
                     update_modified=False,
                 )
             except Exception:  # noqa: BLE001
                 pass
+        else:
+            try:
+                from ecommerce_integrations.product_sync.api import _maybe_gzip_plan_json
+                plan_json = frappe.as_json(plan.to_dict(), indent=1)
+                stored = _maybe_gzip_plan_json(plan_json)
+                frappe.db.set_value(
+                    _RUN_DOCTYPE, run.name,
+                    {
+                        "preview_plan_json": stored,
+                        "items_total": items_total_post_diff,
+                    },
+                    update_modified=False,
+                )
+            except Exception as exc:  # noqa: BLE001 — never let plan persistence kill the apply
+                _logger().error(
+                    f"apply-live: failed to persist preview_plan_json for "
+                    f"sync={sync_doc.name} run={run.name}: {type(exc).__name__}: {exc}"
+                )
+                try:
+                    frappe.db.set_value(
+                        _RUN_DOCTYPE, run.name,
+                        {"items_total": items_total_post_diff},
+                        update_modified=False,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
 
         # 2. Get the adapter (lazy import to keep tasks importable
         # even on sites without the backend installed).
