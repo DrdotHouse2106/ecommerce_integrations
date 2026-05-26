@@ -33,6 +33,8 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any
 
+import frappe
+
 from ecommerce_integrations.product_sync.constants import BACKEND_SHOPWARE
 from ecommerce_integrations.product_sync.engine.adapters.base import (
     AdapterError,
