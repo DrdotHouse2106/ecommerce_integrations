@@ -124,6 +124,17 @@ def build_shopware_payload(
     # empty media entities and trigger forever-drift on the next
     # preview.
 
+    # Delivery time: pass the free-form ``Item.delivery_time`` string
+    # ("10-15 Tage" etc.) through as ``deliveryTime``; the adapter
+    # resolves it to a Shopware ``delivery_time`` uuid at apply-time
+    # via ``get_or_create_delivery_time``, batched per session so the
+    # per-item overhead is a cached dict lookup. Setting
+    # ``deliveryTimeId`` on the product is what surfaces the
+    # "Lieferzeit" badge on the PDP + listing.
+    delivery_time_str = (basic.get("delivery_time") or "").strip()
+    if delivery_time_str:
+        payload["deliveryTime"] = delivery_time_str
+
     # Manufacturer (== ``Item.brand`` for our purposes — Shopware has
     # no separate "brand" concept; the manufacturer entity carries
     # that semantically). Nested upsert with a deterministic id keyed

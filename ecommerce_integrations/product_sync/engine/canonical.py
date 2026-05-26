@@ -171,6 +171,12 @@ def _canonical_basic(item, sync) -> dict[str, Any]:
         ),
         "is_active": not bool(getattr(item, "disabled", 0)),
         "uom": _norm_str(getattr(item, "stock_uom", "")),
+        # Free-form delivery promise string (e.g. "10-15 Tage").
+        # Backend adapters resolve this to their native entity (Shopware's
+        # ``delivery_time`` uuid) when pushing — hashing the source string
+        # is enough to detect drift without coupling canonical to any
+        # backend's id space.
+        "delivery_time": _norm_str(getattr(item, "delivery_time", "")),
     }
 
 

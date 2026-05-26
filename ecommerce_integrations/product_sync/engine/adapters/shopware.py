@@ -120,7 +120,30 @@ class ShopwareProductAdapter(ProductAdapter):
             )
             for entry in items
         ]
-        return _with_client(self._bulk_upsert, prepared)
+
+        def _resolve_then_bulk(client):
+            # Resolve ``deliveryTime`` strings → ``deliveryTimeId`` uuids
+            # inside the same session as the bulk push. The canonical
+            # payload carries the free-form string ("10-15 Tage") to
+            # keep canonical I/O-free; we substitute the actual id once
+            # per distinct string per batch.
+            from ecommerce_integrations.shopware6.export.product_mapper import (
+                get_or_create_delivery_time,
+            )
+            cache: dict[str, str] = {}
+            for p in prepared:
+                name = (p.pop("deliveryTime", None) or "").strip()
+                if not name:
+                    continue
+                dt_id = cache.get(name)
+                if dt_id is None:
+                    dt_id = get_or_create_delivery_time(client, name) or ""
+                    cache[name] = dt_id
+                if dt_id:
+                    p["deliveryTimeId"] = dt_id
+            return self._bulk_upsert(client, prepared)
+
+        return _with_client(_resolve_then_bulk)
 
     def upsert_product(
         self,
@@ -650,6 +673,16 @@ class ShopwareProductAdapter(ProductAdapter):
             payload=payload,
             target_sales_channels=target_sales_channels,
         )
+        # Resolve ``deliveryTime`` string → uuid; mirror of the bulk
+        # path so single-item upserts keep ``deliveryTimeId`` in sync.
+        dt_name = (prepared.pop("deliveryTime", None) or "").strip()
+        if dt_name:
+            from ecommerce_integrations.shopware6.export.product_mapper import (
+                get_or_create_delivery_time,
+            )
+            dt_id = get_or_create_delivery_time(client, dt_name)
+            if dt_id:
+                prepared["deliveryTimeId"] = dt_id
         results = self._bulk_upsert(client, [prepared])
         if not results:
             raise AdapterError(
