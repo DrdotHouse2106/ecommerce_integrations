@@ -328,6 +328,10 @@ def _apply_live(
                 },
                 update_modified=True,
             )
+            # Commit so the UI sees the phase transition immediately
+            # instead of having to wait for the worker-job-level commit
+            # at the end of apply.
+            frappe.db.commit()
         except Exception:  # noqa: BLE001 — never crash apply on a counter write
             pass
         _logger().info(
@@ -376,6 +380,11 @@ def _apply_live(
                         },
                         update_modified=True,
                     )
+                    # Commit so the UI sees per-batch progress; without
+                    # the explicit commit the writes stay in the
+                    # worker's job-level transaction and only land at
+                    # the end of the apply.
+                    frappe.db.commit()
                 except Exception:  # noqa: BLE001
                     pass
             # Per-batch INFO log — lets us locate the last known position
