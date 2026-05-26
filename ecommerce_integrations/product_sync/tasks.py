@@ -289,10 +289,31 @@ def _apply_live(
             to_process.append((node, ACTION_UPDATE))
 
         total_to_process = len(to_process)
+        # Reset the visible progress counters at the diff → apply
+        # transition. Without this the Run row keeps showing the
+        # diff-phase ``items_succeeded`` value (which counted items
+        # *walked*, not items *applied*) until the very end of the
+        # run — looking exactly like the worker is hung. Pin
+        # ``items_total`` to the actual apply scope here so the UI
+        # ratio matches what's about to happen.
+        try:
+            frappe.db.set_value(
+                _RUN_DOCTYPE, run.name,
+                {
+                    "items_total": total_to_process,
+                    "items_succeeded": 0,
+                    "created_count": 0,
+                    "updated_count": 0,
+                },
+                update_modified=True,
+            )
+        except Exception:  # noqa: BLE001 — never crash apply on a counter write
+            pass
         _logger().info(
             f"apply-live start: sync={sync_doc.name} backend={backend} "
             f"to_process={total_to_process} batch_size={_APPLY_BATCH_SIZE} run={run.name}"
         )
+        last_progress_write = [0.0]
         for batch_start in range(0, total_to_process, _APPLY_BATCH_SIZE):
             batch = to_process[batch_start:batch_start + _APPLY_BATCH_SIZE]
             # Heartbeat + cancel check between batches.
@@ -316,6 +337,26 @@ def _apply_live(
             _publish_progress(
                 sync_doc.name, run.name, batch_start, total_to_process, result,
             )
+            # Persist apply-phase counters to the Run row so the UI sees
+            # live progress between batches (the diff-phase progress
+            # writer doesn't run during apply). Throttled to 1 Hz to
+            # avoid hammering ``modified`` on a fast bulk endpoint.
+            now_ts = time.time()
+            if (now_ts - last_progress_write[0]) >= 1.0 or batch_start == 0:
+                last_progress_write[0] = now_ts
+                try:
+                    frappe.db.set_value(
+                        _RUN_DOCTYPE, run.name,
+                        {
+                            "items_succeeded": result.created + result.updated,
+                            "created_count": result.created,
+                            "updated_count": result.updated,
+                            "items_failed": len(result.errors),
+                        },
+                        update_modified=True,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
             # Per-batch INFO log — lets us locate the last known position
             # in bench logs when the worker is killed (OOM, SIGKILL) before
             # the top-level except handler can write to Error Log.
