@@ -120,6 +120,7 @@ def apply_sync(
     return _apply_live(
         doc,
         subset_item_codes=subset_item_codes,
+        fetch_live=fetch_live,
         mode=mode,
         triggered_by=triggered_by or frappe.session.user,
         trigger_type=trigger_type,
@@ -130,6 +131,7 @@ def _apply_live(
     sync_doc,
     *,
     subset_item_codes: list[str] | None = None,
+    fetch_live: bool = False,
     mode: str = "live",
     triggered_by: str | None = None,
     trigger_type: str = "manual",
@@ -212,7 +214,7 @@ def _apply_live(
         plan = compute_product_diff(
             sync_doc,
             max_items=None,
-            fetch_live=True,
+            fetch_live=fetch_live,
             subset_item_codes=subset_item_codes,
             on_progress=_on_diff_progress,
         )
