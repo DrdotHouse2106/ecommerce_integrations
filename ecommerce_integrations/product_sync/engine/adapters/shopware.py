@@ -1918,17 +1918,65 @@ def _fetch_local_file_bytes(url: str) -> tuple[bytes | None, str | None]:
         return (None, None)
 
 
+# Process-local "ambient" Shopware client. When set, ``_with_client``
+# reuses it instead of running ``temp_shopware_session`` (which
+# allocates a fresh ``Shopware6AdminAPIClientBase`` and does an OAuth
+# handshake every time). The pattern lets one outer session amortise
+# its handshake across many nested ``adapter.X(...)`` calls — the
+# difference between ~1 OAuth roundtrip per *call* and ~1 per *job*
+# on the apply hot path.
+_AMBIENT_CLIENT: list = [None]
+
+
+class shared_shopware_session:
+    """Context manager that pins one Shopware client for the duration
+    of a block. ``_with_client`` calls inside the ``with`` reuse the
+    same authenticated client instead of opening a fresh session each
+    time.
+
+    Use sparingly — the right scope is a tight loop that calls several
+    adapter helpers per item. Outside of that the per-call session
+    semantics (fresh idempotency key, retry budget) are what you want.
+    """
+
+    def __init__(self):
+        self._client = None
+        self._previous = None
+
+    def __enter__(self):
+        from ecommerce_integrations.shopware6.connection import (
+            get_shopware_client,
+        )
+        self._client = get_shopware_client()
+        self._previous = _AMBIENT_CLIENT[0]
+        _AMBIENT_CLIENT[0] = self._client
+        return self._client
+
+    def __exit__(self, exc_type, exc, tb):
+        _AMBIENT_CLIENT[0] = self._previous
+        client = self._client
+        self._client = None
+        if client is not None:
+            session = getattr(client, "session", None)
+            if session is not None:
+                try:
+                    session.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+
 def _with_client(fn, *args, **kwargs):
     """Run ``fn`` inside a Shopware admin session.
 
-    Mirrors the catalog-mirror adapter's helper of the same name. The
-    ``temp_shopware_session`` decorator injects the client as the first
-    positional arg and handles auth, gateway-retry and idempotency-key
-    rotation transparently.
-
-    In test mode (``frappe.flags.in_test``) the decorator calls ``fn``
-    without the client so tests can pass a mock.
+    Reuses the process-local ``_AMBIENT_CLIENT`` when an outer
+    ``shared_shopware_session`` context is active; otherwise falls
+    back to a fresh per-call session via ``temp_shopware_session``.
+    In test mode (``frappe.flags.in_test``) the decorator path runs
+    ``fn`` without the client so tests can pass a mock.
     """
+    ambient = _AMBIENT_CLIENT[0]
+    if ambient is not None and not getattr(frappe.flags, "in_test", False):
+        return fn(ambient, *args, **kwargs)
 
     @temp_shopware_session
     def runner(client, *inner_args, **inner_kwargs):

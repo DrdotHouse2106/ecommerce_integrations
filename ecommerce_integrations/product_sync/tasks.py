@@ -646,6 +646,25 @@ def _apply_batch(
         return
 
     # Phase C: walk per-item results, persist mappings + counters.
+    #
+    # Open ONE Shopware session for the whole loop so the per-item
+    # ``reconcile_product_media`` / ``push_product_properties`` /
+    # ``push_variant_options`` / ``push_template_configurator`` /
+    # ``upload_product_images`` calls reuse the same OAuth handshake.
+    # Without this each helper invocation triggers a fresh
+    # ``Shopware6AdminAPIClientBase`` with a ~1s ``fetch_token``
+    # roundtrip — on a 37k apply that's hours of pure auth-overhead
+    # rather than actual sync work. Backends that don't expose the
+    # shared-session helper (Medusa) get a no-op fallback so the loop
+    # body is identical.
+    if backend == BACKEND_SHOPWARE:
+        from ecommerce_integrations.product_sync.engine.adapters.shopware import (
+            shared_shopware_session,
+        )
+        _phase_c_session = shared_shopware_session()
+        _phase_c_session.__enter__()
+    else:
+        _phase_c_session = None
     for meta, row in zip(metadata, results, strict=False):
         err = row.get("error")
         if err:
@@ -926,6 +945,15 @@ def _apply_batch(
             result.created += 1
         else:
             result.updated += 1
+
+    # Close the shared Phase-C Shopware session (no-op when backend
+    # is not Shopware). Done in a finally-like guard so a per-item
+    # exception above can't leak the session.
+    if _phase_c_session is not None:
+        try:
+            _phase_c_session.__exit__(None, None, None)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _apply_one_item(
