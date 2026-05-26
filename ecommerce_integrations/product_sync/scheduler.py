@@ -143,15 +143,38 @@ def _enqueue_sync(sync_name: str) -> None:
 
     Wrapped here so the call site is testable: the dispatcher just
     decides what to enqueue, the queue layer decides where.
+
+    ``fetch_live=False`` is critical for cron: the differ defaults to
+    ``True`` for interactive previews (per-field drift detection
+    needs live data), but for an unattended apply the hash comparison
+    alone is enough — drifted items are pushed regardless. With
+    ``fetch_live=True`` every drift candidate triggers a backend
+    roundtrip, which means a full-catalogue diff (37k+ items, all
+    hashes invalidated by a canonical-schema bump) takes longer than
+    the 1-hour RQ timeout and gets SIGKILL'd mid-diff before any
+    apply can happen — exactly the failure mode that left the
+    storefront stale despite hourly cron firings.
+
+    ``timeout`` is intentionally generous, not a hard cap on actual
+    runtime. A short RQ timeout SIGKILLs the worker mid-run
+    regardless of progress, which on a large catalogue means apply
+    runs never complete (the failure mode we saw with the old 3600s
+    cap — the diff phase alone takes hours when every hash is
+    invalidated by a canonical-schema bump). 24 hours is comfortably
+    above the worst-case full-catalogue sync, and the stale-run
+    sweeper's heartbeat check catches genuine hangs long before the
+    timeout fires — so the timeout is just a backstop, not the
+    primary safety net.
     """
     frappe.enqueue(
         "ecommerce_integrations.product_sync.tasks.apply_sync",
         queue="long",
-        timeout=3600,
+        timeout=86400,
         is_async=True,
         job_name=f"product_sync:apply:{sync_name}",
         sync_name=sync_name,
         dry_run=False,
+        fetch_live=False,
         mode="live",
         trigger_type="cron",
     )
