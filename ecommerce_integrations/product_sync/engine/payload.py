@@ -164,6 +164,36 @@ def build_shopware_payload(
         if delivery_time_str:
             payload["deliveryTime"] = delivery_time_str
 
+        # AI customFields: surface short description, benefits,
+        # SEO meta description and youtube video URL via the
+        # Shopware ``customFields`` JSON column. Storefront blocks
+        # for "Benefits"/"Short Description"/SEO meta read these.
+        # Hashed under ``basic`` (see ``_canonical_basic``) so a
+        # Gemini re-run that rewrites them triggers drift through
+        # the standard section-delta path. Only non-empty values
+        # are emitted — Shopware merges into existing
+        # ``customFields`` rather than replacing, so we never
+        # accidentally clear an unrelated field set manually in
+        # Admin UI.
+        from ecommerce_integrations.shopware6.constants import (
+            SHOPWARE_CUSTOM_FIELD_AI_BENEFITS,
+            SHOPWARE_CUSTOM_FIELD_AI_SEO_DESCRIPTION,
+            SHOPWARE_CUSTOM_FIELD_AI_SHORT_DESCRIPTION,
+            SHOPWARE_CUSTOM_FIELD_YOUTUBE_VIDEO_URL,
+        )
+        cf_payload: dict[str, Any] = {}
+        for canonical_key, shopware_key in (
+            ("ai_short_description", SHOPWARE_CUSTOM_FIELD_AI_SHORT_DESCRIPTION),
+            ("ai_benefits", SHOPWARE_CUSTOM_FIELD_AI_BENEFITS),
+            ("ai_seo_description", SHOPWARE_CUSTOM_FIELD_AI_SEO_DESCRIPTION),
+            ("youtube_video_url", SHOPWARE_CUSTOM_FIELD_YOUTUBE_VIDEO_URL),
+        ):
+            v = (basic.get(canonical_key) or "").strip()
+            if v:
+                cf_payload[shopware_key] = v
+        if cf_payload:
+            payload["customFields"] = cf_payload
+
     # Manufacturer (== ``Item.brand`` for our purposes — Shopware has
     # no separate "brand" concept; the manufacturer entity carries
     # that semantically). Nested upsert with a deterministic id keyed

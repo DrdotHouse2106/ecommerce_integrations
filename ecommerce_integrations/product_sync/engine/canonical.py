@@ -267,6 +267,18 @@ def _canonical_basic(item, sync) -> dict[str, Any]:
         # is enough to detect drift without coupling canonical to any
         # backend's id space.
         "delivery_time": _norm_str(getattr(item, "delivery_time", "")),
+        # AI-generated content that lives on Item custom fields.
+        # The Shopware adapter projects each non-empty value onto its
+        # corresponding ``customFields`` slot (the storefront block
+        # for "benefits" / "short description" / SEO meta reads
+        # those). Hashing them here means a Gemini re-run that
+        # rewrites benefits/short propagates as a delta — without
+        # this, only the long description (which feeds
+        # ``basic.description``) would trigger drift.
+        "ai_short_description": _norm_str(getattr(item, "ai_short_description", "")),
+        "ai_benefits": _norm_str(getattr(item, "ai_benefits", "")),
+        "ai_seo_description": _norm_str(getattr(item, "ai_seo_description", "")),
+        "youtube_video_url": _norm_str(getattr(item, "youtube_video_url", "")),
     }
 
 
