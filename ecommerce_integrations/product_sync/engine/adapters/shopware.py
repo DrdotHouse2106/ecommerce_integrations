@@ -146,6 +146,14 @@ class ShopwareProductAdapter(ProductAdapter):
         a filterable property, once as a variant option — without
         collision.
 
+        Each upsert also writes ``property_group.position`` derived
+        from :func:`product_sync.engine.property_classifier.property_priority`
+        so the storefront PDP groups appear in the same order across
+        every product (lower priority = earlier on the page). Shopware
+        does not support per-product property order, so this global
+        position is the closest equivalent to "ERPNext sets the idx
+        and Shopware respects it".
+
         Returns a dict mapping ``f"{kind}:{name}"`` → group_uuid so
         callers can derive option UUIDs themselves via
         ``property_option_uuid(name, value, kind)``. (The option UUIDs
@@ -156,6 +164,9 @@ class ShopwareProductAdapter(ProductAdapter):
 
         from ecommerce_integrations.shopware6.export.utils import (
             generate_uuid,
+        )
+        from ecommerce_integrations.product_sync.engine.property_classifier import (
+            property_priority,
         )
 
         rows = []
@@ -169,6 +180,7 @@ class ShopwareProductAdapter(ProductAdapter):
                 "sortingType": "alphanumeric",
                 "filterable": True,
                 "visibleOnProductDetailPage": True,
+                "position": property_priority(name),
             })
             result[f"{kind}:{name}"] = gid
 
