@@ -196,6 +196,114 @@ class ShopwareProductAdapter(ProductAdapter):
 
         return _with_client(go)
 
+    def ensure_brand_entities_bulk(
+        self,
+        brands: list[dict],
+    ) -> None:
+        """Bulk-upsert ``product_manufacturer`` rows so the subsequent
+        product bulk upsert's nested ``manufacturer`` reference
+        resolves to a row that already carries the logo + description
+        + link.
+
+        ``brands`` is a list of ``{name, description, link, logo_url,
+        logo_filename, position}`` dicts; only ``name`` is required.
+        When ``logo_url`` is supplied we upload it as a media entity
+        and set ``mediaId`` on the manufacturer in the same session.
+
+        The manufacturer id is derived via
+        ``generate_uuid(f"manufacturer_{name}")`` — same scheme the
+        legacy ``shopware6.export.product_mapper.get_or_create_manufacturer``
+        helper used, so existing rows are matched not duplicated.
+        """
+        if not brands:
+            return
+
+        from ecommerce_integrations.shopware6.export.utils import (
+            generate_uuid,
+        )
+
+        def go(client):
+            # Resolve product-media folder once for any logo uploads.
+            folder_id = _resolve_product_media_folder_id(client)
+
+            # First pass: upload logos (each = create empty media + URL
+            # upload). Maps brand name → mediaId on success.
+            logo_media: dict[str, str] = {}
+            for b in brands:
+                name = (b.get("name") or "").strip()
+                url = (b.get("logo_url") or "").strip()
+                if not name or not url:
+                    continue
+                # Deterministic media id keyed on the brand name so
+                # re-runs reuse the same media row instead of
+                # piling up duplicates.
+                media_id = generate_uuid(f"manufacturer_logo_{name}")
+                media_row: dict = {"id": media_id}
+                if folder_id:
+                    media_row["mediaFolderId"] = folder_id
+                try:
+                    client.request_post("_action/sync", payload={
+                        "media": {
+                            "entity": "media",
+                            "action": "upsert",
+                            "payload": [media_row],
+                        },
+                    })
+                except Exception:  # noqa: BLE001
+                    continue
+                # Trigger URL fetch
+                tail = url.rsplit("/", 1)[-1]
+                if "." in tail:
+                    stem, ext = tail.rsplit(".", 1)
+                    ext = ext.split("?")[0].lower() or "png"
+                else:
+                    stem, ext = (b.get("logo_filename") or name).replace(" ", "_"), "png"
+                try:
+                    client.request_post(
+                        f"_action/media/{media_id}/upload",
+                        payload={"url": url},
+                        additional_query_params={
+                            "fileName": stem,
+                            "extension": ext,
+                        },
+                    )
+                    logo_media[name] = media_id
+                except Exception:  # noqa: BLE001
+                    pass
+
+            # Second pass: upsert manufacturer rows in one sync call.
+            rows = []
+            for b in brands:
+                name = (b.get("name") or "").strip()
+                if not name:
+                    continue
+                row = {
+                    "id": generate_uuid(f"manufacturer_{name}"),
+                    "name": name,
+                }
+                desc = (b.get("description") or "").strip()
+                if desc:
+                    row["description"] = desc
+                link = (b.get("link") or "").strip()
+                if link:
+                    row["link"] = link
+                if name in logo_media:
+                    row["mediaId"] = logo_media[name]
+                rows.append(row)
+            if rows:
+                try:
+                    client.request_post("_action/sync", payload={
+                        "mfrs": {
+                            "entity": "product_manufacturer",
+                            "action": "upsert",
+                            "payload": rows,
+                        },
+                    })
+                except Exception:  # noqa: BLE001
+                    pass
+
+        _with_client(go)
+
     def ensure_property_options_bulk(
         self,
         options: list[tuple[str, str, str]],

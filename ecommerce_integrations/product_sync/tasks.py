@@ -647,7 +647,63 @@ def _apply_batch(
     if not prepared:
         return
 
-    # Phase A.5: pre-flight ensure ``property_group`` +
+    # Phase A.5a: pre-flight ensure ``product_manufacturer`` rows
+    # carry the brand's description + logo. The product bulk upsert
+    # below references them via the nested ``manufacturer.id`` link
+    # (same deterministic UUID scheme), so doing the enrichment in
+    # one batched call beforehand is the difference between "Shopware
+    # shows brand logos on the storefront" and "Shopware only knows
+    # the brand name". Skipped for non-Shopware backends and when no
+    # items in the batch carry a brand.
+    if backend == BACKEND_SHOPWARE and hasattr(adapter, "ensure_brand_entities_bulk"):
+        try:
+            brand_names: set[str] = set()
+            for meta in metadata:
+                b = ((meta.get("canonical") or {}).get("properties") or {}).get("brand")
+                if b:
+                    brand_names.add(b.strip())
+            if brand_names:
+                # Resolve brand image + description from the ERP
+                # Brand doctype; absolutize the image URL via the
+                # same public-base helper the product image upload
+                # uses, so Shopware fetches the logo from a host it
+                # can actually reach.
+                from ecommerce_integrations.product_sync.engine.payload import (
+                    _resolve_image_public_base,
+                )
+                base = _resolve_image_public_base()
+                rows = frappe.get_all(
+                    "Brand",
+                    filters={"name": ("in", sorted(brand_names))},
+                    fields=["name", "image", "description"],
+                )
+                brand_payloads = []
+                for r in rows:
+                    img_raw = (r.get("image") or "").strip()
+                    if img_raw:
+                        if img_raw.startswith(("http://", "https://")):
+                            img_abs = img_raw
+                        elif base:
+                            img_abs = base.rstrip("/") + (
+                                img_raw if img_raw.startswith("/") else "/" + img_raw
+                            )
+                        else:
+                            img_abs = ""
+                    else:
+                        img_abs = ""
+                    brand_payloads.append({
+                        "name": r["name"],
+                        "description": (r.get("description") or "").strip(),
+                        "logo_url": img_abs,
+                    })
+                adapter.ensure_brand_entities_bulk(brand_payloads)
+        except Exception as exc:  # noqa: BLE001 — pre-flight is best-effort
+            _logger().warning(
+                f"brand entity pre-flight failed for sync={sync_doc.name} "
+                f"run={run_name}: {type(exc).__name__}: {exc}"
+            )
+
+    # Phase A.5b: pre-flight ensure ``property_group`` +
     # ``property_group_option`` entities exist for every
     # ``ecommerce_property`` AND every variant ``attribute`` we're
     # about to push as a nested m2m on the products. Two batched

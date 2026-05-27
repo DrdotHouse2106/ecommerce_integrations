@@ -176,9 +176,17 @@ def build_shopware_payload(
         props_canonical = canonical.get("properties") or {}
         brand = props_canonical.get("brand")
         if brand:
-            import hashlib as _hl
+            # Use the same deterministic UUID scheme as
+            # ``shopware6.export.product_mapper.get_or_create_manufacturer``
+            # (and now ``ensure_brand_entities_bulk``) so the m2m link
+            # references the manufacturer row that's already enriched
+            # with logo + description + link — not a parallel row
+            # spawned by an older hash scheme.
+            from ecommerce_integrations.shopware6.export.utils import (
+                generate_uuid as _gen,
+            )
             payload["manufacturer"] = {
-                "id": _hl.md5(f"manufacturer::{brand}".encode()).hexdigest(),
+                "id": _gen(f"manufacturer_{brand}"),
                 "name": brand,
             }
 
