@@ -1978,6 +1978,19 @@ def _with_client(fn, *args, **kwargs):
     """
     ambient = _AMBIENT_CLIENT[0]
     if ambient is not None and not getattr(frappe.flags, "in_test", False):
+        # Rotate the idempotency key per call so Shopware doesn't
+        # dedupe distinct writes as retries of the first one. Without
+        # this every call on the shared client would carry whatever
+        # key was attached when the session opened (or none at all),
+        # and Shopware's idempotency cache would either reject the
+        # second write as a key/payload mismatch or — worse — return
+        # the cached first response. The rotator patches the client
+        # once and just swaps the key field on subsequent calls.
+        import uuid as _u
+        from ecommerce_integrations.shopware6.connection import (
+            _ensure_idempotency_rotator,
+        )
+        _ensure_idempotency_rotator(ambient).key = _u.uuid4().hex
         return fn(ambient, *args, **kwargs)
 
     @temp_shopware_session

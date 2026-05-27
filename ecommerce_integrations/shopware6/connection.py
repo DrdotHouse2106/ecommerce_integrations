@@ -263,34 +263,61 @@ def _patch_client_timeout(client: Shopware6AdminAPIClientBase, timeout: int = 60
     client._get_session = _get_session_with_timeout
 
 
-def _attach_idempotency_key(client: Shopware6AdminAPIClientBase, key: str) -> None:
-    """Inject an ``sw-api-idempotency-key`` header into every request the
-    client makes.
+class _IdempotencyKeyHolder:
+    """Mutable single-value container so callers can update the key
+    that the patched ``_get_headers`` returns without re-patching
+    the client. Multiple ``_attach_idempotency_key`` calls on the
+    same client would otherwise stack closures and leak — the
+    holder pattern keeps the patch idempotent at the client level
+    and the key swap idempotent at the call level."""
 
-    Shopware honours this header on write endpoints (``POST /_action/sync``,
-    ``POST /category``, …) — a 504 after a successful server-side write means
-    the retry sees the same key and Shopware short-circuits instead of
-    replaying the write. The same key is reused across all retries of the
-    SAME call (we generate it once per ``temp_shopware_session`` invocation).
-    """
+    __slots__ = ("key",)
+
+    def __init__(self) -> None:
+        self.key: str | None = None
+
+
+def _ensure_idempotency_rotator(
+    client: Shopware6AdminAPIClientBase,
+) -> _IdempotencyKeyHolder:
+    """Install the header-injection patch once per client and return
+    the holder used to rotate the key. Subsequent calls just hand
+    back the existing holder — no re-patching, no closure layers."""
+    holder = getattr(client, "_ee_idemp_holder", None)
+    if isinstance(holder, _IdempotencyKeyHolder):
+        return holder
+    holder = _IdempotencyKeyHolder()
     try:
-        # The base client builds headers in _get_headers; intercepting it lets
-        # us add our header on every flavour of request (GET/POST/PATCH/DELETE).
         _orig_get_headers = client._get_headers
 
         def _get_headers_with_idempotency(*args, **kwargs):
             headers = _orig_get_headers(*args, **kwargs)
             try:
-                headers["sw-api-idempotency-key"] = key
-            except Exception:
+                if holder.key:
+                    headers["sw-api-idempotency-key"] = holder.key
+            except Exception:  # noqa: BLE001
                 pass
             return headers
 
         client._get_headers = _get_headers_with_idempotency
-    except Exception:
-        # Header injection is best-effort. If the SDK internal changed shape,
-        # we still want the request to go out.
+        client._ee_idemp_holder = holder
+    except Exception:  # noqa: BLE001 — header injection is best-effort
         pass
+    return holder
+
+
+def _attach_idempotency_key(client: Shopware6AdminAPIClientBase, key: str) -> None:
+    """Set ``sw-api-idempotency-key`` for subsequent requests made via
+    ``client``.
+
+    Shopware honours this header on write endpoints (``POST /_action/sync``,
+    ``POST /category``, …) — a 504 after a successful server-side write means
+    the retry sees the same key and Shopware short-circuits instead of
+    replaying the write. The same key is reused across all retries of the
+    SAME call (we generate it once per ``temp_shopware_session`` invocation
+    or per ambient-session ``_with_client`` invocation).
+    """
+    _ensure_idempotency_rotator(client).key = key
 
 
 def temp_shopware_session(

@@ -673,16 +673,29 @@ def _apply_batch(
 
     # Phase C: walk per-item results, persist mappings + counters.
     #
-    # Each adapter helper opens its own ``temp_shopware_session`` so
-    # auth, idempotency-key rotation and gateway-retry are handled
-    # per call. An earlier optimisation pinned ONE shared client for
-    # the whole batch to amortise the OAuth handshake, but it broke
-    # media uploads (the pinned client's ``_action/media/{id}/upload``
-    # calls returned 204 yet Shopware never actually fetched the URL
-    # — empty media records piling up server-side). Reverting to
-    # per-call sessions restores correctness; perf is reclaimed via
-    # the section-level skip in ``meta['delta_sections']``.
-    _phase_c_session = None
+    # One Shopware session pinned for the whole batch so the per-item
+    # adapter helpers (``reconcile_product_media``,
+    # ``push_product_properties``, ``push_variant_options``,
+    # ``push_template_configurator``, ``upload_product_images``)
+    # share a single authenticated client instead of doing a fresh
+    # OAuth handshake each call. On a 37k apply that's the
+    # difference between "per-item OAuth round-trip" and "one
+    # handshake per ~25 items".
+    #
+    # An earlier revert blamed shared sessions for empty media
+    # records, but the actual root cause was Shopware's MinIO
+    # storage backend filling up (HTTP 507 on file write) — the
+    # session reuse was orthogonal. The idempotency-key rotator in
+    # ``_with_client`` ensures distinct writes on the shared client
+    # get distinct keys, so Shopware doesn't dedupe them as retries.
+    if backend == BACKEND_SHOPWARE:
+        from ecommerce_integrations.product_sync.engine.adapters.shopware import (
+            shared_shopware_session,
+        )
+        _phase_c_session = shared_shopware_session()
+        _phase_c_session.__enter__()
+    else:
+        _phase_c_session = None
     for meta, row in zip(metadata, results, strict=False):
         err = row.get("error")
         if err:
