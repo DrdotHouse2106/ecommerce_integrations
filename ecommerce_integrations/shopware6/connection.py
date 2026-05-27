@@ -126,6 +126,48 @@ def _load_shopware_config() -> ConfShopware6ApiBase:
     return config
 
 
+# Headers that turn synchronous DML cascades into queued work on the
+# Shopware side. ``indexing-behavior: use-queue-indexing`` defers the
+# DAL indexer to the background queue (the storefront eventually
+# reflects the write; sync API stays under a second instead of
+# blocking on the per-product re-index cascade). ``sw-skip-trigger-flow``
+# suppresses Flow Builder triggers — bulk catalogue pushes never want
+# Flow-driven side effects (email blasts, marketing automations,
+# etc.) firing per item. Both are documented in
+# https://developer.shopware.com/docs/guides/integrations-api/general-concepts/request-headers.html
+# and directly address the "100 products = ~34k MySQL queries" pain
+# point Shopware's own RFC discussion (#3391) cites.
+_PERF_HEADERS = {
+    "indexing-behavior": "use-queue-indexing",
+    "sw-skip-trigger-flow": "1",
+}
+
+
+def _patch_client_perf_headers(client: Shopware6AdminAPIClientBase) -> None:
+    """Inject the Shopware bulk-write perf headers into every request.
+
+    Wraps ``client._get_headers`` so all flavours (GET/POST/PATCH/DELETE)
+    pick them up. Reads receive the headers too — harmless, Shopware
+    ignores ``sw-skip-trigger-flow`` on non-write endpoints and the
+    queue-indexing hint only fires on writes.
+    """
+    try:
+        _orig = client._get_headers
+
+        def _with_perf(*args, **kwargs):
+            headers = _orig(*args, **kwargs)
+            try:
+                for k, v in _PERF_HEADERS.items():
+                    headers.setdefault(k, v)
+            except Exception:  # noqa: BLE001
+                pass
+            return headers
+
+        client._get_headers = _with_perf
+    except Exception:  # noqa: BLE001 — header injection is best-effort
+        pass
+
+
 def get_shopware_client() -> Shopware6AdminAPIClientBase:
     """
     Create and return a configured Shopware 6 Admin API client.
@@ -150,6 +192,7 @@ def get_shopware_client() -> Shopware6AdminAPIClientBase:
     _patch_client_timeout(client, timeout=60)
     _patch_client_binary_upload(client)
     _patch_client_criteria(client)
+    _patch_client_perf_headers(client)
     return client
 
 

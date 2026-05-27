@@ -647,6 +647,45 @@ def _apply_batch(
     if not prepared:
         return
 
+    # Phase A.5: pre-flight ensure ``property_group`` +
+    # ``property_group_option`` entities exist for every
+    # ``ecommerce_property`` AND every variant ``attribute`` we're
+    # about to push as a nested m2m on the products. Two batched
+    # ``_action/sync`` calls (groups then options) replace what used
+    # to be N×search + N×upsert HTTP roundtrips inside the per-item
+    # ``push_product_properties`` / ``push_variant_options`` Phase C
+    # helpers. Skipped for non-Shopware backends.
+    if backend == BACKEND_SHOPWARE and hasattr(adapter, "ensure_property_options_bulk"):
+        try:
+            groups_set: set[tuple[str, str]] = set()  # (name, kind)
+            options_set: set[tuple[str, str, str]] = set()  # (group, value, kind)
+            for meta in metadata:
+                props_canonical = (meta.get("canonical") or {}).get("properties") or {}
+                for p in (props_canonical.get("ecommerce_properties") or []):
+                    name = (p.get("name") or "").strip()
+                    value = (p.get("value") or "").strip()
+                    if name and value:
+                        groups_set.add((name, "property"))
+                        options_set.add((name, value, "property"))
+                # Variant attributes belong to the variant items only.
+                item_doc = meta.get("item_doc")
+                if item_doc and getattr(item_doc, "variant_of", None):
+                    for a in (props_canonical.get("attributes") or []):
+                        name = (a.get("name") or "").strip()
+                        value = (a.get("value") or "").strip()
+                        if name and value:
+                            groups_set.add((name, "variant"))
+                            options_set.add((name, value, "variant"))
+            if groups_set:
+                adapter.ensure_property_entities_bulk(sorted(groups_set))
+            if options_set:
+                adapter.ensure_property_options_bulk(sorted(options_set))
+        except Exception as exc:  # noqa: BLE001 — pre-flight is best-effort
+            _logger().warning(
+                f"property entity pre-flight failed for sync={sync_doc.name} "
+                f"run={run_name}: {type(exc).__name__}: {exc}"
+            )
+
     # Phase B: one bulk call. The adapter handles chunking inside if
     # the batch is larger than its API allows.
     try:
@@ -903,19 +942,21 @@ def _apply_batch(
                             f"{meta['item_code']}: media reconcile failed: {exc}",
                         )
 
-        # Push ecommerce_properties (universal child-table) as Shopware
-        # property_group + property_group_option, linked to the product
-        # via the m2m. The build_shopware_payload pipeline deliberately
-        # does NOT include these in the bulk upsert payload — they need
-        # an out-of-band three-step flow (group → option → product m2m)
-        # that doesn't fit cleanly into ``/_action/sync``. Adapters
-        # without ``push_product_properties`` are silently skipped.
+        # Phase-C properties push: now handled via the nested
+        # ``properties`` m2m on the bulk product upsert above
+        # (``build_shopware_payload`` emits it when canonical's
+        # ``ecommerce_properties`` is non-empty, and the Phase-A.5
+        # pre-flight ensures the option entities exist). Keeping the
+        # per-item push here would just re-PATCH the same association
+        # one product at a time — pure latency, no new data.
         #
-        # Per-section delta: properties live under the ``properties``
-        # canonical section, so skip the push when that section didn't
-        # drift since the last apply. On items that never had a stored
-        # canonical (first push, legacy rows) the section is treated
-        # as drifted and the push runs.
+        # Backends without nested-association support fall back to
+        # the per-item push (the conditional below stays true for
+        # those — only Shopware ships the new helper).
+        _properties_handled_in_bulk = (
+            backend == BACKEND_SHOPWARE
+            and hasattr(adapter, "ensure_property_options_bulk")
+        )
         _properties_in_sync = (
             "properties" not in _delta_sections and meta.get("ecom_row")
             and bool(meta.get("ecom_row", {}).get("last_synced_canonical"))
@@ -923,6 +964,7 @@ def _apply_batch(
         if (
             int(getattr(sync_doc, "sync_properties", 0) or 0)
             and not _properties_in_sync
+            and not _properties_handled_in_bulk
         ):
             pusher = getattr(adapter, "push_product_properties", None)
             if callable(pusher):
@@ -984,8 +1026,11 @@ def _apply_batch(
                 has_variants = bool(int(getattr(item_doc, "has_variants", 0) or 0))
                 attrs = getattr(item_doc, "attributes", []) or []
 
-                if variant_of and attrs:
+                if variant_of and attrs and not _properties_handled_in_bulk:
                     # Variant: set its option ids on the live product.
+                    # When the bulk path coalesced ``options`` into the
+                    # nested product upsert above we skip the per-item
+                    # PATCH — it would just re-write the same m2m link.
                     av = [
                         {"name": a.attribute, "value": a.attribute_value}
                         for a in attrs if a.attribute and a.attribute_value

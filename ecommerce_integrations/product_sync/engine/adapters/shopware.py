@@ -129,6 +129,98 @@ class ShopwareProductAdapter(ProductAdapter):
 
         return _with_client(_resolve_then_bulk)
 
+    def ensure_property_entities_bulk(
+        self,
+        groups: list[tuple[str, str]],
+    ) -> dict[str, str]:
+        """Bulk-upsert ``property_group`` + ``property_group_option``
+        rows so a subsequent product upsert can reference them via
+        the m2m link without per-item DB lookups.
+
+        ``groups`` is a list of ``(name, kind)`` tuples where ``kind``
+        is ``"property"`` (filterable property) or ``"variant"`` (used
+        for variant configurator). The two kinds intentionally produce
+        different option UUIDs (matching the legacy
+        ``get_or_create_property_option`` vs ``get_or_create_variant_option``
+        schemes) so a value like "RAL 7035" can exist twice — once as
+        a filterable property, once as a variant option — without
+        collision.
+
+        Returns a dict mapping ``f"{kind}:{name}"`` → group_uuid so
+        callers can derive option UUIDs themselves via
+        ``property_option_uuid(name, value, kind)``. (The option UUIDs
+        are pure functions of the inputs, no DB roundtrip needed.)
+        """
+        if not groups:
+            return {}
+
+        from ecommerce_integrations.shopware6.export.utils import (
+            generate_uuid,
+        )
+
+        rows = []
+        result: dict[str, str] = {}
+        for name, kind in groups:
+            gid = generate_uuid(f"property_group_{name}")
+            rows.append({
+                "id": gid,
+                "name": name,
+                "displayType": "text",
+                "sortingType": "alphanumeric",
+                "filterable": True,
+                "visibleOnProductDetailPage": True,
+            })
+            result[f"{kind}:{name}"] = gid
+
+        def go(client):
+            client.request_post("_action/sync", payload={
+                "groups": {
+                    "entity": "property_group",
+                    "action": "upsert",
+                    "payload": rows,
+                },
+            })
+            return result
+
+        return _with_client(go)
+
+    def ensure_property_options_bulk(
+        self,
+        options: list[tuple[str, str, str]],
+    ) -> None:
+        """Bulk-upsert ``property_group_option`` rows so the subsequent
+        product upsert's nested ``properties`` / ``options`` m2m link
+        finds them. ``options`` is a list of ``(group_name, value, kind)``
+        tuples; ``kind`` selects the same UUID scheme the legacy
+        per-call helper used (so existing rows are matched, not
+        duplicated)."""
+        if not options:
+            return
+
+        from ecommerce_integrations.shopware6.export.utils import (
+            generate_uuid,
+        )
+
+        rows = []
+        for group_name, value, kind in options:
+            group_id = generate_uuid(f"property_group_{group_name}")
+            prefix = "variant_option" if kind == "variant" else "property_option"
+            opt_id = generate_uuid(f"{prefix}_{group_name}_{value}")
+            rows.append({"id": opt_id, "groupId": group_id, "name": value})
+
+        def go(client):
+            # ``upsert`` semantics: existing rows are matched by id and
+            # the name field is rewritten (harmless — same value).
+            client.request_post("_action/sync", payload={
+                "options": {
+                    "entity": "property_group_option",
+                    "action": "upsert",
+                    "payload": rows,
+                },
+            })
+
+        _with_client(go)
+
     def upsert_product(
         self,
         *,
@@ -1918,6 +2010,19 @@ def _fetch_local_file_bytes(url: str) -> tuple[bytes | None, str | None]:
         return (content, mime or "application/octet-stream")
     except Exception:  # noqa: BLE001
         return (None, None)
+
+
+def property_option_uuid(group_name: str, value: str, kind: str = "property") -> str:
+    """Deterministic UUID for a Shopware ``property_group_option`` row,
+    matching the scheme that ``shopware6.export.property_handler``
+    used for in-place creation. ``kind="property"`` matches
+    ``get_or_create_property_option`` (filterable properties);
+    ``kind="variant"`` matches ``get_or_create_variant_option`` (variant
+    configurator). The two intentionally produce different UUIDs so the
+    same value can exist as both a property and a variant option."""
+    from ecommerce_integrations.shopware6.export.utils import generate_uuid
+    prefix = "variant_option" if kind == "variant" else "property_option"
+    return generate_uuid(f"{prefix}_{group_name}_{value}")
 
 
 # Process-local "ambient" Shopware client. When set, ``_with_client``

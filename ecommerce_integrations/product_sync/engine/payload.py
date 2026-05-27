@@ -173,13 +173,46 @@ def build_shopware_payload(
     # and we don't need an out-of-band "ensure manufacturer exists"
     # round-trip per item.
     if _wants("properties"):
-        brand = (canonical.get("properties") or {}).get("brand")
+        props_canonical = canonical.get("properties") or {}
+        brand = props_canonical.get("brand")
         if brand:
             import hashlib as _hl
             payload["manufacturer"] = {
                 "id": _hl.md5(f"manufacturer::{brand}".encode()).hexdigest(),
                 "name": brand,
             }
+
+        # Properties m2m — filterable properties from ``ecommerce_properties``.
+        # The option entities must already exist server-side (the
+        # apply pipeline runs ``ensure_property_options_bulk`` ahead
+        # of the product bulk upsert); we just emit the m2m link as
+        # nested ``properties: [{id: ...}]`` so Shopware writes the
+        # association in the SAME ``_action/sync`` call as the
+        # product itself. Cuts an entire round-trip per product.
+        from ecommerce_integrations.product_sync.engine.adapters.shopware import (
+            property_option_uuid,
+        )
+        ecom_props = props_canonical.get("ecommerce_properties") or []
+        if ecom_props:
+            payload["properties"] = [
+                {"id": property_option_uuid(p["name"], p["value"], kind="property")}
+                for p in ecom_props
+                if p.get("name") and p.get("value")
+            ]
+
+        # Variant options m2m — for variants only. The attribute set
+        # comes from ``canonical.properties.attributes`` (sourced
+        # from the Item.attributes child table). Emit as nested
+        # ``options: [{id: ...}]`` so Shopware writes the m2m link in
+        # the same call instead of a follow-up PATCH per variant.
+        if getattr(item, "variant_of", None):
+            attrs = props_canonical.get("attributes") or []
+            if attrs:
+                payload["options"] = [
+                    {"id": property_option_uuid(a["name"], a["value"], kind="variant")}
+                    for a in attrs
+                    if a.get("name") and a.get("value")
+                ]
 
     # Variant link: when this Item is a variant of a template
     # (``Item.variant_of`` set), Shopware needs the template's
