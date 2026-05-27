@@ -1,11 +1,20 @@
-.DS_Store
+__pycache__/
 *.pyc
-*.egg-info
+*.pyo
+*.egg-info/
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
 *.swp
-tags
-ecommerce_integrations/docs/current
+*.swo
+.DS_Store
+.vscode/
 
-.aider*
-.helix
-.claude/
-docs/superpowers/
+# Local-only debugging scripts (CLAUDE.md: "Scripts named
+# fix_*, check_*, debug_*, analyze_*, copy_*, swap_*
+# belong in your private working tree").
+ecommerce_integrations/_tmp_diag/
+**/_tmp_diag/
