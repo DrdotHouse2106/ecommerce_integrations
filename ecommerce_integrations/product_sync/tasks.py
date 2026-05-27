@@ -1044,50 +1044,103 @@ def _apply_batch(
                             )
 
                 if has_variants:
-                    # Template: walk every variant child, collect their
-                    # option ids, set as ``configuratorSettings`` so the
+                    # Template: collect the option ids across all
+                    # variants, set as ``configuratorSettings`` so the
                     # storefront knows which axes to show on the PDP.
-                    variant_rows = frappe.get_all(
-                        "Item",
-                        filters={"variant_of": meta["item_code"], "disabled": 0},
-                        pluck="name",
-                    )
-                    option_ids: list[str] = []
-                    seen_opts: set[str] = set()
-                    for vcode in variant_rows:
-                        vext = frappe.db.get_value(
-                            _ECOMMERCE_ITEM_DOCTYPE,
-                            {"erpnext_item_code": vcode, "integration": integration_key},
-                            "integration_item_code",
+                    #
+                    # Bulk-coalesced path: the variant ``options`` m2m
+                    # was already written into each variant's payload
+                    # via ``build_shopware_payload`` (nested in the
+                    # batch product upsert). The option entities were
+                    # pre-created by the Phase-A.5 ensure call. So we
+                    # don't need to ask Shopware for the option_ids —
+                    # we can derive them deterministically from the
+                    # canonical attributes via ``property_option_uuid``
+                    # without N×N variant API calls.
+                    if _properties_handled_in_bulk:
+                        from ecommerce_integrations.product_sync.engine.adapters.shopware import (
+                            property_option_uuid as _opt_uuid,
                         )
-                        if not vext:
-                            continue
-                        try:
-                            v_doc = frappe.get_doc("Item", vcode)
-                        except frappe.DoesNotExistError:
-                            continue
-                        av = [
-                            {"name": a.attribute, "value": a.attribute_value}
-                            for a in (v_doc.attributes or [])
-                            if a.attribute and a.attribute_value
-                        ]
-                        if not av:
-                            continue
-                        try:
-                            res = opt_pusher(vext, av) or {}
-                        except Exception:  # noqa: BLE001
-                            continue
-                        for oid in res.get("option_ids") or []:
+                        variant_attr_rows = frappe.get_all(
+                            "Item Variant Attribute",
+                            filters={
+                                "parenttype": "Item",
+                                "parent": ("in", frappe.get_all(
+                                    "Item",
+                                    filters={
+                                        "variant_of": meta["item_code"],
+                                        "disabled": 0,
+                                    },
+                                    pluck="name",
+                                ) or ["__none__"]),
+                            },
+                            fields=["attribute", "attribute_value"],
+                        )
+                        option_ids = []
+                        seen_opts = set()
+                        for r in variant_attr_rows:
+                            a = (r.get("attribute") or "").strip()
+                            v = (r.get("attribute_value") or "").strip()
+                            if not a or not v:
+                                continue
+                            oid = _opt_uuid(a, v, kind="variant")
                             if oid not in seen_opts:
                                 seen_opts.add(oid)
                                 option_ids.append(oid)
-                    if option_ids:
-                        try:
-                            cfg_pusher(new_external_id, option_ids)
-                        except Exception as exc:  # noqa: BLE001
-                            result.errors.append(
-                                f"{meta['item_code']}: template configurator push failed: {exc}"
+                        if option_ids:
+                            try:
+                                cfg_pusher(new_external_id, option_ids)
+                            except Exception as exc:  # noqa: BLE001
+                                result.errors.append(
+                                    f"{meta['item_code']}: template configurator push failed: {exc}"
+                                )
+                    else:
+                        # Legacy path: walk variant docs and call the
+                        # adapter helper to resolve option ids from
+                        # Shopware. Used when the bulk-coalesce
+                        # pipeline isn't available (e.g. tests, mock
+                        # adapters).
+                        variant_rows = frappe.get_all(
+                            "Item",
+                            filters={"variant_of": meta["item_code"], "disabled": 0},
+                            pluck="name",
+                        )
+                        option_ids: list[str] = []
+                        seen_opts: set[str] = set()
+                        for vcode in variant_rows:
+                            vext = frappe.db.get_value(
+                                _ECOMMERCE_ITEM_DOCTYPE,
+                                {"erpnext_item_code": vcode, "integration": integration_key},
+                                "integration_item_code",
                             )
+                            if not vext:
+                                continue
+                            try:
+                                v_doc = frappe.get_doc("Item", vcode)
+                            except frappe.DoesNotExistError:
+                                continue
+                            av = [
+                                {"name": a.attribute, "value": a.attribute_value}
+                                for a in (v_doc.attributes or [])
+                                if a.attribute and a.attribute_value
+                            ]
+                            if not av:
+                                continue
+                            try:
+                                res = opt_pusher(vext, av) or {}
+                            except Exception:  # noqa: BLE001
+                                continue
+                            for oid in res.get("option_ids") or []:
+                                if oid not in seen_opts:
+                                    seen_opts.add(oid)
+                                    option_ids.append(oid)
+                        if option_ids:
+                            try:
+                                cfg_pusher(new_external_id, option_ids)
+                            except Exception as exc:  # noqa: BLE001
+                                result.errors.append(
+                                    f"{meta['item_code']}: template configurator push failed: {exc}"
+                                )
 
         applied_diffs.append({
             "item_code": meta["item_code"],
