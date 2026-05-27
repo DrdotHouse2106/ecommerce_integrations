@@ -55,12 +55,14 @@ SHOPWARE_CUSTOM_FIELD_SET_NAME = "erpnext_product_fields"
 SHOPWARE_CUSTOM_FIELD_AI_SHORT_DESCRIPTION = "erpnext_ai_short_description"
 SHOPWARE_CUSTOM_FIELD_AI_BENEFITS = "erpnext_ai_benefits"
 SHOPWARE_CUSTOM_FIELD_AI_SEO_DESCRIPTION = "erpnext_ai_seo_description"
+SHOPWARE_CUSTOM_FIELD_YOUTUBE_VIDEO_URL = "erpnext_youtube_video_url"
 
 # Mapping: ERPNext field -> Shopware custom field for AI descriptions
 PRODUCT_CUSTOM_FIELDS_MAP = {
     "ai_short_description": SHOPWARE_CUSTOM_FIELD_AI_SHORT_DESCRIPTION,
     "ai_benefits": SHOPWARE_CUSTOM_FIELD_AI_BENEFITS,
     "ai_seo_description": SHOPWARE_CUSTOM_FIELD_AI_SEO_DESCRIPTION,
+    "youtube_video_url": SHOPWARE_CUSTOM_FIELD_YOUTUBE_VIDEO_URL,
 }
 
 # Shopware Custom Field Set for Categories

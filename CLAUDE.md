@@ -118,6 +118,70 @@ The integration branch tracks upstream's v16 line. `upstream/version-16` is stab
 - Long-running scheduled jobs (full reconciliation, batch product export) check a generation counter and abort cleanly if a newer run has been queued.
 - Secrets (API keys, webhook secrets) are stored as `Password` fields and read via `get_password()`. Never log secret values.
 
+## Delta-sync compatibility (load-bearing)
+
+Every new or changed sync feature MUST fit the existing
+delta-sync model. The product-sync engine in
+`product_sync/engine/` is built around three contracts that the
+apply pipeline depends on — break any of them and the engine
+either re-pushes the entire catalogue every cron tick (wasting
+hours of API roundtrips) or silently fails to propagate the
+change.
+
+1. **Hashable canonical.** Anything that drives the wire payload
+   has to land in `build_canonical_payload` (in
+   `engine/canonical.py`). Sections feeding hashing are
+   serialised with stable key order, normalised strings, rounded
+   numeric precision and sorted lists — see the "Determinism
+   rules" block at the top of that module. A field that's pushed
+   to the backend but never hashed leaks: the differ marks the
+   item as noop while the operator's edit silently disappears.
+   When you add a new field to the canonical schema, bump
+   `PAYLOAD_VERSION` so old hashes don't collide with new ones.
+
+2. **Per-section delta gating.** The apply pipeline reads
+   `meta["delta_sections"]` (computed by `changed_sections()`
+   against the stored `last_synced_canonical`) and uses it to
+   gate Phase-C enrichments (image upload, properties push,
+   variant configurator, …). New enrichment work must follow the
+   same pattern: read the relevant section name from
+   `_delta_sections`, skip when the section is unchanged AND a
+   stored canonical exists. Hardcoded "always run" enrichments
+   undo the delta-skip and make every cron tick a full re-push.
+
+3. **Bulk + idempotent backend calls.** Per-item HTTP loses
+   immediately on a 30k+ catalogue. New backend work goes
+   through batched `/_action/sync` (Shopware) or
+   `/admin/products/batch` (Medusa). Entity ids use deterministic
+   UUIDs (`generate_uuid("<scheme>_<key>")` for Shopware,
+   handle-based ids for Medusa) so re-runs upsert in place
+   instead of duplicating. Phase-A.5 ensure-helpers
+   (`ensure_property_options_bulk`,
+   `ensure_brand_entities_bulk`, …) pre-create dependent
+   entities ONCE per run via a batched call; never inline a
+   per-item `get_or_create_*` lookup on the hot path.
+
+   Anything heavy that doesn't depend on the per-item payload
+   (Shopware Setting reads, brand entity upserts, OAuth
+   handshakes) belongs at the run level, not the batch level —
+   memoise on `frappe.local` for once-per-job semantics, or hoist
+   the call out of `_apply_batch` entirely.
+
+Practical checklist when adding a sync feature:
+
+- [ ] Field is included in `build_canonical_payload` so drift
+      flips the hash.
+- [ ] Apply-side code reads `delta_sections` (and/or the per-item
+      cached canonical via `meta["canonical"]`) before doing
+      work.
+- [ ] Bulk path uses deterministic ids and a single batched API
+      call per entity type per batch (or per run, when the data
+      doesn't vary by item).
+- [ ] Re-running the same sync on an unchanged catalogue produces
+      zero backend writes — verify by checking
+      `Ecommerce Sync Run.updated_count == 0` and the backend's
+      timestamps.
+
 ## Tests
 
 - Tests live next to the code they test (`<module>/tests/test_*.py`).

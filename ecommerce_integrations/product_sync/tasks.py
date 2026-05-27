@@ -296,6 +296,26 @@ def _apply_live(
             if row.sales_channel_id
         ]
 
+        # 2.5: ensure brand manufacturer rows ONCE per run (not per
+        # batch). Brand data — logo + description + link — doesn't
+        # vary across batches of the same run, and the upload step
+        # (URL fetch of the logo) is the most expensive part. Hashing
+        # the per-brand state and comparing against ``Brand`` custom
+        # field ``last_synced_brand_hash`` means we only re-push when
+        # the operator actually changed something on the ERPNext
+        # side.
+        if backend == BACKEND_SHOPWARE:
+            try:
+                _ensure_brands_for_run(
+                    sync_doc=sync_doc, plan=plan, adapter=adapter,
+                    run_name=run.name,
+                )
+            except Exception as exc:  # noqa: BLE001
+                _logger().warning(
+                    f"brand pre-flight failed for sync={sync_doc.name} "
+                    f"run={run.name}: {type(exc).__name__}: {exc}"
+                )
+
         # 3. Apply creates + updates in batches against the backend's
         #    bulk endpoint (Shopware /_action/sync, Medusa
         #    /admin/products/batch). Per-item HTTP would be 33k+ round
@@ -647,61 +667,11 @@ def _apply_batch(
     if not prepared:
         return
 
-    # Phase A.5a: pre-flight ensure ``product_manufacturer`` rows
-    # carry the brand's description + logo. The product bulk upsert
-    # below references them via the nested ``manufacturer.id`` link
-    # (same deterministic UUID scheme), so doing the enrichment in
-    # one batched call beforehand is the difference between "Shopware
-    # shows brand logos on the storefront" and "Shopware only knows
-    # the brand name". Skipped for non-Shopware backends and when no
-    # items in the batch carry a brand.
-    if backend == BACKEND_SHOPWARE and hasattr(adapter, "ensure_brand_entities_bulk"):
-        try:
-            brand_names: set[str] = set()
-            for meta in metadata:
-                b = ((meta.get("canonical") or {}).get("properties") or {}).get("brand")
-                if b:
-                    brand_names.add(b.strip())
-            if brand_names:
-                # Resolve brand image + description from the ERP
-                # Brand doctype; absolutize the image URL via the
-                # same public-base helper the product image upload
-                # uses, so Shopware fetches the logo from a host it
-                # can actually reach.
-                from ecommerce_integrations.product_sync.engine.payload import (
-                    _resolve_image_public_base,
-                )
-                base = _resolve_image_public_base()
-                rows = frappe.get_all(
-                    "Brand",
-                    filters={"name": ("in", sorted(brand_names))},
-                    fields=["name", "image", "description"],
-                )
-                brand_payloads = []
-                for r in rows:
-                    img_raw = (r.get("image") or "").strip()
-                    if img_raw:
-                        if img_raw.startswith(("http://", "https://")):
-                            img_abs = img_raw
-                        elif base:
-                            img_abs = base.rstrip("/") + (
-                                img_raw if img_raw.startswith("/") else "/" + img_raw
-                            )
-                        else:
-                            img_abs = ""
-                    else:
-                        img_abs = ""
-                    brand_payloads.append({
-                        "name": r["name"],
-                        "description": (r.get("description") or "").strip(),
-                        "logo_url": img_abs,
-                    })
-                adapter.ensure_brand_entities_bulk(brand_payloads)
-        except Exception as exc:  # noqa: BLE001 — pre-flight is best-effort
-            _logger().warning(
-                f"brand entity pre-flight failed for sync={sync_doc.name} "
-                f"run={run_name}: {type(exc).__name__}: {exc}"
-            )
+    # Phase A.5a: brand entities are now ensured ONCE per apply run
+    # (see ``_ensure_brands_for_run`` invoked from ``_apply_live``
+    # before the batch loop), not per batch — the legacy
+    # per-batch call here re-uploaded logos thousands of times for a
+    # 37k-item catalogue. Skipped here.
 
     # Phase A.5b: pre-flight ensure ``property_group`` +
     # ``property_group_option`` entities exist for every
@@ -1285,6 +1255,100 @@ def _apply_one_item(
         "status": "ok",
         "external_id": new_external_id,
     }
+
+
+def _ensure_brands_for_run(*, sync_doc, plan, adapter, run_name: str) -> None:
+    """Push every distinct brand in this run's plan to Shopware ONCE
+    per ``_apply_live`` call, with per-brand delta against
+    ``Brand.last_synced_brand_hash``.
+
+    Why once-per-run, not once-per-batch: brand entities (logo +
+    description + link) don't vary across batches of the same run,
+    and the logo URL-fetch is the most expensive step. Looping it
+    1500× for a 37k-item catalogue was pure waste.
+
+    Why per-brand delta: a cron tick on an unchanged catalogue
+    must produce ZERO backend writes (per the delta-sync contract
+    in CLAUDE.md). Hashing the brand's source fields lets us
+    skip the upsert when nothing changed since the last successful
+    push.
+    """
+    if not hasattr(adapter, "ensure_brand_entities_bulk"):
+        return
+    # Collect distinct brand names in scope (creates + updates).
+    item_codes: set[str] = set()
+    for node in (plan.creates or []):
+        item_codes.add(node.item_code)
+    for node in (plan.updates or []):
+        item_codes.add(node.item_code)
+    if not item_codes:
+        return
+    brand_names = frappe.db.sql_list("""
+      SELECT DISTINCT brand FROM `tabItem`
+      WHERE name IN %(codes)s AND brand IS NOT NULL AND brand != ''
+    """, {"codes": tuple(item_codes) or ("__none__",)})
+    if not brand_names:
+        return
+    from ecommerce_integrations.product_sync.engine.payload import (
+        _resolve_image_public_base,
+    )
+    base = _resolve_image_public_base()
+    rows = frappe.get_all(
+        "Brand",
+        filters={"name": ("in", sorted(brand_names))},
+        fields=["name", "image", "description"],
+    )
+    # Per-brand delta check: hash (image, description) and compare
+    # against last-synced hash on the Brand doc. Field is added via
+    # the patch alongside this code; skip the hash check (and push
+    # everything) when the field isn't installed yet so first
+    # rollout works without a patch step.
+    has_hash_field = bool(frappe.db.has_column("Brand", "last_synced_brand_hash"))
+    drifted: list[dict] = []
+    drifted_hashes: dict[str, str] = {}
+    for r in rows:
+        img_raw = (r.get("image") or "").strip()
+        if img_raw and not img_raw.startswith(("http://", "https://")) and base:
+            img_abs = base.rstrip("/") + (
+                img_raw if img_raw.startswith("/") else "/" + img_raw
+            )
+        else:
+            img_abs = img_raw
+        desc = (r.get("description") or "").strip()
+        import hashlib as _hl
+        h = _hl.sha256(
+            f"img={img_abs}\ndesc={desc}".encode("utf-8")
+        ).hexdigest()
+        if has_hash_field:
+            stored = frappe.db.get_value("Brand", r["name"], "last_synced_brand_hash") or ""
+            if stored == h:
+                continue
+        drifted.append({
+            "name": r["name"],
+            "description": desc,
+            "logo_url": img_abs,
+        })
+        drifted_hashes[r["name"]] = h
+    if not drifted:
+        _logger().info(
+            f"brand pre-flight: no drift, skipped ({len(rows)} brands in scope)"
+        )
+        return
+    _logger().info(
+        f"brand pre-flight: pushing {len(drifted)} of {len(rows)} brands "
+        f"(drifted on logo/description)"
+    )
+    adapter.ensure_brand_entities_bulk(drifted)
+    if has_hash_field:
+        for name, h in drifted_hashes.items():
+            try:
+                frappe.db.set_value(
+                    "Brand", name, "last_synced_brand_hash", h,
+                    update_modified=False,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        frappe.db.commit()
 
 
 def _persist_item_success(

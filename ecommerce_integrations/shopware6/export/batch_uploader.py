@@ -2059,11 +2059,10 @@ class BatchProductUploader:
         if tax_id:
             payload["taxId"] = tax_id
 
-        # Price is required by Shopware, even for templates
-        # Templates (parent products) don't have their own price, variants do
-        # Use standard_rate if available, otherwise use 0 as placeholder
-        gross_price = flt(item_data.get(ITEM_SELLING_RATE_FIELD)) or flt(item_data.get("standard_rate")) or 0
-        net_price = gross_price / (1 + tax_rate / 100) if tax_rate and gross_price else gross_price
+        # Price is required by Shopware, even for templates.
+        # standard_rate stores NET prices (e.g. BMEcat NRP imports).
+        net_price = flt(item_data.get("_price") or item_data.get(ITEM_SELLING_RATE_FIELD) or 0)
+        gross_price = round(net_price * (1 + tax_rate / 100), 2) if tax_rate and net_price else net_price
         payload["price"] = [{
             "currencyId": self._currency_id,
             "gross": gross_price,
