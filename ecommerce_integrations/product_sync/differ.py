@@ -762,6 +762,21 @@ def _collect_price_lists(sync_doc) -> list[str]:
         override = (getattr(row, "override_price_list", None) or "").strip()
         if override:
             lists.add(override)
+    # UVP/Streichpreis list — read once from Shopware Setting so the
+    # canonical-pricing builder can emit ``list_price`` without a
+    # per-item Setting lookup. Silent skip when the setting isn't set
+    # (operator hasn't configured strike-through) or the Setting
+    # doctype isn't installed (Medusa-only sites).
+    try:
+        uvp_list = (
+            frappe.db.get_single_value(
+                "Shopware Setting", "list_price_price_list",
+            ) or ""
+        ).strip()
+        if uvp_list:
+            lists.add(uvp_list)
+    except Exception:  # noqa: BLE001
+        pass
     return sorted(lists)
 
 

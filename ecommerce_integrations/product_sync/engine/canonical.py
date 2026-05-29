@@ -457,12 +457,71 @@ def _canonical_pricing(item, sync, ctx=None) -> dict[str, Any]:
         # Shopware both store 30.34) and flag every Item as drift.
         gross_price = round(base_net * (1.0 + tax_rate_pct / 100.0), 2)
 
-    return {
+    out: dict[str, Any] = {
         "currency": _norm_str(currency),
         "base_price": gross_price,
         "channel_prices": channel_prices,
         "tax_rate_pct": _normalize_float(tax_rate_pct),
     }
+
+    # UVP / Streichpreis (MSRP strike-through). Lookup is conditional
+    # — only emitted into the canonical when UVP > sale price (gross,
+    # like-for-like). That keeps the hash stable for the ~99 % of
+    # items without an MSRP set, so adding this section only flips
+    # the hash on items that actually need a strike-through push.
+    list_price_list = _resolve_list_price_list_name()
+    if list_price_list:
+        uvp_raw = _price(list_price_list)
+        if uvp_raw and uvp_raw > 0:
+            uvp_gross = _normalize_list_price_gross(
+                uvp_raw, tax_rate_pct,
+            )
+            if uvp_gross > gross_price:
+                out["list_price"] = round(uvp_gross, 2)
+    return out
+
+
+def _resolve_list_price_list_name() -> str:
+    """Read the UVP/Streichpreis price list name from Shopware Setting.
+
+    Cached on ``frappe.local`` for the lifetime of a request/job so
+    every per-item canonical build inside one Sync run reads from
+    memory. Silent fallback to empty string when the doctype isn't
+    installed (Medusa-only sites)."""
+    import frappe
+    cache_key = "_psync_list_price_list"
+    cached = getattr(frappe.local, cache_key, None)
+    if cached is not None:
+        return cached
+    try:
+        name = (frappe.db.get_single_value(
+            "Shopware Setting", "list_price_price_list",
+        ) or "").strip()
+    except Exception:  # noqa: BLE001
+        name = ""
+    setattr(frappe.local, cache_key, name)
+    return name
+
+
+def _normalize_list_price_gross(raw_price: float, tax_rate_pct: float) -> float:
+    """Convert the raw UVP price-list rate to gross, honouring the
+    ``Shopware Setting.list_price_includes_tax`` flag."""
+    import frappe
+    cache_key = "_psync_list_price_is_gross"
+    cached = getattr(frappe.local, cache_key, None)
+    if cached is None:
+        try:
+            cached = bool(int(
+                frappe.db.get_single_value(
+                    "Shopware Setting", "list_price_includes_tax",
+                ) or 0,
+            ))
+        except Exception:  # noqa: BLE001
+            cached = False
+        setattr(frappe.local, cache_key, cached)
+    if cached:
+        return _normalize_float(raw_price)
+    return round(raw_price * (1.0 + tax_rate_pct / 100.0), 2)
 
 
 def _lookup_item_price(item_code: str, price_list: str, currency: str) -> float | None:

@@ -121,6 +121,24 @@ def build_shopware_payload(
                     # consistent without a re-push.
                     "linked": True,
                 }
+                # UVP / Streichpreis. Canonical only emits ``list_price``
+                # when it strictly exceeds ``base_price`` (gross), so a
+                # presence-check here is sufficient — no extra comparison
+                # needed. Both sides are gross, derive net via the same
+                # tax-rate the base price uses for symmetry.
+                list_price_gross = pricing.get("list_price")
+                if list_price_gross:
+                    lp_gross, lp_net = _compute_gross_net(
+                        float(list_price_gross),
+                        tax_rate_pct,
+                        erp_is_gross=True,
+                    )
+                    price_row["listPrice"] = {
+                        "currencyId": currency_id,
+                        "gross": lp_gross,
+                        "net": lp_net,
+                        "linked": True,
+                    }
                 payload["price"] = [price_row]
 
                 # Push the Shopware Tax UUID when we can resolve it
