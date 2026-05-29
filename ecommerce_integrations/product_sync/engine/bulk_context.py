@@ -69,10 +69,19 @@ class ItemSnapshot:
     ai_short_description: str | None = None
     ai_benefits: str | None = None
     ai_seo_description: str | None = None
+    ai_long_description: str | None = None
+    ai_seo_title: str | None = None
     youtube_video_url: str | None = None
-    # Pre-loaded child lists.
+    ean: str | None = None
+    delivery_time: str | None = None
+    # Pre-loaded child lists. The canonical reads ``item.attributes``
+    # (Item Variant Attribute) and ``item.taxes`` (Item Tax) via plain
+    # ``getattr``; both must be populated or the differ-side canonical
+    # diverges from the apply-side canonical and every Item with any
+    # variant attribute or tax template looks permanently drifted.
     attributes: list[Any] = field(default_factory=list)
     barcodes: list[Any] = field(default_factory=list)
+    taxes: list[Any] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         """Used by name_template / description_template Jinja rendering."""
@@ -100,6 +109,11 @@ class AttributeRow:
     attribute_value: str
 
 
+@dataclass
+class TaxRow:
+    item_tax_template: str
+
+
 class BulkContext:
     """Pre-loaded snapshot for one Sync's full scope.
 
@@ -121,6 +135,8 @@ class BulkContext:
         self._load_prices(codes, list({p for p in price_lists if p}))
         self._load_images(codes)
         self._load_barcodes(codes)
+        self._load_attributes(codes)
+        self._load_taxes(codes)
 
     # ─── Loaders ────────────────────────────────────────────────────
 
@@ -145,7 +161,8 @@ class BulkContext:
             "item_group", "brand", "manufacturer", "currency",
             "seo_slug", "slug", "meta_title", "meta_description",
             "ai_short_description", "ai_benefits",
-            "ai_seo_description", "youtube_video_url",
+            "ai_seo_description", "ai_long_description", "ai_seo_title",
+            "youtube_video_url", "ean", "delivery_time",
         ):
             if cf in present:
                 wanted.append(cf)
@@ -177,7 +194,11 @@ class BulkContext:
                 ai_short_description=r.get("ai_short_description"),
                 ai_benefits=r.get("ai_benefits"),
                 ai_seo_description=r.get("ai_seo_description"),
+                ai_long_description=r.get("ai_long_description"),
+                ai_seo_title=r.get("ai_seo_title"),
                 youtube_video_url=r.get("youtube_video_url"),
+                ean=r.get("ean"),
+                delivery_time=r.get("delivery_time"),
             )
             self._items[snap.item_code] = snap
 
@@ -249,6 +270,55 @@ class BulkContext:
                     barcode=r["barcode"] or "",
                     barcode_type=r["barcode_type"] or "",
                 ),
+            )
+
+    def _load_attributes(self, item_codes: list[str]) -> None:
+        """Pre-load Item Variant Attribute rows. The canonical hashes
+        these into ``properties.attributes`` — without them, items with
+        Brand_C/Brand_B-style variant attrs (colour, lock-type) look
+        permanently drifted to the differ."""
+        rows = frappe.db.sql(
+            """SELECT parent, attribute, attribute_value
+               FROM `tabItem Variant Attribute`
+               WHERE parent IN %(codes)s
+               ORDER BY parent, idx""",
+            {"codes": tuple(item_codes) or ("__none__",)},
+            as_dict=True,
+        )
+        for r in rows:
+            snap = self._items.get(r["parent"])
+            if snap is None:
+                continue
+            snap.attributes.append(
+                AttributeRow(
+                    attribute=r["attribute"] or "",
+                    attribute_value=r["attribute_value"] or "",
+                ),
+            )
+
+    def _load_taxes(self, item_codes: list[str]) -> None:
+        """Pre-load Item Tax template assignments. The canonical's
+        tax-rate derivation in ``_max_tax_rate_from_item`` walks
+        ``item.taxes`` for an ``item_tax_template`` — without it the
+        ctx-path computes 0 % VAT while the apply-path computes the
+        real rate (19 % DE default), and every item with a tax
+        template shows drift on the ``taxes`` section."""
+        rows = frappe.db.sql(
+            """SELECT parent, item_tax_template
+               FROM `tabItem Tax`
+               WHERE parent IN %(codes)s
+                 AND item_tax_template IS NOT NULL
+                 AND item_tax_template != ''
+               ORDER BY parent, idx""",
+            {"codes": tuple(item_codes) or ("__none__",)},
+            as_dict=True,
+        )
+        for r in rows:
+            snap = self._items.get(r["parent"])
+            if snap is None:
+                continue
+            snap.taxes.append(
+                TaxRow(item_tax_template=r["item_tax_template"] or ""),
             )
 
     # ─── Lookup API used by canonical.py ────────────────────────────
