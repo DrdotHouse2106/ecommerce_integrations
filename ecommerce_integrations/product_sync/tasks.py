@@ -78,6 +78,64 @@ def _logger():
     return frappe.logger("product_sync.apply", allow_site=True, file_count=10)
 
 
+def dispatch_item_change(
+    item_code: str,
+    backend: str | None = None,
+) -> dict[str, Any]:
+    """Save-triggered single-item sync entry point.
+
+    Called from per-channel ``queue_*_for_sync`` doc-event hooks when
+    an Item or Item Price is saved. Resolves the active
+    ``Ecommerce Product Sync`` covering this item for each requested
+    backend and runs the shared apply pipeline in subset mode
+    (``subset_item_codes=[item_code]``) so the per-save path goes
+    through the **same** canonical → hash → diff → push chain as the
+    cron-based bulk run. Honours the delta-hash gate: an unchanged
+    item is a cheap noop (one canonical build + one hash compare, no
+    backend roundtrip).
+
+    ``backend`` selects which channel(s) to dispatch to. ``None``
+    means "every backend with an active sync covering this item" —
+    use this when the caller doesn't know or care which channels are
+    in scope. Per-channel ``queue_*_for_sync`` hooks pass their own
+    backend name so they only fire jobs for their own channel.
+
+    Returns a short summary dict ``{"backend": ProductSyncRunResult}``
+    for caller-side logging; an empty dict means no active sync
+    matched (no work to do, not an error).
+    """
+    from ecommerce_integrations.product_sync.resolver import (
+        find_active_syncs_covering_item,
+    )
+
+    if backend:
+        backends = [backend]
+    else:
+        backends = [BACKEND_SHOPWARE, BACKEND_MEDUSA]
+
+    out: dict[str, Any] = {}
+    for be in backends:
+        sync_names = find_active_syncs_covering_item(item_code, be)
+        if not sync_names:
+            continue
+        # One Sync per backend is the supported topology — if two
+        # active Syncs cover the same item, the resolver already
+        # logged a conflict; pick the first to keep the per-save
+        # path deterministic. The cron run surfaces it in the
+        # ``conflicts`` bucket for operator review.
+        result = apply_sync(
+            sync_names[0],
+            dry_run=False,
+            fetch_live=False,
+            subset_item_codes=[item_code],
+            mode="live",
+            triggered_by=getattr(frappe.session, "user", None),
+            trigger_type="dispatch",
+        )
+        out[be] = result
+    return out
+
+
 def apply_sync(
     sync_name: str,
     *,

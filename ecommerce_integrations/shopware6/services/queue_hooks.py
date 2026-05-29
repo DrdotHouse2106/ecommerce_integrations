@@ -1,4 +1,17 @@
-"""Hook entry points for Shopware bulk-sync queueing."""
+"""Hook entry points for Shopware product sync queueing.
+
+All four ``queue_*_for_sync`` handlers fan an Item / Item Price /
+Item Group save out to the **new product_sync engine** via
+``product_sync.tasks.dispatch_item_change``. The legacy single-item
+uploader (``bulk_sync.sync_single_item_to_shopware``,
+``product_export.update_item_price_in_shopware``,
+``properties.upload_item_properties``) is no longer reachable from
+the doc-event path — that path is the single source of truth for
+"item saved → sync to backend" and lives entirely inside
+``product_sync/``. Operators get the same delta-hash gate, the same
+canonical payload and the same audit row whether the change came
+from the cron, the dispatch button or a per-Item save.
+"""
 
 import frappe
 
@@ -6,24 +19,19 @@ from ecommerce_integrations.shopware6.constants import ROOT_ITEM_GROUPS
 
 
 def queue_item_for_sync(doc, method=None):
-    """Queue an item for product sync or enqueue a single async sync.
+    """Enqueue a single-item product-sync dispatch on Item save.
 
-    Phase-Future refactor: only enqueue when at least one ACTIVE
-    Product Sync's scope covers this Item. The old behaviour ("push
-    every ``Item.save()``") is unsafe at scale — it produces thousands of
-    pointless pushes for items the operator does not actually want
-    synced. The ``Ecommerce Product Sync`` doctype is now the explicit
-    opt-in for "which Items get pushed".
+    Pre-flight gates (in order):
+
+    * skip integration-originated writes (``flags.from_integration``)
+      so a Shopware import doesn't bounce back to Shopware,
+    * skip when the global ``skip_shopware_sync`` flag is set,
+    * skip when Shopware is disabled in Setting or the per-item
+      enable-on-create / enable-on-update gate is off,
+    * skip when the Item is in no active Product Sync scope — the
+      Product Sync doctype is the explicit opt-in for "which Items
+      get pushed", so a save on an out-of-scope item is a noop here.
     """
-    from ecommerce_integrations.shopware6.bulk_sync import (
-        activate_bulk_mode,
-        add_to_sync_queue,
-        get_bulk_sync_settings,
-        is_bulk_mode_active,
-        schedule_bulk_sync_processing,
-        should_use_bulk_mode,
-    )
-
     item = doc
 
     if item.flags.from_integration:
@@ -38,28 +46,19 @@ def queue_item_for_sync(doc, method=None):
     if not _item_in_any_active_sync(item):
         return
 
-    settings = get_bulk_sync_settings()
-
-    if frappe.flags.in_import or getattr(frappe.flags, "in_bulk_update", False):
-        add_to_sync_queue(item.name, "product")
-        if not is_bulk_mode_active():
-            activate_bulk_mode()
-        return
-
-    if not settings["enabled"]:
-        _enqueue_shopware_product_sync(item.name)
-        return
-
-    if should_use_bulk_mode():
-        add_to_sync_queue(item.name, "product")
-        schedule_bulk_sync_processing()
-        return
-
-    _enqueue_shopware_product_sync(item.name)
+    _enqueue_product_sync_dispatch(item.name)
 
 
 def queue_item_delete_for_sync(doc, method=None):
-    """Queue item deactivation for Shopware."""
+    """Queue item deactivation in Shopware.
+
+    Deletion / deactivation isn't a delta drift — it's an explicit
+    backend command — so it stays on its own enqueued path rather
+    than going through the dispatch. The new product_sync adapter
+    exposes a ``deactivate_product`` for this; until that path is
+    plumbed through, the legacy ``deactivate_product_in_shopware``
+    is still the entry point.
+    """
     item = doc
 
     if getattr(frappe.flags, "skip_shopware_sync", False):
@@ -77,18 +76,14 @@ def queue_item_delete_for_sync(doc, method=None):
 
 
 def queue_properties_for_sync(doc, method=None):
-    """Queue Shopware property sync for an item."""
-    from ecommerce_integrations.shopware6.bulk_sync import (
-        activate_bulk_mode,
-        add_to_sync_queue,
-        get_bulk_sync_settings,
-        is_bulk_mode_active,
-        schedule_bulk_sync_processing,
-        should_use_bulk_mode,
-    )
-    from ecommerce_integrations.shopware6.properties import upload_item_properties
-    from ecommerce_integrations.shopware6.utils import get_shopware_document_id
+    """Property change is part of the same item canonical → same dispatch.
 
+    The new engine's canonical hashes properties into the
+    ``properties`` section. A property change therefore flips the
+    Item's overall canonical hash and the dispatch picks it up via
+    the same drift gate as any other field change. No separate
+    per-property push path is needed.
+    """
     item = doc
 
     if item.flags.from_integration:
@@ -100,36 +95,20 @@ def queue_properties_for_sync(doc, method=None):
     if not _is_shopware_enabled(check_update_setting=True):
         return
 
-    if not get_shopware_document_id("Item", item.name):
+    if not _item_in_any_active_sync(item):
         return
 
-    settings = get_bulk_sync_settings()
-
-    if frappe.flags.in_import or getattr(frappe.flags, "in_bulk_update", False):
-        add_to_sync_queue(item.name, "properties")
-        if not is_bulk_mode_active():
-            activate_bulk_mode()
-        return
-
-    if not settings["enabled"]:
-        frappe.enqueue(
-            "ecommerce_integrations.shopware6.properties.upload_item_properties",
-            queue="short",
-            doc=doc,
-            enqueue_after_commit=True,
-        )
-        return
-
-    if should_use_bulk_mode():
-        add_to_sync_queue(item.name, "properties")
-        schedule_bulk_sync_processing()
-        return
-
-    upload_item_properties(doc, method)
+    _enqueue_product_sync_dispatch(item.name)
 
 
 def queue_item_group_for_sync(doc, method=None):
-    """Queue an Item Group for category sync."""
+    """Queue an Item Group for category sync.
+
+    Category sync still flows through the legacy category handler —
+    the new engine doesn't own category trees yet (that's Catalog
+    Mirror's job). Left as-is until Catalog Mirror absorbs the
+    per-channel write side.
+    """
     item_group = doc
 
     if item_group.name in ROOT_ITEM_GROUPS:
@@ -195,17 +174,14 @@ def queue_item_group_delete_for_sync(doc, method=None):
 
 
 def queue_price_for_sync(doc, method=None):
-    """Queue price sync when an Item Price changes."""
-    from ecommerce_integrations.shopware6.bulk_sync import (
-        activate_bulk_mode,
-        add_to_sync_queue,
-        get_bulk_sync_settings,
-        is_bulk_mode_active,
-        schedule_bulk_sync_processing,
-        should_use_bulk_mode,
-    )
-    from ecommerce_integrations.shopware6.utils import get_logger, get_shopware_document_id
+    """Enqueue dispatch when an Item Price changes.
 
+    No per-price-list filtering here — the new engine's canonical
+    decides whether the price-list change is relevant (matches the
+    Sync's ``price_list_override`` or a per-channel override). An
+    irrelevant price-list change becomes a cheap noop via the hash
+    gate; relevant ones flip the hash and trigger a push.
+    """
     item_price = doc
 
     if item_price.flags.from_integration:
@@ -214,45 +190,17 @@ def queue_price_for_sync(doc, method=None):
     if getattr(frappe.flags, "skip_shopware_sync", False):
         return
 
-    setting = _get_shopware_setting()
-    if not setting:
+    if not _is_shopware_enabled():
         return
 
     item_code = item_price.item_code
     if not item_code:
         return
 
-    if not get_shopware_document_id("Item", item_code):
+    if not _item_code_in_any_active_sync(item_code):
         return
 
-    selling_price_list = setting.get("price_list") or frappe.db.get_single_value(
-        "Selling Settings", "selling_price_list"
-    )
-    if item_price.price_list != selling_price_list:
-        return
-
-    get_logger("queue_price_for_sync").info(
-        f"Shopware6: Queueing price sync for item {item_code} (price list: {item_price.price_list})"
-    )
-
-    settings = get_bulk_sync_settings()
-
-    if frappe.flags.in_import or getattr(frappe.flags, "in_bulk_update", False):
-        add_to_sync_queue(item_code, "price")
-        if not is_bulk_mode_active():
-            activate_bulk_mode()
-        return
-
-    if not settings["enabled"]:
-        _enqueue_shopware_price_sync(item_code)
-        return
-
-    if should_use_bulk_mode():
-        add_to_sync_queue(item_code, "price")
-        schedule_bulk_sync_processing()
-        return
-
-    _enqueue_shopware_price_sync(item_code)
+    _enqueue_product_sync_dispatch(item_code)
 
 
 def _get_shopware_setting():
@@ -289,27 +237,21 @@ def _is_shopware_item_sync_enabled(item_code: str) -> bool:
     return bool(getattr(setting, "update_shopware_item_on_update", True))
 
 
-def _enqueue_shopware_product_sync(item_code: str) -> None:
-    # ``job_id`` + ``deduplicate=True`` collapse rapid double-saves of the
-    # same Item into a single queued job. Without this, every save spawns a
-    # parallel sync job for the same item_code.
+def _enqueue_product_sync_dispatch(item_code: str) -> None:
+    """Enqueue the unified ``dispatch_item_change`` for one item.
+
+    Job-id + ``deduplicate=True`` collapses rapid double-saves of
+    the same item into one queued job — same dedup contract the
+    legacy single-item enqueue had. ``enqueue_after_commit=True``
+    so the job sees the persisted state, not the in-flight one.
+    """
     frappe.enqueue(
-        "ecommerce_integrations.shopware6.bulk_sync.sync_single_item_to_shopware",
+        "ecommerce_integrations.product_sync.tasks.dispatch_item_change",
         queue="short",
         item_code=item_code,
+        backend="Shopware",
         enqueue_after_commit=True,
-        job_id=f"shopware6_sync_item:{item_code}",
-        deduplicate=True,
-    )
-
-
-def _enqueue_shopware_price_sync(item_code: str) -> None:
-    frappe.enqueue(
-        "ecommerce_integrations.shopware6.product_export.update_item_price_in_shopware",
-        queue="short",
-        item_code=item_code,
-        enqueue_after_commit=True,
-        job_id=f"shopware6_price:{item_code}",
+        job_id=f"product_sync:dispatch:shopware:{item_code}",
         deduplicate=True,
     )
 
@@ -339,4 +281,24 @@ def _item_in_any_active_sync(doc) -> bool:
     from ecommerce_integrations.product_sync.resolver import (
         item_is_in_any_active_sync,
     )
-    return item_is_in_any_active_sync(doc, BACKEND_SHOPWARE)
+    try:
+        return item_is_in_any_active_sync(doc.name, BACKEND_SHOPWARE)
+    except Exception:
+        # Fail-open: a resolver glitch shouldn't drop legitimate syncs
+        # silently. The downstream apply pipeline is itself idempotent
+        # and will noop when there's actually nothing to push.
+        return True
+
+
+def _item_code_in_any_active_sync(item_code: str) -> bool:
+    """``_item_in_any_active_sync`` variant that takes a string code
+    rather than a doc — used by the price-change hook where we never
+    instantiate the Item doc."""
+    from ecommerce_integrations.product_sync.constants import BACKEND_SHOPWARE
+    from ecommerce_integrations.product_sync.resolver import (
+        item_is_in_any_active_sync,
+    )
+    try:
+        return item_is_in_any_active_sync(item_code, BACKEND_SHOPWARE)
+    except Exception:
+        return True
