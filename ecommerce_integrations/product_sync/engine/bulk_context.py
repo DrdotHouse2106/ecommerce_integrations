@@ -58,6 +58,18 @@ class ItemSnapshot:
     slug: str | None = None
     meta_title: str | None = None
     meta_description: str | None = None
+    # AI-description custom fields. Same ``getattr`` defensiveness as
+    # the SEO slots — sites without ai_description installed simply
+    # never see these populated, and the canonical builder hashes the
+    # empty default. Critical for delta-sync parity: the apply phase
+    # reads these off the full ``frappe.get_doc("Item", …)`` so the
+    # differ-side ItemSnapshot must carry them too, otherwise the two
+    # hashes never match and every item with any AI content looks
+    # permanently drifted.
+    ai_short_description: str | None = None
+    ai_benefits: str | None = None
+    ai_seo_description: str | None = None
+    youtube_video_url: str | None = None
     # Pre-loaded child lists.
     attributes: list[Any] = field(default_factory=list)
     barcodes: list[Any] = field(default_factory=list)
@@ -132,6 +144,8 @@ class BulkContext:
             "variant_of", "stock_uom", "standard_rate", "image",
             "item_group", "brand", "manufacturer", "currency",
             "seo_slug", "slug", "meta_title", "meta_description",
+            "ai_short_description", "ai_benefits",
+            "ai_seo_description", "youtube_video_url",
         ):
             if cf in present:
                 wanted.append(cf)
@@ -160,6 +174,10 @@ class BulkContext:
                 slug=r.get("slug"),
                 meta_title=r.get("meta_title"),
                 meta_description=r.get("meta_description"),
+                ai_short_description=r.get("ai_short_description"),
+                ai_benefits=r.get("ai_benefits"),
+                ai_seo_description=r.get("ai_seo_description"),
+                youtube_video_url=r.get("youtube_video_url"),
             )
             self._items[snap.item_code] = snap
 
