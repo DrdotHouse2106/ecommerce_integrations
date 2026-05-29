@@ -82,6 +82,26 @@ class ItemSnapshot:
     attributes: list[Any] = field(default_factory=list)
     barcodes: list[Any] = field(default_factory=list)
     taxes: list[Any] = field(default_factory=list)
+    # Operator-configured dynamic field values keyed by Item fieldname.
+    # Populated by ``_load_dynamic_fields`` for the keys listed on
+    # Shopware Setting.item_custom_field_mappings. ``__getattr__``
+    # below makes ``getattr(snap, 'include_in_idealo_feed')`` work
+    # transparently so the canonical's plain ``getattr`` call is
+    # backend-symmetric with the apply-side full-doc read.
+    dynamic_field_values: dict[str, Any] = field(default_factory=dict)
+
+    def __getattr__(self, name: str) -> Any:
+        """Fallback for dataclass-undeclared attributes — looks
+        them up in ``dynamic_field_values`` so the canonical's
+        ``getattr(item, mapping['item_field'], None)`` returns the
+        mapped value rather than ``None`` for an item loaded via
+        ctx. Raises ``AttributeError`` for genuinely unknown fields
+        so ``getattr(item, 'x', default)`` still falls back to the
+        default."""
+        try:
+            return self.dynamic_field_values[name]
+        except KeyError:
+            raise AttributeError(name)
 
     def as_dict(self) -> dict:
         """Used by name_template / description_template Jinja rendering."""
@@ -137,6 +157,7 @@ class BulkContext:
         self._load_barcodes(codes)
         self._load_attributes(codes)
         self._load_taxes(codes)
+        self._load_dynamic_fields(codes)
 
     # ─── Loaders ────────────────────────────────────────────────────
 
@@ -295,6 +316,49 @@ class BulkContext:
                     attribute_value=r["attribute_value"] or "",
                 ),
             )
+
+    def _load_dynamic_fields(self, item_codes: list[str]) -> None:
+        """Pre-load operator-configured Item field values.
+
+        Reads ``Shopware Setting.item_custom_field_mappings``, picks
+        the ``item_field`` column names that actually exist on
+        ``tabItem`` (so a stale mapping after a Custom Field rename
+        doesn't crash the query), and fetches the values in one
+        bulk SELECT. Values land in each snapshot's
+        ``dynamic_field_values`` dict so the canonical's
+        ``getattr(item, mapping['item_field'])`` reads them via the
+        snapshot's ``__getattr__`` fallback. The whole loader is a
+        silent no-op on sites without the doctype installed
+        (Medusa-only) or with no mappings configured."""
+        try:
+            settings = frappe.get_cached_doc("Shopware Setting")
+            mappings = getattr(settings, "item_custom_field_mappings", None) or []
+        except Exception:  # noqa: BLE001
+            return
+        wanted_fields: list[str] = []
+        meta = frappe.get_meta("Item")
+        present = {f.fieldname for f in meta.get("fields") or []}
+        seen: set[str] = set()
+        for row in mappings:
+            f = (getattr(row, "item_field", "") or "").strip()
+            if f and f in present and f not in seen:
+                wanted_fields.append(f)
+                seen.add(f)
+        if not wanted_fields:
+            return
+        cols = ", ".join([f"`{f}`" for f in (["name"] + wanted_fields)])
+        rows = frappe.db.sql(
+            f"""SELECT {cols} FROM `tabItem`
+               WHERE name IN %(codes)s""",
+            {"codes": tuple(item_codes) or ("__none__",)},
+            as_dict=True,
+        )
+        for r in rows:
+            snap = self._items.get(r["name"])
+            if snap is None:
+                continue
+            for f in wanted_fields:
+                snap.dynamic_field_values[f] = r.get(f)
 
     def _load_taxes(self, item_codes: list[str]) -> None:
         """Pre-load Item Tax template assignments. The canonical's

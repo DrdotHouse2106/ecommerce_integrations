@@ -1,0 +1,60 @@
+{
+ "actions": [],
+ "creation": "2026-05-29 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_field",
+  "shopware_custom_field",
+  "field_type",
+  "description"
+ ],
+ "fields": [
+  {
+   "description": "Item DocType fieldname whose value should be forwarded to Shopware (e.g. 'include_in_idealo_feed', 'include_in_google_shopping'). Must be an existing field on Item — usually a Custom Field added via Customize Form.",
+   "fieldname": "item_field",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Item Field",
+   "reqd": 1
+  },
+  {
+   "description": "Shopware product customField key the value is written to (e.g. 'idealo_feed', 'google_shopping_feed'). The customField slot must exist in Shopware (Settings → System → Custom Fields) and be assigned to the product entity, otherwise Shopware accepts the value into the JSON column but the storefront / product-stream filters won't see it.",
+   "fieldname": "shopware_custom_field",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Shopware Custom Field",
+   "reqd": 1
+  },
+  {
+   "default": "Boolean",
+   "description": "How to coerce the Item field value before sending. Boolean forces true/false (useful for Check fields driving Shopware product-stream filters). Text passes the value as-is. Integer / Float convert. Skip-If-Empty suppresses the customField entirely when the Item field is empty / null / 0 (use when the absence of a value is meaningful, e.g. an optional URL).",
+   "fieldname": "field_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Field Type",
+   "options": "Boolean\nText\nInteger\nFloat\nSkip-If-Empty",
+   "reqd": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Notes"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-05-29 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "shopware6",
+ "name": "Shopware Item Custom Field Mapping",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

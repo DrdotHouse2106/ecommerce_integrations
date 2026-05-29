@@ -78,6 +78,14 @@ def build_canonical_payload(item, sync, ctx=None) -> dict[str, Any]:
     }
     if _flag(sync, "sync_basic_fields", default=True):
         payload["basic"] = _canonical_basic(item, sync)
+        # Dynamic Item→Shopware customField mappings configured by
+        # the operator on Shopware Setting.item_custom_field_mappings.
+        # Lives under ``basic`` so it shares the section's delta gate
+        # — a mapping value change flips the basic hash and the
+        # payload builder re-emits ``customFields``.
+        dyn = _canonical_dynamic_custom_fields(item)
+        if dyn:
+            payload["basic"]["dynamic_custom_fields"] = dyn
     if _flag(sync, "sync_pricing", default=True):
         payload["pricing"] = _canonical_pricing(item, sync, ctx)
     if _flag(sync, "sync_inventory", default=True):
@@ -249,6 +257,91 @@ def diff_payloads(
 
 
 # ─── Section builders ────────────────────────────────────────────────
+
+
+def _get_dynamic_field_mappings() -> list[dict[str, str]]:
+    """Read the operator-configured Item→Shopware customField
+    mappings from Shopware Setting. Cached on ``frappe.local`` so
+    every per-item canonical build inside a Sync run reads from
+    memory. Returns ``[]`` on Medusa-only sites where the doctype
+    doesn't exist.
+
+    Each mapping dict has keys ``item_field``, ``shopware_custom_field``
+    and ``field_type`` — the canonical only needs the first and last;
+    the payload builder consumes ``shopware_custom_field``.
+    """
+    import frappe
+    cache_key = "_psync_dyn_cf_mappings"
+    cached = getattr(frappe.local, cache_key, None)
+    if cached is not None:
+        return cached
+    out: list[dict[str, str]] = []
+    try:
+        settings = frappe.get_cached_doc("Shopware Setting")
+        rows = getattr(settings, "item_custom_field_mappings", None) or []
+        for row in rows:
+            item_field = (getattr(row, "item_field", "") or "").strip()
+            shopware_key = (getattr(row, "shopware_custom_field", "") or "").strip()
+            field_type = (getattr(row, "field_type", "") or "Text").strip() or "Text"
+            if item_field and shopware_key:
+                out.append({
+                    "item_field": item_field,
+                    "shopware_custom_field": shopware_key,
+                    "field_type": field_type,
+                })
+    except Exception:  # noqa: BLE001
+        # Setting doctype missing on this site (Medusa-only) or the
+        # patch hasn't run yet — silently return empty so the engine
+        # behaves as if no mappings were configured.
+        pass
+    setattr(frappe.local, cache_key, out)
+    return out
+
+
+def _coerce_dynamic_value(raw: Any, field_type: str) -> Any:
+    """Coerce an Item field value to the operator-selected output
+    type. ``Skip-If-Empty`` returns ``None`` to signal "omit this
+    key entirely" — the caller drops the entry from the canonical
+    so an empty Item field doesn't pollute the customFields with a
+    falsey value that would override the Shopware default."""
+    if field_type == "Skip-If-Empty":
+        if raw in (None, "", 0, False, [], {}):
+            return None
+        return raw
+    if field_type == "Boolean":
+        if raw in (None, "", 0, "0", False, "false", "False"):
+            return False
+        return True
+    if field_type == "Integer":
+        try:
+            return int(raw or 0)
+        except Exception:  # noqa: BLE001
+            return 0
+    if field_type == "Float":
+        try:
+            return float(raw or 0)
+        except Exception:  # noqa: BLE001
+            return 0.0
+    # Text (default)
+    return _norm_str(str(raw) if raw is not None else "")
+
+
+def _canonical_dynamic_custom_fields(item) -> dict[str, Any]:
+    """Build the dict that gets folded into ``basic.dynamic_custom_fields``.
+
+    Keys are the Shopware customField slot names, values are the
+    coerced Item field values. Sorted on insertion order is fine —
+    ``_serialise`` sorts dict keys at hash time so the hash is
+    stable regardless of mapping-row order on the Setting.
+    """
+    out: dict[str, Any] = {}
+    for mapping in _get_dynamic_field_mappings():
+        raw = getattr(item, mapping["item_field"], None)
+        coerced = _coerce_dynamic_value(raw, mapping["field_type"])
+        if coerced is None:
+            continue  # Skip-If-Empty rule
+        out[mapping["shopware_custom_field"]] = coerced
+    return out
 
 
 def _canonical_basic(item, sync) -> dict[str, Any]:

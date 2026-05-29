@@ -209,6 +209,18 @@ def build_shopware_payload(
             v = (basic.get(canonical_key) or "").strip()
             if v:
                 cf_payload[shopware_key] = v
+        # Dynamic operator-configured Item→Shopware customField
+        # mappings (Shopware Setting.item_custom_field_mappings).
+        # Booleans land as JSON ``true`` / ``false`` so Shopware
+        # product-stream filters work (the typical use case:
+        # marketing-feed inclusion flags like ``idealo_feed``).
+        # Skip-If-Empty mappings are already dropped at canonical
+        # time so an absent key here means "Shopware default for the
+        # slot wins" — operators rely on that to avoid sending
+        # ``""`` / ``false`` for items not yet flagged.
+        dyn_cf = (basic.get("dynamic_custom_fields") or {})
+        for k, v in dyn_cf.items():
+            cf_payload[k] = v
         if cf_payload:
             payload["customFields"] = cf_payload
 
