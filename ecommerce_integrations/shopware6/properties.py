@@ -206,33 +206,6 @@ def sync_all_item_properties(limit: int = 100) -> dict[str, Any]:
     }
 
 
-def upload_item_properties(doc, method=None):
-    """
-    Hook: Sync item properties after Item save.
-
-    Called by hooks.py on Item after_save.
-    Queues the property sync to avoid blocking the save.
-    """
-    if doc.flags.from_integration:
-        return
-
-    setting = frappe.get_doc(SETTING_DOCTYPE)
-    if not setting.is_enabled():
-        return
-
-    # Check if item is synced with Shopware
-    shopware_id = get_shopware_document_id("Item", doc.name)
-    if not shopware_id:
-        return
-
-    # Queue property sync
-    frappe.enqueue(
-        "ecommerce_integrations.shopware6.properties.sync_item_properties_to_shopware",
-        queue="short",
-        item_code=doc.name,
-    )
-
-
 @frappe.whitelist()
 def sync_single_item_properties(item_code: str) -> dict[str, Any]:
     """Manually sync jattr_* properties for a single item."""

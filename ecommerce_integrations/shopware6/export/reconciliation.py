@@ -1553,7 +1553,9 @@ def _run_batch_reconciliation(
     - Fresh Shopware session per batch
     - Progress logging
     """
-    from ecommerce_integrations.shopware6.export.product_uploader import upload_erpnext_item_to_shopware
+    from ecommerce_integrations.product_sync.compat import (
+        push_item_via_engine as upload_erpnext_item_to_shopware,
+    )
 
     setting = frappe.get_cached_doc(SETTING_DOCTYPE)
     if not setting.is_enabled():

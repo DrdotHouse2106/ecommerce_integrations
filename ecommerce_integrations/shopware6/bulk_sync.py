@@ -195,25 +195,6 @@ def __getattr__(name):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def sync_single_item_to_shopware(item_code: str):
-    """
-    Sync a single item to Shopware (async wrapper).
-
-    This function loads the item by code and calls the upload function.
-    Used by frappe.enqueue because Document objects cannot be serialized.
-
-    Args:
-        item_code: The ERPNext Item code to sync
-    """
-    from ecommerce_integrations.shopware6.product_export import upload_erpnext_item_to_shopware
-
-    logger = get_logger("_sync_single_item")
-    try:
-        upload_erpnext_item_to_shopware(item_code)
-    except Exception as e:
-        logger.error(f"Failed to sync item {item_code} to Shopware", exception=e, persist=True)
-
-
 def schedule_bulk_sync_processing():
     """Schedule the bulk sync processing job if not already scheduled."""
     # Check if job is already scheduled

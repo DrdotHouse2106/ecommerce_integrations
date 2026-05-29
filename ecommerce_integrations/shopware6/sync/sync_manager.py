@@ -474,7 +474,9 @@ class SyncManager:
         dry_run: bool
     ) -> dict[str, Any]:
         """Sync all products from ERPNext to Shopware with batch logging."""
-        from ecommerce_integrations.shopware6.export.product_uploader import upload_erpnext_item_to_shopware
+        from ecommerce_integrations.product_sync.compat import (
+            push_item_via_engine as upload_erpnext_item_to_shopware,
+        )
 
         stats = {
             "total": 0,
