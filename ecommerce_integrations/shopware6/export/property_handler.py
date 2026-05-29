@@ -557,7 +557,7 @@ def clear_product_options(client, product_id: str) -> bool:
 
     This ensures that when a variant is updated, old/orphaned option
     assignments are removed before new ones are set. This prevents
-    duplicate options from different property groups (e.g., "Farbe" and "Brand_C Farbe").
+    duplicate options from different property groups (e.g., a generic "Farbe" and a manufacturer-prefixed "<Hersteller> Farbe").
 
     Args:
         client: Shopware API client

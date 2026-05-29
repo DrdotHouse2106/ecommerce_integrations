@@ -18,3 +18,6 @@ node_modules/
 # belong in your private working tree").
 ecommerce_integrations/_tmp_diag/
 **/_tmp_diag/
+PRODUCTION_READINESS_AUDIT.md
+.claude/
+docs/superpowers/

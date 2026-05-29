@@ -295,9 +295,9 @@ class BulkContext:
 
     def _load_attributes(self, item_codes: list[str]) -> None:
         """Pre-load Item Variant Attribute rows. The canonical hashes
-        these into ``properties.attributes`` — without them, items with
-        Brand_C/Brand_B-style variant attrs (colour, lock-type) look
-        permanently drifted to the differ."""
+        these into ``properties.attributes`` — without them, items
+        carrying any variant attribute (colour, size, lock-type, …)
+        look permanently drifted to the differ."""
         rows = frappe.db.sql(
             """SELECT parent, attribute, attribute_value
                FROM `tabItem Variant Attribute`
