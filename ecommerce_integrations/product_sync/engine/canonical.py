@@ -329,19 +329,94 @@ def _coerce_dynamic_value(raw: Any, field_type: str) -> Any:
 def _canonical_dynamic_custom_fields(item) -> dict[str, Any]:
     """Build the dict that gets folded into ``basic.dynamic_custom_fields``.
 
+    Two sources feed the same Shopware ``customFields`` slot:
+
+    1. **Operator-configured Item-field mappings**
+       (``Shopware Setting.item_custom_field_mappings``). One row =
+       one Item DocType field forwarded to a fixed Shopware
+       customField key, with coercion (Boolean / Text / Integer /
+       Float / Skip-If-Empty).
+
+    2. **``Item Ecommerce Property`` rows with
+       ``property_type = "Custom Field"``** (the in-doctype routing
+       flag). The Shopware key is derived from the property name via
+       :func:`shopware_custom_field_name` (``Zubehör`` → ``erpnext_zubehör``);
+       the value is normalised via :func:`coerce_custom_field_value`
+       (recognises ``true`` / ``false`` strings as booleans). No
+       mapping-table entry needed — the property's own ``property_type``
+       is the routing decision, which keeps the universal property
+       table the single source of truth for custom-field-style data
+       across channels.
+
     Keys are the Shopware customField slot names, values are the
-    coerced Item field values. Sorted on insertion order is fine —
+    coerced values. Sorted on insertion order is fine —
     ``_serialise`` sorts dict keys at hash time so the hash is
-    stable regardless of mapping-row order on the Setting.
+    stable regardless of input ordering.
     """
     out: dict[str, Any] = {}
+    # Source 1: operator-configured Item-field mappings.
     for mapping in _get_dynamic_field_mappings():
         raw = getattr(item, mapping["item_field"], None)
         coerced = _coerce_dynamic_value(raw, mapping["field_type"])
         if coerced is None:
             continue  # Skip-If-Empty rule
         out[mapping["shopware_custom_field"]] = coerced
+
+    # Source 2: ecommerce_properties of type "Custom Field".
+    from ecommerce_integrations.property_utils import (
+        coerce_custom_field_value,
+        shopware_custom_field_name,
+    )
+    for row in _get_ecommerce_properties_for_custom_fields(item):
+        pn = (getattr(row, "property_name", None) or "").strip()
+        pv = (getattr(row, "property_value", None) or "").strip()
+        if not pn or not pv:
+            continue
+        key = shopware_custom_field_name(pn)
+        # Last-write-wins if an operator-configured mapping already
+        # set this key — generally these don't collide because
+        # Source-1 keys are channel-specific (idealo_feed) while
+        # Source-2 keys carry the ``erpnext_`` prefix.
+        out[key] = coerce_custom_field_value(pv)
     return out
+
+
+def _get_ecommerce_properties_for_custom_fields(item) -> list:
+    """Return Item Ecommerce Property rows that route to Shopware
+    customFields (``property_type == "Custom Field"`` and
+    ``sync_to_shopware``).
+
+    Reads from the item's already-loaded child table when present
+    (apply-path with a full ``frappe.get_doc``) and falls back to a
+    per-item SQL when ``item.ecommerce_properties`` isn't populated
+    (differ-path with an ``ItemSnapshot`` that hasn't pre-loaded the
+    child table). N+1 is acceptable here because the typical
+    catalogue has only a handful of custom-field-type rows per item.
+    """
+    import frappe
+    rows = getattr(item, "ecommerce_properties", None) or []
+    if rows:
+        return [
+            r for r in rows
+            if (getattr(r, "property_type", "") or "") == "Custom Field"
+            and int(getattr(r, "sync_to_shopware", 0) or 0)
+        ]
+    item_code = getattr(item, "item_code", None) or getattr(item, "name", None)
+    if not item_code:
+        return []
+    try:
+        return frappe.get_all(
+            "Item Ecommerce Property",
+            filters={
+                "parent": item_code,
+                "parenttype": "Item",
+                "property_type": "Custom Field",
+                "sync_to_shopware": 1,
+            },
+            fields=["property_name", "property_value"],
+        )
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def _canonical_basic(item, sync) -> dict[str, Any]:
@@ -371,7 +446,13 @@ def _canonical_basic(item, sync) -> dict[str, Any]:
         "ai_short_description": _norm_str(getattr(item, "ai_short_description", "")),
         "ai_benefits": _norm_str(getattr(item, "ai_benefits", "")),
         "ai_seo_description": _norm_str(getattr(item, "ai_seo_description", "")),
-        "youtube_video_url": _norm_str(getattr(item, "youtube_video_url", "")),
+        # YouTube URL was hardcoded here pre-2026-05-30, then migrated
+        # to flow through ``Item Ecommerce Property`` (property_type
+        # "Custom Field", property_name "YouTube Video URL") so it
+        # routes via ``_canonical_dynamic_custom_fields`` like every
+        # other operator-configurable customField. The shopware key
+        # ``erpnext_youtube_video_url`` is preserved via
+        # :func:`shopware_custom_field_name`.
     }
 
 
@@ -717,27 +798,61 @@ def _canonical_properties(item, sync) -> dict[str, Any]:
     attrs.sort(key=lambda d: (d["name"], d["value"]))
     out["attributes"] = attrs
 
-    # Include ecommerce_properties flagged for Shopware sync.
+    # Include ecommerce_properties flagged for Shopware sync — but
+    # only those that route to Shopware's filterable property tags
+    # (``property_type`` IN "Property" / "Text"). Rows with
+    # ``property_type = "Custom Field"`` go through
+    # :func:`_canonical_dynamic_custom_fields` into the
+    # ``basic.dynamic_custom_fields`` section instead, so they end
+    # up in the product's ``customFields`` JSON column rather than
+    # the filterable-property m2m. The split lives in the canonical
+    # so the routing decision is visible in the hash (changing a
+    # row from "Property" to "Custom Field" flips both hashes →
+    # one re-push moves the value cleanly from the m2m to
+    # customFields).
+    #
     # Sorted by (name, value) for stable hash comparison with the
     # live Shopware side (properties have no ordering in Shopware).
-    ecom_props = []
-    try:
-        rows = frappe.get_all(
-            "Item Ecommerce Property",
-            filters={
-                "parent": item.item_code,
-                "parenttype": "Item",
-                "sync_to_shopware": 1,
-            },
-            fields=["property_name", "property_value"],
-        )
-        for r in rows:
-            pn = _norm_str(r.get("property_name"))
-            pv = _norm_str(r.get("property_value"))
+    ecom_props: list[dict[str, Any]] = []
+    # Prefer the in-memory child table on a full ``frappe.get_doc``
+    # — that path already paid the cost of loading
+    # ``ecommerce_properties``. ``ItemSnapshot`` (differ path) leaves
+    # the attribute unset / empty, so fall back to a per-item SQL
+    # in that case. ``getattr(item, "ecommerce_properties", None)``
+    # returns ``None`` rather than raising for the snapshot's
+    # ``__getattr__`` fallback (no matching key) so the truthiness
+    # check below is safe.
+    in_mem = getattr(item, "ecommerce_properties", None) or []
+    if in_mem:
+        for row in in_mem:
+            if int(getattr(row, "sync_to_shopware", 0) or 0) != 1:
+                continue
+            ptype = (getattr(row, "property_type", "") or "")
+            if ptype not in ("Property", "Text"):
+                continue
+            pn = _norm_str(getattr(row, "property_name", ""))
+            pv = _norm_str(getattr(row, "property_value", ""))
             if pn and pv:
                 ecom_props.append({"name": pn, "value": pv})
-    except Exception:  # noqa: BLE001
-        pass
+    else:
+        try:
+            rows = frappe.get_all(
+                "Item Ecommerce Property",
+                filters={
+                    "parent": item.item_code,
+                    "parenttype": "Item",
+                    "sync_to_shopware": 1,
+                    "property_type": ("in", ("Property", "Text")),
+                },
+                fields=["property_name", "property_value"],
+            )
+            for r in rows:
+                pn = _norm_str(r.get("property_name"))
+                pv = _norm_str(r.get("property_value"))
+                if pn and pv:
+                    ecom_props.append({"name": pn, "value": pv})
+        except Exception:  # noqa: BLE001
+            pass
     ecom_props.sort(key=lambda d: (d["name"], d["value"]))
     out["ecommerce_properties"] = ecom_props
     return out

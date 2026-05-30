@@ -197,14 +197,19 @@ def build_shopware_payload(
             SHOPWARE_CUSTOM_FIELD_AI_BENEFITS,
             SHOPWARE_CUSTOM_FIELD_AI_SEO_DESCRIPTION,
             SHOPWARE_CUSTOM_FIELD_AI_SHORT_DESCRIPTION,
-            SHOPWARE_CUSTOM_FIELD_YOUTUBE_VIDEO_URL,
         )
         cf_payload: dict[str, Any] = {}
+        # AI fields stay hardcoded — they're populated by the
+        # ``ai_description`` plugin into dedicated Item custom
+        # fields, not via the ecommerce_properties table.
+        # ``youtube_video_url`` and any further custom-field-style
+        # data flows via ``basic.dynamic_custom_fields`` (operator
+        # mapping rows + ecommerce_properties of type "Custom
+        # Field"); see ``_canonical_dynamic_custom_fields``.
         for canonical_key, shopware_key in (
             ("ai_short_description", SHOPWARE_CUSTOM_FIELD_AI_SHORT_DESCRIPTION),
             ("ai_benefits", SHOPWARE_CUSTOM_FIELD_AI_BENEFITS),
             ("ai_seo_description", SHOPWARE_CUSTOM_FIELD_AI_SEO_DESCRIPTION),
-            ("youtube_video_url", SHOPWARE_CUSTOM_FIELD_YOUTUBE_VIDEO_URL),
         ):
             v = (basic.get(canonical_key) or "").strip()
             if v:
