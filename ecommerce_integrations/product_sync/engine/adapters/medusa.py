@@ -438,31 +438,53 @@ class MedusaProductAdapter(ProductAdapter):
 
         product_id: str | None = None
         if external_id:
-            product_id = self._resolve_product_id(
-                session, base_url, external_id,
-            )
-            # If we couldn't find the existing product, fall through
-            # to create — we keep the operator-supplied external_id
-            # on the body so Medusa adopts the same identity.
+            # Fast path: the stored mapping already holds Medusa's
+            # native ``prod_*`` id. Skip the existence-check GET that
+            # ``_resolve_product_id`` would otherwise do and PATCH
+            # the product directly — if it's gone (404) the fallback
+            # below recreates it. Saves one round trip per item on
+            # the update path (= ~50 % of sync wall-time at 5 k+ items
+            # since Medusa has no bulk product endpoint).
+            if str(external_id).startswith("prod_"):
+                product_id = external_id
+            else:
+                product_id = self._resolve_product_id(
+                    session, base_url, external_id,
+                )
+            # Always keep the operator-supplied external_id on the
+            # body so Medusa re-adopts the same identity if we end
+            # up creating (404 fallback or fresh mapping).
             out_payload.setdefault("external_id", external_id)
+
+        def _do_create() -> dict[str, Any]:
+            create_payload = dict(out_payload)
+            create_payload.pop("id", None)
+            return medusa_request(
+                session, base_url, "POST",
+                "/admin/products", json=create_payload,
+            )
 
         try:
             if product_id:
-                resp = medusa_request(
-                    session,
-                    base_url,
-                    "POST",
-                    f"/admin/products/{product_id}",
-                    json=out_payload,
-                )
+                try:
+                    resp = medusa_request(
+                        session, base_url, "POST",
+                        f"/admin/products/{product_id}",
+                        json=out_payload,
+                    )
+                except Exception as e:
+                    # Stored id stale (product deleted server-side) —
+                    # fall back to create so the operator's intent
+                    # ("ensure this item exists in Medusa") is honoured
+                    # even after an out-of-band deletion. Caller's
+                    # downstream code rewrites the mapping with the
+                    # new id from the response.
+                    if "404" in str(e):
+                        resp = _do_create()
+                    else:
+                        raise
             else:
-                resp = medusa_request(
-                    session,
-                    base_url,
-                    "POST",
-                    "/admin/products",
-                    json=out_payload,
-                )
+                resp = _do_create()
         except Exception as e:
             raise AdapterError(
                 f"Medusa product upsert failed "
