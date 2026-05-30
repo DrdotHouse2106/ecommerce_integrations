@@ -444,39 +444,52 @@ def _get_ecommerce_properties_for_custom_fields(item) -> list:
 def _canonical_visibilities(item, sync) -> list[dict[str, Any]]:
     """Return the per-item Sales-Channel visibility list.
 
-    Delegates to :func:`catalog_mirror.resolver.channels_for_item`,
-    which is the single source of truth for "which channels does
-    item X land on, with which visibility level?". The resolver
-    combines three layers with documented precedence:
+    Two-tier resolution:
 
-    1. Per-item ``Ecommerce Channel Override`` rows (hard veto /
-       hard include — highest precedence).
-    2. ``Catalog Mirror`` IG-tree → backend-category placements
-       (mid precedence).
-    3. ``Smart Collections`` rule-based memberships (lowest
-       precedence — supplemental).
+    1. **Resolver primary** — delegate to
+       :func:`catalog_mirror.resolver.channels_for_item`, which
+       combines per-item ``Ecommerce Channel Override`` (hard
+       veto/include), ``Catalog Mirror`` placements and
+       ``Smart Collection`` Channel Targets. When the resolver
+       returns at least one channel, that wins.
 
-    Sorted on ``channel_id`` so the hash is stable irrespective of
-    resolver traversal order. The numeric ``visibility`` levels
-    follow the Shopware convention (10 = all, 20 = link only,
-    30 = hidden) — backend adapters apply them as-is. The
-    fallback ``target_sales_channels`` set on the Sync doc is
-    intentionally NOT used here: the doc field tells the engine
-    which channels to consider, the per-item resolver tells it
-    which items belong on which of those channels."""
+    2. **Sync-aware fallback** — when the resolver returns empty
+       AND the operator picked a ``default_sales_channel`` on the
+       Sync doc, use the Sync's own configuration:
+
+       * Item is a member of any ``linked_smart_collections`` row
+         → broadcast to every ``target_sales_channels`` row (the
+         Sync's "primary" channels).
+       * Otherwise → broadcast to ``default_sales_channel`` only.
+
+       This is the "alle Items in Medusa, nur Smart-Collection-
+       Member auf SSS, rest auf Default" workflow without needing
+       the operator to wire ``Ecommerce Smart Collection Target``
+       rows per SC. The Sync doc's existing
+       ``linked_smart_collections`` + ``target_sales_channels`` +
+       new ``default_sales_channel`` field are the single source
+       of truth.
+
+    Sorted on ``channel_id`` so the hash is stable. Visibility
+    levels follow the Shopware enum (10 link / 20 search / 30
+    all); fallback always emits 30. The resolver's primacy means
+    operators that DO wire Catalog Mirror or per-item overrides
+    keep getting those — the fallback only kicks in for items the
+    resolver has no opinion on."""
     backend = (getattr(sync, "backend", "") or "").strip() or "Shopware"
     item_code = getattr(item, "item_code", None) or getattr(item, "name", None)
     if not item_code:
         return []
+
+    out: list[dict[str, Any]] = []
     try:
         from ecommerce_integrations.catalog_mirror.resolver import (
             channels_for_item,
         )
-        entries = channels_for_item(item_code, backend)
+        entries = channels_for_item(item_code, backend) or []
     except Exception:  # noqa: BLE001
-        return []
-    out: list[dict[str, Any]] = []
-    for e in entries or []:
+        entries = []
+    for e in entries:
         sc_id = _norm_str(getattr(e, "sales_channel", "") or "")
         if not sc_id:
             continue
@@ -484,8 +497,65 @@ def _canonical_visibilities(item, sync) -> list[dict[str, Any]]:
             "channel_id": sc_id,
             "visibility": int(getattr(e, "visibility", 0) or 0),
         })
+
+    if not out:
+        # Sync-aware fallback: linked-SC member → target_sales_channels,
+        # else → default_sales_channel. Only kicks in when the resolver
+        # produced no entries for this item.
+        member_codes = _get_linked_sc_member_codes(sync)
+        default_sc = (getattr(sync, "default_sales_channel", None) or "").strip()
+        if item_code in member_codes:
+            for row in (getattr(sync, "target_sales_channels", None) or []):
+                sc_id = (getattr(row, "sales_channel_id", "") or "").strip()
+                if sc_id:
+                    out.append({"channel_id": sc_id, "visibility": 30})
+        elif default_sc:
+            out.append({"channel_id": default_sc, "visibility": 30})
+
     out.sort(key=lambda d: d["channel_id"])
     return out
+
+
+def _get_linked_sc_member_codes(sync) -> frozenset[str]:
+    """Item-codes that belong to any of the Sync's
+    ``linked_smart_collections``. Cached on ``frappe.local`` keyed
+    by sync name so the per-item canonical build inside one run
+    reads from memory (the resolve cost is ~one SC walk per linked
+    row, 5-50ms each, only paid once per Sync run)."""
+    import frappe
+    cache_key = f"_psync_linked_sc_members::{getattr(sync, 'name', '')}"
+    cached = getattr(frappe.local, cache_key, None)
+    if cached is not None:
+        return cached
+    rows = getattr(sync, "linked_smart_collections", None) or []
+    legacy = getattr(sync, "linked_smart_collection", None)
+    sc_names: set[str] = {
+        (getattr(r, "smart_collection", "") or "").strip()
+        for r in rows
+    }
+    if legacy:
+        sc_names.add(legacy.strip())
+    sc_names.discard("")
+    if not sc_names:
+        result = frozenset()
+        setattr(frappe.local, cache_key, result)
+        return result
+    members: set[str] = set()
+    try:
+        from ecommerce_integrations.smart_collections.engine.resolver import (
+            resolve,
+        )
+        for sc_name in sc_names:
+            try:
+                sc = frappe.get_cached_doc("Ecommerce Smart Collection", sc_name)
+                members |= set(resolve(sc, persist_stats=False) or [])
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception:  # noqa: BLE001
+        pass
+    result = frozenset(members)
+    setattr(frappe.local, cache_key, result)
+    return result
 
 
 def _canonical_basic(item, sync) -> dict[str, Any]:
