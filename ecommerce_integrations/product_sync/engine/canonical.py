@@ -86,6 +86,28 @@ def build_canonical_payload(item, sync, ctx=None) -> dict[str, Any]:
         dyn = _canonical_dynamic_custom_fields(item)
         if dyn:
             payload["basic"]["dynamic_custom_fields"] = dyn
+    # Per-item Sales-Channel visibility, resolved via the shared
+    # Catalog-Mirror resolver (Smart Collections + Catalog Mirror
+    # placements + per-item channel overrides). Owns its own
+    # canonical section so a Smart Collection membership change
+    # flips the hash → drift → re-push the visibility set without
+    # touching the unrelated basic / pricing / properties sections.
+    #
+    # Opt-in per Sync via the ``sync_visibilities`` flag, default
+    # OFF. Operators need to first ensure Catalog Mirror +
+    # Smart Collections cover every (item, channel) placement they
+    # want preserved — without that pre-check, flipping the flag
+    # would prune live visibility entries the resolver doesn't
+    # know about (typically items left behind from a legacy
+    # uploader run on a channel that no Catalog-Mirror / Smart
+    # Collection currently targets). Shopware-only for now: Medusa
+    # has its own channel-availability model that the resolver
+    # doesn't yet project onto the same canonical shape.
+    if (
+        (getattr(sync, "backend", "") or "") == "Shopware"
+        and _flag(sync, "sync_visibilities", default=False)
+    ):
+        payload["visibilities"] = _canonical_visibilities(item, sync)
     if _flag(sync, "sync_pricing", default=True):
         payload["pricing"] = _canonical_pricing(item, sync, ctx)
     if _flag(sync, "sync_inventory", default=True):
@@ -417,6 +439,53 @@ def _get_ecommerce_properties_for_custom_fields(item) -> list:
         )
     except Exception:  # noqa: BLE001
         return []
+
+
+def _canonical_visibilities(item, sync) -> list[dict[str, Any]]:
+    """Return the per-item Sales-Channel visibility list.
+
+    Delegates to :func:`catalog_mirror.resolver.channels_for_item`,
+    which is the single source of truth for "which channels does
+    item X land on, with which visibility level?". The resolver
+    combines three layers with documented precedence:
+
+    1. Per-item ``Ecommerce Channel Override`` rows (hard veto /
+       hard include — highest precedence).
+    2. ``Catalog Mirror`` IG-tree → backend-category placements
+       (mid precedence).
+    3. ``Smart Collections`` rule-based memberships (lowest
+       precedence — supplemental).
+
+    Sorted on ``channel_id`` so the hash is stable irrespective of
+    resolver traversal order. The numeric ``visibility`` levels
+    follow the Shopware convention (10 = all, 20 = link only,
+    30 = hidden) — backend adapters apply them as-is. The
+    fallback ``target_sales_channels`` set on the Sync doc is
+    intentionally NOT used here: the doc field tells the engine
+    which channels to consider, the per-item resolver tells it
+    which items belong on which of those channels."""
+    backend = (getattr(sync, "backend", "") or "").strip() or "Shopware"
+    item_code = getattr(item, "item_code", None) or getattr(item, "name", None)
+    if not item_code:
+        return []
+    try:
+        from ecommerce_integrations.catalog_mirror.resolver import (
+            channels_for_item,
+        )
+        entries = channels_for_item(item_code, backend)
+    except Exception:  # noqa: BLE001
+        return []
+    out: list[dict[str, Any]] = []
+    for e in entries or []:
+        sc_id = _norm_str(getattr(e, "sales_channel", "") or "")
+        if not sc_id:
+            continue
+        out.append({
+            "channel_id": sc_id,
+            "visibility": int(getattr(e, "visibility", 0) or 0),
+        })
+    out.sort(key=lambda d: d["channel_id"])
+    return out
 
 
 def _canonical_basic(item, sync) -> dict[str, Any]:

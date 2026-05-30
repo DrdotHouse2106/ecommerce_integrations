@@ -1798,6 +1798,33 @@ class ShopwareProductAdapter(ProductAdapter):
         if _live_flag(sync, "sync_taxes", default=True):
             out["taxes"] = self._live_taxes(merged, sync)
         out["categories"] = self._live_categories(merged)
+        # Per-item visibilities — match the canonical section emitted
+        # by :func:`_canonical_visibilities`. Shape:
+        # ``[{"channel_id": "...", "visibility": 30}, ...]`` sorted on
+        # channel_id. Required for hash parity — without it the
+        # ERPNext-side canonical (which DOES emit the section) would
+        # never match the live canonical and the differ would flag
+        # every Shopware-backed item as drift on every cron tick.
+        out["visibilities"] = self._live_visibilities(merged)
+        return out
+
+    def _live_visibilities(
+        self, merged: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Project Shopware ``product.visibilities`` rows onto the
+        canonical visibility shape."""
+        out: list[dict[str, Any]] = []
+        for vis in merged.get("visibilities") or []:
+            if not isinstance(vis, dict):
+                continue
+            sc_id = vis.get("salesChannelId")
+            if not sc_id:
+                continue
+            out.append({
+                "channel_id": _ns(sc_id),
+                "visibility": int(vis.get("visibility") or 0),
+            })
+        out.sort(key=lambda d: d["channel_id"])
         return out
 
     def _merge_attrs(self, product: dict[str, Any]) -> dict[str, Any]:

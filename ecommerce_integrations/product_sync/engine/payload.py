@@ -81,18 +81,25 @@ def build_shopware_payload(
     if external_id:
         payload["id"] = external_id
 
-    # Visibilities — one row per target sales channel.
-    visibilities = []
-    for row in (getattr(sync, "target_sales_channels", []) or []):
-        sc_id = (row.sales_channel_id or "").strip()
-        if not sc_id:
-            continue
-        visibilities.append({
-            "salesChannelId": sc_id,
-            "visibility": _SHOPWARE_VISIBILITY_ALL,
-        })
-    if visibilities:
-        payload["visibilities"] = visibilities
+    # Visibilities — per-item Sales-Channel list resolved through
+    # the Catalog-Mirror / Smart-Collections / per-item-override
+    # stack and hashed into ``canonical.visibilities``. The
+    # previous hardcoded "broadcast to every ``target_sales_channels``
+    # row of the Sync doc" path is gone: it forced every in-scope
+    # item onto every channel, so the only way to gate per-item
+    # visibility was to narrow the Sync's scope itself (which then
+    # blocked the item from being synced at all). Reading from
+    # canonical means Smart-Collection membership changes flip the
+    # ``visibilities`` section hash and the apply pipeline
+    # re-pushes the new channel set for that item alone.
+    canonical_vis = canonical.get("visibilities") or []
+    if canonical_vis:
+        payload["visibilities"] = [
+            {"salesChannelId": v["channel_id"],
+             "visibility": v.get("visibility") or _SHOPWARE_VISIBILITY_ALL}
+            for v in canonical_vis
+            if v.get("channel_id")
+        ]
 
     # Pricing: single base-price for the system default currency.
     # ``canonical.base_price`` is always normalised to GROSS by
