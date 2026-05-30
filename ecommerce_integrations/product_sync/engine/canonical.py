@@ -100,13 +100,13 @@ def build_canonical_payload(item, sync, ctx=None) -> dict[str, Any]:
     # would prune live visibility entries the resolver doesn't
     # know about (typically items left behind from a legacy
     # uploader run on a channel that no Catalog-Mirror / Smart
-    # Collection currently targets). Shopware-only for now: Medusa
-    # has its own channel-availability model that the resolver
-    # doesn't yet project onto the same canonical shape.
-    if (
-        (getattr(sync, "backend", "") or "") == "Shopware"
-        and _flag(sync, "sync_visibilities", default=False)
-    ):
+    # Collection currently targets). Both backends supported:
+    # Shopware projects onto ``product.visibilities`` (with the
+    # 10/20/30 visibility-level enum), Medusa onto
+    # ``product.sales_channels`` (binary in/out, all entries get
+    # visibility=30 by convention to keep the canonical shape
+    # symmetric).
+    if _flag(sync, "sync_visibilities", default=False):
         payload["visibilities"] = _canonical_visibilities(item, sync)
     if _flag(sync, "sync_pricing", default=True):
         payload["pricing"] = _canonical_pricing(item, sync, ctx)

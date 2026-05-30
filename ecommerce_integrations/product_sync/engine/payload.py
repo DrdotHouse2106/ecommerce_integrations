@@ -389,11 +389,21 @@ def build_medusa_payload(
     payload["variants"] = [variant]
 
     # Sales channels — full replacement (Medusa POST semantics).
-    sc_ids = [
-        (row.sales_channel_id or "").strip()
-        for row in (getattr(sync, "target_sales_channels", []) or [])
-    ]
-    sc_ids = [s for s in sc_ids if s]
+    # When ``sync_visibilities`` is on, source from the canonical's
+    # ``visibilities`` section (driven by Catalog Mirror + Smart
+    # Collections + per-item overrides). Otherwise fall back to the
+    # legacy "broadcast every ``target_sales_channels`` row of the
+    # Sync doc to every item" behaviour so installs that haven't
+    # opted in keep their current channel placement.
+    canonical_vis = canonical.get("visibilities") or []
+    if canonical_vis:
+        sc_ids = [v["channel_id"] for v in canonical_vis if v.get("channel_id")]
+    else:
+        sc_ids = [
+            (row.sales_channel_id or "").strip()
+            for row in (getattr(sync, "target_sales_channels", []) or [])
+        ]
+        sc_ids = [s for s in sc_ids if s]
     if sc_ids:
         payload["sales_channels"] = [{"id": s} for s in sc_ids]
 

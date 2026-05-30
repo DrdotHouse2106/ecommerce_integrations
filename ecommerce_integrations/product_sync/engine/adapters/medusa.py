@@ -693,6 +693,36 @@ class MedusaProductAdapter(ProductAdapter):
         if _live_flag(sync, "sync_taxes", default=True):
             out["taxes"] = self._live_taxes()
         out["categories"] = self._live_categories(metadata)
+        # Per-item visibilities — project Medusa's
+        # ``product.sales_channels`` association onto the canonical
+        # shape used by both backends. Medusa doesn't carry a
+        # per-channel visibility level (binary in/out), so we
+        # synthesise ``visibility = 30`` for every entry to stay
+        # symmetric with the Shopware-side payload. Required for
+        # hash parity — without it the ERP-side canonical (which
+        # emits the section when ``sync_visibilities`` is on) would
+        # never match the live canonical and the differ would flag
+        # every Medusa-backed item as drift on every cron tick.
+        out["visibilities"] = self._live_visibilities(product)
+        return out
+
+    def _live_visibilities(
+        self, product: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Convert Medusa's ``product.sales_channels`` association
+        to the engine-canonical visibility shape."""
+        out: list[dict[str, Any]] = []
+        for sc in (product.get("sales_channels") or []):
+            if not isinstance(sc, dict):
+                continue
+            sc_id = sc.get("id")
+            if not sc_id:
+                continue
+            out.append({
+                "channel_id": _ns(sc_id),
+                "visibility": 30,
+            })
+        out.sort(key=lambda d: d["channel_id"])
         return out
 
     def _live_basic(
