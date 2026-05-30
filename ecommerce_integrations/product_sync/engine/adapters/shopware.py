@@ -1798,14 +1798,14 @@ class ShopwareProductAdapter(ProductAdapter):
         if _live_flag(sync, "sync_taxes", default=True):
             out["taxes"] = self._live_taxes(merged, sync)
         out["categories"] = self._live_categories(merged)
-        # Per-item visibilities — match the canonical section emitted
-        # by :func:`_canonical_visibilities`. Shape:
-        # ``[{"channel_id": "...", "visibility": 30}, ...]`` sorted on
-        # channel_id. Required for hash parity — without it the
-        # ERPNext-side canonical (which DOES emit the section) would
-        # never match the live canonical and the differ would flag
-        # every Shopware-backed item as drift on every cron tick.
-        out["visibilities"] = self._live_visibilities(merged)
+        # Per-item visibilities — only emitted when the Sync opted
+        # in via ``sync_visibilities=1`` (matches the ERP-side gate
+        # in ``build_canonical_payload``). Without the symmetric
+        # gate the ERP canonical would omit the section while the
+        # live canonical includes it, and the per-field differ in
+        # ``fetch_live=True`` mode would flag every item as drift.
+        if _live_flag(sync, "sync_visibilities", default=False):
+            out["visibilities"] = self._live_visibilities(merged)
         return out
 
     def _live_visibilities(
