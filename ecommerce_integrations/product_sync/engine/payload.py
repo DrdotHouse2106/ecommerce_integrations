@@ -368,11 +368,26 @@ def build_medusa_payload(
 
     # Single default variant covering the SKU + price + inventory.
     # Multi-variant products are Phase-7.1 territory.
+    #
+    # Medusa v2 rejects product CREATE with
+    # ``{"type":"invalid_data","message":"Product options are not
+    # provided for: [...]"}`` unless the body carries at least one
+    # ``options[]`` entry AND every variant references those options
+    # via a matching ``options{}`` dict. UPDATE on an existing product
+    # tolerates omitted options (Medusa keeps what's already there).
+    # We always emit the synthetic single-option pair so the
+    # create-path works on every item; the values are constants so
+    # repeated upserts stay idempotent on the option entity.
+    payload["options"] = [{
+        "title": "Default option",
+        "values": ["Default value"],
+    }]
     variant: dict[str, Any] = {
         "title": basic.get("name") or item.item_code,
         "sku": basic.get("sku") or item.item_code,
         "manage_inventory": True,
         "prices": [],
+        "options": {"Default option": "Default value"},
     }
     # Patch-vs-create: include the variant id when we have one. Without
     # it, Medusa interprets the entry as "add a new variant" and rejects
