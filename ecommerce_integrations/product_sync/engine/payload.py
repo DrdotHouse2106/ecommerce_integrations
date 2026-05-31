@@ -345,17 +345,20 @@ def build_medusa_payload(
 
     payload: dict[str, Any] = {
         "title": basic.get("name") or item.item_code,
-        # Handle deliberately omitted. Two ERPNext items can carry
-        # the exact same ``item_name`` (manufacturer SKU vs internal
-        # catalogue id of the "same" product), and slugifying the
-        # name produces the same handle for both → Medusa rejects
-        # the second upsert with "handle already exists". Letting
-        # Medusa auto-generate the handle from the title makes it
-        # disambiguate via numeric suffix on conflict
-        # (``-1``, ``-2``, …), so every upsert succeeds even on
-        # source-side duplicates. On UPDATE Medusa keeps the
-        # existing handle when we don't send one, so storefront URLs
-        # of already-synced products stay stable.
+        # Handle is derived deterministically from ``title`` +
+        # ``item_code`` so two ERPNext items carrying the same
+        # ``item_name`` (manufacturer SKU vs internal catalogue id
+        # of the "same" product) get different slugs. The earlier
+        # "drop handle, let Medusa auto-disambiguate" approach
+        # didn't work — Medusa v2 rejects duplicates with
+        # ``"Product with handle: <slug>, already exists"`` rather
+        # than appending a ``-1`` suffix. The ``item_code``
+        # suffix is operator-invisible (storefront URL just gets
+        # the SKU at the end) and guaranteed unique because
+        # ``Item.name`` is the primary key in ERPNext.
+        "handle": _slugify(
+            f"{basic.get('name') or item.item_code}-{item.item_code}"
+        ),
         "description": basic.get("description") or "",
         "status": "published" if basic.get("is_active") else "draft",
         # external_id is OUR upsert anchor — must always reflect the ERP code.
