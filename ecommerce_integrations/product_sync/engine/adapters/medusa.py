@@ -228,6 +228,18 @@ class MedusaProductAdapter(ProductAdapter):
             self._to_plugin_dto(entry, target_sales_channels)
             for entry in items
         ]
+        # Map each input entry to the external_id we actually sent —
+        # for CREATE the orchestrator passed ``external_id=None`` and
+        # the DTO transformer derived it from ``payload.external_id``
+        # (= ERPNext item_code). The stored mapping needs that value,
+        # not ``None``, otherwise the next sync sees a missing
+        # mapping and tries to CREATE again. Re-deriving here keeps
+        # the bulk path's stored ids consistent with the per-item
+        # fallback's behaviour.
+        sent_ids = [
+            (e.get("external_id") or (e.get("payload") or {}).get("external_id"))
+            for e in items
+        ]
         try:
             medusa_request(
                 session, base_url, "POST",
@@ -236,14 +248,8 @@ class MedusaProductAdapter(ProductAdapter):
             )
         except Exception as exc:  # noqa: BLE001
             err = str(exc)
-            return [
-                {"external_id": e.get("external_id"), "error": err}
-                for e in items
-            ]
-        return [
-            {"external_id": e.get("external_id"), "error": None}
-            for e in items
-        ]
+            return [{"external_id": sid, "error": err} for sid in sent_ids]
+        return [{"external_id": sid, "error": None} for sid in sent_ids]
 
     def _to_plugin_dto(
         self,
@@ -260,8 +266,15 @@ class MedusaProductAdapter(ProductAdapter):
         suffices for the simple-product catalogue this engine
         already targets.
         """
-        ext_id = entry.get("external_id")
+        # On CREATE the orchestrator passes ``external_id=None`` since
+        # no mapping exists yet — but the plugin's Zod contract
+        # ``products[].external_id`` requires a non-empty string (the
+        # operator-side identifier, our ERPNext item_code). The
+        # payload built by :func:`build_medusa_payload` always carries
+        # ``external_id = item.item_code`` at the top level, so prefer
+        # that when the orchestrator entry doesn't supply one.
         p = entry.get("payload") or {}
+        ext_id = entry.get("external_id") or p.get("external_id")
         first_variant = (p.get("variants") or [{}])[0] if p.get("variants") else {}
         dto: dict = {
             "external_id": ext_id,
