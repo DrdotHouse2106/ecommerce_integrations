@@ -287,9 +287,22 @@ class MedusaProductAdapter(ProductAdapter):
             v = p.get(k)
             if v is not None:
                 dto[k] = v
+        # Price-unit shift: the engine's native Medusa payload stores
+        # ``amount`` in MINOR units (cents) — required by the
+        # ``/admin/products`` Admin API. The plugin's DTO instead
+        # accepts MAJOR units (Euro: ``539.77``) because Medusa's
+        # ``batchProductsWorkflow`` does the cents conversion itself.
+        # Forwarding cents here would inflate every price by 100×.
         prices = first_variant.get("prices") or []
         if prices:
-            dto["prices"] = prices
+            dto["prices"] = [
+                {
+                    **p,
+                    "amount": float(p["amount"]) / 100.0,
+                }
+                for p in prices
+                if "amount" in p
+            ]
         # Channel ids: prefer the per-item canonical list (from
         # ``visibilities`` section), broadcast targets only when the
         # per-item path didn't set anything. Same precedence as
