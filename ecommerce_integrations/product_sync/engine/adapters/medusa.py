@@ -280,6 +280,15 @@ class MedusaProductAdapter(ProductAdapter):
             "external_id": ext_id,
             "title": p.get("title") or ext_id,
         }
+        # Forward the engine's pre-slugified handle. The plugin's
+        # fallback slug is built from ``external_id`` (= item_code)
+        # which can contain underscores — Medusa rejects those with
+        # "Invalid product handle ... must contain URL safe
+        # characters". The native handle is already kebab-case via
+        # ``_slugify`` and unique per item_code.
+        handle = p.get("handle")
+        if handle:
+            dto["handle"] = handle
         sku = first_variant.get("sku") or p.get("sku") or ext_id
         if sku:
             dto["sku"] = sku
