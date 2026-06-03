@@ -24,10 +24,10 @@ idempotent:
    sets. Hard delete uses ``DELETE /admin/products/{id}``; Medusa
    soft-deletes (``deleted_at``) but the product is no longer visible
    from the admin endpoints.
-4. **Prices are integers in minor units (cents).** All money values
-   land on the wire as ``amount=1234`` for €12.34. We convert at the
-   adapter boundary so the engine-level canonical payload speaks in
-   floats just like the Shopware side.
+4. **Prices are major units (floats).** Medusa v2's pricing module
+   stores ``amount`` as a decimal in the currency's major unit
+   (``19.99`` for €19.99), unlike v1 which used integer cents. Wire
+   payloads and live reads pass amounts through unchanged.
 
 Live-side hashing (:meth:`MedusaProductAdapter.compute_live_hash`)
 emits the same canonical sections as
@@ -296,22 +296,12 @@ class MedusaProductAdapter(ProductAdapter):
             v = p.get(k)
             if v is not None:
                 dto[k] = v
-        # Price-unit shift: the engine's native Medusa payload stores
-        # ``amount`` in MINOR units (cents) — required by the
-        # ``/admin/products`` Admin API. The plugin's DTO instead
-        # accepts MAJOR units (Euro: ``539.77``) because Medusa's
-        # ``batchProductsWorkflow`` does the cents conversion itself.
-        # Forwarding cents here would inflate every price by 100×.
+        # Prices flow through unchanged — both the engine payload and
+        # the plugin DTO speak Medusa v2 major units (e.g. 19.99 for
+        # €19.99).
         prices = first_variant.get("prices") or []
         if prices:
-            dto["prices"] = [
-                {
-                    **p,
-                    "amount": float(p["amount"]) / 100.0,
-                }
-                for p in prices
-                if "amount" in p
-            ]
+            dto["prices"] = [p for p in prices if "amount" in p]
         # Channel ids: prefer the per-item canonical list (from
         # ``visibilities`` section), broadcast targets only when the
         # per-item path didn't set anything. Same precedence as
@@ -557,9 +547,7 @@ class MedusaProductAdapter(ProductAdapter):
             amount = first_price.get("amount")
             try:
                 if amount is not None:
-                    # Medusa stores prices in minor units (cents). Engine-
-                    # side hashing speaks majors, so we divide here.
-                    price_val = float(amount) / 100.0
+                    price_val = float(amount)
             except (TypeError, ValueError):
                 price_val = None
 
@@ -976,7 +964,7 @@ class MedusaProductAdapter(ProductAdapter):
             first = prices[0] or {}
             try:
                 amount = first.get("amount")
-                base = round(float(amount or 0) / 100.0, 4)
+                base = round(float(amount or 0), 4)
             except (TypeError, ValueError):
                 base = 0.0
             currency = _ns(first.get("currency_code"))

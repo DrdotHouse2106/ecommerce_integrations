@@ -407,11 +407,13 @@ def build_medusa_payload(
         base_price = pricing.get("base_price")
         currency = (pricing.get("currency") or "eur").lower()
         if base_price is not None:
-            # Medusa stores prices in minor units (cents).
+            # Medusa v2's pricing module stores ``amount`` in major
+            # currency units (e.g. 19.99 for €19.99), unlike v1 which
+            # used minor units. Send the canonical gross price (already
+            # rounded to 2 decimals upstream) through unchanged.
             variant["prices"].append({
                 "currency_code": currency,
-                # round to int cents
-                "amount": int(round(float(base_price) * 100)),
+                "amount": round(float(base_price), 2),
             })
 
     payload["variants"] = [variant]
