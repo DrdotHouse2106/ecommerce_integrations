@@ -248,6 +248,17 @@ def build_shopware_payload(
         dyn_cf = (basic.get("dynamic_custom_fields") or {})
         for k, v in dyn_cf.items():
             cf_payload[k] = v
+        # Configurator-eligibility flag — symmetric with the Medusa
+        # metadata wiring. Reads the canonical value (already gated
+        # by the Configurator Settings rules) and emits under the
+        # operator-configured key. Operators no longer need to add
+        # a separate row to ``Shopware Setting.item_custom_field_mappings``
+        # for this field; the Setting holds the canonical key name.
+        from ecommerce_integrations.product_sync.engine.canonical import (
+            _load_configurator_settings,
+        )
+        cfg = _load_configurator_settings()
+        cf_payload[cfg["shopware_key"]] = bool(basic.get("is_configurable"))
         if cf_payload:
             payload["customFields"] = cf_payload
 
@@ -395,16 +406,16 @@ def build_medusa_payload(
     # is_configurable: cheap per-product boolean the storefront uses
     # to render the "Konfigurieren" CTA badge. Sourced from canonical
     # basic so a flip on the Item flips this section's hash → delta
-    # sync re-pushes. ``bool()`` makes the value JSON-clean (Python
-    # True/False, not int 1/0) — matches what the Shopware side
-    # sends via the dynamic_custom_fields pipeline.
-    if canonical.get("basic", {}).get("is_configurable"):
-        metadata["is_configurable"] = True
-    else:
-        # Emit explicit ``false`` so the storefront can branch on
-        # presence-equals-true logic without false-positives from
-        # missing keys vs. opt-out.
-        metadata["is_configurable"] = False
+    # sync re-pushes. The metadata key is operator-configurable on
+    # ``Ecommerce Configurator Settings``. Emit explicit ``false`` on
+    # the negative branch so storefront code can branch on
+    # presence-equals-true without ambiguity between "absent" and
+    # "explicitly off".
+    from ecommerce_integrations.product_sync.engine.canonical import (
+        _load_configurator_settings,
+    )
+    cfg = _load_configurator_settings()
+    metadata[cfg["medusa_key"]] = bool(canonical.get("basic", {}).get("is_configurable"))
 
     payload: dict[str, Any] = {
         "title": basic.get("name") or item.item_code,

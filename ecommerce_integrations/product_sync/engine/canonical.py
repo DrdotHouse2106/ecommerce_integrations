@@ -598,12 +598,16 @@ def _canonical_basic(item, sync) -> dict[str, Any]:
         # Storefront configurator-eligibility flag. Drives a "Konfigurieren"
         # CTA badge on the PDP — full configuration runs against a
         # resolver service, but the badge needs a cheap per-product
-        # boolean to render. Reading it from Item.is_configurable
-        # (Check custom field, installed by add_item_is_configurable)
-        # and projecting into Shopware ``customFields.is_configurable``
-        # via the dynamic-mapping pipeline + Medusa
-        # ``metadata.is_configurable`` via build_medusa_payload.
-        "is_configurable": bool(int(getattr(item, "is_configurable", 0) or 0)),
+        # boolean to render. Rules live on the singleton
+        # ``Ecommerce Configurator Settings`` (master toggle, eligible
+        # item groups + descendants, exclusion keywords, optional
+        # per-Item override). Backend projection: Medusa
+        # ``metadata.<medusa_metadata_key>`` via build_medusa_payload;
+        # Shopware ``customFields.<shopware_custom_field_key>`` via
+        # the existing dynamic_custom_fields pipeline (operator wires
+        # the mapping row in Shopware Setting if they want it on
+        # Shopware).
+        "is_configurable": _eval_is_configurable(item),
         # YouTube URL was hardcoded here pre-2026-05-30, then migrated
         # to flow through ``Item Ecommerce Property`` (property_type
         # "Custom Field", property_name "YouTube Video URL") so it
@@ -937,6 +941,158 @@ def _canonical_images(item, sync, ctx=None) -> list[dict[str, Any]]:
         seen.add(img["url"])
         deduped.append(img)
     return deduped
+
+
+def _load_configurator_settings() -> dict[str, Any]:
+    """Singleton ``Ecommerce Configurator Settings`` cached on
+    ``frappe.local`` for the lifetime of one job.
+
+    Shape::
+
+        {
+          "enabled": bool,
+          "respect_item_override": bool,
+          "medusa_key": str,
+          "shopware_key": str,
+          "eligible_group_set": set[str],   # exact-match groups
+          "ancestor_group_set": set[str],   # groups whose descendants are eligible
+          "exclusion_lc": list[str],        # lowercased keywords
+        }
+
+    Missing-settings fallback (fresh checkout pre-migrate, or operator
+    hasn't created the singleton row): returns a disabled config so
+    canonical emits ``false`` everywhere.
+    """
+    import frappe
+
+    cache_key = "_psync_configurator_settings"
+    cached = getattr(frappe.local, cache_key, None)
+    if cached is not None:
+        return cached
+
+    fallback = {
+        "enabled": False,
+        "respect_item_override": True,
+        "medusa_key": "is_configurable",
+        "shopware_key": "is_configurable",
+        "eligible_group_set": set(),
+        "ancestor_group_set": set(),
+        "exclusion_lc": [],
+    }
+    try:
+        if not frappe.db.exists("DocType", "Ecommerce Configurator Settings"):
+            setattr(frappe.local, cache_key, fallback)
+            return fallback
+        doc = frappe.get_cached_doc("Ecommerce Configurator Settings")
+        eligible: set[str] = set()
+        ancestor: set[str] = set()
+        for row in (doc.get("eligible_item_groups") or []):
+            ig = (getattr(row, "item_group", "") or "").strip()
+            if not ig:
+                continue
+            eligible.add(ig)
+            if int(getattr(row, "include_descendants", 1) or 0):
+                ancestor.add(ig)
+        exclusion = [
+            kw.strip().lower()
+            for kw in (doc.get("exclusion_keywords") or "").split(",")
+            if kw.strip()
+        ]
+        out = {
+            "enabled": bool(int(doc.get("enabled") or 0)),
+            "respect_item_override": bool(int(doc.get("respect_item_override") or 0)),
+            "medusa_key": (doc.get("medusa_metadata_key") or "is_configurable").strip(),
+            "shopware_key": (doc.get("shopware_custom_field_key") or "is_configurable").strip(),
+            "eligible_group_set": eligible,
+            "ancestor_group_set": ancestor,
+            "exclusion_lc": exclusion,
+        }
+    except Exception:  # noqa: BLE001
+        out = fallback
+
+    setattr(frappe.local, cache_key, out)
+    return out
+
+
+def _item_group_ancestors(item_group: str) -> set[str]:
+    """Return the chain of ancestor Item Group names for ``item_group``.
+
+    Memoised per (job, item_group) on ``frappe.local`` — descendant
+    matching for the configurator rules walks this set per item, so
+    caching avoids one nested-set query per item against a possibly
+    large Item Group tree.
+    """
+    import frappe
+
+    if not item_group:
+        return set()
+    cache_key = "_psync_ig_ancestors"
+    cache = getattr(frappe.local, cache_key, None)
+    if cache is None:
+        cache = {}
+        setattr(frappe.local, cache_key, cache)
+    if item_group in cache:
+        return cache[item_group]
+
+    try:
+        rows = frappe.db.sql(
+            """
+            SELECT parent.name
+            FROM `tabItem Group` AS child
+            JOIN `tabItem Group` AS parent
+              ON parent.lft <= child.lft AND parent.rgt >= child.rgt
+            WHERE child.name = %s
+            """,
+            (item_group,),
+        )
+        ancestors = {r[0] for r in rows}
+    except Exception:  # noqa: BLE001
+        ancestors = {item_group}
+
+    cache[item_group] = ancestors
+    return ancestors
+
+
+def _eval_is_configurable(item) -> bool:
+    """Compute the configurator-eligibility flag for one Item.
+
+    See :class:`Ecommerce Configurator Settings` docstring for the
+    rule order. Short-circuits on the master toggle so a disabled
+    setting is one dict lookup.
+    """
+    cfg = _load_configurator_settings()
+    if not cfg["enabled"]:
+        return False
+
+    if cfg["respect_item_override"]:
+        # ``getattr`` returns 0 when the column doesn't exist —
+        # operator hasn't added the Custom Field yet — so the
+        # override silently no-ops and the rules below decide.
+        override = int(getattr(item, "is_configurable", 0) or 0)
+        if override == 1:
+            return True
+
+    item_name = (getattr(item, "item_name", "") or "")
+    if item_name and cfg["exclusion_lc"]:
+        lc = item_name.lower()
+        for kw in cfg["exclusion_lc"]:
+            if kw in lc:
+                return False
+
+    item_group = (getattr(item, "item_group", "") or "").strip()
+    if not item_group:
+        return False
+    if item_group in cfg["eligible_group_set"]:
+        return True
+
+    # Descendant match: walk the item's ancestor chain and check
+    # whether any sits in ``ancestor_group_set``.
+    if cfg["ancestor_group_set"]:
+        for anc in _item_group_ancestors(item_group):
+            if anc in cfg["ancestor_group_set"]:
+                return True
+
+    return False
 
 
 def _load_property_catalog() -> dict[str, dict[str, Any]]:

@@ -1,0 +1,110 @@
+{
+ "actions": [],
+ "creation": "2026-06-09 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "section_break_rules",
+  "eligibility_help",
+  "eligible_item_groups",
+  "exclusion_keywords",
+  "section_break_override",
+  "respect_item_override",
+  "section_break_keys",
+  "medusa_metadata_key",
+  "shopware_custom_field_key"
+ ],
+ "fields": [
+  {
+   "default": "0",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enable Configurator Flag Sync",
+   "description": "Master toggle. When unchecked, the engine emits ``is_configurable = false`` for every item regardless of the rules below — flip on after the storefront resolver is live."
+  },
+  {
+   "fieldname": "section_break_rules",
+   "fieldtype": "Section Break",
+   "label": "Eligibility Rules"
+  },
+  {
+   "fieldname": "eligibility_help",
+   "fieldtype": "HTML",
+   "options": "<div class=\"text-muted small\">Items that match any rule below are marked configurable. Exclusion keywords are checked against <code>item_name</code> (case-insensitive, substring match) and act as a veto over the include rules.</div>"
+  },
+  {
+   "fieldname": "eligible_item_groups",
+   "fieldtype": "Table",
+   "label": "Eligible Item Groups",
+   "options": "Ecommerce Configurator Item Group Rule",
+   "description": "Items in any listed group (and their descendants when the row's flag is set) are configurator-eligible."
+  },
+  {
+   "fieldname": "exclusion_keywords",
+   "fieldtype": "Small Text",
+   "label": "Exclusion Keywords",
+   "description": "Comma-separated. An item is excluded if any keyword appears in its ``item_name`` (case-insensitive). Typical: ``Zubehör, Einzelteil, Ersatzteil, Demo``."
+  },
+  {
+   "fieldname": "section_break_override",
+   "fieldtype": "Section Break",
+   "label": "Per-Item Override"
+  },
+  {
+   "default": "1",
+   "fieldname": "respect_item_override",
+   "fieldtype": "Check",
+   "label": "Respect Item.is_configurable Override",
+   "description": "When checked (default), an explicit ``1`` on ``Item.is_configurable`` (Customize Form custom field) wins over the rules above. The column doesn't need to exist — when absent, the engine falls back to the rules only."
+  },
+  {
+   "fieldname": "section_break_keys",
+   "fieldtype": "Section Break",
+   "label": "Backend Keys"
+  },
+  {
+   "default": "is_configurable",
+   "fieldname": "medusa_metadata_key",
+   "fieldtype": "Data",
+   "label": "Medusa Metadata Key",
+   "reqd": 1,
+   "description": "Key under ``product.metadata`` the Medusa storefront reads to decide whether to render the configurator badge. Default ``is_configurable``."
+  },
+  {
+   "default": "is_configurable",
+   "fieldname": "shopware_custom_field_key",
+   "fieldtype": "Data",
+   "label": "Shopware customField Key",
+   "reqd": 1,
+   "description": "Key under ``product.customFields`` for Shopware. Storefront-side convention (e.g. ``kreckler_is_configurable``); the Shopware custom-field set has to exist with the matching slot or the storefront won't see it."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-06-09 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Ecommerce Integrations",
+ "name": "Ecommerce Configurator Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
