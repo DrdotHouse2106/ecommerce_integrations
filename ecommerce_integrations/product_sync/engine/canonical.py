@@ -1029,24 +1029,29 @@ def _canonical_properties(item, sync) -> dict[str, Any]:
     attrs.sort(key=lambda d: (d["name"], d["value"]))
     out["attributes"] = attrs
 
-    # Include ecommerce_properties flagged for Shopware sync — but
-    # only those that route to Shopware's filterable property tags
-    # (``property_type`` IN "Property" / "Text"). Rows with
-    # ``property_type = "Custom Field"`` go through
+    # Include ecommerce_properties flagged for THIS sync's backend.
+    # Rows with ``property_type = "Custom Field"`` go through
     # :func:`_canonical_dynamic_custom_fields` into the
     # ``basic.dynamic_custom_fields`` section instead, so they end
     # up in the product's ``customFields`` JSON column rather than
     # the filterable-property m2m.
     #
-    # Source of truth for ``property_type`` / ``sync_to_shopware`` /
-    # filterable / display-position is the
-    # ``Ecommerce Property Group`` catalog — the per-row legacy
-    # fields (kept for rollback during the migration window) are
-    # ignored here. Rows whose group is missing from the catalog
-    # (operator added a property name and hasn't seeded a Group yet)
-    # fall back to ``property_priority`` for ordering and default to
-    # ``Property`` type + Shopware-sync-on, matching the old
-    # behaviour.
+    # Source of truth for ``property_type`` / sync-flags / filterable /
+    # display-position is the ``Ecommerce Property Group`` catalog —
+    # the per-row legacy fields (kept for rollback during the
+    # migration window) are ignored here. Rows whose group is missing
+    # from the catalog (operator added a property name and hasn't
+    # seeded a Group yet) fall back to ``property_priority`` for
+    # ordering and default to ``Property`` type + sync-on for both
+    # backends, matching the old behaviour.
+    #
+    # Backend-aware filter: each Group carries an independent
+    # ``sync_to_shopware`` / ``sync_to_medusa`` toggle. A Sync doc has
+    # exactly one backend, so we read the matching flag — a property
+    # marked "Shopware only" doesn't enter a Medusa Sync's canonical
+    # (and vice versa). Same item under both Syncs therefore produces
+    # two canonicals that differ only by which properties they
+    # include; each Sync hashes its own.
     #
     # Sort key ``(group_order, group_name, option_order, value)``
     # mirrors the Shopware ``property_group.position`` /
@@ -1054,6 +1059,9 @@ def _canonical_properties(item, sync) -> dict[str, Any]:
     # position per group + per option. The positions are embedded in
     # each row dict so a catalog edit flips every affected item's
     # hash → next sync re-pushes the new order.
+    backend = (getattr(sync, "backend", "") or "Shopware").strip().lower()
+    sync_flag = "sync_to_medusa" if backend == "medusa" else "sync_to_shopware"
+
     catalog = _load_property_catalog()
     in_mem = getattr(item, "ecommerce_properties", None) or []
     raw_rows: list[tuple[str, str]] = []
@@ -1086,18 +1094,16 @@ def _canonical_properties(item, sync) -> dict[str, Any]:
         group = catalog.get(pn)
         if group is None:
             # Property not in catalog yet — fall back to legacy
-            # classifier + assume Shopware-sync-on / Property type so
-            # operators don't lose data when they import a new SKU
-            # before re-running the catalog patch.
+            # classifier + assume sync-on / Property type so operators
+            # don't lose data when they import a new SKU before
+            # re-running the catalog patch.
             group_order = property_priority(pn)
             ptype = "Property"
-            sync_to_sw = True
             option_order = 0
         else:
-            if not group["sync_to_shopware"]:
+            if not group[sync_flag]:
                 continue
             ptype = group["property_type"]
-            sync_to_sw = True
             group_order = group["display_order"]
             option_order = group["options"].get(pv, 99999)
         if ptype not in ("Property", "Text"):

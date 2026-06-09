@@ -28,6 +28,21 @@ import frappe
 _SHOPWARE_VISIBILITY_ALL = 30
 
 
+def _norm_str(s: Any) -> str:
+    """Local mirror of canonical._norm_str for payload-level use."""
+    return (str(s) if s is not None else "").strip()
+
+
+def _property_catalog_for_payload() -> dict[str, dict[str, Any]]:
+    """Thin wrapper around canonical's catalog loader. Lazy import
+    keeps the module boundary clean and lets the canonical module
+    own the cache lifecycle (memoised on ``frappe.local``)."""
+    from ecommerce_integrations.product_sync.engine.canonical import (
+        _load_property_catalog,
+    )
+    return _load_property_catalog()
+
+
 def build_shopware_payload(
     item,
     sync,
@@ -342,6 +357,41 @@ def build_medusa_payload(
     basic = canonical.get("basic") or {}
     pricing = canonical.get("pricing") or {}
     inventory = canonical.get("inventory") or {}
+    properties_canonical = canonical.get("properties") or {}
+
+    # Embed ecommerce_properties into Medusa ``metadata`` in the same
+    # order the catalog dictates. Medusa v2 has no first-class
+    # property/attribute entity, so the storefront and any downstream
+    # plugin read ``metadata.properties`` (list-of-{name,value}) as
+    # the canonical attribute set. ``metadata.properties_filterable``
+    # mirrors the Shopware filterable distinction — the storefront
+    # can render those as facet filters, the rest as a Technische-Daten
+    # table on the PDP. Order in both lists follows
+    # ``(group_order, name, option_order, value)``.
+    ecom_props = properties_canonical.get("ecommerce_properties") or []
+    md_props = [{"name": p["name"], "value": p["value"]} for p in ecom_props]
+    md_props_filterable: list[dict[str, str]] = []
+    if ecom_props:
+        catalog = _property_catalog_for_payload()
+        for p in ecom_props:
+            entry = catalog.get(p["name"])
+            if entry and entry.get("filterable") and entry.get("property_type") == "Property":
+                md_props_filterable.append({"name": p["name"], "value": p["value"]})
+
+    metadata: dict[str, Any] = {
+        "erpnext_item_code": item.item_code,
+        "sync_source": sync.name,
+    }
+    if md_props:
+        metadata["properties"] = md_props
+    if md_props_filterable:
+        metadata["properties_filterable"] = md_props_filterable
+    brand = _norm_str(properties_canonical.get("brand"))
+    manufacturer = _norm_str(properties_canonical.get("manufacturer"))
+    if brand:
+        metadata["brand"] = brand
+    if manufacturer:
+        metadata["manufacturer"] = manufacturer
 
     payload: dict[str, Any] = {
         "title": basic.get("name") or item.item_code,
@@ -363,10 +413,7 @@ def build_medusa_payload(
         "status": "published" if basic.get("is_active") else "draft",
         # external_id is OUR upsert anchor — must always reflect the ERP code.
         "external_id": item.item_code,
-        "metadata": {
-            "erpnext_item_code": item.item_code,
-            "sync_source": sync.name,
-        },
+        "metadata": metadata,
     }
 
     # Single default variant covering the SKU + price + inventory.
