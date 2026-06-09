@@ -7,6 +7,7 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "property_group",
   "property_name",
   "property_value",
   "column_break_1",
@@ -19,12 +20,19 @@
  ],
  "fields": [
   {
+   "fieldname": "property_group",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Property Group",
+   "options": "Ecommerce Property Group",
+   "description": "Link to the global Property Group that owns this property's order, type and per-backend sync flags. Backfilled by the migration patch from the legacy property_name string. Take precedence over the legacy per-row fields once non-null."
+  },
+  {
    "fieldname": "property_name",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Property Name",
-   "reqd": 1,
-   "description": "Name of the property (e.g. 'Color', 'Size', 'Accessories')"
+   "label": "Property Name (legacy)",
+   "description": "Legacy free-text property name. Kept in lock-step with property_group during the migration window so a rollback stays possible; drop in a follow-up patch once the apply pipeline reads exclusively from property_group."
   },
   {
    "fieldname": "property_value",

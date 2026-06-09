@@ -146,13 +146,18 @@ class ShopwareProductAdapter(ProductAdapter):
         a filterable property, once as a variant option — without
         collision.
 
-        Each upsert also writes ``property_group.position`` derived
-        from :func:`product_sync.engine.property_classifier.property_priority`
-        so the storefront PDP groups appear in the same order across
-        every product (lower priority = earlier on the page). Shopware
-        does not support per-product property order, so this global
-        position is the closest equivalent to "ERPNext sets the idx
-        and Shopware respects it".
+        Each upsert also writes ``property_group.position`` sourced
+        from the ``Ecommerce Property Group`` catalog
+        (``display_order``) so the storefront PDP groups appear in
+        the same order across every product. Shopware does not
+        support per-product property order — this global position is
+        the closest equivalent to "operator sets the order once and
+        Shopware respects it on every product". Groups not yet in
+        the catalog (operator imported a new property name before
+        re-running the catalog patch) fall back to
+        :func:`property_classifier.property_priority` so the
+        storefront still gets a sensible default while the operator
+        catches up.
 
         Returns a dict mapping ``f"{kind}:{name}"`` → group_uuid so
         callers can derive option UUIDs themselves via
@@ -165,14 +170,20 @@ class ShopwareProductAdapter(ProductAdapter):
         from ecommerce_integrations.shopware6.export.utils import (
             generate_uuid,
         )
+        from ecommerce_integrations.product_sync.engine.canonical import (
+            _load_property_catalog,
+        )
         from ecommerce_integrations.product_sync.engine.property_classifier import (
             property_priority,
         )
 
+        catalog = _load_property_catalog()
         rows = []
         result: dict[str, str] = {}
         for name, kind in groups:
             gid = generate_uuid(f"property_group_{name}")
+            cat_entry = catalog.get(name) or {}
+            position = int(cat_entry.get("display_order") or property_priority(name))
             rows.append({
                 "id": gid,
                 "name": name,
@@ -180,7 +191,7 @@ class ShopwareProductAdapter(ProductAdapter):
                 "sortingType": "alphanumeric",
                 "filterable": True,
                 "visibleOnProductDetailPage": True,
-                "position": property_priority(name),
+                "position": position,
             })
             result[f"{kind}:{name}"] = gid
 
@@ -320,13 +331,30 @@ class ShopwareProductAdapter(ProductAdapter):
         from ecommerce_integrations.shopware6.export.utils import (
             generate_uuid,
         )
+        from ecommerce_integrations.product_sync.engine.canonical import (
+            _load_property_catalog,
+        )
 
+        catalog = _load_property_catalog()
         rows = []
         for group_name, value, kind in options:
             group_id = generate_uuid(f"property_group_{group_name}")
             prefix = "variant_option" if kind == "variant" else "property_option"
             opt_id = generate_uuid(f"{prefix}_{group_name}_{value}")
-            rows.append({"id": opt_id, "groupId": group_id, "name": value})
+            # ``position`` mirrors the per-option ``display_order``
+            # the operator set in the catalog. Storefront's filter
+            # sidebar (and Shopware's "configurator" widget for
+            # variant options) renders by ascending position. Values
+            # not in the catalog fall back to 99999 so they sort last
+            # without colliding with curated positions.
+            cat_entry = (catalog.get(group_name) or {}).get("options") or {}
+            position = int(cat_entry.get(value, 99999))
+            rows.append({
+                "id": opt_id,
+                "groupId": group_id,
+                "name": value,
+                "position": position,
+            })
 
         def go(client):
             # ``upsert`` semantics: existing rows are matched by id and

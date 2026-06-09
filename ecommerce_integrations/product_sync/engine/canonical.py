@@ -48,7 +48,17 @@ from typing import Any
 # payload shape (added/removed top-level keys, changed semantics). Do
 # NOT bump for "we now collect a new property" — that is data drift,
 # not schema drift, and will naturally produce different hashes.
-PAYLOAD_VERSION = 2
+#
+# v3 (2026-06): ``properties.ecommerce_properties`` rows now carry
+# ``group_order`` + ``option_order`` from the
+# ``Ecommerce Property Group`` catalog, and rows are sorted by those
+# instead of ``(name, value)``. The catalog gives the operator one
+# global knob per property to retune storefront ordering (Shopware
+# only supports per-group position anyway); the position landing in
+# the hash means re-ordering the catalog naturally triggers a re-push
+# to Shopware and Medusa. The bump invalidates cached hashes so every
+# item re-emits canonical with the new shape on the next sync.
+PAYLOAD_VERSION = 3
 
 # Float precision for hashing. 4 decimals is "1/100th of a cent" —
 # plenty for retail prices and stock floats; small enough to swallow
@@ -920,9 +930,91 @@ def _canonical_images(item, sync, ctx=None) -> list[dict[str, Any]]:
     return deduped
 
 
+def _load_property_catalog() -> dict[str, dict[str, Any]]:
+    """Return the ``Ecommerce Property Group`` catalog as a dict.
+
+    Shape::
+
+        {
+          property_name: {
+            "display_order": int,
+            "property_type": "Property" | "Text" | "Custom Field",
+            "filterable": bool,
+            "sync_to_shopware": bool,
+            "sync_to_medusa": bool,
+            "field_data_type": str,
+            "options": {value_string: option_display_order, ...},
+          },
+          ...
+        }
+
+    Memoised on ``frappe.local`` for the lifetime of one job — a cron
+    tick over 30 k items loads the 327-group catalog exactly once
+    instead of once-per-item. The Group catalog is small (a few KB)
+    and changes on operator action (rare), so a per-job snapshot is
+    fine; the next job picks up edits.
+
+    Missing-catalog fallback: when the doctype hasn't been migrated
+    yet (e.g. a fresh checkout running tests before patches), returns
+    an empty dict and callers fall back to ``property_priority`` on
+    raw names. This keeps the unit tests independent of the catalog.
+    """
+    import frappe
+
+    cache_key = "_psync_property_catalog"
+    cached = getattr(frappe.local, cache_key, None)
+    if cached is not None:
+        return cached
+
+    out: dict[str, dict[str, Any]] = {}
+    try:
+        groups = frappe.db.sql(
+            """
+            SELECT name AS property_name,
+                   COALESCE(display_order, 800) AS display_order,
+                   COALESCE(property_type, 'Property') AS property_type,
+                   COALESCE(filterable, 0) AS filterable,
+                   COALESCE(sync_to_shopware, 0) AS sync_to_shopware,
+                   COALESCE(sync_to_medusa, 0) AS sync_to_medusa,
+                   COALESCE(field_data_type, 'text') AS field_data_type
+            FROM `tabEcommerce Property Group`
+            """,
+            as_dict=True,
+        )
+        for g in groups:
+            out[g["property_name"]] = {
+                "display_order": int(g["display_order"] or 800),
+                "property_type": g["property_type"],
+                "filterable": bool(int(g["filterable"] or 0)),
+                "sync_to_shopware": bool(int(g["sync_to_shopware"] or 0)),
+                "sync_to_medusa": bool(int(g["sync_to_medusa"] or 0)),
+                "field_data_type": g["field_data_type"],
+                "options": {},
+            }
+        opts = frappe.db.sql(
+            """
+            SELECT parent AS group_name, value, COALESCE(display_order, 0) AS display_order
+            FROM `tabEcommerce Property Option`
+            """,
+            as_dict=True,
+        )
+        for o in opts:
+            grp = out.get(o["group_name"])
+            if grp is not None:
+                grp["options"][o["value"]] = int(o["display_order"] or 0)
+    except Exception:  # noqa: BLE001
+        out = {}
+
+    setattr(frappe.local, cache_key, out)
+    return out
+
+
 def _canonical_properties(item, sync) -> dict[str, Any]:
     """Brand, manufacturer, Item Attribute values, and ecommerce properties."""
     import frappe
+    from ecommerce_integrations.product_sync.engine.property_classifier import (
+        property_priority,
+    )
 
     out: dict[str, Any] = {
         "brand": _norm_str(getattr(item, "brand", "")),
@@ -944,35 +1036,33 @@ def _canonical_properties(item, sync) -> dict[str, Any]:
     # :func:`_canonical_dynamic_custom_fields` into the
     # ``basic.dynamic_custom_fields`` section instead, so they end
     # up in the product's ``customFields`` JSON column rather than
-    # the filterable-property m2m. The split lives in the canonical
-    # so the routing decision is visible in the hash (changing a
-    # row from "Property" to "Custom Field" flips both hashes →
-    # one re-push moves the value cleanly from the m2m to
-    # customFields).
+    # the filterable-property m2m.
     #
-    # Sorted by (name, value) for stable hash comparison with the
-    # live Shopware side (properties have no ordering in Shopware).
-    ecom_props: list[dict[str, Any]] = []
-    # Prefer the in-memory child table on a full ``frappe.get_doc``
-    # — that path already paid the cost of loading
-    # ``ecommerce_properties``. ``ItemSnapshot`` (differ path) leaves
-    # the attribute unset / empty, so fall back to a per-item SQL
-    # in that case. ``getattr(item, "ecommerce_properties", None)``
-    # returns ``None`` rather than raising for the snapshot's
-    # ``__getattr__`` fallback (no matching key) so the truthiness
-    # check below is safe.
+    # Source of truth for ``property_type`` / ``sync_to_shopware`` /
+    # filterable / display-position is the
+    # ``Ecommerce Property Group`` catalog — the per-row legacy
+    # fields (kept for rollback during the migration window) are
+    # ignored here. Rows whose group is missing from the catalog
+    # (operator added a property name and hasn't seeded a Group yet)
+    # fall back to ``property_priority`` for ordering and default to
+    # ``Property`` type + Shopware-sync-on, matching the old
+    # behaviour.
+    #
+    # Sort key ``(group_order, group_name, option_order, value)``
+    # mirrors the Shopware ``property_group.position`` /
+    # ``property_group_option.position`` model: a single global
+    # position per group + per option. The positions are embedded in
+    # each row dict so a catalog edit flips every affected item's
+    # hash → next sync re-pushes the new order.
+    catalog = _load_property_catalog()
     in_mem = getattr(item, "ecommerce_properties", None) or []
+    raw_rows: list[tuple[str, str]] = []
     if in_mem:
         for row in in_mem:
-            if int(getattr(row, "sync_to_shopware", 0) or 0) != 1:
-                continue
-            ptype = (getattr(row, "property_type", "") or "")
-            if ptype not in ("Property", "Text"):
-                continue
             pn = _norm_str(getattr(row, "property_name", ""))
             pv = _norm_str(getattr(row, "property_value", ""))
             if pn and pv:
-                ecom_props.append({"name": pn, "value": pv})
+                raw_rows.append((pn, pv))
     else:
         try:
             rows = frappe.get_all(
@@ -980,8 +1070,6 @@ def _canonical_properties(item, sync) -> dict[str, Any]:
                 filters={
                     "parent": item.item_code,
                     "parenttype": "Item",
-                    "sync_to_shopware": 1,
-                    "property_type": ("in", ("Property", "Text")),
                 },
                 fields=["property_name", "property_value"],
             )
@@ -989,10 +1077,38 @@ def _canonical_properties(item, sync) -> dict[str, Any]:
                 pn = _norm_str(r.get("property_name"))
                 pv = _norm_str(r.get("property_value"))
                 if pn and pv:
-                    ecom_props.append({"name": pn, "value": pv})
+                    raw_rows.append((pn, pv))
         except Exception:  # noqa: BLE001
             pass
-    ecom_props.sort(key=lambda d: (d["name"], d["value"]))
+
+    ecom_props: list[dict[str, Any]] = []
+    for pn, pv in raw_rows:
+        group = catalog.get(pn)
+        if group is None:
+            # Property not in catalog yet — fall back to legacy
+            # classifier + assume Shopware-sync-on / Property type so
+            # operators don't lose data when they import a new SKU
+            # before re-running the catalog patch.
+            group_order = property_priority(pn)
+            ptype = "Property"
+            sync_to_sw = True
+            option_order = 0
+        else:
+            if not group["sync_to_shopware"]:
+                continue
+            ptype = group["property_type"]
+            sync_to_sw = True
+            group_order = group["display_order"]
+            option_order = group["options"].get(pv, 99999)
+        if ptype not in ("Property", "Text"):
+            continue
+        ecom_props.append({
+            "name": pn,
+            "value": pv,
+            "group_order": int(group_order),
+            "option_order": int(option_order),
+        })
+    ecom_props.sort(key=lambda d: (d["group_order"], d["name"], d["option_order"], d["value"]))
     out["ecommerce_properties"] = ecom_props
     return out
 

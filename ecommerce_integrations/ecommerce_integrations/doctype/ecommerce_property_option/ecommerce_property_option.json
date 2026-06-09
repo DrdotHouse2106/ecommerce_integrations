@@ -1,0 +1,62 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-06-09 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "value",
+  "display_order",
+  "column_break_1",
+  "display_value_de",
+  "display_value_en"
+ ],
+ "fields": [
+  {
+   "fieldname": "value",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Value",
+   "reqd": 1,
+   "description": "Raw value as stored on Item Ecommerce Property rows — verbatim match. The migration deduplicates values per Group. Small Text (not Data) because some catalog values exceed the 140-char Data limit."
+  },
+  {
+   "default": "100",
+   "fieldname": "display_order",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Display Order",
+   "non_negative": 1,
+   "description": "Order within the group on the storefront. Seed value is row idx * 10 so the operator can drop new options in between without renumbering."
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "display_value_de",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Display (DE)",
+   "description": "Optional friendly label shown in the storefront. Falls back to value when empty."
+  },
+  {
+   "fieldname": "display_value_en",
+   "fieldtype": "Data",
+   "label": "Display (EN)"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-06-09 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Ecommerce Integrations",
+ "name": "Ecommerce Property Option",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "display_order",
+ "sort_order": "ASC",
+ "states": []
+}
