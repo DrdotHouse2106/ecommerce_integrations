@@ -1079,6 +1079,43 @@ def _apply_batch(
                             f"{meta['item_code']}: properties push failed: {exc}",
                         )
 
+        # Phase-C properties reconcile: delete stale ``product_property``
+        # m2m rows so the live product's properties match the canonical
+        # verbatim. The bulk product upsert above MERGES nested m2m
+        # (it doesn't REPLACE), so without this every operator edit
+        # that renames a value or drops a property leaks one orphan
+        # link per item — surfacing on the PDP as duplicate properties
+        # or "Eigenschaften" the storefront should no longer show.
+        #
+        # Gated on the same delta flag as the per-item push (don't
+        # walk live properties when nothing changed) and on
+        # ``hasattr`` so backends without the helper just skip.
+        prop_reconciler = getattr(adapter, "reconcile_product_properties", None)
+        if (
+            int(getattr(sync_doc, "sync_properties", 0) or 0)
+            and not _properties_in_sync
+            and callable(prop_reconciler)
+            and new_external_id
+        ):
+            try:
+                from ecommerce_integrations.product_sync.engine.adapters.shopware import (
+                    property_option_uuid,
+                )
+                ecom_props_canon = (
+                    (meta.get("canonical") or {}).get("properties", {})
+                    .get("ecommerce_properties") or []
+                )
+                keep_ids = [
+                    property_option_uuid(p["name"], p["value"], kind="property")
+                    for p in ecom_props_canon
+                    if p.get("name") and p.get("value")
+                ]
+                prop_reconciler(new_external_id, keep_ids)
+            except Exception as exc:  # noqa: BLE001
+                result.errors.append(
+                    f"{meta['item_code']}: properties reconcile failed: {exc}",
+                )
+
         # Variant configurator wiring: when this Item is a variant or
         # a template-with-variants, push the property_group_option link
         # so the storefront renders the variant selector. Without this

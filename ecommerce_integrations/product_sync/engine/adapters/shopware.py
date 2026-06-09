@@ -422,6 +422,37 @@ class ShopwareProductAdapter(ProductAdapter):
             keep_media_ids=set(keep_media_ids or ()),
         )
 
+    def reconcile_product_properties(
+        self,
+        external_id: str,
+        keep_option_ids: list[str],
+    ) -> dict:
+        """Delete stale ``product_property`` m2m rows so the product's
+        property assignments match ``keep_option_ids`` verbatim.
+
+        Shopware's ``_action/sync`` is MERGE-semantics for nested m2m:
+        sending ``properties: [{id: A}, {id: B}]`` on a product that
+        previously had ``[{id: X}, {id: Y}]`` results in ``[A, B, X, Y]``
+        — the prior rows stick around forever. Without an explicit
+        delete, every run that changes a property value (e.g. operator
+        cleans up "330" → "330 kg" or imports a new Schulte feed with
+        normalised values) leaves the old option_id still linked to
+        the product. The storefront PDP then renders both rows: one
+        with the new value and one orphan.
+
+        ``keep_option_ids`` is the set of ``property_group_option`` UUIDs
+        the caller wants kept (= what the canonical's
+        ``ecommerce_properties`` will resolve to after the upsert).
+        Anything live that isn't in the keep list gets removed.
+
+        Returns ``{deleted, kept, failed}``.
+        """
+        return _with_client(
+            self._reconcile_properties_impl,
+            external_id=external_id,
+            keep_option_ids=set(keep_option_ids or ()),
+        )
+
     def upload_product_images(
         self,
         external_id: str,
@@ -1424,6 +1455,59 @@ class ShopwareProductAdapter(ProductAdapter):
                     counters["folder_set"] = len(media_missing_folder)
                 except Exception:  # noqa: BLE001
                     pass
+
+        return counters
+
+    def _reconcile_properties_impl(
+        self,
+        client,
+        *,
+        external_id: str,
+        keep_option_ids: set[str],
+    ) -> dict:
+        counters = {"deleted": 0, "kept": 0, "failed": 0}
+        if not external_id:
+            return counters
+
+        # Read live product.properties — each entry is a
+        # property_group_option row; ``id`` is the option UUID. The
+        # mapping table is ``product_property`` keyed by
+        # ``(productId, propertyGroupOptionId)``.
+        r = client.request_post(
+            "search/product",
+            payload={
+                "filter": [{"type": "equals", "field": "id", "value": external_id}],
+                "associations": {"properties": {}},
+                "includes": {
+                    "product": ["id", "properties"],
+                    "property_group_option": ["id"],
+                },
+                "limit": 1,
+            },
+        )
+        product = (r.get("data") or [None])[0] or {}
+        live_options = [p.get("id") for p in (product.get("properties") or []) if p.get("id")]
+        to_delete = [oid for oid in live_options if oid not in keep_option_ids]
+        counters["kept"] = len(live_options) - len(to_delete)
+
+        if to_delete:
+            try:
+                client.request_post(
+                    "_action/sync",
+                    payload={
+                        "del": {
+                            "entity": "product_property",
+                            "action": "delete",
+                            "payload": [
+                                {"productId": external_id, "optionId": oid}
+                                for oid in to_delete
+                            ],
+                        },
+                    },
+                )
+                counters["deleted"] = len(to_delete)
+            except Exception:  # noqa: BLE001
+                counters["failed"] = len(to_delete)
 
         return counters
 
