@@ -595,6 +595,15 @@ def _canonical_basic(item, sync) -> dict[str, Any]:
         "ai_short_description": _norm_str(getattr(item, "ai_short_description", "")),
         "ai_benefits": _norm_str(getattr(item, "ai_benefits", "")),
         "ai_seo_description": _norm_str(getattr(item, "ai_seo_description", "")),
+        # Storefront configurator-eligibility flag. Drives a "Konfigurieren"
+        # CTA badge on the PDP — full configuration runs against a
+        # resolver service, but the badge needs a cheap per-product
+        # boolean to render. Reading it from Item.is_configurable
+        # (Check custom field, installed by add_item_is_configurable)
+        # and projecting into Shopware ``customFields.is_configurable``
+        # via the dynamic-mapping pipeline + Medusa
+        # ``metadata.is_configurable`` via build_medusa_payload.
+        "is_configurable": bool(int(getattr(item, "is_configurable", 0) or 0)),
         # YouTube URL was hardcoded here pre-2026-05-30, then migrated
         # to flow through ``Item Ecommerce Property`` (property_type
         # "Custom Field", property_name "YouTube Video URL") so it

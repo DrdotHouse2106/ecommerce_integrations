@@ -392,6 +392,19 @@ def build_medusa_payload(
         metadata["brand"] = brand
     if manufacturer:
         metadata["manufacturer"] = manufacturer
+    # is_configurable: cheap per-product boolean the storefront uses
+    # to render the "Konfigurieren" CTA badge. Sourced from canonical
+    # basic so a flip on the Item flips this section's hash → delta
+    # sync re-pushes. ``bool()`` makes the value JSON-clean (Python
+    # True/False, not int 1/0) — matches what the Shopware side
+    # sends via the dynamic_custom_fields pipeline.
+    if canonical.get("basic", {}).get("is_configurable"):
+        metadata["is_configurable"] = True
+    else:
+        # Emit explicit ``false`` so the storefront can branch on
+        # presence-equals-true logic without false-positives from
+        # missing keys vs. opt-out.
+        metadata["is_configurable"] = False
 
     payload: dict[str, Any] = {
         "title": basic.get("name") or item.item_code,
