@@ -451,16 +451,29 @@ def build_medusa_payload(
         variant["ean"] = ean
 
     if int(getattr(sync, "sync_pricing", 0) or 0):
-        base_price = pricing.get("base_price")
+        # Send NET, not gross. Medusa's pricing module computes the
+        # display gross by adding the region's tax_rate at
+        # render-time, which produces consistent tax-on-sum rounding
+        # for multi-line orders. Storing pre-rounded gross per SKU
+        # was the source of the 13-cent diff vs ERPNext: summing
+        # individually-rounded gross prices tilts off by a few cents
+        # from "round(sum(net) × 1.19)".
+        net_price = pricing.get("base_net")
+        if net_price is None:
+            # Backwards-compat with v3 cached canonicals that only
+            # carry ``base_price`` (gross) — derive net via the
+            # canonical's tax_rate_pct so a cron tick mid-rollout
+            # doesn't accidentally send gross.
+            base_price = pricing.get("base_price")
+            tax_pct = float(pricing.get("tax_rate_pct") or 0.0)
+            if base_price is not None:
+                factor = 1.0 + tax_pct / 100.0
+                net_price = round(float(base_price) / factor, 2) if factor else float(base_price)
         currency = (pricing.get("currency") or "eur").lower()
-        if base_price is not None:
-            # Medusa v2's pricing module stores ``amount`` in major
-            # currency units (e.g. 19.99 for €19.99), unlike v1 which
-            # used minor units. Send the canonical gross price (already
-            # rounded to 2 decimals upstream) through unchanged.
+        if net_price is not None:
             variant["prices"].append({
                 "currency_code": currency,
-                "amount": round(float(base_price), 2),
+                "amount": round(float(net_price), 2),
             })
 
     payload["variants"] = [variant]

@@ -58,7 +58,13 @@ from typing import Any
 # the hash means re-ordering the catalog naturally triggers a re-push
 # to Shopware and Medusa. The bump invalidates cached hashes so every
 # item re-emits canonical with the new shape on the next sync.
-PAYLOAD_VERSION = 3
+#
+# v4 (2026-06): ``pricing.base_net`` added so the Medusa adapter can
+# send net prices (Medusa's pricing module derives gross via the
+# region's tax_rate at display time, producing consistent
+# tax-on-sum rounding for multi-line orders — Shopware keeps using
+# the existing ``base_price`` gross value).
+PAYLOAD_VERSION = 4
 
 # Float precision for hashing. 4 decimals is "1/100th of a cent" —
 # plenty for retail prices and stock floats; small enough to swallow
@@ -769,20 +775,31 @@ def _canonical_pricing(item, sync, ctx=None) -> dict[str, Any]:
         except Exception:  # noqa: BLE001
             pass
 
-    base_net = _normalize_float(base or 0)
+    base_net_raw = _normalize_float(base or 0)
     if erp_is_gross:
-        gross_price = base_net
+        gross_price = base_net_raw
+        # Reverse-derive net from gross so backends that prefer net
+        # (Medusa: its pricing module computes gross via tax_rate
+        # configured per region) still get a consistent value.
+        net_price = round(base_net_raw / (1.0 + tax_rate_pct / 100.0), 2)
     else:
         # Round to currency precision (2 decimals) instead of the
         # 4-decimal canonical default. Shopware's gross prices round
         # the same way; a 4-decimal canonical would chase sub-cent
         # rounding errors (25.50 × 1.19 = 30.345, ERP-B2C list and
         # Shopware both store 30.34) and flag every Item as drift.
-        gross_price = round(base_net * (1.0 + tax_rate_pct / 100.0), 2)
+        gross_price = round(base_net_raw * (1.0 + tax_rate_pct / 100.0), 2)
+        net_price = round(base_net_raw, 2)
 
     out: dict[str, Any] = {
         "currency": _norm_str(currency),
+        # Gross is what Shopware stores (the storefront-facing price
+        # incl. tax). Net is what Medusa's pricing module wants
+        # (Medusa applies tax at display time via the configured
+        # region tax_rate, which gives consistent tax-on-sum
+        # rounding for multi-line orders).
         "base_price": gross_price,
+        "base_net": net_price,
         "channel_prices": channel_prices,
         "tax_rate_pct": _normalize_float(tax_rate_pct),
     }
