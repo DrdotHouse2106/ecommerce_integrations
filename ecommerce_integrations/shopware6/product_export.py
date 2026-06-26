@@ -26,13 +26,8 @@ from frappe import _
 from ecommerce_integrations.shopware6.base.cache_manager import clear_shopware_cache
 from ecommerce_integrations.shopware6.constants import ROOT_ITEM_GROUPS
 from ecommerce_integrations.shopware6.export import (
-    # Main class
-    ShopwareProductUploader,
-    cleanup_orphaned_shopware_categories,
-    enqueue_full_reconciliation,
-    enqueue_full_reconciliation_with_categories,
+    delete_category_from_shopware,
     ensure_shopware_custom_field_set,
-    full_reconciliation,
     # Utils
     generate_uuid,
     get_cached_currency_id,
@@ -50,24 +45,19 @@ from ecommerce_integrations.shopware6.export import (
     get_tax_id_by_rate,
     # Mapper
     map_erpnext_item_to_shopware,
-    reconcile_all_to_shopware,
-    reconcile_erpnext_with_shopware,
     rename_category_in_shopware,
     sanitize_filename,
-    # Reconciliation
-    sync_all_categories_to_shopware,
+    # Categories
     sync_all_item_categories,
     sync_all_variants,
     sync_bulk_prices,
-    # Categories
     sync_category_hierarchy,
     sync_item_group_to_shopware,
     sync_product_images_to_shopware,
     # Prices
     sync_product_price,
     update_item_price_in_shopware,
-    # Upload functions
-    upload_erpnext_item_to_shopware,
+    # Upload helpers
     upload_media_to_shopware,
     upload_template_item_to_shopware,
     upload_variant_item_to_shopware,
@@ -99,13 +89,19 @@ def sync_item_to_shopware(item_code: str) -> dict:
     require_item_write_permission(item_code)
     logger = get_logger("sync_item_to_shopware")
     try:
-        uploader = ShopwareProductUploader(item_code=item_code)
-        result = uploader.upload()
+        # Route through the delta product-sync engine (same canonical → hash →
+        # diff → push pipeline as the cron / per-save dispatch), not the
+        # retired single-item uploader.
+        from ecommerce_integrations.product_sync.constants import BACKEND_SHOPWARE
+        from ecommerce_integrations.product_sync.tasks import dispatch_item_change
 
+        res = (dispatch_item_change(item_code, BACKEND_SHOPWARE) or {}).get(BACKEND_SHOPWARE)
+        status = getattr(res, "status", None)
+        if status and status != "ok":
+            return {"success": False, "message": f"sync status: {status}"}
         return {
             "success": True,
-            "shopware_id": result,
-            "message": f"Item {item_code} synced to Shopware"
+            "message": f"Item {item_code} synced to Shopware",
         }
     except Exception as e:
         logger.error(f"Failed to sync item {item_code} to Shopware", exception=e)
@@ -213,15 +209,10 @@ def sync_category_to_shopware(item_group_name: str) -> dict:
 
 
 __all__ = [
-    # Main class
-    "ShopwareProductUploader",
-    "cleanup_orphaned_shopware_categories",
     # Cache
     "clear_shopware_cache",
-    "enqueue_full_reconciliation",
-    "enqueue_full_reconciliation_with_categories",
+    "delete_category_from_shopware",
     "ensure_shopware_custom_field_set",
-    "full_reconciliation",
     # Utils
     "generate_uuid",
     "get_cached_currency_id",
@@ -240,12 +231,8 @@ __all__ = [
     "get_tax_id_by_rate",
     # Mapper
     "map_erpnext_item_to_shopware",
-    "reconcile_all_to_shopware",
-    "reconcile_erpnext_with_shopware",
     "rename_category_in_shopware",
     "sanitize_filename",
-    # Reconciliation
-    "sync_all_categories_to_shopware",
     "sync_all_item_categories",
     "sync_all_variants",
     "sync_bulk_prices",
@@ -261,8 +248,7 @@ __all__ = [
     "sync_product_price",
     "sync_template_with_variants_to_shopware",
     "update_item_price_in_shopware",
-    # Upload functions
-    "upload_erpnext_item_to_shopware",
+    # Upload helpers
     "upload_media_to_shopware",
     "upload_template_item_to_shopware",
     "upload_variant_item_to_shopware",

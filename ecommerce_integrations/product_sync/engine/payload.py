@@ -43,6 +43,115 @@ def _property_catalog_for_payload() -> dict[str, dict[str, Any]]:
     return _load_property_catalog()
 
 
+def _custom_field_sync_setting() -> str:
+    """Normalised ``custom_field_sync_languages`` setting value — ``all`` or a
+    sorted comma-joined locale list. DB-only (durable), used as the *hash*
+    signature so drift detection never depends on a live Shopware API call."""
+    import frappe
+
+    try:
+        raw = (frappe.db.get_single_value("Shopware Setting", "custom_field_sync_languages") or "").strip()
+    except Exception:  # noqa: BLE001
+        raw = ""
+    if not raw or raw.lower() == "all":
+        return "all"
+    return ",".join(sorted(s.strip() for s in raw.split(",") if s.strip()))
+
+
+def _all_shopware_languages() -> list[tuple[str, str]]:
+    """All Shopware languages as ``(languageId, locale)`` pairs.
+
+    Durably cached (redis, 1 h) so a 30k batch hits the language endpoint once,
+    and fail-closed: on an API error we return the last cached value rather than
+    an empty list, so a transient outage can't strip translations mid-run."""
+    import frappe
+
+    cache = frappe.cache()
+    key = "ecommerce_shopware_languages_v1"
+    cached = cache.get_value(key)
+    if cached:
+        return [tuple(x) for x in cached]
+    try:
+        from ecommerce_integrations.shopware6.connection import get_shopware_client
+
+        client = get_shopware_client()
+        resp = client.request_post(
+            "search/language", {"associations": {"locale": {}}, "limit": 100}
+        )
+        out = []
+        for lang in resp.get("data") or []:
+            lid = lang.get("id")
+            code = (lang.get("locale") or {}).get("code")
+            if lid:
+                out.append([lid, code])
+        if out:
+            cache.set_value(key, out, expires_in_sec=3600)
+        return [tuple(x) for x in out]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _custom_field_sync_language_ids() -> list[str]:
+    """Shopware language IDs the product ``customFields`` blob is replicated into.
+
+    ``customFields`` is a *translatable* Shopware column: writing it flat only
+    populates the API context (system default) language, so a Sales Channel on
+    another language gets ``null`` in the Store API. The bulk ``/_action/sync``
+    endpoint keys ``translations`` by language **ID** (a locale-code key is
+    silently ignored), so we resolve to IDs here.
+
+    Controlled by Shopware Setting ``custom_field_sync_languages`` — empty /
+    ``all`` means every Shopware language, otherwise a comma-separated locale
+    allow-list (``de-DE,en-GB``). Resolved once per job (memoised on
+    ``frappe.local``) so the language lookup isn't repeated for every item.
+    """
+    import frappe
+
+    cached = getattr(frappe.local, "_cf_sync_lang_ids", None)
+    if cached is not None:
+        return cached
+    try:
+        raw = (frappe.db.get_single_value("Shopware Setting", "custom_field_sync_languages") or "").strip()
+    except Exception:  # noqa: BLE001
+        raw = ""
+    langs = _all_shopware_languages()
+    if raw and raw.lower() != "all":
+        allow = {s.strip() for s in raw.split(",") if s.strip()}
+        ids = [lid for lid, loc in langs if loc in allow]
+    else:
+        ids = [lid for lid, _loc in langs]
+    frappe.local._cf_sync_lang_ids = ids
+    return ids
+
+
+def _shopware_cf_dict(basic: dict[str, Any]) -> dict[str, Any]:
+    """The Shopware ``customFields`` map a ``basic`` section would emit.
+
+    AI fields (hardcoded keys) plus ``dynamic_custom_fields`` (operator
+    mappings + ecommerce_properties of type Custom Field). Used both for the
+    current payload and — against the previously-synced canonical — to detect
+    keys that were dropped so they can be explicitly nulled (Shopware MERGES
+    customFields, so a removed key keeps its stale value without this)."""
+    from ecommerce_integrations.shopware6.constants import (
+        SHOPWARE_CUSTOM_FIELD_AI_BENEFITS,
+        SHOPWARE_CUSTOM_FIELD_AI_SEO_DESCRIPTION,
+        SHOPWARE_CUSTOM_FIELD_AI_SHORT_DESCRIPTION,
+    )
+
+    out: dict[str, Any] = {}
+    for canonical_key, shopware_key in (
+        ("ai_short_description", SHOPWARE_CUSTOM_FIELD_AI_SHORT_DESCRIPTION),
+        ("ai_benefits", SHOPWARE_CUSTOM_FIELD_AI_BENEFITS),
+        ("ai_seo_description", SHOPWARE_CUSTOM_FIELD_AI_SEO_DESCRIPTION),
+    ):
+        v = (basic.get(canonical_key) or "").strip()
+        if v:
+            out[shopware_key] = v
+    for k, v in (basic.get("dynamic_custom_fields") or {}).items():
+        out[k] = v
+    return out
+
+
 def build_shopware_payload(
     item,
     sync,
@@ -50,6 +159,7 @@ def build_shopware_payload(
     *,
     external_id: str | None = None,
     changed_sections: set[str] | None = None,
+    prev_canonical: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the Shopware product-payload from canonical + sync settings.
 
@@ -69,7 +179,7 @@ def build_shopware_payload(
     section builders in :mod:`canonical`:
 
     - ``basic``      → name, productNumber, description, active,
-                       deliveryTime
+                       deliveryTime, minPurchase/purchaseSteps
     - ``inventory``  → stock
     - ``pricing``    → price, taxId
     - ``categories`` → categories
@@ -91,6 +201,18 @@ def build_shopware_payload(
         payload["productNumber"] = basic.get("sku") or item.item_code
         payload["description"] = basic.get("description") or ""
         payload["active"] = bool(basic.get("is_active", True))
+        # Minimum order quantity (carton-based ordering). Always emit
+        # when the basic section is pushed so clearing the ERP field
+        # resets the live product back to Shopware's defaults (1/1) —
+        # canonical only carries the key while moq > 1 (sparse, see
+        # PAYLOAD_VERSION v5 note). ``purchaseSteps`` mirrors the MOQ
+        # so only carton multiples are orderable.
+        try:
+            _moq = int(float(basic.get("min_order_qty") or 0))
+        except (TypeError, ValueError):
+            _moq = 0
+        payload["minPurchase"] = _moq if _moq > 1 else 1
+        payload["purchaseSteps"] = _moq if _moq > 1 else 1
     if _wants("inventory"):
         payload["stock"] = int(inventory.get("qty") or 0)
     if external_id:
@@ -215,41 +337,35 @@ def build_shopware_payload(
         # ``customFields`` rather than replacing, so we never
         # accidentally clear an unrelated field set manually in
         # Admin UI.
-        from ecommerce_integrations.shopware6.constants import (
-            SHOPWARE_CUSTOM_FIELD_AI_BENEFITS,
-            SHOPWARE_CUSTOM_FIELD_AI_SEO_DESCRIPTION,
-            SHOPWARE_CUSTOM_FIELD_AI_SHORT_DESCRIPTION,
-        )
-        cf_payload: dict[str, Any] = {}
-        # AI fields stay hardcoded — they're populated by the
-        # ``ai_description`` plugin into dedicated Item custom
-        # fields, not via the ecommerce_properties table.
-        # ``youtube_video_url`` and any further custom-field-style
-        # data flows via ``basic.dynamic_custom_fields`` (operator
-        # mapping rows + ecommerce_properties of type "Custom
-        # Field"); see ``_canonical_dynamic_custom_fields``.
-        for canonical_key, shopware_key in (
-            ("ai_short_description", SHOPWARE_CUSTOM_FIELD_AI_SHORT_DESCRIPTION),
-            ("ai_benefits", SHOPWARE_CUSTOM_FIELD_AI_BENEFITS),
-            ("ai_seo_description", SHOPWARE_CUSTOM_FIELD_AI_SEO_DESCRIPTION),
-        ):
-            v = (basic.get(canonical_key) or "").strip()
-            if v:
-                cf_payload[shopware_key] = v
-        # Dynamic operator-configured Item→Shopware customField
-        # mappings (Shopware Setting.item_custom_field_mappings).
-        # Booleans land as JSON ``true`` / ``false`` so Shopware
-        # product-stream filters work (the typical use case:
-        # marketing-feed inclusion flags like ``idealo_feed``).
-        # Skip-If-Empty mappings are already dropped at canonical
-        # time so an absent key here means "Shopware default for the
-        # slot wins" — operators rely on that to avoid sending
-        # ``""`` / ``false`` for items not yet flagged.
-        dyn_cf = (basic.get("dynamic_custom_fields") or {})
-        for k, v in dyn_cf.items():
-            cf_payload[k] = v
+        # AI fields are hardcoded keys; ``youtube_video_url`` and any further
+        # custom-field-style data flow via ``basic.dynamic_custom_fields``
+        # (operator mapping rows + ecommerce_properties of type "Custom Field").
+        # Booleans land as JSON ``true`` / ``false`` so Shopware product-stream
+        # filters work. Skip-If-Empty mappings are already dropped at canonical
+        # time so an absent key means "Shopware default wins".
+        cf_payload: dict[str, Any] = _shopware_cf_dict(basic)
+        # Removal detection: a customField key present in the previously-synced
+        # canonical but gone now must be explicitly nulled. Shopware MERGES
+        # customFields (it never replaces the JSON), so a dropped property would
+        # otherwise keep its stale value on the product forever. Emitting the
+        # key with ``None`` clears it (in the main context and every language).
+        if prev_canonical is not None:
+            prev_cf = _shopware_cf_dict(prev_canonical.get("basic") or {})
+            for k in prev_cf:
+                if k not in cf_payload:
+                    cf_payload[k] = None
         if cf_payload:
             payload["customFields"] = cf_payload
+            # ``customFields`` is translatable: the flat assignment above only
+            # reaches the API context (system default) language, so other
+            # Sales-Channel languages return ``null`` in the Store API.
+            # Replicate the same values into every configured language so every
+            # storefront returns them (Shopware merges per-language rather than
+            # replacing). See ``custom_field_sync_languages`` setting.
+            for _lid in _custom_field_sync_language_ids():
+                payload.setdefault("translations", {}).setdefault(_lid, {})[
+                    "customFields"
+                ] = cf_payload
 
     # Manufacturer (== ``Item.brand`` for our purposes — Shopware has
     # no separate "brand" concept; the manufacturer entity carries
@@ -337,6 +453,7 @@ def build_medusa_payload(
     item, sync, canonical: dict[str, Any], *,
     external_id: str | None = None,
     variant_id: str | None = None,
+    prev_canonical: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Medusa v2 product payload.
 
@@ -392,6 +509,32 @@ def build_medusa_payload(
         metadata["brand"] = brand
     if manufacturer:
         metadata["manufacturer"] = manufacturer
+
+    # Custom-Field-typed ecommerce_properties flagged for Medusa:
+    # machine/integration markers (not customer-facing specs). Surface
+    # as top-level ``metadata`` keys so storefront / integration code
+    # reads ``metadata.<field>`` directly — distinct from the display
+    # ``metadata.properties`` spec list. The payload's own structural
+    # keys are never overwritten.
+    _reserved_meta = {
+        "erpnext_item_code", "sync_source", "properties",
+        "properties_filterable", "brand", "manufacturer",
+    }
+    cur_cf = properties_canonical.get("custom_fields") or {}
+    for cf_name, cf_value in cur_cf.items():
+        if cf_name and cf_name not in _reserved_meta:
+            metadata[cf_name] = cf_value
+
+    # Removal detection (symmetric to the Shopware path): a custom-field
+    # metadata key present in the previously-synced canonical but dropped now
+    # is emitted as ``None`` so the key is cleared. The Medusa sync plugin
+    # merges metadata, so without this a removed property would keep its stale
+    # value on the product forever.
+    if prev_canonical is not None:
+        prev_cf = (prev_canonical.get("properties") or {}).get("custom_fields") or {}
+        for cf_name in prev_cf:
+            if cf_name and cf_name not in _reserved_meta and cf_name not in cur_cf:
+                metadata[cf_name] = None
 
     payload: dict[str, Any] = {
         "title": basic.get("name") or item.item_code,

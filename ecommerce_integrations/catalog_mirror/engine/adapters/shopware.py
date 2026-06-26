@@ -28,6 +28,23 @@ from ecommerce_integrations.shopware6.connection import temp_shopware_session
 _TREE_PAGE_SIZE = 200
 _MATCH_LIMIT = 25
 
+# Shopware customField that marks a category as manually managed —
+# the mirror must leave it (and its subtree) completely alone.
+_ERP_IGNORE_CUSTOM_FIELD = "erp_ignored"
+
+
+def _is_erp_ignored(attrs: dict) -> bool:
+    """True when the live category carries ``customFields.erp_ignored``
+    set truthy. Accepts JSON ``true`` and the string ``"true"``/``"1"``
+    so it works regardless of how the flag was written."""
+    cf = (attrs or {}).get("customFields")
+    if not isinstance(cf, dict):
+        return False
+    val = cf.get(_ERP_IGNORE_CUSTOM_FIELD)
+    if isinstance(val, str):
+        return val.strip().lower() in ("true", "1", "yes")
+    return bool(val)
+
 
 @register(BACKEND_SHOPWARE)
 class ShopwareCatalogAdapter(CatalogAdapter):
@@ -50,6 +67,8 @@ class ShopwareCatalogAdapter(CatalogAdapter):
         description: str | None,
         active: bool,
         target_sales_channel: str | None,
+        meta_title: str | None = None,
+        meta_description: str | None = None,
     ) -> str:
         return _with_client(
             self._upsert_impl,
@@ -59,6 +78,8 @@ class ShopwareCatalogAdapter(CatalogAdapter):
             description=description,
             active=active,
             target_sales_channel=target_sales_channel,
+            meta_title=meta_title,
+            meta_description=meta_description,
         )
 
     def move_node(
@@ -96,6 +117,9 @@ class ShopwareCatalogAdapter(CatalogAdapter):
             parent_external_id=root_attrs.get("parentId"),
             description=root_attrs.get("description"),
             active=bool(root_attrs.get("active", True)),
+            meta_title=root_attrs.get("metaTitle"),
+            meta_description=root_attrs.get("metaDescription"),
+            ignored=_is_erp_ignored(root_attrs),
         )
 
         # BFS the descendants. Visited-id guard guards against the
@@ -119,6 +143,16 @@ class ShopwareCatalogAdapter(CatalogAdapter):
                     parent_external_id=parent_id,
                     description=child_attrs.get("description"),
                     active=bool(child_attrs.get("active", True)),
+                    meta_title=child_attrs.get("metaTitle"),
+                    meta_description=child_attrs.get("metaDescription"),
+                    # Inherit ``ignored`` down the subtree: a flagged
+                    # parent shields all descendants from orphan /
+                    # overwrite handling, even if a child isn't flagged
+                    # individually.
+                    ignored=(
+                        _is_erp_ignored(child_attrs)
+                        or index[parent_id].ignored
+                    ),
                 )
                 index[child_id] = node
                 index[parent_id].children.append(node)
@@ -234,6 +268,9 @@ class ShopwareCatalogAdapter(CatalogAdapter):
                         "parentId",
                         "description",
                         "active",
+                        "metaTitle",
+                        "metaDescription",
+                        "customFields",
                     ],
                 },
             }
@@ -255,6 +292,9 @@ class ShopwareCatalogAdapter(CatalogAdapter):
                     "parentId": attrs.get("parentId") or parent_id,
                     "description": attrs.get("description"),
                     "active": attrs.get("active", True),
+                    "metaTitle": attrs.get("metaTitle"),
+                    "metaDescription": attrs.get("metaDescription"),
+                    "customFields": attrs.get("customFields"),
                 })
             if len(data) < _TREE_PAGE_SIZE:
                 break
@@ -315,6 +355,8 @@ class ShopwareCatalogAdapter(CatalogAdapter):
         description: str | None,
         active: bool,
         target_sales_channel: str | None,
+        meta_title: str | None = None,
+        meta_description: str | None = None,
     ) -> str:
         payload: dict = {
             "name": name,
@@ -327,6 +369,12 @@ class ShopwareCatalogAdapter(CatalogAdapter):
             payload["parentId"] = parent_external_id
         if description:
             payload["description"] = description
+        # Native Shopware category SEO fields. Only sent when the mirror
+        # manages them (non-None) so we never blank an operator's value.
+        if meta_title is not None:
+            payload["metaTitle"] = meta_title
+        if meta_description is not None:
+            payload["metaDescription"] = meta_description
 
         if external_id:
             try:

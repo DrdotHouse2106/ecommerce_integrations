@@ -16,6 +16,7 @@ BRANDING_FIELDS = [
 	"email_acknowledgment_subject", "email_acknowledgment_greeting", "email_acknowledgment_body",
 	"email_confirmation_subject", "email_confirmation_greeting", "email_confirmation_body",
 	"email_invoice_subject", "email_invoice_greeting", "email_invoice_body",
+	"email_shipment_title", "email_shipment_greeting", "email_shipment_body",
 	"signature_html", "imprint_html", "privacy_policy_url", "terms_url",
 ]
 
@@ -54,6 +55,9 @@ DEFAULTS = {
 	"email_invoice_subject": '{{ _("Your invoice") }} {{ doc.name }}',
 	"email_invoice_greeting": "{{ auto_greeting }},",
 	"email_invoice_body": '<p>{{ _("please find your invoice attached as a PDF. If enabled, an electronic invoice (XRechnung/ZUGFeRD) is included both as a separate XML file and embedded into the PDF.") }}</p><p>{{ _("Please find the payment details on the invoice.") }}</p>',
+	"email_shipment_title": "Your order has shipped",
+	"email_shipment_greeting": "{{ auto_greeting }},",
+	"email_shipment_body": '<p>{{ _("good news – your order has been dispatched and is on its way to you.") }}</p>',
 	"signature_html": "",
 	"imprint_html": "",
 	"privacy_policy_url": "",
@@ -178,6 +182,27 @@ def _auto_greeting(lang: str, salutation: str, last_name: str, gender: str) -> s
 
 
 @frappe.whitelist()
+def _paid_via_from_payment_entries(invoice_name: str) -> str:
+	"""Best-effort label of *how* an invoice was settled, read from the most
+	recent submitted Payment Entry allocated against it. Empty string when no
+	mode of payment is recorded (the paid box then omits the "via …" suffix)."""
+	rows = frappe.db.sql(
+		"""
+		select pe.mode_of_payment as mop
+		from `tabPayment Entry` pe
+		join `tabPayment Entry Reference` per on per.parent = pe.name
+		where per.reference_doctype = 'Sales Invoice'
+		  and per.reference_name = %s
+		  and pe.docstatus = 1
+		order by pe.posting_date desc, pe.creation desc
+		limit 1
+		""",
+		(invoice_name,),
+		as_dict=True,
+	)
+	return (rows[0].mop if rows else "") or ""
+
+
 def get_invoice_payment_context(doc) -> dict:
 	"""Resolve payment_mode + payment_status for a Sales Invoice/Sales Order.
 
@@ -226,8 +251,24 @@ def get_invoice_payment_context(doc) -> dict:
 				break
 
 	is_paid = payment_mode in online_modes or payment_status == "Paid"
-	is_invoice = payment_mode in invoice_modes
-	is_prepayment = payment_mode == "Vorkasse"
+
+	# Fallback: trust the invoice's own accounting state. A submitted Sales
+	# Invoice with nothing outstanding has been settled regardless of channel
+	# (B2B portal, manual Payment Entry, …), even when the linked order carries
+	# no Shopware payment fields. Without this the print format keeps showing
+	# the bank-transfer "Zahlungsinformationen" block on an already-paid invoice.
+	if not is_paid and doc.doctype == "Sales Invoice":
+		if (
+			frappe.utils.cint(doc.get("docstatus")) == 1
+			and frappe.utils.flt(doc.get("grand_total")) > 0
+			and frappe.utils.flt(doc.get("outstanding_amount")) <= 0
+		):
+			is_paid = True
+			if not payment_mode:
+				payment_mode = _paid_via_from_payment_entries(doc.name)
+
+	is_invoice = (not is_paid) and payment_mode in invoice_modes
+	is_prepayment = (not is_paid) and payment_mode == "Vorkasse"
 
 	return {
 		"payment_mode": payment_mode,

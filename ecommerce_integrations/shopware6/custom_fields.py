@@ -243,6 +243,68 @@ CUSTOM_FIELDS = {
             "translatable": 0,
             "description": "ERPNext Mode of Payment mapped from Shopware payment method",
         },
+        # PSP reconciliation: provider + the provider's transaction id, captured
+        # from the Shopware order transaction's customFields (Shopware does not
+        # persist the fee). Generic — lets any operator pull the exact PSP fee
+        # from the provider API for gross-method booking.
+        {
+            "fieldname": "psp_section",
+            "label": "PSP / Zahlungsabgleich",
+            "fieldtype": "Section Break",
+            "insert_after": "shopware_erpnext_mode_of_payment",
+            "collapsible": 1,
+        },
+        {
+            "fieldname": "psp_provider",
+            "label": "PSP Provider",
+            "fieldtype": "Data",
+            "insert_after": "psp_section",
+            "read_only": 1,
+            "translatable": 0,
+            "description": "Normalised payment provider (PayPal, Stripe, Klarna, …).",
+        },
+        {
+            "fieldname": "psp_transaction_id",
+            "label": "PSP Transaction ID",
+            "fieldtype": "Data",
+            "insert_after": "psp_provider",
+            "read_only": 1,
+            "translatable": 0,
+            "description": "Provider transaction id (e.g. PayPal capture id) for fee/payout lookup.",
+        },
+        {
+            "fieldname": "psp_order_reference",
+            "label": "PSP Order Reference",
+            "fieldtype": "Data",
+            "insert_after": "psp_transaction_id",
+            "read_only": 1,
+            "translatable": 0,
+        },
+        {
+            "fieldname": "psp_payment_handler",
+            "label": "PSP Payment Handler",
+            "fieldtype": "Data",
+            "insert_after": "psp_order_reference",
+            "read_only": 1,
+            "translatable": 0,
+            "hidden": 1,
+        },
+        {
+            "fieldname": "psp_is_sandbox",
+            "label": "PSP Sandbox",
+            "fieldtype": "Check",
+            "insert_after": "psp_payment_handler",
+            "read_only": 1,
+        },
+        {
+            "fieldname": "psp_captured_amount",
+            "label": "PSP Captured Amount",
+            "fieldtype": "Currency",
+            "insert_after": "psp_is_sandbox",
+            "read_only": 1,
+            "description": "Gross amount actually captured by the PSP (for exact "
+            "clearing booking on partial captures / rounding).",
+        },
         *ECOMMERCE_SALES_ORDER_FIELDS,
     ],
     "Delivery Note": [

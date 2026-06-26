@@ -303,10 +303,16 @@ def _apply_live(mirror) -> MirrorRunResult:
                 description=root_create.proposed_description,
                 active=root_create.proposed_active,
                 target_sales_channel=mirror.target_sales_channel,
+                meta_title=root_create.proposed_meta_title,
+                meta_description=root_create.proposed_meta_description,
             )
             result.created += 1
             mapping[erp_tree.name] = root_external_id
             _persist_mapping(mirror.backend, erp_tree.name, root_external_id)
+            _persist_hash(
+                mirror.backend, erp_tree.name,
+                root_create.proposed_canonical_hash,
+            )
         except AdapterError as e:
             result.errors.append(f"root create failed: {e}")
             result.status = "error"
@@ -363,9 +369,12 @@ def _apply_live(mirror) -> MirrorRunResult:
                 description=plan.proposed_description,
                 active=plan.proposed_active,
                 target_sales_channel=mirror.target_sales_channel,
+                meta_title=plan.proposed_meta_title,
+                meta_description=plan.proposed_meta_description,
             )
             mapping[plan.item_group] = ext_id
             _persist_mapping(mirror.backend, plan.item_group, ext_id)
+            _persist_hash(mirror.backend, plan.item_group, plan.proposed_canonical_hash)
             result.created += 1
         except AdapterError as e:
             result.errors.append(f"create {plan.item_group}: {e}")
@@ -380,11 +389,23 @@ def _apply_live(mirror) -> MirrorRunResult:
                 description=plan.proposed_description,
                 active=plan.proposed_active,
                 target_sales_channel=mirror.target_sales_channel,
+                meta_title=plan.proposed_meta_title,
+                meta_description=plan.proposed_meta_description,
             )
+            _persist_hash(mirror.backend, plan.item_group, plan.proposed_canonical_hash)
             result.updated += 1
         except AdapterError as e:
             result.errors.append(f"update {plan.item_group}: {e}")
             result.status = "error"
+
+    # Hash-refresh for nodes whose live payload already matched but whose
+    # recorded canonical hash was stale (first run after enabling the
+    # hash, a PAYLOAD_VERSION bump, convergent out-of-band edits). DB-only,
+    # no backend write. ``hash_stale`` is never set on ignored noops, so
+    # erp_ignored categories are skipped here too.
+    for plan in diff.noops:
+        if plan.hash_stale:
+            _persist_hash(mirror.backend, plan.item_group, plan.proposed_canonical_hash)
 
     # Moves bottom-up so a subtree re-parent applies as one logical
     # unit (the move on the parent carries its already-attached
@@ -438,6 +459,8 @@ def _fetch_diff(
         diff = TreeDiff(unresolved_external_root=True)
         return diff, None, str(e)
 
+    stored_hashes = _load_hashes(mirror, erp_tree)
+
     live_root_id = mirror.external_root_id or None
     live_root_id = _resolve_external_root(mirror, live_root_id)
 
@@ -448,6 +471,9 @@ def _fetch_diff(
             mapping=mapping,
             name_template=mirror.name_template or "{{ item_group.item_group_name }}",
             description_template=mirror.description_template or "",
+            meta_title_template=mirror.get("meta_title_template") or "",
+            meta_description_template=mirror.get("meta_description_template") or "",
+            stored_hashes=stored_hashes,
             orphan_policy=mirror.orphan_policy or "keep",
         )
         return diff, None, None
@@ -461,6 +487,9 @@ def _fetch_diff(
             mapping=mapping,
             name_template=mirror.name_template or "{{ item_group.item_group_name }}",
             description_template=mirror.description_template or "",
+            meta_title_template=mirror.get("meta_title_template") or "",
+            meta_description_template=mirror.get("meta_description_template") or "",
+            stored_hashes=stored_hashes,
             orphan_policy=mirror.orphan_policy or "keep",
         )
         return diff, live_root_id, f"fetch_tree failed: {e}"
@@ -472,6 +501,9 @@ def _fetch_diff(
             mapping=mapping,
             name_template=mirror.name_template or "{{ item_group.item_group_name }}",
             description_template=mirror.description_template or "",
+            meta_title_template=mirror.get("meta_title_template") or "",
+            meta_description_template=mirror.get("meta_description_template") or "",
+            stored_hashes=stored_hashes,
             orphan_policy=mirror.orphan_policy or "keep",
         )
         return diff, live_root_id, None
@@ -488,6 +520,9 @@ def _fetch_diff(
         mapping=mapping_for_diff,
         name_template=mirror.name_template or "{{ item_group.item_group_name }}",
         description_template=mirror.description_template or "",
+        meta_title_template=mirror.get("meta_title_template") or "",
+        meta_description_template=mirror.get("meta_description_template") or "",
+        stored_hashes=stored_hashes,
         orphan_policy=mirror.orphan_policy or "keep",
     )
     return diff, live_root_id, None
@@ -578,6 +613,62 @@ def _mapping_field(backend: str) -> str | None:
     if backend == BACKEND_MEDUSA:
         return "medusa_category_id"
     return None
+
+
+def _hash_field(backend: str) -> str | None:
+    if backend == BACKEND_SHOPWARE:
+        return "shopware_category_hash"
+    if backend == BACKEND_MEDUSA:
+        return "medusa_category_hash"
+    return None
+
+
+def _load_hashes(mirror, erp_tree: ErpTreeNode) -> dict[str, str]:
+    """Return the IG-name -> stored canonical hash map for the backend.
+
+    The hash is recorded per IG on the ``<backend>_category_hash`` custom
+    field (sibling of ``<backend>_category_id``). Used by the differ only
+    as a fast-skip / refresh signal — never as the sole change source, so
+    a missing field (older install before the patch ran) degrades
+    gracefully to "every node looks hash-stale" without breaking the run.
+    """
+    field = _hash_field(mirror.backend)
+    if not field:
+        return {}
+    ig_names = [n.name for n in erp_tree.iter_descendants()]
+    if not ig_names:
+        return {}
+    if not frappe.db.has_column("Item Group", field):
+        return {}
+    placeholders = ", ".join(["%s"] * len(ig_names))
+    rows = frappe.db.sql(
+        f"""SELECT name, {field} AS h
+            FROM `tabItem Group`
+            WHERE name IN ({placeholders})""",
+        tuple(ig_names),
+        as_dict=True,
+    )
+    return {r.name: r.h for r in rows if r.h}
+
+
+def _persist_hash(backend: str, item_group: str, canonical_hash: str | None) -> None:
+    """Write the canonical hash back onto the Item Group (DB-only).
+
+    No-op when the column is missing so the mirror keeps working on an
+    install that hasn't run the hash-field patch yet — it just won't get
+    the fast-skip benefit until the column exists.
+    """
+    field = _hash_field(backend)
+    if not field or not item_group or not canonical_hash:
+        return
+    if not frappe.db.has_column("Item Group", field):
+        return
+    frappe.db.set_value(
+        "Item Group",
+        item_group,
+        {field: canonical_hash},
+        update_modified=False,
+    )
 
 
 def _find_root_create(creates: Iterable[NodePlan], root_name: str) -> NodePlan | None:

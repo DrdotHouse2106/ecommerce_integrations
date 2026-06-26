@@ -128,7 +128,8 @@
   "checkout_fields_section",
   "checkout_fields",
   "checkout_fields_info_section",
-  "checkout_fields_info_html"
+  "checkout_fields_info_html",
+  "custom_field_sync_languages"
  ],
  "fields": [
   {
@@ -945,6 +946,13 @@
    "fieldname": "checkout_fields_info_html",
    "fieldtype": "HTML",
    "options": "<div class=\"alert alert-info\"><p><strong>Checkout-Felder</strong> erlauben, im Shopware-Checkout zusätzliche Eingaben (z.B. Lieferdatum, Wunschtermin, Bestell-Referenz) zu erfassen und in ERPNext zu spiegeln.</p><p>Pro Feld eine Zeile mit Custom-Field-Name aus Shopware und Ziel-Feld in ERPNext anlegen.</p></div>"
+  },
+  {
+   "fieldname": "custom_field_sync_languages",
+   "fieldtype": "Small Text",
+   "label": "Custom-Field Sync-Sprachen",
+   "default": "all",
+   "description": "Sprachen, in die Produkt-Custom-Fields synchronisiert werden: 'all' (alle Shopware-Sprachen) oder Komma-Liste von Locales (z. B. 'de-DE,en-GB'). Leer = alle."
   }
  ],
  "index_web_pages_for_search": 1,

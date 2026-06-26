@@ -136,6 +136,43 @@ def dispatch_item_change(
     return out
 
 
+def dispatch_item_delete(item_code: str, backend: str | None = None) -> dict[str, Any]:
+    """Save-triggered single-item deactivation entry point.
+
+    Called from the ``queue_item_delete_for_sync`` doc-event hook when an Item
+    is trashed / disabled. Deactivation isn't a delta drift — there's nothing to
+    diff (the Item may already be gone) — so it bypasses ``apply_sync`` and
+    talks to the backend adapter directly: resolve the external id from
+    ``tabEcommerce Item`` and call ``deactivate_product``. Backend fan-out
+    mirrors :func:`dispatch_item_change`; ``None`` means every known backend.
+    """
+    from ecommerce_integrations.product_sync.constants import (
+        BACKEND_TO_INTEGRATION_KEY,
+    )
+    from ecommerce_integrations.product_sync.engine.registry import get_adapter
+
+    backends = [backend] if backend else [BACKEND_SHOPWARE, BACKEND_MEDUSA]
+    out: dict[str, Any] = {}
+    for be in backends:
+        integration = BACKEND_TO_INTEGRATION_KEY.get(be)
+        if not integration:
+            continue
+        external_id = frappe.db.get_value(
+            "Ecommerce Item",
+            {"erpnext_item_code": item_code, "integration": integration},
+            "integration_item_code",
+        )
+        if not external_id:
+            continue
+        try:
+            get_adapter(be).deactivate_product(external_id)
+            out[be] = "deactivated"
+        except Exception:  # noqa: BLE001
+            frappe.log_error(frappe.get_traceback(), f"dispatch_item_delete {be} {item_code}")
+            out[be] = "error"
+    return out
+
+
 def apply_sync(
     sync_name: str,
     *,
@@ -374,6 +411,55 @@ def _apply_live(
                     f"run={run.name}: {type(exc).__name__}: {exc}"
                 )
 
+            # Filter reconciliation: align every Shopware property group's
+            # ``filterable`` flag with the ERP catalog, so a property flipped to
+            # non-filterable / Text in ERP, BMEcat positional duplicates and
+            # orphans stop appearing as storefront filters. Run-level (not
+            # per-item) because drifted groups aren't referenced by the items in
+            # this batch. Idempotent — zero writes once converged. Skipped for
+            # per-save subset dispatches (it scans ALL groups; running it on
+            # every Item.save would be wasteful) — the cron's full run covers it.
+            recon = getattr(adapter, "reconcile_property_group_filterable", None)
+            if callable(recon) and not subset_item_codes:
+                try:
+                    res = recon()
+                    if res.get("updated"):
+                        _logger().info(
+                            f"property-group filterable reconcile: "
+                            f"{res['updated']} updated / {res['checked']} checked "
+                            f"(sync={sync_doc.name} run={run.name})"
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    _logger().warning(
+                        f"property-group filterable reconcile failed for "
+                        f"sync={sync_doc.name} run={run.name}: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+
+            # Option-value reconciliation: ``ensure_property_options_bulk`` only
+            # creates options, never prunes. A value renamed or normalised in
+            # ERP (e.g. ``"5.00"`` → ``"5"`` via canonical numeric
+            # normalisation) leaves its stale twin behind as an empty filter
+            # facet. This run-level pass deletes every property-group option no
+            # product references. Same gating as the filterable pass — full cron
+            # run only, idempotent once converged.
+            recon_opts = getattr(adapter, "reconcile_property_group_options", None)
+            if callable(recon_opts) and not subset_item_codes:
+                try:
+                    res = recon_opts()
+                    if res.get("deleted"):
+                        _logger().info(
+                            f"property-group option reconcile: "
+                            f"{res['deleted']} deleted / {res['checked']} checked "
+                            f"(sync={sync_doc.name} run={run.name})"
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    _logger().warning(
+                        f"property-group option reconcile failed for "
+                        f"sync={sync_doc.name} run={run.name}: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+
         # 3. Apply creates + updates in batches against the backend's
         #    bulk endpoint (Shopware /_action/sync, Medusa
         #    /admin/products/batch). Per-item HTTP would be 33k+ round
@@ -495,9 +581,27 @@ def _apply_live(
                     if orphan_policy == "deactivate":
                         adapter.deactivate_product(o.external_id)
                         result.deactivated += 1
+                        # Side-channel mutation: the backend product is
+                        # now inactive but the stored canonical/hash
+                        # still reflect the last *active* push. Reset
+                        # the sync state so the item re-pushes (and
+                        # re-activates) when it next returns to scope —
+                        # otherwise the recomputed canonical matches the
+                        # stale stored one and the differ reports a
+                        # false noop, leaving it inactive forever. Keep
+                        # the mapping: the product still exists.
+                        _reset_sync_state_by_external(
+                            o.external_id, integration_key, drop_mapping=False,
+                        )
                     else:
                         adapter.delete_product(o.external_id)
                         result.deleted += 1
+                        # Product is gone — drop the mapping too so the
+                        # next in-scope sync re-creates instead of
+                        # PATCHing a deleted entity (or noop-ing).
+                        _reset_sync_state_by_external(
+                            o.external_id, integration_key, drop_mapping=True,
+                        )
                 except Exception as exc:  # noqa: BLE001
                     result.errors.append(f"orphan {o.external_id}: {exc}")
 
@@ -680,11 +784,13 @@ def _apply_batch(
                 item, sync_doc, canonical,
                 external_id=external_id,
                 changed_sections=partial_sections,
+                prev_canonical=stored_canonical,
             )
         elif backend == BACKEND_MEDUSA:
             payload = build_medusa_payload(
                 item, sync_doc, canonical,
                 external_id=external_id, variant_id=variant_id,
+                prev_canonical=stored_canonical,
             )
         else:
             applied_diffs.append({
@@ -900,6 +1006,13 @@ def _apply_batch(
                     m.get("media", {}).get("url")
                     for m in media if m.get("media", {}).get("url")
                 ]
+                # Canonical gallery order (basenames) — captured before
+                # the short-circuit below empties ``urls``. Drives the
+                # ordered keep-list for reconcile (positions + cover).
+                _canonical_basenames = [
+                    (u.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]).lower()
+                    for u in urls
+                ]
                 # Skip image-upload when every canonical image has
                 # already been pushed (basename present in
                 # ``pushed_image_map``). Without this guard, every
@@ -984,6 +1097,19 @@ def _apply_batch(
                         result.errors.append(
                             f"{meta['item_code']}: image upload failed: {exc}",
                         )
+                        # Self-heal: the item's success (incl. the
+                        # ``images`` canonical section) was already
+                        # persisted before Phase-C ran. Leaving it
+                        # there would make every following run treat
+                        # the FAILED upload as in-sync and never
+                        # retry. Strip the section from the stored
+                        # canonical so the next run flags ``images``
+                        # as changed and re-attempts the upload.
+                        _invalidate_stored_canonical_section(
+                            integration_key=integration_key,
+                            item_code=meta["item_code"],
+                            section="images",
+                        )
 
                 # Delta media reconciliation: delete product_media rows
                 # whose media UUID isn't in the (now-updated) pushed
@@ -1018,12 +1144,42 @@ def _apply_batch(
                         final_map = (
                             _json2.loads(final_map_raw) if final_map_raw else {}
                         )
-                        keep_ids = list(final_map.values())
-                        if keep_ids:
+                        final_map = {
+                            (k or "").lower(): v for k, v in (final_map or {}).items()
+                        }
+                        # Keep-list in CANONICAL order (Item.image first,
+                        # gallery after) so the adapter can renumber
+                        # positions and point the cover at the primary.
+                        # Only reconcile when the map covers every
+                        # canonical image — a partial map means uploads
+                        # failed this round, and reconciling against it
+                        # would delete media that are still wanted.
+                        keep_ids = [
+                            final_map[bn] for bn in _canonical_basenames
+                            if bn in final_map
+                        ]
+                        if keep_ids and len(keep_ids) == len(_canonical_basenames):
                             reconciler(new_external_id, keep_ids)
+                        elif _canonical_basenames:
+                            result.errors.append(
+                                f"{meta['item_code']}: media reconcile "
+                                f"skipped — pushed_image_map covers "
+                                f"{len(keep_ids)}/{len(_canonical_basenames)} "
+                                f"canonical images",
+                            )
+                            _invalidate_stored_canonical_section(
+                                integration_key=integration_key,
+                                item_code=meta["item_code"],
+                                section="images",
+                            )
                     except Exception as exc:  # noqa: BLE001
                         result.errors.append(
                             f"{meta['item_code']}: media reconcile failed: {exc}",
+                        )
+                        _invalidate_stored_canonical_section(
+                            integration_key=integration_key,
+                            item_code=meta["item_code"],
+                            section="images",
                         )
 
         # Phase-C properties push: now handled via the nested
@@ -1313,18 +1469,25 @@ def _apply_one_item(
     ecom_row = frappe.db.get_value(
         _ECOMMERCE_ITEM_DOCTYPE,
         {"erpnext_item_code": item_code, "integration": integration_key},
-        ["name", "integration_item_code", "variant_id"],
+        ["name", "integration_item_code", "variant_id", "last_synced_canonical"],
         as_dict=True,
     )
     external_id = ecom_row.get("integration_item_code") if ecom_row else None
     variant_id = ecom_row.get("variant_id") if ecom_row else None
 
     if sync_doc.backend == BACKEND_SHOPWARE:
-        payload = build_shopware_payload(item, sync_doc, canonical, external_id=external_id)
+        from ecommerce_integrations.product_sync.engine.canonical import decode_canonical
+        _prev = decode_canonical((ecom_row or {}).get("last_synced_canonical"))
+        payload = build_shopware_payload(
+            item, sync_doc, canonical, external_id=external_id, prev_canonical=_prev,
+        )
     elif sync_doc.backend == BACKEND_MEDUSA:
+        from ecommerce_integrations.product_sync.engine.canonical import decode_canonical
+        _prev_md = decode_canonical((ecom_row or {}).get("last_synced_canonical"))
         payload = build_medusa_payload(
             item, sync_doc, canonical,
             external_id=external_id, variant_id=variant_id,
+            prev_canonical=_prev_md,
         )
     else:
         raise ValueError(f"Unknown backend: {sync_doc.backend}")
@@ -1446,6 +1609,45 @@ def _ensure_brands_for_run(*, sync_doc, plan, adapter, run_name: str) -> None:
         frappe.db.commit()
 
 
+def _invalidate_stored_canonical_section(
+    *, integration_key: str, item_code: str, section: str,
+) -> None:
+    """Drop one section from an item's stored ``last_synced_canonical``.
+
+    Used when a Phase-C enrichment (image upload, media reconcile)
+    fails AFTER the item's success was persisted: removing the section
+    makes ``changed_sections()`` flag it on the next run, so the
+    enrichment is retried instead of being treated as in-sync forever.
+    Failure here is swallowed — worst case the next run is a noop and
+    the error stays visible in the run's error list.
+    """
+    try:
+        row_name = frappe.db.get_value(
+            _ECOMMERCE_ITEM_DOCTYPE,
+            {"erpnext_item_code": item_code, "integration": integration_key},
+        )
+        if not row_name:
+            return
+        raw = frappe.db.get_value(
+            _ECOMMERCE_ITEM_DOCTYPE, row_name, "last_synced_canonical",
+        ) or ""
+        if not raw:
+            return
+        import json as _json
+        stored = _json.loads(raw)
+        if stored.pop(section, None) is None:
+            return
+        frappe.db.set_value(
+            _ECOMMERCE_ITEM_DOCTYPE,
+            row_name,
+            "last_synced_canonical",
+            frappe.as_json(stored),
+            update_modified=False,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _persist_item_success(
     *,
     item_code: str,
@@ -1498,8 +1700,51 @@ def _persist_item_success(
         doc.insert()
 
 
+def _reset_sync_state(name: str | None, *, drop_mapping: bool) -> None:
+    """Reset stored sync state on an Ecommerce Item mapping after a
+    side-channel backend mutation that changed live state WITHOUT going
+    through the canonical/hash update path (orphan deactivate/delete,
+    mapping drift).
+
+    The delta engine gates a push on ``last_synced_hash`` and decides
+    *which sections* to send from ``last_synced_canonical``. If a
+    side-channel mutation leaves both untouched, the next time the item
+    is in scope the recomputed canonical matches the stale stored one →
+    empty delta → false noop, and the live backend state is never
+    reconciled (e.g. a re-enabled product stays inactive). Clearing
+    BOTH forces a full re-push.
+
+    ``drop_mapping=True`` also clears ``integration_item_code`` — use
+    when the backend entity no longer exists (delete / drift) so the
+    next sync re-creates it. ``False`` keeps the mapping — use when the
+    entity still exists and only needs a full re-push (deactivate).
+    """
+    if not name:
+        return
+    values: dict = {"last_synced_hash": "", "last_synced_canonical": None}
+    if drop_mapping:
+        values["integration_item_code"] = ""
+    frappe.db.set_value(
+        _ECOMMERCE_ITEM_DOCTYPE, name, values, update_modified=False,
+    )
+
+
+def _reset_sync_state_by_external(
+    external_id: str, integration: str, *, drop_mapping: bool,
+) -> None:
+    """:func:`_reset_sync_state` keyed by backend external id."""
+    if not external_id:
+        return
+    name = frappe.db.get_value(
+        _ECOMMERCE_ITEM_DOCTYPE,
+        {"integration_item_code": external_id, "integration": integration},
+        "name",
+    )
+    _reset_sync_state(name, drop_mapping=drop_mapping)
+
+
 def _clear_mapping(item_code: str, integration: str) -> None:
-    """Remove the integration_item_code so the next run creates fresh.
+    """Drop the mapping so the next run creates fresh.
 
     Called for ``mapping_drift`` items where the recorded backend id
     no longer exists in the live tree.
@@ -1509,16 +1754,7 @@ def _clear_mapping(item_code: str, integration: str) -> None:
         {"erpnext_item_code": item_code, "integration": integration},
         "name",
     )
-    if not name:
-        return
-    frappe.db.set_value(
-        _ECOMMERCE_ITEM_DOCTYPE, name,
-        {
-            "integration_item_code": "",
-            "last_synced_hash": "",
-        },
-        update_modified=False,
-    )
+    _reset_sync_state(name, drop_mapping=True)
 
 
 # ─── Run lifecycle ───────────────────────────────────────────────────

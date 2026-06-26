@@ -188,6 +188,14 @@ class MedusaProductAdapter(ProductAdapter):
         installs (sandbox / prod) don't share verdicts.
         """
         import frappe
+        # Operator kill-switch: site_config ``medusa_disable_bulk_plugin``
+        # forces the per-item base path. Use when the Medusa-side
+        # erpnext-sync plugin misbehaves (observed 2026-06: batch
+        # creates assigned ``external_id`` off-by-one across the batch,
+        # and updates rejected existing variants with "sku already
+        # exists" instead of patching them).
+        if frappe.conf.get("medusa_disable_bulk_plugin"):
+            return False
         cache_key = f"_psync_erpnext_sync_plugin::{base_url}"
         cached = getattr(frappe.local, cache_key, None)
         if cached is not None:
@@ -321,6 +329,73 @@ class MedusaProductAdapter(ProductAdapter):
         if meta:
             dto["metadata"] = meta
         return dto
+
+    def _inject_variant_ids(
+        self, session, base_url: str, product_id: str, payload: dict,
+    ) -> None:
+        """Fill missing ``variants[].id`` from the live product (SKU match).
+
+        Best-effort: lookup failures leave the payload untouched and the
+        POST surfaces the original error to the orchestrator's audit row.
+        """
+        variants = payload.get("variants") or []
+        if not variants or all(v.get("id") for v in variants):
+            return
+        try:
+            resp = medusa_request(
+                session, base_url, "GET",
+                f"/admin/products/{product_id}",
+                params={"fields": "id,variants.id,variants.sku"},
+            )
+            live = {
+                (v.get("sku") or ""): v.get("id")
+                for v in ((resp.get("product") or {}).get("variants") or [])
+                if v.get("id")
+            }
+        except Exception:  # noqa: BLE001
+            return
+        for v in variants:
+            if not v.get("id") and v.get("sku") in live:
+                v["id"] = live[v["sku"]]
+
+    def upload_product_images(
+        self, product_id: str, urls: list[str],
+    ) -> dict:
+        """Phase-C image push: set the product's gallery + thumbnail.
+
+        Medusa stores image URLs (no media upload step like Shopware),
+        so one ``POST /admin/products/{id}`` with the full ``images``
+        array is both the upload AND the reconcile — POST semantics
+        replace the array, stale gallery entries disappear atomically.
+        ``urls[0]`` is the canonical primary (Item.image) and becomes
+        the ``thumbnail``; the list order is the storefront gallery
+        order (canonical ``images`` section order).
+
+        Returns the ``media_map`` contract (basename → url) used by the
+        orchestrator's pushed-image short-circuit.
+        """
+        if not product_id or not urls:
+            return {}
+        session, base_url = get_medusa_session()
+        try:
+            medusa_request(
+                session,
+                base_url,
+                "POST",
+                f"/admin/products/{product_id}",
+                json={
+                    "images": [{"url": u} for u in urls],
+                    "thumbnail": urls[0],
+                },
+            )
+        finally:
+            session.close()
+        return {
+            "media_map": {
+                (u.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]).lower(): u
+                for u in urls
+            },
+        }
 
     def deactivate_product(self, external_id: str) -> None:
         if not external_id:
@@ -656,6 +731,18 @@ class MedusaProductAdapter(ProductAdapter):
 
         try:
             if product_id:
+                # Update path: a ``variants[]`` entry WITHOUT an id is
+                # interpreted by Medusa as "add new variant" and dies
+                # with "Product variant with sku: X, already exists"
+                # when the SKU is already on the product. Mappings
+                # created through the bulk plugin never recorded
+                # ``variant_id`` (the plugin response carries no ids),
+                # so legacy rows hit this on every per-item update.
+                # Self-heal: resolve the live variant ids by SKU and
+                # inject them so the POST patches in place.
+                self._inject_variant_ids(
+                    session, base_url, product_id, out_payload,
+                )
                 try:
                     resp = medusa_request(
                         session, base_url, "POST",

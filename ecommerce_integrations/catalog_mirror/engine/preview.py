@@ -34,14 +34,26 @@ class NodePlan:
     proposed_description: str | None
     proposed_active: bool
 
+    proposed_meta_title: str | None = None
+    proposed_meta_description: str | None = None
+
     current_external_id: str | None = None
     current_name: str | None = None
     current_parent_external_id: str | None = None
     current_description: str | None = None
     current_active: bool | None = None
+    current_meta_title: str | None = None
+    current_meta_description: str | None = None
 
     children_count: int = 0
     product_count: int = 0
+
+    # Canonical fingerprint of the proposed content (name + description +
+    # SEO meta + active). ``hash_stale`` flags a node whose live payload
+    # already matches but whose *recorded* hash is out of date — the
+    # orchestrator refreshes the stored hash without a backend write.
+    proposed_canonical_hash: str | None = None
+    hash_stale: bool = False
 
     notes: list[str] = field(default_factory=list)
 

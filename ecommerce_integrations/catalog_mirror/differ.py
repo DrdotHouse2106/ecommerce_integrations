@@ -27,6 +27,10 @@ from dataclasses import dataclass, field
 
 import frappe
 
+from ecommerce_integrations.catalog_mirror.canonical import (
+    build_category_canonical,
+    hash_canonical,
+)
 from ecommerce_integrations.catalog_mirror.constants import (
     ACTION_CREATE,
     ACTION_MOVE,
@@ -45,6 +49,19 @@ from ecommerce_integrations.catalog_mirror.engine.preview import (
     OrphanNode,
 )
 from ecommerce_integrations.catalog_mirror.walker import ErpTreeNode
+
+
+@dataclass(frozen=True)
+class _Templates:
+    """The four Jinja templates a mirror renders per node. Bundled so the
+    classifier/create helpers take one value instead of four positional
+    args. An empty template string means "this field is not managed by
+    the mirror" (see :func:`_render_template`)."""
+
+    name: str
+    description: str = ""
+    meta_title: str = ""
+    meta_description: str = ""
 
 
 @dataclass
@@ -77,6 +94,9 @@ def compute_tree_diff(
     *,
     name_template: str,
     description_template: str = "",
+    meta_title_template: str = "",
+    meta_description_template: str = "",
+    stored_hashes: dict[str, str] | None = None,
     orphan_policy: str = ORPHAN_KEEP,
 ) -> TreeDiff:
     """Compute the diff for one Catalog Mirror.
@@ -86,7 +106,21 @@ def compute_tree_diff(
     category belongs to which IG". When an entry exists but the live
     tree doesn't surface that external_id, the IG goes into
     ``mapping_drift`` (and will be re-created on the next apply).
+
+    ``stored_hashes`` is the persisted ``{item_group_name ->
+    canonical_hash}`` table. It does not change the create/update/move
+    decision (the live tree stays authoritative for backend drift) — it
+    only lets a node whose live payload already matches but whose
+    recorded hash is stale be flagged ``hash_stale`` so the orchestrator
+    refreshes the stored hash without a backend write.
     """
+    stored_hashes = stored_hashes or {}
+    templates = _Templates(
+        name=name_template,
+        description=description_template,
+        meta_title=meta_title_template,
+        meta_description=meta_description_template,
+    )
     diff = TreeDiff()
 
     if live_tree is None:
@@ -99,7 +133,9 @@ def compute_tree_diff(
             if node is erp_tree:
                 # The root itself: created at the live root if needed,
                 # so we still need to render it as a create.
-                diff.creates.append(_make_create(node, None, name_template, description_template))
+                diff.creates.append(
+                    _make_create(node, None, templates),
+                )
             else:
                 # parent is the previous-walked node; resolve via
                 # mapping in case the parent has been adopted.
@@ -107,7 +143,7 @@ def compute_tree_diff(
                     erp_tree, node, mapping,
                 )
                 diff.creates.append(
-                    _make_create(node, parent_ext, name_template, description_template),
+                    _make_create(node, parent_ext, templates),
                 )
         return diff
 
@@ -135,8 +171,8 @@ def compute_tree_diff(
         matched_live_ids=matched_live_ids,
         mapping=mapping,
         diff=diff,
-        name_template=name_template,
-        description_template=description_template,
+        templates=templates,
+        stored_hashes=stored_hashes,
         is_root=True,
     )
 
@@ -149,14 +185,20 @@ def compute_tree_diff(
             matched_live_ids=matched_live_ids,
             mapping=mapping,
             diff=diff,
-            name_template=name_template,
-            description_template=description_template,
+            templates=templates,
+            stored_hashes=stored_hashes,
         )
 
     # Anything under the live root that we didn't match is an orphan.
     suggested = _suggested_orphan_action(orphan_policy)
     for live_node in _iter_live(live_tree):
         if live_node.external_id in matched_live_ids:
+            continue
+        # Operator opt-out: a category flagged ``erp_ignored`` (and,
+        # via subtree inheritance, everything under it) is invisible to
+        # the mirror. Never surface it as an orphan — that's what would
+        # otherwise delete/deactivate it under a non-keep orphan_policy.
+        if getattr(live_node, "ignored", False):
             continue
         # The root itself is always matched above; iter_live includes it
         # so the guard catches it cleanly.
@@ -182,11 +224,11 @@ def _walk_classify(
     matched_live_ids: set[str],
     mapping: dict[str, str],
     diff: TreeDiff,
-    name_template: str,
-    description_template: str,
+    templates: _Templates,
+    stored_hashes: dict[str, str],
 ) -> None:
     parent_ext = _resolve_parent_external_id(erp_tree, erp_node, mapping)
-    live_match = _resolve_live_match(erp_node, mapping, live_by_id, diff, name_template)
+    live_match = _resolve_live_match(erp_node, mapping, live_by_id, diff, templates.name)
     if live_match is not None:
         matched_live_ids.add(live_match.external_id)
 
@@ -199,8 +241,8 @@ def _walk_classify(
         matched_live_ids=matched_live_ids,
         mapping=mapping,
         diff=diff,
-        name_template=name_template,
-        description_template=description_template,
+        templates=templates,
+        stored_hashes=stored_hashes,
         is_root=False,
     )
 
@@ -213,8 +255,8 @@ def _walk_classify(
             matched_live_ids=matched_live_ids,
             mapping=mapping,
             diff=diff,
-            name_template=name_template,
-            description_template=description_template,
+            templates=templates,
+            stored_hashes=stored_hashes,
         )
 
 
@@ -228,36 +270,39 @@ def _classify_node(
     matched_live_ids: set[str],
     mapping: dict[str, str],
     diff: TreeDiff,
-    name_template: str,
-    description_template: str,
+    templates: _Templates,
+    stored_hashes: dict[str, str],
     is_root: bool,
 ) -> None:
-    proposed_name = _render_template(name_template, erp_node)
-    proposed_description = _render_template(description_template, erp_node)
-
     if live_match is None:
-        if is_root:
-            # The root has no live match only when the whole tree is
-            # missing — and that's already handled at compute_tree_diff
-            # entry. If we reach here the orchestrator's external_root_id
-            # was empty; record a create so the live path can pin it.
-            diff.creates.append(
-                _make_create(
-                    erp_node, proposed_parent_external_id,
-                    name_template, description_template,
-                ),
-            )
-            return
+        # Whole-tree-missing root and ordinary missing nodes both become
+        # creates; the orchestrator pins the root separately. ``_make_create``
+        # renders every field and stamps the canonical hash.
         diff.creates.append(
-            _make_create(
-                erp_node, proposed_parent_external_id,
-                name_template, description_template,
-            ),
+            _make_create(erp_node, proposed_parent_external_id, templates),
         )
         return
 
+    proposed_name = _render_template(templates.name, erp_node)
+    proposed_description = _render_template(templates.description, erp_node)
+    proposed_meta_title = _render_template(templates.meta_title, erp_node)
+    proposed_meta_description = _render_template(templates.meta_description, erp_node)
+    proposed_hash = hash_canonical(
+        build_category_canonical(
+            name=proposed_name,
+            description=proposed_description,
+            meta_title=proposed_meta_title,
+            meta_description=proposed_meta_description,
+            active=True,
+        ),
+    )
+
     name_changed = (live_match.name or "") != proposed_name
     desc_changed = (live_match.description or "") != (proposed_description or "")
+    meta_changed = (
+        (live_match.meta_title or "") != (proposed_meta_title or "")
+        or (live_match.meta_description or "") != (proposed_meta_description or "")
+    )
 
     # For the root we don't propose a parent (the live root keeps its
     # current parent — typically the sales-channel's navigation root or
@@ -274,31 +319,54 @@ def _classify_node(
         proposed_name=proposed_name,
         proposed_parent_external_id=proposed_parent_external_id,
         proposed_description=proposed_description or None,
+        proposed_meta_title=proposed_meta_title or None,
+        proposed_meta_description=proposed_meta_description or None,
         proposed_active=True,
         current_external_id=live_match.external_id,
         current_name=live_match.name,
         current_parent_external_id=live_match.parent_external_id,
         current_description=live_match.description,
         current_active=bool(live_match.active),
+        current_meta_title=live_match.meta_title,
+        current_meta_description=live_match.meta_description,
         children_count=len(erp_node.children),
         product_count=int(live_match.product_count or 0),
+        proposed_canonical_hash=proposed_hash,
     )
+
+    if live_match.ignored:
+        # Operator opted this live category out of the mirror
+        # (Shopware ``customFields.erp_ignored``). Never overwrite it —
+        # record a noop so the preview shows we deliberately left it
+        # alone, regardless of name/parent/description/meta/hash drift.
+        # ``hash_stale`` stays False so the orchestrator never persists a
+        # hash for an ignored node (re-enabling the flag → fresh push).
+        plan.notes.append("erp_ignored — manuell verwaltet, nicht überschrieben")
+        diff.noops.append(plan)
+        return
 
     if parent_changed:
         plan.action = ACTION_MOVE
         diff.moves.append(plan)
-        # A move can co-exist with name/desc drift; the orchestrator
-        # patches both. We classify as ``move`` so the preview surfaces
-        # it as the operationally bigger change.
-        if name_changed or desc_changed:
-            plan.notes.append("also has name/description drift")
+        # A move can co-exist with name/desc/meta drift; the apply phase
+        # only re-parents here and the content drift self-heals on the
+        # next run (when the parent matches). Flag it for the preview and
+        # do NOT mark the hash for persist (content wasn't pushed).
+        if name_changed or desc_changed or meta_changed:
+            plan.notes.append("also has name/description/meta drift")
         return
 
-    if name_changed or desc_changed:
+    if name_changed or desc_changed or meta_changed:
         plan.action = ACTION_UPDATE
         diff.updates.append(plan)
         return
 
+    # Live payload already matches what we'd push. If our recorded hash
+    # is stale (first run after enabling the hash, a PAYLOAD_VERSION bump,
+    # or convergent out-of-band edits) refresh it — DB-only, no backend
+    # write — so future runs have an accurate fingerprint.
+    if stored_hashes.get(erp_node.name, "") != proposed_hash:
+        plan.hash_stale = True
     diff.noops.append(plan)
 
 
@@ -367,18 +435,36 @@ def _find_parent(
 def _make_create(
     erp_node: ErpTreeNode,
     parent_external_id: str | None,
-    name_template: str,
-    description_template: str,
+    templates: _Templates,
 ) -> NodePlan:
+    proposed_name = _render_template(templates.name, erp_node)
+    proposed_description = _render_template(templates.description, erp_node)
+    proposed_meta_title = _render_template(templates.meta_title, erp_node)
+    proposed_meta_description = _render_template(templates.meta_description, erp_node)
+    proposed_hash = hash_canonical(
+        build_category_canonical(
+            name=proposed_name,
+            description=proposed_description,
+            meta_title=proposed_meta_title,
+            meta_description=proposed_meta_description,
+            active=True,
+        ),
+    )
     return NodePlan(
         item_group=erp_node.name,
         item_group_path=erp_node.name,
         action=ACTION_CREATE,
-        proposed_name=_render_template(name_template, erp_node),
+        proposed_name=proposed_name,
         proposed_parent_external_id=parent_external_id,
-        proposed_description=_render_template(description_template, erp_node) or None,
+        proposed_description=proposed_description or None,
+        proposed_meta_title=proposed_meta_title or None,
+        proposed_meta_description=proposed_meta_description or None,
         proposed_active=True,
         children_count=len(erp_node.children),
+        proposed_canonical_hash=proposed_hash,
+        # A create always pushes content, so its hash is persisted after
+        # the upsert succeeds.
+        hash_stale=True,
     )
 
 
@@ -447,6 +533,9 @@ def _render_template(template: str, erp_node: ErpTreeNode) -> str:
                     "parent_item_group": erp_node.parent_item_group,
                     "is_group": erp_node.is_group,
                     "has_items": erp_node.has_items,
+                    "description": erp_node.description,
+                    "seo_title": erp_node.seo_title,
+                    "seo_meta_description": erp_node.seo_meta_description,
                 },
             },
         )

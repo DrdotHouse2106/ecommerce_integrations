@@ -17,6 +17,10 @@
   {% set title = _("Invoice") %}
   {% set greeting = brand.email_invoice_greeting %}
   {% set body = brand.email_invoice_body %}
+{% elif kind == "shipping" or kind == "delivery" %}
+  {% set title = _(brand.email_shipment_title or "Your order has shipped") %}
+  {% set greeting = brand.email_shipment_greeting %}
+  {% set body = brand.email_shipment_body %}
 {% else %}
   {% set title = _(brand.order_ack_title) %}
   {% set greeting = brand.email_acknowledgment_greeting %}
@@ -54,6 +58,20 @@
       <h1 style="color:{{ brand.primary_color }};margin:0 0 20px 0;font-size:20pt;font-weight:700;">{{ title }}</h1>
       <p style="margin:0 0 16px 0;font-size:10pt;line-height:1.6;">{{ render_branding_text(greeting, doc) }}</p>
 
+      {#-- Shipping: tracking call-to-action (only when a tracking link/number is set) --#}
+      {% if (kind == "shipping" or kind == "delivery") and (doc.get("custom_tracking_url") or doc.get("custom_tracking_no")) %}
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:8px 0 20px 0;background-color:#f8f9fa;border:1px solid #e5e7eb;">
+        <tr><td style="padding:16px 20px;text-align:center;">
+          {% if doc.get("custom_tracking_url") %}
+            <a href="{{ doc.custom_tracking_url }}" style="display:inline-block;padding:10px 22px;background-color:{{ brand.primary_color }};color:#ffffff;text-decoration:none;font-size:10pt;font-weight:700;border-radius:4px;">{{ _("Track your shipment") }}</a>
+          {% endif %}
+          {% if doc.get("custom_tracking_no") %}
+            <div style="margin-top:10px;font-size:9pt;color:#555;">{{ _("Tracking number") }}: <strong>{{ doc.custom_tracking_no }}</strong></div>
+          {% endif %}
+        </td></tr>
+      </table>
+      {% endif %}
+
       {% if body %}
         <div style="font-size:10pt;line-height:1.6;">{{ render_branding_text(body, doc) | safe }}</div>
       {% endif %}
@@ -64,7 +82,7 @@
           <td colspan="2" style="padding:12px 16px;font-weight:700;font-size:10pt;color:{{ brand.primary_color }};border-bottom:1px solid #e5e7eb;">{{ _("Order Details") }}</td>
         </tr>
         <tr><td style="padding:8px 16px;font-size:9pt;color:#555;width:40%;">{{ _("Order Number") }}:</td><td style="padding:8px 16px;font-size:9pt;"><strong>{{ doc.name }}</strong></td></tr>
-        <tr><td style="padding:8px 16px;font-size:9pt;color:#555;">{{ _("Date") }}:</td><td style="padding:8px 16px;font-size:9pt;">{{ frappe.utils.formatdate(doc.transaction_date, "long") }}</td></tr>
+        <tr><td style="padding:8px 16px;font-size:9pt;color:#555;">{{ _("Date") }}:</td><td style="padding:8px 16px;font-size:9pt;">{{ frappe.utils.formatdate(doc.get("transaction_date") or doc.get("posting_date"), "long") }}</td></tr>
         {% if doc.po_no %}<tr><td style="padding:8px 16px;font-size:9pt;color:#555;">{{ _("Your Order No.") }}:</td><td style="padding:8px 16px;font-size:9pt;">{{ doc.po_no }}</td></tr>{% endif %}
       </table>
 

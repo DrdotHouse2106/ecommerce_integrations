@@ -41,7 +41,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 # Schema version. Bump only on backward-incompatible changes to the
@@ -64,7 +64,24 @@ from typing import Any
 # region's tax_rate at display time, producing consistent
 # tax-on-sum rounding for multi-line orders — Shopware keeps using
 # the existing ``base_price`` gross value).
-PAYLOAD_VERSION = 4
+#
+# v5 (2026-06): ``basic.min_order_qty`` added (sparse — only emitted
+# when > 1) so carton-based minimum order quantities reach Shopware's
+# ``minPurchase`` / ``purchaseSteps``. Sparse emission keeps the hash
+# of the overwhelming majority of items (no MOQ) stable across the
+# version bump; removing an Item's MOQ drops the key, flips the
+# ``basic`` hash and the adapter pushes the reset (minPurchase=1).
+#
+# v6 (2026-06): ``properties.custom_fields`` added (sparse — only when
+# the item has Custom-Field-typed ecommerce_properties flagged for this
+# backend). Custom-Field rows are machine/integration markers, kept out
+# of the customer-facing ``ecommerce_properties`` display list. The
+# Medusa adapter folds them into top-level product ``metadata`` so a
+# row marked ``sync_to_medusa`` but typed Custom Field actually reaches
+# Medusa (previously it reached no channel — Shopware customFields gate
+# on ``sync_to_shopware``, the Medusa metadata.properties list excludes
+# Custom-Field rows).
+PAYLOAD_VERSION = 6
 
 # Float precision for hashing. 4 decimals is "1/100th of a cent" —
 # plenty for retail prices and stock floats; small enough to swallow
@@ -102,6 +119,32 @@ def build_canonical_payload(item, sync, ctx=None) -> dict[str, Any]:
         dyn = _canonical_dynamic_custom_fields(item)
         if dyn:
             payload["basic"]["dynamic_custom_fields"] = dyn
+        # ``customFields`` is replicated per-language onto the wire (see
+        # ``build_shopware_payload``). Fold the resolved target language IDs
+        # into the basic hash so a change to the ``custom_field_sync_languages``
+        # setting — or a newly added Shopware language — flips the hash and the
+        # item re-pushes its per-language customFields through the normal delta
+        # gate (no manual force, no PAYLOAD_VERSION bump). Hash-only: the
+        # payload builder never reads this key, so it stays off the wire. Only
+        # added when the item actually emits customFields, so items without any
+        # stay hash-stable.
+        _b = payload["basic"]
+        if (
+            _b.get("dynamic_custom_fields")
+            or _b.get("ai_short_description")
+            or _b.get("ai_benefits")
+            or _b.get("ai_seo_description")
+        ):
+            from ecommerce_integrations.product_sync.engine.payload import (
+                _custom_field_sync_setting,
+            )
+
+            # Hash the durable *setting* (DB-only), not the live-resolved
+            # language IDs — so a Shopware API hiccup during canonical build
+            # can't flip the hash and cause spurious re-pushes. A setting change
+            # still flips it; adding a brand-new Shopware language while the
+            # setting stays ``all`` needs a one-off forced re-sync (documented).
+            _b["custom_field_languages"] = _custom_field_sync_setting()
     # Per-item Sales-Channel visibility, resolved via the shared
     # Catalog-Mirror resolver (Smart Collections + Catalog Mirror
     # placements + per-item channel overrides). Owns its own
@@ -411,11 +454,18 @@ def _canonical_dynamic_custom_fields(item) -> dict[str, Any]:
         if not pn or not pv:
             continue
         key = shopware_custom_field_name(pn)
+        # Respect the property's declared data type: a ``number`` property
+        # (e.g. a per-item shipping cost) must reach the backend as a numeric
+        # value so a float customField / Rule Builder can consume it — otherwise
+        # it lands as a string and numeric conditions break.
         # Last-write-wins if an operator-configured mapping already
         # set this key — generally these don't collide because
         # Source-1 keys are channel-specific (idealo_feed) while
         # Source-2 keys carry the ``erpnext_`` prefix.
-        out[key] = coerce_custom_field_value(pv)
+        if (getattr(row, "field_data_type", None) or "") == "number":
+            out[key] = _coerce_dynamic_value(pv, "Float")
+        else:
+            out[key] = coerce_custom_field_value(pv)
     return out
 
 
@@ -451,7 +501,7 @@ def _get_ecommerce_properties_for_custom_fields(item) -> list:
                 "property_type": "Custom Field",
                 "sync_to_shopware": 1,
             },
-            fields=["property_name", "property_value"],
+            fields=["property_name", "property_value", "field_data_type"],
         )
     except Exception:  # noqa: BLE001
         return []
@@ -575,7 +625,7 @@ def _get_linked_sc_member_codes(sync) -> frozenset[str]:
 
 
 def _canonical_basic(item, sync) -> dict[str, Any]:
-    return {
+    out = {
         "name": _norm_str(_render_name(item, sync)),
         "sku": _norm_str(item.item_code),
         "description": _norm_str(_render_description(item, sync)),
@@ -609,6 +659,17 @@ def _canonical_basic(item, sync) -> dict[str, Any]:
         # ``erpnext_youtube_video_url`` is preserved via
         # :func:`shopware_custom_field_name`.
     }
+    # Minimum order quantity → Shopware ``minPurchase``/``purchaseSteps``
+    # (carton-based ordering). Sparse: ERPNext defaults the field to 0
+    # and a MOQ of 1 is no constraint, so neither is hashed — see the
+    # v5 note on PAYLOAD_VERSION.
+    try:
+        moq = float(getattr(item, "min_order_qty", 0) or 0)
+    except (TypeError, ValueError):
+        moq = 0.0
+    if moq > 1:
+        out["min_order_qty"] = _normalize_float(moq)
+    return out
 
 
 def _render_name(item, sync) -> str:
@@ -900,6 +961,20 @@ def _canonical_inventory(item, sync, ctx=None) -> dict[str, Any]:
     return {"qty": _normalize_float(total)}
 
 
+def _file_proxy_token(url: str) -> str:
+    """Extract the File docname from a ``/file/<docname>/<filename>`` proxy URL.
+
+    This is the external-storage proxy form a routed/CDN-backed File is served
+    under; the first path segment is ``file`` and the second is the File's
+    docname (a unique hash). Returns ``""`` for the standard ``/files/<name>``
+    form, private files or absolute URLs — those dedup fine by string compare.
+    """
+    parts = (url or "").split("?", 1)[0].strip("/").split("/")
+    if len(parts) >= 2 and parts[0] == "file" and parts[1]:
+        return parts[1]
+    return ""
+
+
 def _canonical_images(item, sync, ctx=None) -> list[dict[str, Any]]:
     """Return sorted list of image references.
 
@@ -927,6 +1002,7 @@ def _canonical_images(item, sync, ctx=None) -> list[dict[str, Any]]:
                 "is_folder": 0,
             },
             fields=["file_url"],
+            order_by="creation asc",
         )
         extra_urls = [(r.get("file_url") or "").strip() for r in rows]
 
@@ -934,12 +1010,27 @@ def _canonical_images(item, sync, ctx=None) -> list[dict[str, Any]]:
         u = _norm_str(url)
         if not u or u == primary:
             continue
+        # Same-File-as-primary collapse: ``Item.image`` (the primary) is often
+        # a CDN-/proxy-routed URL of one of the attached Files, so a plain URL
+        # string compare misses it and the same image gets pushed twice (once
+        # as the cover, once as a gallery entry). When an attachment is served
+        # via the ``/file/<File-docname>/<name>`` proxy form, that docname is a
+        # unique, unguessable hash; if it also appears inside the primary URL,
+        # the two reference the same File — skip the duplicate gallery entry.
+        tok = _file_proxy_token(u)
+        if tok and primary and tok in primary:
+            continue
         images.append({"url": u, "primary": False})
 
-    # Deterministic order.
+    # Deterministic order = display order: the primary (Item.image)
+    # first, then attachments in File-creation order. The list is
+    # hashed in-order, so re-ordering images in ERPNext flips the
+    # ``images`` section hash and the delta path re-pushes the new
+    # gallery sequence. (Pre-2026-06 this sorted by URL, which made
+    # the storefront order random and re-orders undetectable.)
     seen: set[str] = set()
     deduped: list[dict[str, Any]] = []
-    for img in sorted(images, key=lambda d: d["url"]):
+    for img in images:
         if img["url"] in seen:
             continue
         seen.add(img["url"])
@@ -1081,13 +1172,20 @@ def _canonical_properties(item, sync) -> dict[str, Any]:
 
     catalog = _load_property_catalog()
     in_mem = getattr(item, "ecommerce_properties", None) or []
-    raw_rows: list[tuple[str, str]] = []
+    # (name, value, property_type, per-row backend sync flag). The row
+    # flag only gates UNCATALOGUED rows — catalogued rows are gated by
+    # their Group's flag below.
+    raw_rows: list[tuple[str, str, str, int]] = []
     if in_mem:
         for row in in_mem:
             pn = _norm_str(getattr(row, "property_name", ""))
-            pv = _norm_str(getattr(row, "property_value", ""))
+            pv = _norm_numeric_value(_norm_str(getattr(row, "property_value", "")))
             if pn and pv:
-                raw_rows.append((pn, pv))
+                raw_rows.append((
+                    pn, pv,
+                    _norm_str(getattr(row, "property_type", "")),
+                    int(getattr(row, sync_flag, 0) or 0),
+                ))
     else:
         try:
             rows = frappe.get_all(
@@ -1096,33 +1194,56 @@ def _canonical_properties(item, sync) -> dict[str, Any]:
                     "parent": item.item_code,
                     "parenttype": "Item",
                 },
-                fields=["property_name", "property_value"],
+                fields=["property_name", "property_value", "property_type",
+                        sync_flag],
             )
             for r in rows:
                 pn = _norm_str(r.get("property_name"))
-                pv = _norm_str(r.get("property_value"))
+                pv = _norm_numeric_value(_norm_str(r.get("property_value")))
                 if pn and pv:
-                    raw_rows.append((pn, pv))
+                    raw_rows.append((
+                        pn, pv, _norm_str(r.get("property_type")),
+                        int(r.get(sync_flag) or 0),
+                    ))
         except Exception:  # noqa: BLE001
             pass
 
     ecom_props: list[dict[str, Any]] = []
-    for pn, pv in raw_rows:
+    # Custom-field rows flagged for THIS backend. "Custom Field" type
+    # marks machine/integration data, not a customer-facing spec, so it
+    # never enters the display ``ecommerce_properties`` list (and, for
+    # Shopware, never the filterable ``properties`` m2m — that would
+    # reference option entities the Phase-A.5 ensure step skips for
+    # Custom-Field rows, FK-violating the bulk upsert). Each backend's
+    # payload builder transforms these for its own model: Shopware →
+    # ``customFields`` JSON column (via ``basic.dynamic_custom_fields``),
+    # Medusa → top-level product ``metadata`` keys. Without surfacing
+    # them here a row marked ``sync_to_medusa`` but typed Custom Field
+    # reaches NEITHER channel.
+    custom_fields: dict[str, str] = {}
+    for pn, pv, row_ptype, row_flag in raw_rows:
         group = catalog.get(pn)
         if group is None:
-            # Property not in catalog yet — fall back to legacy
-            # classifier + assume sync-on / Property type so operators
-            # don't lose data when they import a new SKU before
-            # re-running the catalog patch.
+            # Property not in catalog yet — fall back to the ROW's own
+            # ``property_type`` (the in-doctype routing flag) and the
+            # row's own backend sync flag. Ordering falls back to the
+            # legacy classifier so operators don't lose data when they
+            # import a new SKU before re-running the catalog patch.
             group_order = property_priority(pn)
-            ptype = "Property"
+            ptype = row_ptype or "Property"
             option_order = 0
+            flag_ok = bool(row_flag)
         else:
             if not group[sync_flag]:
                 continue
             ptype = group["property_type"]
             group_order = group["display_order"]
             option_order = group["options"].get(pv, 99999)
+            flag_ok = True  # catalogued rows already passed the gate
+        if ptype == "Custom Field":
+            if flag_ok:
+                custom_fields[pn] = pv
+            continue
         if ptype not in ("Property", "Text"):
             continue
         ecom_props.append({
@@ -1133,6 +1254,8 @@ def _canonical_properties(item, sync) -> dict[str, Any]:
         })
     ecom_props.sort(key=lambda d: (d["group_order"], d["name"], d["option_order"], d["value"]))
     out["ecommerce_properties"] = ecom_props
+    if custom_fields:
+        out["custom_fields"] = {k: custom_fields[k] for k in sorted(custom_fields)}
     return out
 
 
@@ -1368,6 +1491,31 @@ def _norm_str(value) -> str:
     if not s:
         return ""
     return " ".join(s.split())
+
+
+def _norm_numeric_value(value: str) -> str:
+    """Collapse a trailing-zero decimal string to its minimal numeric form
+    so ``"5.00"`` and ``"5"`` (or ``"344.50"`` and ``"344.5"``) don't produce
+    two property options / spec values for one number.
+
+    Only *pure* decimals (``-?<digits>.<digits>``) are rewritten; integers,
+    unit-suffixed values (``"750 mm"``), codes and any non-numeric text pass
+    through untouched, so this never mangles a label or strips leading zeros
+    off an integer code. The display-property path (``_canonical_properties``)
+    runs every value through here, so the canonical — and therefore the wire
+    payload AND the hash — never carries the denormalised ``"5.00"`` form
+    regardless of how messy the source ``Item Ecommerce Property`` row is.
+    """
+    if not value or "." not in value:
+        return value
+    body = value[1:] if value[:1] == "-" else value
+    intpart, _, fracpart = body.partition(".")
+    if not intpart.isdigit() or not fracpart.isdigit():
+        return value
+    try:
+        return format(Decimal(value).normalize(), "f")
+    except (InvalidOperation, ValueError):
+        return value
 
 
 def _normalize_float(v) -> float:

@@ -166,6 +166,79 @@ def _build_order_fetch_criteria(order_id: str) -> Criteria:
     return criteria
 
 
+# Map a Shopware payment-handler identifier to a normalised PSP provider name.
+# The handler is the stable signal (the human payment-method name is operator
+# editable / localised, e.g. "Kredit- oder Debitkarte" is still PayPal's ACDC).
+_PSP_HANDLER_MARKERS = (
+    ("paypal", "PayPal"),
+    ("stripe", "Stripe"),
+    ("klarna", "Klarna"),
+    ("mollie", "Mollie"),
+    ("unzer", "Unzer"),
+)
+
+
+def _normalise_psp_provider(handler: str, method_name: str | None) -> str:
+    h = (handler or "").lower()
+    for marker, name in _PSP_HANDLER_MARKERS:
+        if marker in h:
+            return name
+    return method_name or "Unknown"
+
+
+def _capture_psp_reference(so, order_data: dict[str, Any]) -> None:
+    """Store provider + PSP transaction id on the Sales Order for later
+    fee/payout reconciliation. Shopware does not persist the PSP fee, but the
+    order transaction's ``customFields`` carry the provider's ids (PayPal:
+    ``swag_paypal_resource_id`` = capture id, ``swag_paypal_order_id``; a Stripe
+    or Klarna plugin exposes its own keys). Best-effort: never raises."""
+    try:
+        txns = order_data.get("transactions") or []
+        if not txns:
+            return
+        txn = txns[0]
+        cf = txn.get("customFields") or {}
+        pm = txn.get("paymentMethod") or {}
+        handler = pm.get("handlerIdentifier") or ""
+        provider = _normalise_psp_provider(handler, pm.get("name"))
+
+        txn_id = (
+            cf.get("swag_paypal_resource_id")       # PayPal capture id (fee lookup)
+            or cf.get("stripe_payment_intent_id")
+            or cf.get("stripe_charge_id")
+            or cf.get("klarna_order_id")
+            or txn.get("id")                        # fallback: Shopware transaction id
+        )
+        order_ref = (
+            cf.get("swag_paypal_order_id")
+            or cf.get("klarna_order_id")
+            or order_data.get("id")
+        )
+
+        def _set(field, value):
+            if value is not None and so.meta.has_field(field):
+                so.set(field, value)
+
+        _set("psp_provider", provider)
+        _set("psp_transaction_id", txn_id)
+        _set("psp_order_reference", order_ref)
+        _set("psp_payment_handler", handler)
+        sb = cf.get("swag_paypal_is_sandbox")
+        if sb is not None:
+            _set("psp_is_sandbox", 1 if sb else 0)
+        # Captured gross from the transaction itself, so the receipt can be booked
+        # to the exact PSP-captured amount (partial captures / rounding) rather
+        # than the full invoice outstanding. Best-effort: only when present.
+        captured = (txn.get("amount") or {}).get("totalPrice")
+        if captured is not None:
+            _set("psp_captured_amount", captured)
+    except Exception:
+        frappe.logger("shopware6").warning(
+            f"PSP reference capture failed for order {order_data.get('id')}",
+            exc_info=True,
+        )
+
+
 def create_sales_order(order_data: dict[str, Any]) -> str:
     """
     Create ERPNext Sales Order from Shopware order data.
@@ -260,6 +333,13 @@ def create_sales_order(order_data: dict[str, Any]) -> str:
     payment_method_name, erpnext_mode, payment_status = get_payment_method_info(order_data, setting)
     so.shopware_payment_method = payment_method_name
     so.shopware_payment_status = payment_status
+
+    # PSP reference for fee/payout reconciliation. Shopware does NOT persist the
+    # PSP fee, but the order transaction carries the provider's transaction id in
+    # its ``customFields`` (e.g. ``swag_paypal_resource_id`` = PayPal capture id).
+    # Store provider + transaction id so the accounting side can later pull the
+    # exact fee from the provider API and book it gross (§246 HGB).
+    _capture_psp_reference(so, order_data)
 
     if erpnext_mode:
         so.mode_of_payment = erpnext_mode

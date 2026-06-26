@@ -55,9 +55,10 @@ def queue_item_delete_for_sync(doc, method=None):
     Deletion / deactivation isn't a delta drift — it's an explicit
     backend command — so it stays on its own enqueued path rather
     than going through the dispatch. The new product_sync adapter
-    exposes a ``deactivate_product`` for this; until that path is
-    plumbed through, the legacy ``deactivate_product_in_shopware``
-    is still the entry point.
+    exposes a ``deactivate_product`` for this — we route through the
+    product_sync engine (``dispatch_item_delete`` → adapter
+    ``deactivate_product``) so deactivation lives in the same engine
+    as every other push.
     """
     item = doc
 
@@ -67,10 +68,13 @@ def queue_item_delete_for_sync(doc, method=None):
     if not _is_shopware_enabled():
         return
 
+    from ecommerce_integrations.product_sync.constants import BACKEND_SHOPWARE
+
     frappe.enqueue(
-        "ecommerce_integrations.shopware6.product_export.deactivate_product_in_shopware",
+        "ecommerce_integrations.product_sync.tasks.dispatch_item_delete",
         queue="short",
         item_code=item.name,
+        backend=BACKEND_SHOPWARE,
         enqueue_after_commit=True,
     )
 

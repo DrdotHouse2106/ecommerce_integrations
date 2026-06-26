@@ -43,7 +43,14 @@ from ecommerce_integrations.medusa.constants import API_CATEGORIES
 
 _TREE_PAGE_SIZE = 200
 _MATCH_LIMIT = 25
-_FIELDS = "id,name,handle,description,is_active,parent_category_id"
+_FIELDS = "id,name,handle,description,is_active,parent_category_id,metadata"
+
+# Medusa product-categories have no native SEO-meta columns, so the
+# mirror stashes the rendered meta under these ``metadata`` keys and
+# reads them back for drift detection — symmetric round-trip keeps an
+# unchanged node from looping as a perpetual update.
+_META_TITLE_KEY = "meta_title"
+_META_DESCRIPTION_KEY = "meta_description"
 _MAX_DEPTH = 8
 _MAX_NODES = 10_000
 
@@ -93,12 +100,15 @@ class MedusaCatalogAdapter(CatalogAdapter):
             if root_attrs is None:
                 return None
 
+            root_meta_title, root_meta_description = _meta_from(root_attrs)
             root = LiveCategoryNode(
                 external_id=root_external_id,
                 name=root_attrs.get("name") or "",
                 parent_external_id=root_attrs.get("parent_category_id"),
                 description=root_attrs.get("description"),
                 active=bool(root_attrs.get("is_active", True)),
+                meta_title=root_meta_title,
+                meta_description=root_meta_description,
             )
 
             # BFS the descendants with a depth + total-node cap so a
@@ -123,12 +133,15 @@ class MedusaCatalogAdapter(CatalogAdapter):
                     if not child_id or child_id in visited:
                         continue
                     visited.add(child_id)
+                    child_meta_title, child_meta_description = _meta_from(child_attrs)
                     node = LiveCategoryNode(
                         external_id=child_id,
                         name=child_attrs.get("name") or "",
                         parent_external_id=parent_id,
                         description=child_attrs.get("description"),
                         active=bool(child_attrs.get("is_active", True)),
+                        meta_title=child_meta_title,
+                        meta_description=child_meta_description,
                     )
                     index[child_id] = node
                     index[parent_id].children.append(node)
@@ -198,6 +211,8 @@ class MedusaCatalogAdapter(CatalogAdapter):
         description: str | None,
         active: bool,
         target_sales_channel: str | None,
+        meta_title: str | None = None,
+        meta_description: str | None = None,
     ) -> str:
         # ``target_sales_channel`` is accepted for interface parity with
         # the Shopware adapter but Medusa product-categories have no
@@ -214,6 +229,15 @@ class MedusaCatalogAdapter(CatalogAdapter):
             payload["parent_category_id"] = parent_external_id
         if description:
             payload["description"] = description
+        # No native SEO columns in Medusa → stash the rendered meta under
+        # ``metadata`` (read back symmetrically by fetch_tree). Only write
+        # when the mirror manages meta at all (either value non-None) so
+        # we don't clobber metadata on mirrors that don't sync SEO.
+        if meta_title is not None or meta_description is not None:
+            payload["metadata"] = {
+                _META_TITLE_KEY: meta_title or "",
+                _META_DESCRIPTION_KEY: meta_description or "",
+            }
 
         with optional_session() as (session, base_url):
             if external_id:
@@ -369,6 +393,16 @@ class MedusaCatalogAdapter(CatalogAdapter):
             frappe.log_error(message, "Catalog Mirror Medusa")
         except Exception:
             pass
+
+
+def _meta_from(attrs: dict) -> tuple[str | None, str | None]:
+    """Extract ``(meta_title, meta_description)`` from a category's
+    ``metadata`` blob. Returns ``(None, None)`` when the category carries
+    no mirror-managed meta so drift detection treats it as unmanaged."""
+    md = (attrs or {}).get("metadata")
+    if not isinstance(md, dict):
+        return None, None
+    return md.get(_META_TITLE_KEY), md.get(_META_DESCRIPTION_KEY)
 
 
 def _lookup_by_handle(session, base_url, handle: str) -> str | None:

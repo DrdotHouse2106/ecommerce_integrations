@@ -305,8 +305,6 @@ scheduler_events = {
 		# Product Sync: re-flag apply-live runs stuck in 'running' past heartbeat
 		# (worker OOM/SIGKILL/restart leaves the parent sync's claim dangling).
 		"ecommerce_integrations.product_sync.tasks.recover_stale_product_syncs",
-		# Shopware6: re-enqueue items from the DLQ for retry (failed batch items).
-		"ecommerce_integrations.shopware6.bulk_sync_dlq.retry_failed_items_from_dlq",
 	],
 	"hourly_long": [
 		"ecommerce_integrations.zenoti.doctype.zenoti_settings.zenoti_settings.sync_invoices",

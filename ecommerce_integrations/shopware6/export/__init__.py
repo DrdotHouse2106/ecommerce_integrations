@@ -1,25 +1,21 @@
 """
-Shopware 6 Product Export Module
+Shopware 6 Product Export Module.
 
-Refactored from the monolithic product_export.py (5446 lines) into focused modules:
+Focused helpers used by the delta product-sync engine (``product_sync/``)
+and the Item-Group category sync:
 - utils: Utility functions (generate_uuid, sanitize_filename)
 - property_handler: Property group and option management
 - category_handler: Category hierarchy and sync
 - image_handler: Image upload and delta-sync
-- product_mapper: ERPNext to Shopware field mapping
-- product_uploader: Main ShopwareProductUploader class
-- template_handler: Template/parent product handling
-- variant_handler: Variant product handling
+- product_mapper: ERPNext → Shopware field-mapping helpers
+- template_handler / variant_handler: configurable-product helpers
 - price_handler: Price synchronization
 
-Usage:
-    from ecommerce_integrations.shopware6.export import ShopwareProductUploader
-
-    uploader = ShopwareProductUploader(item_code="ITEM-001")
-    uploader.upload()
+The legacy single-item uploader (``product_uploader``), the batch uploader and
+the full-reconciliation module have been removed — that path is the delta
+engine now.
 """
 
-# Product uploader
 # Category handling
 from ecommerce_integrations.shopware6.export.category_handler import (
     delete_category_from_shopware,
@@ -52,13 +48,6 @@ from ecommerce_integrations.shopware6.export.product_mapper import (
     get_tax_id_by_rate,
     map_erpnext_item_to_shopware,
 )
-from ecommerce_integrations.shopware6.export.product_uploader import (
-    ShopwareProductUploader,
-    batch_sync_if_changed,
-    deactivate_product_in_shopware,
-    sync_item_if_changed,
-    upload_erpnext_item_to_shopware,
-)
 
 # Property handling
 from ecommerce_integrations.shopware6.export.property_handler import (
@@ -67,17 +56,6 @@ from ecommerce_integrations.shopware6.export.property_handler import (
     get_item_properties,
     get_or_create_property_group,
     get_or_create_property_option,
-)
-
-# Reconciliation
-from ecommerce_integrations.shopware6.export.reconciliation import (
-    cleanup_orphaned_shopware_categories,
-    enqueue_full_reconciliation,
-    enqueue_full_reconciliation_with_categories,
-    full_reconciliation,
-    reconcile_all_to_shopware,
-    reconcile_erpnext_with_shopware,
-    sync_all_categories_to_shopware,
 )
 
 # Template/Variant handlers
@@ -98,16 +76,8 @@ from ecommerce_integrations.shopware6.export.variant_handler import (
 )
 
 __all__ = [
-    # Main class
-    "ShopwareProductUploader",
-    "batch_sync_if_changed",
-    "cleanup_orphaned_shopware_categories",
-    "deactivate_product_in_shopware",
     "delete_category_from_shopware",
-    "enqueue_full_reconciliation",
-    "enqueue_full_reconciliation_with_categories",
     "ensure_shopware_custom_field_set",
-    "full_reconciliation",
     # Utils
     "generate_uuid",
     "get_cached_currency_id",
@@ -125,26 +95,20 @@ __all__ = [
     "get_tax_id_by_rate",
     # Mapper
     "map_erpnext_item_to_shopware",
-    "reconcile_all_to_shopware",
-    "reconcile_erpnext_with_shopware",
     "rename_category_in_shopware",
     "sanitize_filename",
-    # Reconciliation
-    "sync_all_categories_to_shopware",
     "sync_all_item_categories",
     "sync_all_variants",
     "sync_bulk_prices",
     # Categories
     "sync_category_hierarchy",
     "sync_item_group_to_shopware",
-    "sync_item_if_changed",
     # Images
     "sync_product_images_to_shopware",
     # Prices
     "sync_product_price",
     "update_item_price_in_shopware",
-    # Upload functions
-    "upload_erpnext_item_to_shopware",
+    # Upload helpers (configurable products)
     "upload_media_to_shopware",
     "upload_template_item_to_shopware",
     "upload_variant_item_to_shopware",

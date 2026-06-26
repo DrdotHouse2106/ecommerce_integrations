@@ -153,29 +153,5 @@ frappe.ui.form.on('Shopware Setting', {
 				}
 			});
 		}, __('Maintenance'));
-
-		if (frm.doc.enable_bulk_sync && frm.doc.enable_shopware) {
-			frm.add_custom_button(__('Process Queue Now'), function() {
-				frappe.call({
-					method: 'ecommerce_integrations.shopware6.bulk_sync.force_process_queue',
-					callback: function() {
-						frappe.show_alert({ message: __('Queue processing started.'), indicator: 'green' });
-						setTimeout(() => frm.reload_doc(), 2000);
-					}
-				});
-			}, __('Maintenance'));
-
-			frm.add_custom_button(__('Clear Queue'), function() {
-				frappe.confirm(__('Clear all pending sync items?'), function() {
-					frappe.call({
-						method: 'ecommerce_integrations.shopware6.bulk_sync.clear_all_queues',
-						callback: function() {
-							frappe.show_alert({ message: __('Queues cleared.'), indicator: 'green' });
-							frm.reload_doc();
-						}
-					});
-				});
-			}, __('Maintenance'));
-		}
 	}
 });

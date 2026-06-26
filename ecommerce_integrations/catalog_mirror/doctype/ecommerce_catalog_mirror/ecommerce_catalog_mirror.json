@@ -22,6 +22,8 @@
   "templates_section",
   "name_template",
   "description_template",
+  "meta_title_template",
+  "meta_description_template",
   "overrides_section",
   "node_overrides",
   "status_section",
@@ -133,7 +135,19 @@
    "fieldname": "description_template",
    "label": "Description template",
    "fieldtype": "Small Text",
-   "description": "Optional Jinja template for the backend category description."
+   "description": "Optional Jinja template for the backend category description. Use <code>{{ item_group.description }}</code> to push the item group's description field. Empty = description not managed by this mirror."
+  },
+  {
+   "fieldname": "meta_title_template",
+   "label": "SEO meta-title template",
+   "fieldtype": "Data",
+   "description": "Optional Jinja template for the backend category SEO meta-title (Shopware <code>metaTitle</code>). Use <code>{{ item_group.seo_title }}</code>. Empty = not managed by this mirror."
+  },
+  {
+   "fieldname": "meta_description_template",
+   "label": "SEO meta-description template",
+   "fieldtype": "Small Text",
+   "description": "Optional Jinja template for the backend category SEO meta-description (Shopware <code>metaDescription</code>). Use <code>{{ item_group.seo_meta_description }}</code>. Empty = not managed by this mirror."
   },
   {
    "fieldname": "overrides_section",

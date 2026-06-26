@@ -47,7 +47,19 @@ class LiveCategoryNode:
     description: str | None = None
     active: bool = True
     product_count: int = 0
+    # SEO meta as it exists in the backend right now. Compared against the
+    # mirror's rendered ``meta_*_template`` so drift flips an update. Left
+    # ``None`` by backends without a native SEO-meta concept.
+    meta_title: str | None = None
+    meta_description: str | None = None
     children: list["LiveCategoryNode"] = field(default_factory=list)
+    # Operator opt-out: the live category carries a backend flag
+    # (Shopware ``customFields.erp_ignored = true``) marking it as
+    # manually managed. The differ must never orphan (delete /
+    # deactivate) or overwrite such a node — it's invisible to the
+    # mirror. Inherited down the subtree by ``fetch_tree`` so a flagged
+    # parent shields its children too.
+    ignored: bool = False
 
 
 @dataclass
@@ -108,6 +120,8 @@ class CatalogAdapter(ABC):
         description: str | None,
         active: bool,
         target_sales_channel: str | None,
+        meta_title: str | None = None,
+        meta_description: str | None = None,
     ) -> str:
         """Create or update a single category. Return its external_id.
 
@@ -120,6 +134,12 @@ class CatalogAdapter(ABC):
         it. The adapter handles the assignment internally so the
         orchestrator doesn't need to know whether the backend supports
         per-channel categorisation.
+
+        ``meta_title`` / ``meta_description`` carry the rendered SEO meta.
+        Backends with native category SEO fields (Shopware
+        ``metaTitle``/``metaDescription``) map them through; backends
+        without may ignore them. ``None`` means "not managed by this
+        mirror" — the adapter must not clear an existing backend value.
         """
 
     @abstractmethod

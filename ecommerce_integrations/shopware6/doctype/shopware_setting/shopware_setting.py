@@ -12,7 +12,6 @@ class ShopwareSetting(Document):
     def onload(self):
         """Load series options when form is opened."""
         self.load_series_options()
-        self.load_bulk_sync_status()
 
     def validate(self):
         self.validate_credentials()
@@ -118,62 +117,6 @@ class ShopwareSetting(Document):
         except Exception as e:
             get_logger().error("Error occurred", persist=False)
             frappe.throw(_("Failed to fetch Shopware warehouses: {0}").format(str(e)))
-
-    def load_bulk_sync_status(self):
-        """Load bulk sync queue status into the form."""
-        try:
-            from ecommerce_integrations.shopware6.bulk_sync import get_queue_status
-            status = get_queue_status()
-            self.set("__onload", self.get("__onload") or frappe._dict())
-            self.get("__onload").bulk_sync_status = status
-
-            # Generate HTML for the status field
-            html = self._render_bulk_sync_status_html(status)
-            self.bulk_sync_status_html = html
-        except Exception:
-            pass
-
-    def _render_bulk_sync_status_html(self, status):
-        """Render HTML for bulk sync status display."""
-        bulk_mode = "Active" if status.get("bulk_mode_active") else "Inactive"
-        bulk_mode_class = "red" if status.get("bulk_mode_active") else "green"
-        product_count = status.get("product_queue_size", 0)
-        properties_count = status.get("properties_queue_size", 0)
-
-        return f"""
-        <div style="padding: 10px; background: var(--bg-light-gray); border-radius: 4px;">
-            <div style="display: flex; gap: 20px; flex-wrap: wrap; align-items: center;">
-                <div><strong>Bulk Mode:</strong>
-                    <span class="indicator-pill {bulk_mode_class}">{bulk_mode}</span></div>
-                <div><strong>Products in Queue:</strong> {product_count}</div>
-                <div><strong>Properties in Queue:</strong> {properties_count}</div>
-            </div>
-            <p class="text-muted small" style="margin: 8px 0 0;">
-                Use Tools &gt; Process Queue Now / Clear Queue to manage the queue.
-            </p>
-        </div>
-        """
-
-    @frappe.whitelist()
-    def get_bulk_sync_status(self):
-        """Get current bulk sync queue status."""
-        require_shopware_admin()
-        from ecommerce_integrations.shopware6.bulk_sync import get_queue_status
-        return get_queue_status()
-
-    @frappe.whitelist()
-    def force_process_bulk_sync(self):
-        """Force process the bulk sync queue."""
-        require_shopware_admin()
-        from ecommerce_integrations.shopware6.bulk_sync import force_process_queue
-        return force_process_queue()
-
-    @frappe.whitelist()
-    def clear_bulk_sync_queues(self):
-        """Clear all bulk sync queues."""
-        require_shopware_admin()
-        from ecommerce_integrations.shopware6.bulk_sync import clear_all_queues
-        return clear_all_queues()
 
     @frappe.whitelist()
     def fetch_sales_channels(self):

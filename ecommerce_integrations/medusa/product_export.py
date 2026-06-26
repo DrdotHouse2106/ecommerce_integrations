@@ -180,7 +180,12 @@ class MedusaProductExporter:
     def _update_product(self, session, base_url):
         medusa_id = self.get_medusa_product_id()
         payload, variant_image_map = self._build_product_payload(is_update=True)
+        # Medusa 2.16+ manages product options via dedicated endpoints, not the
+        # update payload. Reconcile (add/update) BEFORE pushing variants — they
+        # reference option values by name — then prune removed options afterwards.
+        cur_options = self._reconcile_options_before_update(session, base_url, medusa_id)
         resp = medusa_request(session, base_url, "POST", f"{API_PRODUCTS}/{medusa_id}", json=payload)
+        self._prune_options_after_update(session, base_url, medusa_id, cur_options)
         if self._variants_to_delete:
             _delete_variants(session, base_url, medusa_id, self._variants_to_delete)
         # POST /admin/products/{id} replaces the product-level images and
@@ -206,6 +211,54 @@ class MedusaProductExporter:
                 [{"id": medusa_id, "variants": [{"sku": sku} for sku in child_skus]}],
                 {self.item_code: self._attribute_values},
             )
+
+    def _reconcile_options_before_update(self, session, base_url, medusa_id) -> dict:
+        """Add product option AXES that ERPNext defines but Medusa is missing, BEFORE
+        the variants are pushed (variants reference them). Medusa 2.16+ rejects
+        ``options`` in the product update payload, so axes are managed via the
+        dedicated ``POST /admin/products/:id/options/batch`` ({"add": [{title,
+        values}]}). Option VALUES are NOT set here — Medusa derives them from the
+        variants' option references in the (still-sent) product update payload; the
+        batch endpoint's value-``update`` path is unusable on 2.17.1. Returns
+        ``{title: option_id}`` of the CURRENT Medusa options so the caller can prune
+        axes ERPNext dropped."""
+        desired = getattr(self, "_desired_options", None)
+        if not desired:
+            return {}
+        resp = medusa_request(session, base_url, "GET", f"{API_PRODUCTS}/{medusa_id}/options")
+        cur_by_title = {o.get("title"): o.get("id") for o in ((resp or {}).get("product_options") or [])}
+        add = [
+            {"title": d.get("title"), "values": [str(x) for x in (d.get("values") or [])]}
+            for d in desired if d.get("title") and d.get("title") not in cur_by_title
+        ]
+        if add:
+            try:
+                medusa_request(session, base_url, "POST",
+                               f"{API_PRODUCTS}/{medusa_id}/options/batch", json={"add": add})
+            except Exception as exc:  # noqa: BLE001
+                frappe.log_error(
+                    f"Medusa add options on {medusa_id} ({[o['title'] for o in add]}): {exc}",
+                    "Medusa Product Export")
+        return cur_by_title
+
+    def _prune_options_after_update(self, session, base_url, medusa_id, cur_by_title) -> None:
+        """Remove Medusa option axes ERPNext no longer defines, AFTER the variant
+        push so no live variant still references them. Same batch endpoint
+        ({"remove": [option_id]}). Best-effort: Medusa rejects removing an option
+        still in use, which we log and skip."""
+        desired = getattr(self, "_desired_options", None)
+        if not desired or not cur_by_title:
+            return
+        desired_titles = {d.get("title") for d in desired}
+        remove = [oid for title, oid in cur_by_title.items() if title not in desired_titles and oid]
+        if remove:
+            try:
+                medusa_request(session, base_url, "POST",
+                               f"{API_PRODUCTS}/{medusa_id}/options/batch", json={"remove": remove})
+            except Exception as exc:  # noqa: BLE001
+                frappe.log_error(
+                    f"Medusa prune options on {medusa_id} ({remove}): {exc}",
+                    "Medusa Product Export")
 
     @temp_medusa_session
     def update_price(self, session, base_url):
@@ -289,7 +342,16 @@ class MedusaProductExporter:
 
         if self.item.has_variants:
             options, variants, image_urls, variant_image_map = self._build_template_variants(currency, is_update=is_update)
-            payload["options"] = options
+            # Medusa 2.16 removed `options` from the product UPDATE payload (it is
+            # rejected with a 400). Options are set once on create; on update they
+            # are reconciled via the dedicated /options endpoints (see
+            # ``_reconcile_options_before_update``). Variants reference them by title.
+            # Only reconcile when real variants were computed — the no-active-variant
+            # early-returns yield a placeholder "Default" option that must NOT be
+            # diffed against (it would prune the product's real options).
+            self._desired_options = options if variants else None
+            if not is_update:
+                payload["options"] = options
             payload["variants"] = variants
         else:
             image_urls = self._get_all_image_urls()
@@ -411,7 +473,7 @@ class MedusaProductExporter:
                      "delivery_time", "disabled"],
         )
         if not child_codes_rows:
-            return [{"title": "Default", "values": ["Default"]}], [], []
+            return [{"title": "Default", "values": ["Default"]}], [], [], {}
 
         # Resolve Medusa variant ids for the children via the canonical
         # mapping table (``tabEcommerce Item``, integration='medusa').
@@ -428,7 +490,7 @@ class MedusaProductExporter:
                 self._variants_to_delete.append({"sku": r.item_code, "variant_id": vid})
         child_codes_rows = [r for r in child_codes_rows if not r.disabled]
         if not child_codes_rows:
-            return [{"title": "Default", "values": ["Default"]}], [], []
+            return [{"title": "Default", "values": ["Default"]}], [], [], {}
 
         child_codes = [r.item_code for r in child_codes_rows]
         child_map = {r.item_code: r for r in child_codes_rows}

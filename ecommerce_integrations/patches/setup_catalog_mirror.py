@@ -1,10 +1,18 @@
 """Install custom fields the Catalog Mirror feature depends on.
 
-Adds three fields to ``Item Group``:
+Adds five fields to ``Item Group``:
 
 - ``shopware_category_id`` — persistent Shopware category UUID for the IG.
 - ``medusa_category_id`` — Medusa product-category UUID for the IG.
 - ``catalog_mirror_skip`` — operator opt-out for an IG (and its subtree).
+- ``shopware_category_hash`` — last-synced canonical hash (Shopware).
+- ``medusa_category_hash`` — last-synced canonical hash (Medusa).
+
+The ``*_category_hash`` fields back the mirror's delta layer: the
+canonical fingerprint (name + description + SEO meta + active) recorded
+after a successful push, so an unchanged node is a hash-confirmed noop on
+the next run. They are informational mirrors of internal state — the
+live-diff stays authoritative for backend drift.
 
 The doctype is registered through the module's ``modules.txt`` entry —
 no reload_doc here for the doctype itself; ``bench migrate`` discovers
@@ -56,6 +64,32 @@ CATALOG_MIRROR_CUSTOM_FIELDS = {
             "description": (
                 "When checked, this Item Group and its descendants are "
                 "excluded from every Catalog Mirror walk."
+            ),
+        },
+        {
+            "fieldname": "shopware_category_hash",
+            "label": "Shopware Category Hash",
+            "fieldtype": "Data",
+            "read_only": 1,
+            "no_copy": 1,
+            "hidden": 1,
+            "insert_after": "shopware_category_id",
+            "description": (
+                "Last-synced canonical hash for the Shopware mirror. "
+                "Written by Catalog Mirror; do not edit manually."
+            ),
+        },
+        {
+            "fieldname": "medusa_category_hash",
+            "label": "Medusa Category Hash",
+            "fieldtype": "Data",
+            "read_only": 1,
+            "no_copy": 1,
+            "hidden": 1,
+            "insert_after": "medusa_category_id",
+            "description": (
+                "Last-synced canonical hash for the Medusa mirror. "
+                "Written by Catalog Mirror; do not edit manually."
             ),
         },
     ],

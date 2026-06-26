@@ -74,6 +74,11 @@ class ItemSnapshot:
     youtube_video_url: str | None = None
     ean: str | None = None
     delivery_time: str | None = None
+    # Minimum order quantity — feeds Shopware ``minPurchase`` /
+    # ``purchaseSteps`` via ``canonical.basic.min_order_qty``. Must be
+    # carried here for differ/apply hash parity (see AI-field note
+    # above).
+    min_order_qty: float = 0.0
     # Pre-loaded child lists. The canonical reads ``item.attributes``
     # (Item Variant Attribute) and ``item.taxes`` (Item Tax) via plain
     # ``getattr``; both must be populated or the differ-side canonical
@@ -184,6 +189,7 @@ class BulkContext:
             "ai_short_description", "ai_benefits",
             "ai_seo_description", "ai_long_description", "ai_seo_title",
             "youtube_video_url", "ean", "delivery_time",
+            "min_order_qty",
         ):
             if cf in present:
                 wanted.append(cf)
@@ -220,6 +226,7 @@ class BulkContext:
                 youtube_video_url=r.get("youtube_video_url"),
                 ean=r.get("ean"),
                 delivery_time=r.get("delivery_time"),
+                min_order_qty=float(r.get("min_order_qty") or 0),
             )
             self._items[snap.item_code] = snap
 
@@ -258,13 +265,18 @@ class BulkContext:
             self._prices[(r["item_code"], r["price_list"])] = float(r["price_list_rate"] or 0)
 
     def _load_images(self, item_codes: list[str]) -> None:
+        # Creation order = gallery order (product shot is attached
+        # first, application shots after). Must match the per-item
+        # fallback in ``canonical._canonical_images`` or the
+        # differ-side hash diverges from the apply-side one.
         rows = frappe.db.sql(
             """SELECT attached_to_name, file_url
                FROM `tabFile`
                WHERE attached_to_doctype = 'Item'
                  AND attached_to_name IN %(codes)s
                  AND is_private = 0
-                 AND is_folder = 0""",
+                 AND is_folder = 0
+               ORDER BY creation ASC""",
             {"codes": tuple(item_codes) or ("__none__",)},
             as_dict=True,
         )

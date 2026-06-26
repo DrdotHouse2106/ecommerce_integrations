@@ -358,6 +358,14 @@ class ShopwareCustomer(EcommerceCustomer):
             if existing_contact:
                 contact = frappe.get_doc("Contact", existing_contact[0].name)
                 updates: dict[str, Any] = {}
+                # B2B fix: ERPNext's native create_primary_contact builds a
+                # Company-type contact with only company_name — first/last stay
+                # empty. Backfill the person's name from Shopware so the business
+                # customer's contact isn't just the company name.
+                if first_name and not contact.first_name:
+                    updates["first_name"] = first_name
+                if last_name and not contact.last_name:
+                    updates["last_name"] = last_name
                 if salutation and not contact.salutation:
                     updates["salutation"] = salutation
                 if gender and not contact.gender:

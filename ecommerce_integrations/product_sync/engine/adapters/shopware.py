@@ -69,6 +69,22 @@ _MATCH_LIMIT = 10
 _VISIBILITY_ALL = 30
 
 
+def _desired_property_group_filterable(name: str, catalog: dict) -> bool:
+    """Whether a Shopware property group should appear as a storefront filter.
+
+    Single source of truth: the ``Ecommerce Property Group`` catalog. A group
+    is a filter only when ERP catalogues it as a ``Property`` AND flags it
+    ``filterable``. Text / Custom-Field types, ``filterable=0`` and uncatalogued
+    names (orphans, BMEcat positional duplicates) are not filters. Used both by
+    the per-item ``ensure_property_groups_bulk`` and the per-run
+    ``reconcile_property_group_filterable`` so create- and drift-paths agree.
+    """
+    entry = catalog.get(name)
+    if not entry:
+        return False
+    return (entry.get("property_type") == "Property") and bool(entry.get("filterable"))
+
+
 class ShopwareProductAdapter(ProductAdapter):
     """Concrete adapter against Shopware 6 Admin API.
 
@@ -184,12 +200,21 @@ class ShopwareProductAdapter(ProductAdapter):
             gid = generate_uuid(f"property_group_{name}")
             cat_entry = catalog.get(name) or {}
             position = int(cat_entry.get("display_order") or property_priority(name))
+            # ``filterable`` follows the ``Ecommerce Property Group`` catalog
+            # so the storefront's filter sidebar mirrors the operator's intent.
+            # A group is a shop filter only when ERP catalogues it as a
+            # ``Property`` AND flags it ``filterable``; everything else (Text /
+            # Custom-Field type, ``filterable=0``, or uncatalogued) is created
+            # non-filterable. ``reconcile_property_group_filterable`` keeps the
+            # same rule for already-existing groups the per-item sync no longer
+            # touches.
+            filterable = _desired_property_group_filterable(name, catalog)
             rows.append({
                 "id": gid,
                 "name": name,
                 "displayType": "text",
                 "sortingType": "alphanumeric",
-                "filterable": True,
+                "filterable": filterable,
                 "visibleOnProductDetailPage": True,
                 "position": position,
             })
@@ -204,6 +229,169 @@ class ShopwareProductAdapter(ProductAdapter):
                 },
             })
             return result
+
+        return _with_client(go)
+
+    def reconcile_property_group_filterable(self) -> dict:
+        """Align every Shopware property group's ``filterable`` flag with the
+        ``Ecommerce Property Group`` catalog — once per sync run.
+
+        The per-item ``ensure_property_groups_bulk`` only touches groups the
+        synced items reference, so groups that drifted (a property flipped to
+        non-filterable / Text in ERP, BMEcat positional duplicates, or orphans
+        from earlier syncs) keep their stale ``filterable=True`` and linger as
+        storefront filters. This run-level pass walks ALL Shopware groups and
+        flips the mismatched ones, so the filter sidebar converges on ERP
+        intent with no manual cleanup. Idempotent: a converged catalogue
+        produces zero writes.
+        """
+        from ecommerce_integrations.product_sync.engine.canonical import (
+            _load_property_catalog,
+        )
+
+        catalog = _load_property_catalog()
+        counters = {"checked": 0, "updated": 0}
+
+        def go(client):
+            page = 1
+            to_update: list[dict] = []
+            while True:
+                resp = client.request_post("search/property-group", payload={
+                    "includes": {"property_group": ["id", "name", "filterable"]},
+                    "limit": 250,
+                    "page": page,
+                })
+                data = resp.get("data") or []
+                for g in data:
+                    counters["checked"] += 1
+                    desired = _desired_property_group_filterable(g.get("name") or "", catalog)
+                    if bool(g.get("filterable")) != desired:
+                        to_update.append({"id": g.get("id"), "filterable": desired})
+                if len(data) < 250:
+                    break
+                page += 1
+            # Chunked upsert — keep payloads well under Shopware's request cap.
+            for i in range(0, len(to_update), 200):
+                chunk = to_update[i:i + 200]
+                client.request_post("_action/sync", payload={
+                    "pg_filter": {
+                        "entity": "property_group",
+                        "action": "upsert",
+                        "payload": chunk,
+                    },
+                })
+            counters["updated"] = len(to_update)
+            return counters
+
+        return _with_client(go)
+
+    def reconcile_property_group_options(self) -> dict:
+        """Delete spec-property options that no product references — once per
+        sync run.
+
+        ``ensure_property_options_bulk`` only ever CREATES the options the
+        synced items need; it never prunes ones that fell out of use. So when
+        an ERP value is renamed or normalised (``"5.00"`` → ``"5"``, a typo
+        fixed, a spec value dropped) the stale option lingers in the filter
+        sidebar as an empty facet — a denormalised twin sitting next to the
+        clean value. This run-level pass deletes every spec-property option no
+        product references via the ``properties`` (product_property) m2m.
+
+        Two guards keep it safe:
+
+        * **Catalog-scoped.** Only groups whose name is a catalogued
+          ``Property`` / ``Text`` (the Ecommerce Property Group catalog) are
+          eligible. Variant-axis groups (Item Attribute names driving a
+          configurator) are NOT in that catalog, so their options — which are
+          referenced via ``product_option`` / ``product_configurator_setting``,
+          not ``product_property`` — are never considered. Pruning one of those
+          would break the storefront variant selector.
+        * **Per-option delete with the DB FK as the final word.** Options are
+          deleted one at a time; any still referenced (by a link the
+          properties aggregation can't see) raises and is counted as
+          ``skipped`` instead of failing the whole pass. The foreign key is the
+          ultimate authority on "is this really unused".
+
+        Safety valve: a group with products but an empty aggregation is treated
+        as inconclusive and skipped. Idempotent — a converged catalogue
+        produces zero deletes. Skipped for per-save subset dispatches; the
+        cron's full run covers it.
+        """
+        from ecommerce_integrations.product_sync.engine.canonical import (
+            _load_property_catalog,
+        )
+
+        catalog = _load_property_catalog()
+        spec_names = {
+            name for name, entry in catalog.items()
+            if (entry.get("property_type") in ("Property", "Text"))
+        }
+        counters = {"checked": 0, "deleted": 0, "skipped": 0}
+
+        def go(client):
+            groups: list[dict] = []
+            page = 1
+            while True:
+                resp = client.request_post("search/property-group", payload={
+                    "associations": {"options": {}},
+                    "includes": {
+                        "property_group": ["id", "name", "options"],
+                        "property_group_option": ["id", "name"],
+                    },
+                    "limit": 100,
+                    "page": page,
+                })
+                data = resp.get("data") or []
+                groups.extend(data)
+                if len(data) < 100:
+                    break
+                page += 1
+
+            for g in groups:
+                gname = g.get("name") or ""
+                if gname not in spec_names:
+                    # Variant-axis or uncatalogued group — out of scope.
+                    continue
+                gid = g.get("id")
+                opts = g.get("options") or []
+                counters["checked"] += len(opts)
+                if not opts:
+                    continue
+                agg = client.request_post("search/product", payload={
+                    "filter": [{
+                        "type": "equals",
+                        "field": "properties.groupId",
+                        "value": gid,
+                    }],
+                    "aggregations": [{
+                        "name": "opt",
+                        "type": "terms",
+                        "field": "properties.id",
+                        "limit": 2000,
+                    }],
+                    "limit": 1,
+                    "total-count-mode": 1,
+                })
+                total = agg.get("total") or 0
+                buckets = (
+                    ((agg.get("aggregations") or {}).get("opt") or {}).get("buckets")
+                ) or []
+                used = {b.get("key") for b in buckets}
+                # Products exist but aggregation yielded nothing → inconclusive,
+                # skip to avoid deleting live options on a transient API shape.
+                if total > 0 and not used:
+                    continue
+                for o in opts:
+                    if o.get("id") in used:
+                        continue
+                    try:
+                        client.request_delete(f"property-group-option/{o['id']}")
+                        counters["deleted"] += 1
+                    except Exception:  # noqa: BLE001
+                        # Still referenced by a non-property link (FK RESTRICT)
+                        # — the DB is the final authority; leave it in place.
+                        counters["skipped"] += 1
+            return counters
 
         return _with_client(go)
 
@@ -280,7 +468,29 @@ class ShopwareProductAdapter(ProductAdapter):
                     )
                     logo_media[name] = media_id
                 except Exception:  # noqa: BLE001
-                    pass
+                    # Bytes fallback — same reason as the product-image
+                    # path: Shopware often can't fetch a local/internal
+                    # ERPNext file URL (private host, non-https, its
+                    # media url-allowlist). Send the bytes directly so a
+                    # brand logo on a non-public URL still lands.
+                    try:
+                        file_bytes, mime_type = _fetch_local_file_bytes(url)
+                    except Exception:  # noqa: BLE001
+                        file_bytes, mime_type = (None, None)
+                    if file_bytes:
+                        try:
+                            client.request_post(
+                                f"_action/media/{media_id}/upload",
+                                payload=file_bytes,
+                                content_type=mime_type or "image/png",
+                                additional_query_params={
+                                    "fileName": stem,
+                                    "extension": ext,
+                                },
+                            )
+                            logo_media[name] = media_id
+                        except Exception:  # noqa: BLE001
+                            pass
 
             # Second pass: upsert manufacturer rows in one sync call.
             rows = []
@@ -419,7 +629,10 @@ class ShopwareProductAdapter(ProductAdapter):
         return _with_client(
             self._reconcile_media_impl,
             external_id=external_id,
-            keep_media_ids=set(keep_media_ids or ()),
+            # Ordered list, not a set: the caller passes the canonical
+            # gallery order; positions are renumbered to match and the
+            # cover is pointed at the first entry (= Item.image).
+            keep_media_ids=list(keep_media_ids or ()),
         )
 
     def reconcile_product_properties(
@@ -1196,10 +1409,52 @@ class ShopwareProductAdapter(ProductAdapter):
             if not url:
                 counters["skipped"] += 1
                 continue
-            # 1. Create empty Media record (with media folder so it
-            #    lands in the right Admin UI section + inherits
-            #    thumbnail config).
-            media_id = uuid.uuid4().hex
+            # 0. Content-addressed reuse. The deterministic media id is
+            #    derived from the ERP basename, which carries frappe's
+            #    content-hash suffix — same id ⟺ same bytes. Re-pushes
+            #    therefore upsert the SAME media entity in place
+            #    (deterministic-UUID contract) instead of colliding
+            #    with Shopware's unique-fileName constraint. A
+            #    fileName search remains as fallback for media created
+            #    before this scheme (random uuid4 ids).
+            from ecommerce_integrations.shopware6.export.utils import (
+                generate_uuid as _gen_uuid,
+            )
+            _tail = url.rsplit("/", 1)[-1]
+            _bn = (_tail.split("?", 1)[0]).lower()
+            _stem = (_tail.rsplit(".", 1)[0] if "." in _tail else _tail) or "image"
+            _det_id = _gen_uuid(f"psync_media_{_bn}")
+            _reused = None
+            try:
+                _hit = client.request_post("search/media", payload={
+                    "filter": [{
+                        "type": "multi", "operator": "or", "queries": [
+                            {"type": "equals", "field": "id", "value": _det_id},
+                            {"type": "equals", "field": "fileName", "value": _stem},
+                        ],
+                    }],
+                    "includes": {"media": ["id", "fileName"]},
+                    "limit": 2,
+                })
+                _rows = _hit.get("data") or []
+                # Prefer the deterministic id; legacy name-hit second.
+                _reused = next(
+                    (m["id"] for m in _rows if m.get("id") == _det_id),
+                    (_rows[0]["id"] if _rows else None),
+                )
+            except Exception:  # noqa: BLE001
+                _reused = None
+            if _reused:
+                counters["uploaded"] += 1
+                new_media_ids.append(_reused)
+                if _bn:
+                    counters["media_map"][_bn] = _reused
+                continue
+
+            # 1. Create empty Media record with the deterministic id
+            #    (with media folder so it lands in the right Admin UI
+            #    section + inherits thumbnail config).
+            media_id = _det_id
             media_row: dict = {"id": media_id}
             if media_folder_id:
                 media_row["mediaFolderId"] = media_folder_id
@@ -1248,10 +1503,31 @@ class ShopwareProductAdapter(ProductAdapter):
                 # success — products end up with ``media=0`` and the
                 # operator only spots it on storefront inspection.
                 msg = str(exc)
-                try:
-                    file_bytes, mime_type = _fetch_local_file_bytes(url)
-                except Exception:  # noqa: BLE001
+                # Duplicate fileName: another media entity (legacy
+                # random-id upload, admin upload) already owns the
+                # stem. Retry once with an id-suffixed name — content
+                # is identical anyway (hash-suffixed ERP basenames),
+                # we just need a slot Shopware accepts.
+                if "DUPLICATED_FILE_NAME" in msg or "duplicat" in msg.lower():
+                    try:
+                        client.request_post(
+                            f"_action/media/{media_id}/upload",
+                            payload={"url": url},
+                            additional_query_params={
+                                "fileName": f"{stem}-{media_id[:8]}",
+                                "extension": ext,
+                            },
+                        )
+                        uploaded_ok = True
+                    except Exception:  # noqa: BLE001
+                        pass
+                if uploaded_ok:
                     file_bytes, mime_type = (None, None)
+                else:
+                    try:
+                        file_bytes, mime_type = _fetch_local_file_bytes(url)
+                    except Exception:  # noqa: BLE001
+                        file_bytes, mime_type = (None, None)
                 if file_bytes:
                     try:
                         client.request_post(
@@ -1274,7 +1550,7 @@ class ShopwareProductAdapter(ProductAdapter):
                             )
                         except Exception:  # noqa: BLE001
                             pass
-                else:
+                elif not uploaded_ok:
                     try:
                         import frappe as _f
                         _f.logger("product_sync.shopware").warning(
@@ -1359,11 +1635,13 @@ class ShopwareProductAdapter(ProductAdapter):
         client,
         *,
         external_id: str,
-        keep_media_ids: set[str],
+        keep_media_ids: list[str],
     ) -> dict:
         counters = {"deleted": 0, "kept": 0, "failed": 0, "cover_set": 0, "folder_set": 0}
         if not external_id:
             return counters
+        keep_order: list[str] = [m for m in keep_media_ids if m]
+        keep_media_ids = set(keep_order)
 
         # Pull live media + current cover + each media's folder so we
         # can (a) repoint cover to a survivor when the prior cover gets
@@ -1390,6 +1668,7 @@ class ShopwareProductAdapter(ProductAdapter):
 
         to_delete: list[str] = []
         kept_pm: list[str] = []
+        pm_by_media: dict[str, str] = {}
         media_missing_folder: list[str] = []
         for pm in live_pm:
             m = pm.get("media") or {}
@@ -1398,7 +1677,16 @@ class ShopwareProductAdapter(ProductAdapter):
             if not pm_id or not mid:
                 continue
             if mid in keep_media_ids:
+                if mid in pm_by_media:
+                    # A second product_media row pointing at an already-kept
+                    # media — a duplicate gallery link (happens when an older
+                    # legacy link and a newer deterministic-id link coexist for
+                    # the same media). The storefront renders it twice, so drop
+                    # the extra and keep the first.
+                    to_delete.append(pm_id)
+                    continue
                 kept_pm.append(pm_id)
+                pm_by_media[mid] = pm_id
                 if not m.get("mediaFolderId"):
                     media_missing_folder.append(mid)
             else:
@@ -1419,16 +1707,39 @@ class ShopwareProductAdapter(ProductAdapter):
             except Exception:  # noqa: BLE001
                 counters["failed"] = len(to_delete)
 
-        # Cover repair / ensure: re-point coverId if the prior cover
-        # lived on a deleted row OR if no cover was ever set. Without
-        # this Shopware returns the placeholder image (Store API
-        # ``cover: null``) and the storefront falls back to a generic
-        # image even though product_media rows exist.
-        if kept_pm and (cur_cover in to_delete or not cur_cover):
+        # Gallery order: renumber ``product_media.position`` to follow
+        # the caller's keep order (= canonical order: Item.image first,
+        # then attachments in File-creation order). Without this the
+        # storefront sequence is whatever historical uploads produced —
+        # application shots before the product shot, colliding
+        # positions across runs, etc.
+        ordered_pm = [pm_by_media[mid] for mid in keep_order if mid in pm_by_media]
+        if ordered_pm:
+            try:
+                client.request_post("_action/sync", payload={
+                    "pos": {
+                        "entity": "product_media",
+                        "action": "upsert",
+                        "payload": [
+                            {"id": pm_id, "position": idx}
+                            for idx, pm_id in enumerate(ordered_pm)
+                        ],
+                    },
+                })
+            except Exception:  # noqa: BLE001
+                pass
+
+        # Cover: always point at the FIRST keep entry (= the canonical
+        # primary, Item.image). The previous "only when dangling"
+        # behaviour left stale covers in place whenever the operator
+        # replaced the hero image — Store API kept serving the old
+        # application shot.
+        want_cover = ordered_pm[0] if ordered_pm else (kept_pm[0] if kept_pm else None)
+        if want_cover and cur_cover != want_cover:
             try:
                 client.request_patch(
                     f"product/{external_id}",
-                    payload={"coverId": kept_pm[0]},
+                    payload={"coverId": want_cover},
                 )
                 counters["cover_set"] = 1
             except Exception:  # noqa: BLE001

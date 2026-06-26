@@ -34,6 +34,11 @@ class ErpTreeNode:
     is_group: int
     has_items: bool = False
     catalog_mirror_skip: int = 0
+    # Content fields mirrored into the backend category (and folded into
+    # the canonical hash). Loaded straight from ``tabItem Group``.
+    description: str | None = None
+    seo_title: str | None = None
+    seo_meta_description: str | None = None
     children: list[ErpTreeNode] = field(default_factory=list)
 
     def iter_descendants(self):
@@ -101,6 +106,9 @@ def _build_node(
             "parent_item_group",
             "is_group",
             "catalog_mirror_skip",
+            "description",
+            "seo_title",
+            "seo_meta_description",
         ],
         as_dict=True,
     )
@@ -114,6 +122,9 @@ def _build_node(
         is_group=int(ig.is_group or 0),
         has_items=item_counts.get(ig.name, 0) > 0,
         catalog_mirror_skip=int(ig.catalog_mirror_skip or 0),
+        description=ig.description,
+        seo_title=ig.seo_title,
+        seo_meta_description=ig.seo_meta_description,
     )
 
     # Children in nested-set order so the apply phase walks the same

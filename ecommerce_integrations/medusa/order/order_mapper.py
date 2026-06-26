@@ -113,7 +113,9 @@ def _map_line_items(items: list, setting) -> list:
         product = variant.get("product", {}) or {}
         product_id = product.get("id") or variant.get("product_id", "")
         variant_id = variant.get("id") or item.get("variant_id", "")
-        item_code = _resolve_item_code(product_id, variant.get("sku", "") or item.get("variant_sku", ""), item, variant_id)
+        item_code = _resolve_custom_line_item(item) or _resolve_item_code(
+            product_id, variant.get("sku", "") or item.get("variant_sku", ""), item, variant_id
+        )
         if not item_code:
             continue
         unit_price = medusa_price_to_erpnext(item.get("unit_price", 0))
@@ -140,6 +142,42 @@ def _map_shipping(order: dict, setting) -> list:
     if not shipping_total:
         return []
     return [{"item_code": setting.shipping_item, "qty": 1, "rate": medusa_price_to_erpnext(shipping_total), "warehouse": setting.warehouse}]
+
+
+def _resolve_custom_line_item(item: dict) -> str | None:
+    """Operator-app hook: resolve a line item to an ERPNext item_code
+    before the standard SKU / product-id resolution.
+
+    Use case: a storefront product configurator (or bundle builder)
+    stores its selection in the Medusa line-item ``metadata`` and needs
+    to materialise — or look up — the concrete ERPNext variant when the
+    order is imported. That logic is operator-specific, so it lives in
+    the operator's own app, not here.
+
+    Apps register dotted paths under the ``ecommerce_order_line_resolvers``
+    hook. Each callable receives the raw Medusa line-item dict and
+    returns an ERPNext ``item_code`` (wins immediately) or a falsy value
+    (defer to the next resolver / the standard path). Resolver
+    exceptions are logged and skipped so one misbehaving hook can't
+    abort the whole order import.
+
+        # in the operator app's hooks.py
+        ecommerce_order_line_resolvers = [
+            "my_app.configurator.resolve_medusa_order_line",
+        ]
+    """
+    for path in frappe.get_hooks("ecommerce_order_line_resolvers") or []:
+        try:
+            item_code = frappe.get_attr(path)(item)
+        except Exception:
+            frappe.log_error(
+                title="ecommerce_order_line_resolver failed",
+                message=frappe.get_traceback(),
+            )
+            continue
+        if item_code:
+            return item_code
+    return None
 
 
 def _resolve_item_code(product_id: str, sku: str, item: dict, variant_id: str = "") -> str:

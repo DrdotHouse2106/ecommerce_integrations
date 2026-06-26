@@ -49,6 +49,9 @@
   "email_invoice_subject",
   "email_invoice_greeting",
   "email_invoice_body",
+  "email_shipment_title",
+  "email_shipment_greeting",
+  "email_shipment_body",
   "section_break_footer",
   "signature_html",
   "imprint_html",
@@ -321,6 +324,27 @@
    "fieldname": "email_invoice_body",
    "fieldtype": "Text Editor",
    "label": "Invoice Email Body"
+  },
+  {
+   "fieldname": "email_shipment_title",
+   "fieldtype": "Data",
+   "label": "Shipment Email Title",
+   "default": "Your order has shipped",
+   "description": "Heading of the shipment-confirmation email. Plain text, translated via the channel language."
+  },
+  {
+   "fieldname": "email_shipment_greeting",
+   "fieldtype": "Small Text",
+   "label": "Shipment Email Greeting",
+   "default": "{{ auto_greeting }},",
+   "description": "Greeting line of the shipment-confirmation email (Jinja supported)."
+  },
+  {
+   "fieldname": "email_shipment_body",
+   "fieldtype": "Text Editor",
+   "label": "Shipment Email Body",
+   "default": "<p>{{ _(\"good news – your order has been dispatched and is on its way to you.\") }}</p>",
+   "description": "Body of the shipment-confirmation email (HTML, Jinja). Wrap fixed text in {{ _(\"...\") }} to translate."
   },
   {
    "collapsible": 1,

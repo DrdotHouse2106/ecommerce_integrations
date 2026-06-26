@@ -106,7 +106,7 @@ html, body { margin: 0; padding: 0; height: 100%; }
     <h1 class="doc-title">{{ title | upper }}</h1>
     <p class="doc-number">{{ doc.name }}</p>
     <p class="price-info">{% if is_tax_exempt %}{{ _("All prices excl. VAT (tax-exempt delivery)") }}{% elif is_private %}{{ _("All prices incl. VAT") }}{% else %}{{ _("All prices excl. VAT") }}{% endif %}</p>
-    {% if is_paid %}<div class="paid-badge">✓ {{ _("Paid") }}{% if payment_mode %} {{ _("via") }} {{ payment_mode }}{% endif %}</div>{% endif %}
+    {% if is_paid %}<div class="paid-badge"><svg width="11" height="11" viewBox="0 0 16 16" style="vertical-align:-1px;margin-right:3px" xmlns="http://www.w3.org/2000/svg"><path d="M13.5 4.5l-7 7-3.5-3.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>{{ _("Paid") }}{% if payment_mode %} {{ _("via") }} {{ payment_mode }}{% endif %}</div>{% endif %}
   </div>
 </div>
 {%- endmacro -%}
@@ -114,7 +114,7 @@ html, body { margin: 0; padding: 0; height: 100%; }
 {#-- Payment box: paid / prepayment (with EPC QR) / invoice. --#}
 {%- macro payment_box(doc, brand, is_paid, payment_mode, is_invoice, company_doc, default_bank, bic) -%}
 {% if is_paid %}
-<div class="payment-box paid"><h4>✓ {{ _("Payment Received") }}</h4><p style="margin: 0;">{{ _("Thank you! The payment of {0} via {1} has been processed successfully.").format(doc.get_formatted("grand_total"), payment_mode) }}</p></div>
+<div class="payment-box paid"><h4><svg width="11" height="11" viewBox="0 0 16 16" style="vertical-align:-1px;margin-right:3px" xmlns="http://www.w3.org/2000/svg"><path d="M13.5 4.5l-7 7-3.5-3.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>{{ _("Payment Received") }}</h4><p style="margin: 0;">{{ _("Thank you! The payment of {0} via {1} has been processed successfully.").format(doc.get_formatted("grand_total"), payment_mode) }}</p></div>
 {% elif payment_mode == "Vorkasse" %}
 {% set epc_data = "BCD\n002\n1\nSCT\n" ~ bic ~ "\n" ~ company_doc.company_name ~ "\n" ~ default_bank.iban ~ "\nEUR" ~ ("%.2f"|format(doc.grand_total)) ~ "\n\n\n" ~ doc.name %}
 <div class="payment-box pending"><h4>{{ _("Payment Method") }}: {{ _("Prepayment") }}</h4><div class="payment-content"><div class="payment-details"><p style="margin-bottom: 10px;">{{ _("Please transfer the amount to the following account") }}:</p><div class="bank-grid"><div class="bank-row"><span class="bank-label">{{ _("Account Holder") }}:</span><span class="bank-value">{{ company_doc.company_name }}</span></div><div class="bank-row"><span class="bank-label">IBAN:</span><span class="bank-value highlight">{{ default_bank.iban }}</span></div><div class="bank-row"><span class="bank-label">BIC:</span><span class="bank-value">{{ bic }}</span></div><div class="bank-row"><span class="bank-label">{{ _("Purpose") }}:</span><span class="bank-value highlight">{{ doc.name }}</span></div></div></div>{% if default_bank.iban %}<div class="payment-qr"><img src="{{ get_qr_code(epc_data) }}" alt="EPC QR-Code"><p>{{ _("Scan QR code to pay") }}</p></div>{% endif %}</div></div>
@@ -200,7 +200,7 @@ html, body { margin: 0; padding: 0; height: 100%; }
      bank info + due date, even when the customer wasn't on Vorkasse. --#}
 {%- macro invoice_payment_box(doc, brand, payment_mode, is_paid, company_doc, default_bank, bic) -%}
 {% if is_paid %}
-<div class="payment-box paid"><h4>✓ {{ _("Payment Received") }}</h4><p style="margin: 0;">{{ _("Thank you! The payment of {0} via {1} has been processed successfully.").format(doc.get_formatted("grand_total"), payment_mode) }}</p></div>
+<div class="payment-box paid"><h4><svg width="11" height="11" viewBox="0 0 16 16" style="vertical-align:-1px;margin-right:3px" xmlns="http://www.w3.org/2000/svg"><path d="M13.5 4.5l-7 7-3.5-3.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>{{ _("Payment Received") }}</h4><p style="margin: 0;">{{ _("Thank you! The payment of {0} via {1} has been processed successfully.").format(doc.get_formatted("grand_total"), payment_mode) }}</p></div>
 {% elif payment_mode == "Vorkasse" %}
 <div class="payment-box pending"><h4>{{ _("Payment Method") }}: {{ _("Prepayment") }}</h4><p style="margin-bottom: 10px;">{{ _("Please transfer the amount to the following account") }}:</p><div class="bank-grid"><div class="bank-row"><span class="bank-label">{{ _("Account Holder") }}:</span><span class="bank-value">{{ company_doc.company_name }}</span></div><div class="bank-row"><span class="bank-label">IBAN:</span><span class="bank-value highlight">{{ default_bank.iban }}</span></div><div class="bank-row"><span class="bank-label">BIC:</span><span class="bank-value">{{ bic }}</span></div><div class="bank-row"><span class="bank-label">{{ _("Purpose") }}:</span><span class="bank-value highlight">{{ doc.name }}</span></div></div></div>
 {% else %}
@@ -285,10 +285,12 @@ html, body { margin: 0; padding: 0; height: 100%; }
 
 {{ invoice_payment_box(doc, brand, payment_mode, is_paid, company_doc, default_bank, bic) }}
 
-{#-- Legal footer: imprint + privacy/terms links --#}
-{% if brand.imprint_html or brand.privacy_policy_url or brand.terms_url %}
+{#-- Legal footer: privacy/terms links only. The imprint is NOT repeated here —
+     the Letter Head footer (fixed page footer) already carries it; rendering it
+     in the content body too duplicated the Impressum on the PDF. (Emails keep
+     the imprint in email_branding.html, since they have no page footer.) --#}
+{% if brand.privacy_policy_url or brand.terms_url %}
 <div style="margin-top:30px;padding-top:10px;border-top:1px solid #ccc;font-size:7.5pt;color:#666;line-height:1.5;">
-  {% if brand.imprint_html %}<div style="margin-bottom:6px;">{{ brand.imprint_html | safe }}</div>{% endif %}
   {% if brand.privacy_policy_url or brand.terms_url %}
   <div>
     {% if brand.privacy_policy_url %}<a href="{{ brand.privacy_policy_url }}" style="color:{{ brand.primary_color }};text-decoration:none;">{{ _("Privacy Policy") }}</a>{% endif %}
@@ -389,10 +391,10 @@ html, body { margin: 0; padding: 0; height: 100%; }
 
 {{ payment_box(doc, brand, is_paid, payment_mode, is_invoice, company_doc, default_bank, bic) }}
 
-{#-- Legal footer: imprint + privacy policy link --#}
-{% if brand.imprint_html or brand.privacy_policy_url or brand.terms_url %}
+{#-- Legal footer: privacy/terms links only. The imprint is NOT repeated here —
+     the Letter Head footer (fixed page footer) already carries it. --#}
+{% if brand.privacy_policy_url or brand.terms_url %}
 <div style="margin-top:30px;padding-top:10px;border-top:1px solid #ccc;font-size:7.5pt;color:#666;line-height:1.5;">
-  {% if brand.imprint_html %}<div style="margin-bottom:6px;">{{ brand.imprint_html | safe }}</div>{% endif %}
   {% if brand.privacy_policy_url or brand.terms_url %}
   <div>
     {% if brand.privacy_policy_url %}<a href="{{ brand.privacy_policy_url }}" style="color:{{ brand.primary_color }};text-decoration:none;">{{ _("Privacy Policy") }}</a>{% endif %}
