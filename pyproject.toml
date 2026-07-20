@@ -11,6 +11,10 @@ dynamic = ["version"]
 dependencies = [
     "ShopifyAPI==12.4.0",  # update after resolving pyjwt conflict in frappe
     "boto3~=1.34.143",
+    # pyactiveresource (a ShopifyAPI dependency) still does `import cgi`, which
+    # stdlib removed in 3.13 (PEP 594). Restores it as a drop-in on 3.13+ only;
+    # a no-op on older interpreters where the stdlib module still exists.
+    "legacy-cgi>=2.6.1; python_version >= '3.13'",
 ]
 
 [project.urls]
