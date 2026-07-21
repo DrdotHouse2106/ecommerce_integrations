@@ -82,7 +82,7 @@ def ensure_shopware_custom_field_set(client) -> str | None:
             "search/custom-field-set",
             {"filter": [{"type": "equals", "field": "name", "value": SHOPWARE_CUSTOM_FIELD_SET_NAME}]}
         )
-        sets = response.get("data", [])
+        sets = response.data or []
 
         if sets:
             set_id = sets[0]["id"]
@@ -183,7 +183,7 @@ def get_or_create_property_group(client, group_name: str) -> str | None:
             "search/property-group",
             {"filter": [{"type": "equals", "field": "name", "value": group_name}]}
         )
-        groups = response.get("data", [])
+        groups = response.data or []
 
         if groups:
             group_id = groups[0]["id"]
@@ -240,7 +240,7 @@ def get_or_create_property_option(client, group_id: str, group_name: str, option
                 {"type": "equals", "field": "name", "value": option_value}
             ]}
         )
-        options = response.get("data", [])
+        options = response.data or []
 
         if options:
             option_id = options[0]["id"]
@@ -302,7 +302,7 @@ def get_or_create_variant_option(client, group_id: str, group_name: str, option_
                 {"type": "equals", "field": "name", "value": option_value}
             ]}
         )
-        options = response.get("data", [])
+        options = response.data or []
 
         if options:
             option_id = options[0]["id"]
@@ -520,7 +520,7 @@ def clear_product_properties(client, product_id: str) -> bool:
     """
     try:
         response = client.request_get(f"product/{product_id}?associations[properties][]")
-        product_data = response.get("data", {})
+        product_data = response.data or {}
         properties = product_data.get("properties", [])
 
         if not properties:
@@ -568,7 +568,7 @@ def clear_product_options(client, product_id: str) -> bool:
     """
     try:
         response = client.request_get(f"product/{product_id}?associations[options][]")
-        product_data = response.get("data", {})
+        product_data = response.data or {}
         options = product_data.get("options", [])
 
         if not options:
@@ -759,7 +759,7 @@ def cleanup_orphaned_shopware_properties(client, dry_run: bool = True) -> dict[s
                 }
             }
         )
-        groups = response.get("data", [])
+        groups = response.data or []
         stats["groups_checked"] = len(groups)
 
         # Get all Item Attributes from ERPNext (these should exist as property groups)
@@ -808,7 +808,7 @@ def cleanup_orphaned_shopware_properties(client, dry_run: bool = True) -> dict[s
                             ]
                         }
                     )
-                    product_count = prod_response.get("total", 0)
+                    product_count = prod_response.total or 0
 
                     if product_count == 0:
                         # No products use this property group - safe to delete
@@ -934,7 +934,7 @@ def cleanup_orphaned_properties_batch(client) -> dict[str, Any]:
                 "associations": {"options": {}}
             }
         )
-        groups = response.get("data", [])
+        groups = response.data or []
         stats["groups_checked"] = len(groups)
 
         # Get all Item Attributes from ERPNext
@@ -981,7 +981,7 @@ def cleanup_orphaned_properties_batch(client) -> dict[str, Any]:
                             ]
                         }
                     )
-                    product_count = prod_response.get("total", 0)
+                    product_count = prod_response.total or 0
 
                     if product_count == 0:
                         # Delete all options first (required before deleting group)

@@ -71,7 +71,7 @@ def resync_faq_fields():
                 "search/category",
                 {"filter": [{"type": "equals", "field": "name", "value": ig_name}]}
             )
-            categories = response.get("data", [])
+            categories = response.data or []
 
             if not categories:
                 skipped_no_category += 1

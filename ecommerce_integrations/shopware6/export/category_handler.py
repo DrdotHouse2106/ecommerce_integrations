@@ -56,7 +56,7 @@ def ensure_category_custom_field_set(client) -> str | None:
             "search/custom-field-set",
             {"filter": [{"type": "equals", "field": "name", "value": SHOPWARE_CATEGORY_CUSTOM_FIELD_SET_NAME}]}
         )
-        sets = response.get("data", [])
+        sets = response.data or []
 
         if sets:
             set_id = sets[0]["id"]
@@ -231,7 +231,7 @@ def get_or_create_media_folder(client, folder_name: str) -> str | None:
             "search/media-folder",
             {"filter": [{"type": "equals", "field": "name", "value": folder_name}]}
         )
-        folders = response.get("data", [])
+        folders = response.data or []
 
         if folders:
             folder_id = folders[0]["id"]
@@ -241,7 +241,7 @@ def get_or_create_media_folder(client, folder_name: str) -> str | None:
         # Create new
         folder_id = generate_uuid(f"media_folder_{folder_name}")
         config_response = client.request_post("search/media-folder-configuration", {"limit": 1})
-        configs = config_response.get("data", [])
+        configs = config_response.data or []
         config_id = configs[0]["id"] if configs else None
 
         folder_payload = {"id": folder_id, "name": folder_name}
@@ -265,7 +265,7 @@ def get_or_create_media_folder(client, folder_name: str) -> str | None:
                     "search/media-folder",
                     {"filter": [{"type": "equals", "field": "name", "value": folder_name}]}
                 )
-                folders = response.get("data", [])
+                folders = response.data or []
                 if folders:
                     folder_id = folders[0]["id"]
                     cache.set("media_folder", cache_key, folder_id)
@@ -419,9 +419,9 @@ def upload_category_media(client, category_id: str, image_path: str) -> str | No
         existing_file_name = None
         try:
             existing = client.request_get(f"media/{media_id}")
-            if existing and existing.get("data"):
+            if existing and existing.data:
                 media_exists = True
-                existing_file_name = existing.get("data", {}).get("fileName")
+                existing_file_name = (existing.data or {}).get("fileName")
                 media_has_content = bool(existing_file_name)
         except BaseException:
             pass
@@ -506,7 +506,7 @@ def get_or_create_category(
             "search/category",
             {"filter": [{"type": "equals", "field": "name", "value": category_name}]}
         )
-        categories = response.get("data", [])
+        categories = response.data or []
 
         existing_cat_id = None
         if categories:
@@ -519,7 +519,7 @@ def get_or_create_category(
                 "search/category",
                 {"filter": [{"type": "equals", "field": "parentId", "value": None}], "limit": 1}
             )
-            root_cats = root_resp.get("data", [])
+            root_cats = root_resp.data or []
             if root_cats:
                 parent_id = root_cats[0]["id"]
 
@@ -632,7 +632,7 @@ def sync_category_hierarchy(client, item_group_name: str) -> str | None:
         "search/category",
         {"filter": [{"type": "equals", "field": "parentId", "value": None}], "limit": 1}
     )
-    root_cats = root_resp.get("data", [])
+    root_cats = root_resp.data or []
     parent_id = root_cats[0]["id"] if root_cats else None
 
     # Create each level
@@ -774,7 +774,7 @@ def get_category_id_fast(client, category_name: str) -> str | None:
                 "includes": {"category": ["id"]}
             }
         )
-        categories = response.get("data", [])
+        categories = response.data or []
         if categories:
             cat_id = categories[0]["id"]
             cache.set_category_id(category_name, cat_id)
@@ -836,7 +836,7 @@ def _clear_product_categories_fallback(client, product_id: str) -> bool:
     """Fallback: Clear categories using individual DELETE requests."""
     try:
         response = client.request_get(f"product/{product_id}?associations[categories][]=")
-        product_data = response.get("data", {})
+        product_data = response.data or {}
         categories = product_data.get("categories", [])
 
         if not categories:
@@ -916,7 +916,7 @@ def debug_clear_product_categories(client, product_id: str) -> dict:
     try:
         # Get current categories
         response = client.request_get(f"product/{product_id}?associations[categories][]=")
-        product_data = response.get("data", {})
+        product_data = response.data or {}
         categories = product_data.get("categories", [])
 
         result["categories_before"] = [
@@ -967,7 +967,7 @@ def debug_clear_product_categories(client, product_id: str) -> dict:
 
         # Check categories after
         response = client.request_get(f"product/{product_id}?associations[categories][]=")
-        product_data = response.get("data", {})
+        product_data = response.data or {}
         categories_after = product_data.get("categories", [])
 
         result["categories_after"] = [
@@ -1005,7 +1005,7 @@ def force_resync_category_image(client, item_group_name: str) -> bool:
             "search/category",
             {"filter": [{"type": "equals", "field": "name", "value": item_group_name}]}
         )
-        categories = response.get("data", [])
+        categories = response.data or []
 
         if not categories:
             get_logger().error("Category not found in Shopware", persist=False)
@@ -1035,7 +1035,7 @@ def force_resync_category_image(client, item_group_name: str) -> bool:
             search_resp = client.request_post("search/media", {
                 "filter": [{"type": "contains", "field": "fileName", "value": item_group_name}]
             })
-            existing_media = search_resp.get("data", [])
+            existing_media = search_resp.data or []
             for media in existing_media:
                 media_id_to_delete = media.get("id")
                 if media_id_to_delete:
@@ -1134,7 +1134,7 @@ def delete_category_from_shopware(client, category_name: str) -> bool:
             "search/category",
             {"filter": [{"type": "equals", "field": "name", "value": category_name}]}
         )
-        categories = response.get("data", [])
+        categories = response.data or []
 
         if not categories:
             get_logger().info(
@@ -1208,7 +1208,7 @@ def rename_category_in_shopware(client, old_name: str, new_name: str) -> bool:
             "search/category",
             {"filter": [{"type": "equals", "field": "name", "value": old_name}]}
         )
-        categories = response.get("data", [])
+        categories = response.data or []
 
         if not categories:
             # Category doesn't exist in Shopware - nothing to rename
@@ -1395,7 +1395,7 @@ def bulk_sync_categories(
                 "page": page,
                 "includes": {"category": ["id", "name", "parentId"]}
             })
-            data = existing_response.get("data", [])
+            data = existing_response.data or []
             if not data:
                 break
             for cat in data:
@@ -1415,7 +1415,7 @@ def bulk_sync_categories(
                 "search/category",
                 {"filter": [{"type": "equals", "field": "parentId", "value": None}], "limit": 1}
             )
-            root_cats = root_resp.get("data", [])
+            root_cats = root_resp.data or []
             if root_cats:
                 root_parent_id = root_cats[0]["id"]
 
@@ -1694,7 +1694,7 @@ def sync_category_order_by_priority(client, parent_category_id: str | None = Non
                     "includes": {"category": ["id", "name", "parentId", "afterCategoryId", "customFields", "childCount"]}
                 }
             )
-            data = response.get("data", [])
+            data = response.data or []
             if not data:
                 break
             all_categories.extend(data)
@@ -1855,7 +1855,7 @@ def _reorder_children_by_priority(client, parent_id: str) -> dict[str, Any]:
                 "includes": {"category": ["id", "name", "afterCategoryId", "customFields", "childCount"]}
             }
         )
-        children = response.get("data", [])
+        children = response.data or []
 
         if len(children) == 0:
             return result
@@ -1979,7 +1979,7 @@ def migrate_add_priority_custom_field(client) -> dict[str, Any]:
                 "associations": {"customFields": {}}
             }
         )
-        sets = response.get("data", [])
+        sets = response.data or []
 
         if not sets:
             return {

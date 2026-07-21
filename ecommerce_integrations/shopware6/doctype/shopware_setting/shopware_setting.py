@@ -94,7 +94,7 @@ class ShopwareSetting(Document):
             # Try to fetch stock locations if the module is installed
             try:
                 response = client.request_get("stock-location")
-                locations = response.get("data", [])
+                locations = response.data or []
             except Exception:
                 # Stock locations may not be available in all Shopware installations
                 locations = []
@@ -130,7 +130,7 @@ class ShopwareSetting(Document):
         try:
             client = get_shopware_client()
             response = client.request_get("sales-channel")
-            channels = response.get("data", [])
+            channels = response.data or []
 
             # Fetch domain map keyed by sales-channel UUID. Surfacing the
             # storefront URL in the Catalog Mirror picker makes "which
@@ -217,7 +217,7 @@ class ShopwareSetting(Document):
             )
             return {}
         out: dict[str, str] = {}
-        for row in (response or {}).get("data", []) or []:
+        for row in (response.data if response else None) or []:
             attrs = row.get("attributes") or row
             sc_id = attrs.get("salesChannelId") or row.get("salesChannelId")
             url = (attrs.get("url") or row.get("url") or "").strip()

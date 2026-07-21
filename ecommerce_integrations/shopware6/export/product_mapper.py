@@ -40,7 +40,7 @@ def get_tax_id_by_rate(client, tax_rate: float = 19.0) -> str | None:
             "search/tax",
             {"filter": [{"type": "equals", "field": "taxRate", "value": tax_rate}], "limit": 1}
         )
-        taxes = response.get("data", [])
+        taxes = response.data or []
 
         if taxes:
             tax_id = taxes[0]["id"]
@@ -56,7 +56,7 @@ def get_tax_id_by_rate(client, tax_rate: float = 19.0) -> str | None:
                 "search/tax",
                 {"filter": [{"type": "equals", "field": "taxRate", "value": closest}], "limit": 1}
             )
-            taxes = response.get("data", [])
+            taxes = response.data or []
             if taxes:
                 tax_id = taxes[0]["id"]
                 cache.set("tax", str(tax_rate), tax_id)
@@ -64,7 +64,7 @@ def get_tax_id_by_rate(client, tax_rate: float = 19.0) -> str | None:
 
         # Ultimate fallback
         response = client.request_post("search/tax", {"limit": 1})
-        taxes = response.get("data", [])
+        taxes = response.data or []
         if taxes:
             tax_id = taxes[0]["id"]
             cache.set("tax", str(tax_rate), tax_id)
@@ -140,7 +140,7 @@ def get_or_create_delivery_time(client, delivery_time_name: str) -> str | None:
             "search/delivery-time",
             {"filter": [{"type": "equals", "field": "name", "value": delivery_time_name}]}
         )
-        times = response.get("data", [])
+        times = response.data or []
 
         if times:
             dt_id = times[0]["id"]
@@ -209,7 +209,7 @@ def get_or_create_manufacturer(client, manufacturer_name: str) -> str | None:
             "search/product-manufacturer",
             {"filter": [{"type": "equals", "field": "name", "value": manufacturer_name}]}
         )
-        manufacturers = response.get("data", [])
+        manufacturers = response.data or []
 
         if manufacturers:
             mfr_id = manufacturers[0]["id"]
@@ -247,7 +247,7 @@ def get_cached_currency_id(client, currency_code: str = "EUR") -> str | None:
             "search/currency",
             {"filter": [{"type": "equals", "field": "isoCode", "value": currency_code}], "limit": 1}
         )
-        currencies = response.get("data", [])
+        currencies = response.data or []
         if currencies:
             currency_id = currencies[0]["id"]
             cache.set_currency_id(currency_code, currency_id)
@@ -275,7 +275,7 @@ def get_cached_sales_channel_id(client) -> str | None:
 
     try:
         response = client.request_get("sales-channel")
-        sales_channels = response.get("data", [])
+        sales_channels = response.data or []
         if sales_channels:
             sc_id = sales_channels[0]["id"]
             cache.set_sales_channel_id(sc_id)

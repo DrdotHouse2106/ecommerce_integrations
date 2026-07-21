@@ -92,7 +92,7 @@ class StockImporter:
         """
         try:
             response = client.request_get(f"product/{shopware_id}")
-            product = response.get("data", {})
+            product = response.data or {}
 
             return {
                 "stock": flt(product.get("stock", 0)),

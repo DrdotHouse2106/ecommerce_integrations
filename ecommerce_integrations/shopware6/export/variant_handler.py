@@ -193,7 +193,7 @@ def upload_variant_item_to_shopware(client, variant_item) -> str | None:
                     "filter": [{"type": "equals", "field": "productId", "value": product_id}],
                     "limit": 100
                 })
-                for price_entry in prices_response.get("data", []):
+                for price_entry in prices_response.data or []:
                     try:
                         client.request_delete(f"product-price/{price_entry.get('id')}")
                     except Exception:
@@ -225,7 +225,7 @@ def upload_variant_item_to_shopware(client, variant_item) -> str | None:
                         "filter": [{"type": "equals", "field": "productId", "value": product_id}],
                         "limit": 100
                     })
-                    for vis_entry in vis_response.get("data", []):
+                    for vis_entry in vis_response.data or []:
                         try:
                             client.request_delete(f"product-visibility/{vis_entry.get('id')}")
                         except Exception:

@@ -53,7 +53,7 @@ def get_or_create_sales_channel_rule(
                 "limit": 1
             }
         )
-        rules = response.get("data", [])
+        rules = response.data or []
 
         if rules:
             rule_id = rules[0]["id"]

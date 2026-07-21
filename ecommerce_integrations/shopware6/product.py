@@ -110,7 +110,7 @@ class ShopwareProduct:
             Criteria(ids=[self.product_id])
         )
 
-        products = response.get("data", [])
+        products = response.data or []
         if not products:
             frappe.throw(_("Product not found in Shopware: {0}").format(self.product_id))
 
@@ -522,7 +522,7 @@ def sync_products_from_shopware(limit: int = 100):
     criteria.associations["tax"] = Criteria()  # For accurate net/gross conversion
 
     response = client.request_post("search/product", criteria)
-    products = response.get("data", [])
+    products = response.data or []
 
     logger.info(f"Starting product sync for {len(products)} products")
 

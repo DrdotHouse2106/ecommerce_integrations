@@ -126,7 +126,7 @@ def sync_order_by_id(
     # Fetch order with associations
     criteria = _build_order_fetch_criteria(order_id)
     response = client.request_post("search/order", criteria)
-    orders = response.get("data", [])
+    orders = response.data or []
 
     if not orders:
         frappe.throw(_("Order not found in Shopware: {0}").format(order_id))

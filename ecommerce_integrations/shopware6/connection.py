@@ -509,7 +509,7 @@ def test_connection() -> dict[str, Any]:
         return {
             "success": True,
             "message": _("Connection successful!"),
-            "sales_channels": len(response.get("data", [])),
+            "sales_channels": len(response.data or []),
         }
     except ShopwareAPIError as e:
         return {

@@ -89,7 +89,7 @@ class PropertyImporter:
             response = client.request_get(
                 f"product/{shopware_id}?associations[properties][associations][group]={{}}&associations[customFields]={{}}"
             )
-            product_data = response.get("data", {})
+            product_data = response.data or {}
 
             if not product_data:
                 stats["errors"].append(f"Product {shopware_id} not found in Shopware")
@@ -154,7 +154,7 @@ class PropertyImporter:
             response = client.request_get(
                 f"product/{shopware_id}?associations[properties][associations][group]={{}}&associations[customFields]={{}}"
             )
-            product_data = response.get("data", {})
+            product_data = response.data or {}
 
             if not product_data:
                 result["errors"].append(f"Product {shopware_id} not found")
@@ -319,7 +319,7 @@ def sync_property_groups_from_shopware(client, limit: int = 500) -> dict[str, An
                     "options": {}
                 }
             })
-            groups = response.get("data", [])
+            groups = response.data or []
 
             if not groups:
                 break

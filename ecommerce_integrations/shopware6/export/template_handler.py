@@ -61,7 +61,7 @@ def _delete_and_recreate_product(client, product_id: str, product_payload: dict,
             "filter": [{"type": "equals", "field": "parentId", "value": product_id}],
             "limit": 500
         })
-        variants = variants_response.get("data", [])
+        variants = variants_response.data or []
         for variant in variants:
             try:
                 client.request_delete(f"product/{variant['id']}")
@@ -121,7 +121,7 @@ def clear_product_configurator_settings(client, product_id: str) -> bool:
         response = client.request_get(
             f"product/{product_id}?associations[configuratorSettings][]"
         )
-        product_data = response.get("data", {})
+        product_data = response.data or {}
         configurator_settings = product_data.get("configuratorSettings", [])
 
         if not configurator_settings:
@@ -385,7 +385,7 @@ def upload_template_item_to_shopware(client, template_item) -> str | None:
                     "limit": 100
                 })
                 deleted_prices = 0
-                for price_entry in prices_response.get("data", []):
+                for price_entry in prices_response.data or []:
                     try:
                         client.request_delete(f"product-price/{price_entry.get('id')}")
                         deleted_prices += 1
@@ -488,7 +488,7 @@ def cleanup_orphaned_variants(client, template_item_code: str, parent_shopware_i
             "filter": [{"type": "equals", "field": "parentId", "value": parent_shopware_id}],
             "limit": 500
         })
-        shopware_variants = response.get("data", [])
+        shopware_variants = response.data or []
         stats["checked"] = len(shopware_variants)
 
         for sw_variant in shopware_variants:
@@ -625,7 +625,7 @@ def cleanup_all_orphaned_variants_batch(client, progress_callback=None) -> dict[
                 "filter": [{"type": "equals", "field": "parentId", "value": parent_shopware_id}],
                 "limit": 500
             })
-            shopware_variants = response.get("data", [])
+            shopware_variants = response.data or []
             stats["variants_checked"] += len(shopware_variants)
 
             # Find orphans (in Shopware but not in ERPNext)

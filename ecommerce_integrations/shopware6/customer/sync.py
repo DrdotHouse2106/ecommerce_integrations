@@ -357,7 +357,7 @@ def sync_customer_by_id(
 
     criteria = _build_customer_criteria(ids=[customer_id])
     response = client.request_post("search/customer", criteria)
-    customers = response.get("data", [])
+    customers = response.data or []
 
     if not customers:
         logger.info(f"Customer {customer_id} not found in Shopware (may have been deleted)")
@@ -475,7 +475,7 @@ def sync_customers_from_shopware(limit: int = 100) -> dict[str, int]:
 
     criteria = _build_customer_criteria(limit=int(limit))
     response = client.request_post("search/customer", criteria)
-    customers = response.get("data", [])
+    customers = response.data or []
 
     synced = 0
     errors = 0
@@ -520,7 +520,7 @@ def sync_old_customers(client: Shopware6AdminAPIClientBase):
 
         criteria = _build_customer_criteria(limit=limit)
         response = client.request_post("search/customer", criteria)
-        customers = response.get("data", [])
+        customers = response.data or []
 
         synced = 0
         skipped = 0

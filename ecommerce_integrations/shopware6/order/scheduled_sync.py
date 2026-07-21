@@ -95,7 +95,7 @@ def sync_orders_from_shopware(
     criteria = build_order_criteria(from_date, to_date, limit)
 
     response = client.request_post("search/order", criteria)
-    orders = response.get("data", [])
+    orders = response.data or []
 
     synced = 0
     errors = 0
@@ -251,7 +251,7 @@ def sync_old_orders():
         criteria.associations["currency"] = Criteria()
 
         response = client.request_post("search/order", criteria)
-        orders = response.get("data", [])
+        orders = response.data or []
 
         synced = 0
         skipped = 0

@@ -84,7 +84,7 @@ def update_shopware_delivery_status(client, order_id: str, action: str) -> bool:
             "limit": 1
         })
 
-        deliveries = response.get("data", [])
+        deliveries = response.data or []
         if not deliveries:
             logger.warning(
                 f"No delivery found for Shopware order {order_id}",
@@ -129,7 +129,7 @@ def update_shopware_transaction_status(client, order_id: str, action: str) -> bo
             "limit": 1
         })
 
-        transactions = response.get("data", [])
+        transactions = response.data or []
         if not transactions:
             logger.warning(
                 f"No transaction found for Shopware order {order_id}",
@@ -499,8 +499,8 @@ def on_sales_order_submit(doc, method=None):
             criteria.associations["transactions"].associations["stateMachineState"] = Criteria()
             criteria.associations["transactions"].associations["paymentMethod"] = Criteria()
 
-            result = client.order.search(criteria=criteria)
-            orders = result.get("data", [])
+            result = client.request_post("search/order", criteria)
+            orders = result.data or []
             return orders[0] if orders else None
 
         order_data = fetch_order_data(order_id=shopware_order_id)

@@ -185,7 +185,7 @@ def verify_payment_status_from_shopware(order_id: str, sales_order_name: str):
             "limit": 1
         })
 
-        transactions = response.get("data", [])
+        transactions = response.data or []
         if not transactions:
             frappe.logger("shopware6").debug(
                 f"No transactions found for order {order_id} during payment verification"

@@ -63,7 +63,7 @@ def get_product_media_folder_id(client) -> str | None:
             "search/media-folder",
             {"filter": [{"type": "equals", "field": "name", "value": "Product Media"}]}
         )
-        folders = response.get("data", [])
+        folders = response.data or []
 
         if folders:
             folder_id = folders[0]["id"]
@@ -75,7 +75,7 @@ def get_product_media_folder_id(client) -> str | None:
             "search/media-default-folder",
             {"filter": [{"type": "equals", "field": "entity", "value": "product"}]}
         )
-        default_folders = response.get("data", [])
+        default_folders = response.data or []
         if default_folders:
             folder_id = default_folders[0].get("folderId")
             if folder_id:
@@ -390,7 +390,7 @@ def upload_media_to_shopware(client, file_url: str, item_code: str, position: in
             # Check if media already exists with content
             try:
                 media_check = client.request_get(f"media/{media_id}")
-                if media_check.get("data", {}).get("fileName"):
+                if (media_check.data or {}).get("fileName"):
                     return media_id  # Already uploaded
             except BaseException:
                 pass  # Media doesn't exist yet
@@ -603,7 +603,7 @@ def clear_product_images_in_shopware(client, shopware_product_id: str, item_code
             "filter": [{"type": "equals", "field": "productId", "value": shopware_product_id}],
             "includes": {"product_media": ["id", "mediaId"]}
         })
-        existing = search_result.get("data", []) or []
+        existing = search_result.data or []
 
         if not existing:
             return 0
@@ -678,7 +678,7 @@ def _verify_shopware_media_health(client, item_code: str, shopware_product_id: s
             "associations": {"media": {}},  # Include media entity details
             "limit": expected_count + 5  # Small buffer
         })
-        existing = search_result.get("data", []) or []
+        existing = search_result.data or []
 
         # Check 1: Correct count of associations
         if len(existing) != expected_count:
@@ -804,7 +804,7 @@ def sync_product_images_to_shopware(client, item, shopware_product_id: str, cach
                 search_result = client.request_post("search/product-media", {
                     "filter": [{"type": "equals", "field": "productId", "value": shopware_product_id}]
                 })
-                existing = search_result.get("data", []) or []
+                existing = search_result.data or []
 
             if existing:
                 product_media_ids = []

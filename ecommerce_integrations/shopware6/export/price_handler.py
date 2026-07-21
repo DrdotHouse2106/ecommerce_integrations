@@ -325,7 +325,7 @@ def sync_product_price(client, item_code: str) -> bool:
                 ],
                 "limit": 100
             })
-            existing_prices = response.get("data", [])
+            existing_prices = response.data or []
             if existing_prices:
                 price_ids = [p.get("id") for p in existing_prices if p.get("id")]
                 deleted_count = _batch_delete_prices(client, price_ids)
@@ -466,7 +466,7 @@ def force_sync_single_product_price(
             ],
             "limit": 100
         })
-        existing_prices = response.get("data", [])
+        existing_prices = response.data or []
 
         # Validate before destructive operation
         validation = validate_before_destructive_operation(
@@ -668,7 +668,7 @@ def force_sync_all_prices(
         try:
             # Get current Shopware price
             product_response = client.request_get(f"product/{shopware_id}")
-            current_prices = product_response.get("data", {}).get("price", [])
+            current_prices = (product_response.data or {}).get("price", [])
             current_net = current_prices[0].get("net", 0) if current_prices else 0
 
             # Get ERPNext price
@@ -724,7 +724,7 @@ def force_sync_all_prices(
                     "filter": [{"type": "equals", "field": "productId", "value": shopware_id}],
                     "limit": 500  # Increased limit to catch all price rules
                 })
-                additional_prices = prices_response.get("data", [])
+                additional_prices = prices_response.data or []
 
                 # Check for broken 0.01€ prices in the additional rules
                 broken_prices = [p for p in additional_prices if flt(p.get("price", [{}])[0].get("net", 0)) <= 0.02]
@@ -745,7 +745,7 @@ def force_sync_all_prices(
                     "filter": [{"type": "equals", "field": "productId", "value": shopware_id}],
                     "limit": 500
                 })
-                additional_prices = prices_response.get("data", [])
+                additional_prices = prices_response.data or []
                 broken_prices = [p for p in additional_prices if flt(p.get("price", [{}])[0].get("net", 0)) <= 0.02]
                 if broken_prices:
                     stats["broken_fixed"] += 1
@@ -930,7 +930,7 @@ def _run_force_price_sync_batched(
                         "limit": 100
                     })
                     deleted = 0
-                    for price_entry in prices_response.get("data", []):
+                    for price_entry in prices_response.data or []:
                         try:
                             client.request_delete(f"product-price/{price_entry.get('id')}")
                             deleted += 1
@@ -1337,7 +1337,7 @@ def delete_broken_price_rules_batch(client=None) -> dict[str, Any]:
             "limit": 500,
             "page": page
         })
-        prices = response.get("data", [])
+        prices = response.data or []
         if not prices:
             break
         all_prices.extend(prices)
