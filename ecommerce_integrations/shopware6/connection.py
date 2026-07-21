@@ -205,7 +205,7 @@ def _patch_client_binary_upload(client: Shopware6AdminAPIClientBase):
     This patch intercepts POST requests with bytes payload and sends them correctly
     using httpx's `content` parameter with raw bytes.
     """
-    import httpx
+    import httpx2
     from lib_shopware6_api_base.lib_shopware6_admin_client import HttpMethod
 
     _orig_request = client._request
@@ -236,7 +236,7 @@ def _patch_client_binary_upload(client: Shopware6AdminAPIClientBase):
             # Same error handling as the library
             try:
                 response.raise_for_status()
-            except httpx.HTTPStatusError as exc:
+            except httpx2.HTTPStatusError as exc:
                 detailed_error = f" : {exc.response.text}"
                 raise ShopwareAPIError(f"{exc}{detailed_error}") from exc
 
@@ -282,10 +282,10 @@ def _patch_client_timeout(client: Shopware6AdminAPIClientBase, timeout: int = 60
     Also wraps token acquisition to produce clear error messages when the
     Shopware API returns empty responses (e.g. reverse proxy blocking).
 
-    httpx 0.28+ removed the timeout kwarg from send(), so we set it
+    httpx2 0.28+ removed the timeout kwarg from send(), so we set it
     directly on the client/session object via its timeout property.
     """
-    import httpx
+    import httpx2
 
     _original_get_session = client._get_session
 
@@ -300,7 +300,7 @@ def _patch_client_timeout(client: Shopware6AdminAPIClientBase, timeout: int = 60
             ) from e
         # Set timeout on the (possibly new) session object
         if not getattr(client.session, '_timeout_patched', False):
-            client.session.timeout = httpx.Timeout(timeout)
+            client.session.timeout = httpx2.Timeout(timeout)
             client.session._timeout_patched = True
 
     client._get_session = _get_session_with_timeout
