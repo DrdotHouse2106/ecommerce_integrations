@@ -103,6 +103,44 @@ frappe.ui.form.on('Shopware Setting', {
 			frappe.set_route('List', 'Ecommerce Catalog Mirror', { backend: 'Shopware' });
 		}, __('Open sync'));
 
+		// One-time backfill for shops that maintained categories only in
+		// Shopware so far (no matching Item Group tree exists yet).
+		// Catalog Mirror's own "Adopt" flow needs the Item Group to
+		// already exist — this creates it from the live Shopware tree,
+		// once. Safe to re-run: matches by shopware_category_id first,
+		// then by name (adopts a same-named hand-made Item Group instead
+		// of duplicating it).
+		frm.add_custom_button(__('Import Categories from Shopware'), function() {
+			frappe.confirm(
+				__('This creates/updates Item Groups in ERPNext from your entire live Shopware category tree, including images. Re-running it is safe (it won\'t duplicate categories). Continue?'),
+				function() {
+					frappe.call({
+						method: 'ecommerce_integrations.shopware6.import_handlers.category_importer.import_categories_from_shopware',
+						freeze: true,
+						freeze_message: __('Importing categories from Shopware...'),
+						callback: function(r) {
+							let s = r.message || {};
+							let lines = [
+								__('Created: {0}', [s.created || 0]),
+								__('Adopted (matched existing by name): {0}', [s.adopted || 0]),
+								__('Updated (already linked): {0}', [s.updated || 0]),
+								__('Images set: {0}', [s.images_set || 0]),
+								__('Skipped (flagged erp_ignored): {0}', [s.skipped_ignored || 0]),
+							];
+							if (s.errors && s.errors.length) {
+								lines.push('', __('Errors:'), ...s.errors);
+							}
+							frappe.msgprint({
+								title: __('Category Import Result'),
+								message: lines.join('<br>'),
+								indicator: (s.errors && s.errors.length) ? 'orange' : 'green'
+							});
+						}
+					});
+				}
+			);
+		}, __('Open sync'));
+
 		// Pull Sync öffnen — single source of truth for backend → ERP
 		// pulls (orders, customers, stock). The legacy "Orders" /
 		// "Customers" / "Stock" / "Properties" dialogs duplicated what

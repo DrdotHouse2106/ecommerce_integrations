@@ -653,8 +653,10 @@ def get_all_item_categories(item_code: str, include_variant_categories: bool = T
 
     Supports:
     1. Standard ERPNext: item.item_group
-    2. Webshop App: Website Item's website_item_groups
-    3. Variant categories: Categories from variants
+    2. Native multi-category: item.additional_item_groups (Table MultiSelect,
+       no separate app required)
+    3. Webshop App: Website Item's website_item_groups
+    4. Variant categories: Categories from variants
 
     Args:
         item_code: ERPNext Item code
@@ -669,6 +671,11 @@ def get_all_item_categories(item_code: str, include_variant_categories: bool = T
         item = frappe.get_doc("Item", item_code)
         if item.item_group:
             categories.append(item.item_group)
+
+        # Native multi-category assignment (Item Additional Group rows)
+        for row in getattr(item, "additional_item_groups", None) or []:
+            if row.item_group and row.item_group not in categories:
+                categories.append(row.item_group)
 
         # Check Webshop app
         if frappe.db.exists("DocType", "Website Item"):
