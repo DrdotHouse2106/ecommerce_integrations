@@ -105,25 +105,9 @@ CUSTOM_FIELDS = {
                 "delivery time set on the product."
             ),
         },
-        {
-            "fieldname": "seo_title",
-            "label": "SEO Title (Shopware)",
-            "fieldtype": "Data",
-            "insert_after": "delivery_time",
-            "description": "Meta title sent to Shopware. Leave empty to use the item name.",
-        },
-        {
-            "fieldname": "seo_meta_description",
-            "label": "SEO Meta Description (Shopware)",
-            "fieldtype": "Small Text",
-            "insert_after": "seo_title",
-        },
-        {
-            "fieldname": "seo_keywords",
-            "label": "SEO Keywords (Shopware)",
-            "fieldtype": "Data",
-            "insert_after": "seo_meta_description",
-        },
+        # SEO: no new fields here — the WeClapp import already brought
+        # metatitel / metabeschreibung / metakeywords onto Item; the
+        # Shopware push reads those directly (see product_mapper.py).
         {
             "fieldname": "ecommerce_properties_section",
             "label": "Ecommerce Properties",

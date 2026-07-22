@@ -322,7 +322,7 @@ def map_erpnext_item_to_shopware(erpnext_item) -> dict[str, Any]:
         "description": description,
         "active": active,
         "stock": 0,
-        "isCloseout": False,
+        "isCloseout": bool(getattr(erpnext_item, 'abverkauf', False)),
         "markAsTopseller": bool(getattr(erpnext_item, 'shopware_topseller', 0)),
         "translations": {
             "de-DE": {
@@ -421,10 +421,12 @@ def map_erpnext_item_to_shopware(erpnext_item) -> dict[str, Any]:
     if hasattr(erpnext_item, 'item_length') and erpnext_item.item_length:
         payload["length"] = flt(erpnext_item.item_length) * 10
 
-    # SEO fields
-    seo_title = getattr(erpnext_item, 'ai_seo_title', None) or getattr(erpnext_item, 'seo_title', None)
-    seo_description = getattr(erpnext_item, 'ai_seo_description', None) or getattr(erpnext_item, 'seo_meta_description', None)
-    seo_keywords = getattr(erpnext_item, 'seo_keywords', None)
+    # SEO fields. metatitel/metabeschreibung/metakeywords are the
+    # WeClapp-imported "Freifelder" on Item — reused here instead of
+    # adding duplicate Shopware-specific SEO fields.
+    seo_title = getattr(erpnext_item, 'ai_seo_title', None) or getattr(erpnext_item, 'metatitel', None)
+    seo_description = getattr(erpnext_item, 'ai_seo_description', None) or getattr(erpnext_item, 'metabeschreibung', None)
+    seo_keywords = getattr(erpnext_item, 'metakeywords', None)
 
     if seo_title:
         payload["metaTitle"] = seo_title
