@@ -64,14 +64,20 @@ def update_shopware_order_status(client, order_id: str, action: str) -> bool:
 
 
 @temp_shopware_session
-def update_shopware_delivery_status(client, order_id: str, action: str) -> bool:
+def update_shopware_delivery_status(
+    client, order_id: str, action: str, tracking_number: str | None = None
+) -> bool:
     """
-    Update Shopware delivery state machine.
+    Update Shopware delivery state machine, optionally writing a tracking number.
 
     Args:
         client: Shopware API client
         order_id: Shopware order ID
         action: State machine action (e.g., 'ship', 'ship_partially', 'retour')
+        tracking_number: Carrier tracking number (ERPNext Delivery Note ``lr_no``)
+            to write onto the Shopware delivery's ``trackingCodes`` before the
+            state transition, so the storefront shows it as soon as the order
+            flips to "shipped".
 
     Returns:
         bool: True if successful
@@ -93,6 +99,19 @@ def update_shopware_delivery_status(client, order_id: str, action: str) -> bool:
             return False
 
         delivery_id = deliveries[0].get("id")
+
+        if tracking_number:
+            try:
+                client.request_patch(
+                    f"order-delivery/{delivery_id}", {"trackingCodes": [tracking_number]}
+                )
+            except Exception as e:
+                # Don't let a tracking-write failure block the state
+                # transition — the shipment still happened.
+                logger.warning(
+                    f"Failed to write tracking code for Shopware order {order_id}: {e}",
+                    persist=True
+                )
 
         # Update delivery state
         endpoint = f"_action/state-machine/order_delivery/{delivery_id}/state/{action}"
@@ -175,11 +194,12 @@ def on_delivery_note_submit(doc, method=None):
     if not shopware_order_id:
         return  # Not a Shopware order
 
-    # 1. Update Shopware delivery status
+    # 1. Update Shopware delivery status (+ tracking number, if present)
     frappe.enqueue(
         update_shopware_delivery_status,
         order_id=shopware_order_id,
         action="ship",
+        tracking_number=doc.lr_no or None,
         queue="short",
         timeout=STATUS_SYNC_ENQUEUE_TIMEOUT,
     )
@@ -480,7 +500,7 @@ def on_sales_order_submit(doc, method=None):
         setting = frappe.get_cached_doc(SETTING_DOCTYPE)
 
         # Fetch current order data from Shopware
-        from shopware6_api_client import Criteria
+        from lib_shopware6_api_base import Criteria
 
         from ecommerce_integrations.shopware6.connection import temp_shopware_session
         from ecommerce_integrations.shopware6.order.order_sync import (

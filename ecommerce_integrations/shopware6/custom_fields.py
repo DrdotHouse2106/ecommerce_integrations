@@ -40,6 +40,25 @@ CUSTOM_FIELDS = {
             "insert_after": "shopware_priority",
             "description": "Image displayed for this category in Shopware. If empty, the standard Item Group image will be used.",
         },
+        {
+            "fieldname": "seo_title",
+            "label": "SEO Title (Shopware)",
+            "fieldtype": "Data",
+            "insert_after": "category_image",
+            "description": "Meta title sent to Shopware for this category. Leave empty to use the category name.",
+        },
+        {
+            "fieldname": "seo_meta_description",
+            "label": "SEO Meta Description (Shopware)",
+            "fieldtype": "Small Text",
+            "insert_after": "seo_title",
+        },
+        {
+            "fieldname": "seo_keywords",
+            "label": "SEO Keywords (Shopware)",
+            "fieldtype": "Data",
+            "insert_after": "seo_meta_description",
+        },
     ],
     "Item": [
         {
@@ -63,6 +82,47 @@ CUSTOM_FIELDS = {
             "insert_after": "shopware_selling_rate",
             "default": "0",
             "description": "Markiert dieses Produkt als Topseller im Shop (gelbes 'Tipp'-Badge)",
+        },
+        {
+            "fieldname": "shopware_description_override",
+            "label": "Description Override (Shopware)",
+            "fieldtype": "Text Editor",
+            "insert_after": "shopware_topseller",
+            "description": (
+                "Optional description used only for the Shopware product push, taking "
+                "priority over the AI/web description and the standard Item description. "
+                "Leave empty to use the normal description."
+            ),
+        },
+        {
+            "fieldname": "delivery_time",
+            "label": "Delivery Time (Shopware)",
+            "fieldtype": "Data",
+            "insert_after": "shopware_description_override",
+            "description": (
+                "Free-text delivery time sent to Shopware, e.g. '3-5 Tage' or '1-2 Wochen'. "
+                "Parsed into a Shopware Delivery Time entity automatically. Empty = no "
+                "delivery time set on the product."
+            ),
+        },
+        {
+            "fieldname": "seo_title",
+            "label": "SEO Title (Shopware)",
+            "fieldtype": "Data",
+            "insert_after": "delivery_time",
+            "description": "Meta title sent to Shopware. Leave empty to use the item name.",
+        },
+        {
+            "fieldname": "seo_meta_description",
+            "label": "SEO Meta Description (Shopware)",
+            "fieldtype": "Small Text",
+            "insert_after": "seo_title",
+        },
+        {
+            "fieldname": "seo_keywords",
+            "label": "SEO Keywords (Shopware)",
+            "fieldtype": "Data",
+            "insert_after": "seo_meta_description",
         },
         {
             "fieldname": "ecommerce_properties_section",

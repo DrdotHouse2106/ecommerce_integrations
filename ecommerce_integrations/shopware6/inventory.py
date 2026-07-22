@@ -88,16 +88,19 @@ def sync_all_inventory() -> dict[str, int]:
     item_codes = [e.erpnext_item_code for e in ecommerce_items]
     stock_map = _batch_get_stock_qty(item_codes, setting.warehouse)
 
+    clamp_negative = getattr(setting, "clamp_negative_stock", True)
+
     for ecom_item in ecommerce_items:
         try:
             stock_qty = stock_map.get(ecom_item.erpnext_item_code, 0)
+            stock_qty = max(0, int(stock_qty)) if clamp_negative else int(stock_qty)
 
             # Prepare update payload
             product_id = ecom_item.integration_item_code
 
             stock_updates.append({
                 "id": product_id,
-                "stock": int(stock_qty),
+                "stock": stock_qty,
                 "item_code": ecom_item.erpnext_item_code,  # For error tracking
             })
 
@@ -288,10 +291,13 @@ def sync_single_item_stock(item_code: str) -> dict[str, Any]:
     try:
         client = get_shopware_client()
         stock_qty = get_stock_qty(item_code, setting.warehouse)
+        stock_qty = int(stock_qty)
+        if getattr(setting, "clamp_negative_stock", True):
+            stock_qty = max(0, stock_qty)
 
         client.request_patch(
             f"product/{ecom_item.integration_item_code}",
-            {"stock": int(stock_qty)}
+            {"stock": stock_qty}
         )
 
         return {

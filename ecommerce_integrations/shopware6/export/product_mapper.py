@@ -298,6 +298,7 @@ def map_erpnext_item_to_shopware(erpnext_item) -> dict[str, Any]:
     """
     # Description priority
     description = (
+        getattr(erpnext_item, 'shopware_description_override', None) or
         getattr(erpnext_item, 'ai_long_description', None) or
         getattr(erpnext_item, 'web_long_description', None) or
         erpnext_item.description or

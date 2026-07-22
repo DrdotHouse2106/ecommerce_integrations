@@ -104,6 +104,7 @@
   "inventory_sync_section",
   "warehouse",
   "update_erpnext_stock_levels_to_shopware",
+  "clamp_negative_stock",
   "inventory_sync_frequency",
   "column_break_inventory",
   "last_inventory_sync",
@@ -884,7 +885,7 @@
    "fieldname": "inventory_sync_section",
    "fieldtype": "Section Break",
    "label": "Bestand (Lager-Sync)",
-   "description": "How ERPNext stock levels are pushed to Shopware. For multi-warehouse setups, fill out the mapping table below.",
+   "description": "How ERPNext stock levels are pushed to Shopware. Currently reports stock from a single warehouse (below); per-warehouse mapping is not yet built.",
    "collapsible": 1
   },
   {
@@ -901,6 +902,14 @@
    "fieldtype": "Check",
    "label": "Sync ERPNext stock levels to Shopware",
    "description": "DANGEROUS: When enabled, ERPNext overwrites stock in Shopware periodically. Only enable if ERPNext is the source of truth for stock. If you also maintain stock in Shopware, those edits would be overwritten."
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.update_erpnext_stock_levels_to_shopware",
+   "fieldname": "clamp_negative_stock",
+   "fieldtype": "Check",
+   "label": "Negative Bestände als 0 übertragen",
+   "description": "When enabled (recommended), negative ERPNext stock (e.g. from backorders / oversold items) is reported to Shopware as 0 instead of the literal negative number."
   },
   {
    "default": "60",
