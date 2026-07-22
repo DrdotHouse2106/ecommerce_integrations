@@ -110,7 +110,7 @@ def pull_orders(sync_doc) -> tuple[int, int]:
             )
             break
 
-        orders: list[dict[str, Any]] = response.get("data", []) or []
+        orders: list[dict[str, Any]] = response.data or []
         if not orders:
             break
 
@@ -219,7 +219,7 @@ def pull_customers(sync_doc) -> tuple[int, int]:
             )
             break
 
-        customers: list[dict[str, Any]] = response.get("data", []) or []
+        customers: list[dict[str, Any]] = response.data or []
         if not customers:
             break
 

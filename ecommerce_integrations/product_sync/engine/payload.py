@@ -79,7 +79,7 @@ def _all_shopware_languages() -> list[tuple[str, str]]:
             "search/language", {"associations": {"locale": {}}, "limit": 100}
         )
         out = []
-        for lang in resp.get("data") or []:
+        for lang in resp.data or []:
             lid = lang.get("id")
             code = (lang.get("locale") or {}).get("code")
             if lid:
@@ -731,7 +731,7 @@ def _resolve_shopware_currency_id(code: str) -> str | None:
                     "filter": [{"type": "equals", "field": "isoCode", "value": code}],
                 },
             )
-            data = (resp or {}).get("data") or []
+            data = (resp.data if resp else None) or []
             if data:
                 return (data[0].get("id") or "").strip() or None
             return None
@@ -858,7 +858,7 @@ def _resolve_shopware_tax_id(tax_rate_pct: float) -> str | None:
                     }],
                 },
             )
-            data = (resp or {}).get("data") or []
+            data = (resp.data if resp else None) or []
             if data:
                 return (data[0].get("id") or "").strip() or None
             return None

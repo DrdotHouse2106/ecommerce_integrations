@@ -103,7 +103,7 @@ class ShopwareCategoryAdapter(CategoryAdapter):
         except Exception as e:
             raise AdapterError(f"Shopware category create failed: {e}") from e
 
-        external_id = (response or {}).get("data", {}).get("id")
+        external_id = ((response.data if response else None) or {}).get("id")
         if not external_id:
             raise AdapterError(
                 f"Shopware category create returned no id: {response!r}"
@@ -184,7 +184,7 @@ class ShopwareCategoryAdapter(CategoryAdapter):
                 return LiveCategoryState(exists=False)
             raise AdapterError(f"Shopware category fetch failed: {e}") from e
 
-        data = (resp or {}).get("data") or {}
+        data = (resp.data if resp else None) or {}
         attrs = data.get("attributes") or data
         name = attrs.get("name")
         description = attrs.get("description")
@@ -195,7 +195,7 @@ class ShopwareCategoryAdapter(CategoryAdapter):
             sc_resp = client.request_get(
                 f"category/{target.external_id}/sales-channels",
             )
-            for row in (sc_resp or {}).get("data") or []:
+            for row in (sc_resp.data if sc_resp else None) or []:
                 sc_id = row.get("id") or (row.get("attributes") or {}).get("id")
                 if sc_id:
                     sales_channel_ids.append(sc_id)
@@ -233,7 +233,7 @@ class ShopwareCategoryAdapter(CategoryAdapter):
                 sc_resp = client.request_get(
                     f"sales-channel/{target.sales_channel}",
                 )
-                data = (sc_resp or {}).get("data") or {}
+                data = (sc_resp.data if sc_resp else None) or {}
                 attrs = data.get("attributes") or data
                 parent_id = attrs.get("navigationCategoryId")
             except Exception:
@@ -266,7 +266,7 @@ class ShopwareCategoryAdapter(CategoryAdapter):
                     f"Shopware category search failed: {e}",
                 ) from e
 
-            for row in (resp or {}).get("data") or []:
+            for row in (resp.data if resp else None) or []:
                 attrs = row.get("attributes") or row
                 ext_id = row.get("id") or attrs.get("id")
                 if not ext_id or ext_id in seen_ids:
@@ -283,7 +283,7 @@ class ShopwareCategoryAdapter(CategoryAdapter):
                         sc_resp = client.request_get(
                             f"category/{ext_id}/sales-channels",
                         )
-                        for sc in (sc_resp or {}).get("data") or []:
+                        for sc in (sc_resp.data if sc_resp else None) or []:
                             sc_id = sc.get("id") or (sc.get("attributes") or {}).get("id")
                             if sc_id == target.sales_channel:
                                 has_channel = True
@@ -423,8 +423,8 @@ def _fetch_linked_product_ids(client, category_id: str) -> tuple[set[str], int]:
             raise AdapterError(
                 f"Shopware product search failed: {e}",
             ) from e
-        data = (resp or {}).get("data") or []
-        total = (resp or {}).get("total", total) or total
+        data = (resp.data if resp else None) or []
+        total = (resp.total if resp else None) or total
         for row in data:
             pid = row.get("id") or (row.get("attributes") or {}).get("id")
             if pid:
@@ -453,7 +453,7 @@ def _fetch_category_product_count(client, category_id: str) -> int:
         resp = client.request_post("search/product", payload=criteria)
     except Exception:
         return 0
-    return int((resp or {}).get("total") or 0)
+    return int((resp.total if resp else None) or 0)
 
 
 def _candidate_names(collection) -> list[str]:

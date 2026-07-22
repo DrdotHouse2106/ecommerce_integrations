@@ -210,7 +210,7 @@ class ShopwareCatalogAdapter(CatalogAdapter):
         except Exception:
             return counts
 
-        buckets = ((resp or {}).get("aggregations") or {}).get(
+        buckets = ((resp.aggregations if resp else None) or {}).get(
             "by_category", {},
         ).get("buckets") or []
         for entry in buckets:
@@ -245,7 +245,7 @@ class ShopwareCatalogAdapter(CatalogAdapter):
             raise AdapterError(
                 f"Shopware category fetch failed: {e}",
             ) from e
-        data = (resp or {}).get("data") or {}
+        data = (resp.data if resp else None) or {}
         # Shopware responses sometimes nest under ``attributes``, sometimes
         # flat — accept both shapes the same way the Smart Collections
         # adapter does.
@@ -280,7 +280,7 @@ class ShopwareCatalogAdapter(CatalogAdapter):
                 raise AdapterError(
                     f"Shopware category search failed: {e}",
                 ) from e
-            data = (resp or {}).get("data") or []
+            data = (resp.data if resp else None) or []
             for row in data:
                 attrs = row.get("attributes") or row
                 ext_id = row.get("id") or attrs.get("id")
@@ -329,7 +329,7 @@ class ShopwareCatalogAdapter(CatalogAdapter):
             ) from e
 
         matches: list[NodeMatch] = []
-        for row in (resp or {}).get("data") or []:
+        for row in (resp.data if resp else None) or []:
             attrs = row.get("attributes") or row
             ext_id = row.get("id") or attrs.get("id")
             if not ext_id:
@@ -506,7 +506,7 @@ def resolve_sales_channel_root(sales_channel_id: str) -> str | None:
             resp = client.request_get(f"sales-channel/{sales_channel_id}")
         except Exception:
             return None
-        data = (resp or {}).get("data") or {}
+        data = (resp.data if resp else None) or {}
         attrs = data.get("attributes") or data
         return attrs.get("navigationCategoryId")
 

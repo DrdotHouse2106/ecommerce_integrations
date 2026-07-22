@@ -261,7 +261,7 @@ class ShopwareProductAdapter(ProductAdapter):
                     "limit": 250,
                     "page": page,
                 })
-                data = resp.get("data") or []
+                data = resp.data or []
                 for g in data:
                     counters["checked"] += 1
                     desired = _desired_property_group_filterable(g.get("name") or "", catalog)
@@ -341,7 +341,7 @@ class ShopwareProductAdapter(ProductAdapter):
                     "limit": 100,
                     "page": page,
                 })
-                data = resp.get("data") or []
+                data = resp.data or []
                 groups.extend(data)
                 if len(data) < 100:
                     break
@@ -372,9 +372,9 @@ class ShopwareProductAdapter(ProductAdapter):
                     "limit": 1,
                     "total-count-mode": 1,
                 })
-                total = agg.get("total") or 0
+                total = agg.total or 0
                 buckets = (
-                    ((agg.get("aggregations") or {}).get("opt") or {}).get("buckets")
+                    ((agg.aggregations or {}).get("opt") or {}).get("buckets")
                 ) or []
                 used = {b.get("key") for b in buckets}
                 # Products exist but aggregation yielded nothing → inconclusive,
@@ -880,7 +880,7 @@ class ShopwareProductAdapter(ProductAdapter):
                     f"Shopware product search failed (page={page}): {e}",
                 ) from e
 
-            data = (resp or {}).get("data") or []
+            data = (resp.data if resp else None) or []
             if not data:
                 return
             for row in data:
@@ -941,7 +941,7 @@ class ShopwareProductAdapter(ProductAdapter):
             raise AdapterError(
                 f"Shopware product chunk fetch failed (size={len(chunk)}): {e}",
             ) from e
-        for row in (resp or {}).get("data") or []:
+        for row in (resp.data if resp else None) or []:
             node = self._row_to_live_node(row)
             if node is not None:
                 yield node
@@ -1211,7 +1211,7 @@ class ShopwareProductAdapter(ProductAdapter):
             # If the response declared overall failure but didn't break
             # out per-item, raise so the caller doesn't silently treat
             # the chunk as a success.
-            if (resp or {}).get("success") is False and not any(chunk_errors):
+            if getattr(resp, "success", None) is False and not any(chunk_errors):
                 raise AdapterError(
                     f"Shopware bulk sync reported failure: {resp!r}",
                 )
@@ -1227,7 +1227,7 @@ class ShopwareProductAdapter(ProductAdapter):
         Shopware-side message (best-effort; the API's error shapes vary).
         """
         errs: list[str | None] = [None] * chunk_size
-        data = (resp or {}).get("data") or {}
+        data = (resp.data if resp else None) or {}
         block = data.get("products") or {}
         result = block.get("result") or []
         for idx, row in enumerate(result):
@@ -1436,7 +1436,7 @@ class ShopwareProductAdapter(ProductAdapter):
                     "includes": {"media": ["id", "fileName"]},
                     "limit": 2,
                 })
-                _rows = _hit.get("data") or []
+                _rows = _hit.data or []
                 # Prefer the deterministic id; legacy name-hit second.
                 _reused = next(
                     (m["id"] for m in _rows if m.get("id") == _det_id),
@@ -1615,7 +1615,7 @@ class ShopwareProductAdapter(ProductAdapter):
                         "limit": 1,
                     })
                     has_cover = bool(
-                        ((cur.get("data") or [{}])[0]).get("coverId")
+                        ((cur.data or [{}])[0]).get("coverId")
                     )
                 except Exception:  # noqa: BLE001
                     has_cover = False
@@ -1662,7 +1662,7 @@ class ShopwareProductAdapter(ProductAdapter):
             },
             "limit": 1,
         })
-        product = ((r.get("data") or [{}])[0]) or {}
+        product = ((r.data or [{}])[0]) or {}
         cur_cover = product.get("coverId")
         live_pm = product.get("media") or []
 
@@ -1796,7 +1796,7 @@ class ShopwareProductAdapter(ProductAdapter):
                 "limit": 1,
             },
         )
-        product = (r.get("data") or [None])[0] or {}
+        product = (r.data or [None])[0] or {}
         live_options = [p.get("id") for p in (product.get("properties") or []) if p.get("id")]
         to_delete = [oid for oid in live_options if oid not in keep_option_ids]
         counters["kept"] = len(live_options) - len(to_delete)
@@ -2110,7 +2110,7 @@ class ShopwareProductAdapter(ProductAdapter):
                         f"Shopware bulk match search failed "
                         f"({field}, chunk size {len(chunk)}): {e}",
                     ) from e
-                for row in (resp or {}).get("data") or []:
+                for row in (resp.data if resp else None) or []:
                     attrs = row.get("attributes") or {}
                     merged = {
                         **attrs,
@@ -2166,7 +2166,7 @@ class ShopwareProductAdapter(ProductAdapter):
             ) from e
 
         out: list[ProductMatch] = []
-        for row in (resp or {}).get("data") or []:
+        for row in (resp.data if resp else None) or []:
             attrs = row.get("attributes") or {}
             merged = {**attrs, **{k: v for k, v in row.items() if k != "attributes"}}
             ext_id = merged.get("id")
@@ -2501,7 +2501,7 @@ def _resolve_product_media_folder_id(client) -> str | None:
             }],
             "limit": 1,
         })
-        rows = resp.get("data") or []
+        rows = resp.data or []
         if rows:
             folder_id = rows[0].get("id")
         if not folder_id:
@@ -2513,7 +2513,7 @@ def _resolve_product_media_folder_id(client) -> str | None:
                 "associations": {"folder": {}},
                 "limit": 1,
             })
-            ddf_rows = ddf.get("data") or []
+            ddf_rows = ddf.data or []
             if ddf_rows:
                 folder = ddf_rows[0].get("folder") or {}
                 folder_id = folder.get("id") if isinstance(folder, dict) else None
@@ -2702,7 +2702,7 @@ def _resolve_iso_for_currency_id(currency_id: str) -> str | None:
                     "includes": {"currency": ["id", "isoCode"]},
                 },
             )
-            data = (resp or {}).get("data") or []
+            data = (resp.data if resp else None) or []
             if data:
                 attrs = (data[0].get("attributes") or {})
                 return (data[0].get("isoCode") or attrs.get("isoCode") or "").upper() or None
