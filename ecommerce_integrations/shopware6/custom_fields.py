@@ -252,6 +252,12 @@ CUSTOM_FIELDS = {
             "insert_after": "shopware_order_id",
             "read_only": 1,
             "translatable": 0,
+            "in_global_search": 1,
+            "in_standard_filter": 1,
+            "description": (
+                "Also used as the Sales Order's own name/ID when Sales Order's "
+                "Auto Name is set to Prompt (see order_sync.create_sales_order)."
+            ),
         },
         {
             "fieldname": "shopware_column_break",
@@ -375,10 +381,15 @@ CUSTOM_FIELDS = {
 
 
 def setup_custom_fields():
-    """Create all custom fields for Shopware integration."""
+    """Create all custom fields for Shopware integration.
+
+    ``update=True`` so re-running this (e.g. via
+    ``patches.add_shopware_description_override_field``) also pushes
+    property changes on already-installed fields — not just missing ones.
+    """
     from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
-    create_custom_fields(CUSTOM_FIELDS)
+    create_custom_fields(CUSTOM_FIELDS, update=True)
 
 
 def remove_custom_fields():

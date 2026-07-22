@@ -239,6 +239,20 @@ def _capture_psp_reference(so, order_data: dict[str, Any]) -> None:
         )
 
 
+def _insert_sales_order(so, desired_name: str) -> None:
+    """Insert ``so`` naming it ``desired_name`` (the Shopware order number).
+
+    Falls back to a disambiguated name on a collision (e.g. a manually
+    created Sales Order already used that same plain number) instead of
+    failing the whole sync — the Shopware IDs on the doc (shopware_order_id/
+    shopware_order_number) still make the order findable either way.
+    """
+    try:
+        so.insert(ignore_permissions=True, set_name=desired_name)
+    except frappe.DuplicateEntryError:
+        so.insert(ignore_permissions=True, set_name=f"{desired_name}-SW")
+
+
 def create_sales_order(order_data: dict[str, Any]) -> str:
     """
     Create ERPNext Sales Order from Shopware order data.
@@ -384,17 +398,25 @@ def create_sales_order(order_data: dict[str, Any]) -> str:
     # Check if Sales Order Approval workflow is active
     workflow_active = frappe.db.exists("Workflow", {"document_type": "Sales Order", "is_active": 1})
 
+    # Always name the Sales Order after the Shopware order number so it's
+    # directly recognisable/searchable as "the order" — independent of
+    # whatever Sales Order's Auto Name is set to (naming_series or Prompt;
+    # some sites set Prompt precisely to preserve source-system order
+    # numbers as the document name, which otherwise fails with "Please
+    # set the document name").
+    desired_name = order_number or order_id
+
     try:
         _validate_item_group_hierarchy(so)
 
         if workflow_active:
             # Set workflow state to Pending Approval (do NOT submit - workflow controls this)
             so.workflow_state = "Pending Approval"
-            so.insert(ignore_permissions=True)
+            _insert_sales_order(so, desired_name)
             # Note: Delivery Note and Sales Invoice will be created when order is approved
         else:
             # No workflow - use original behavior (auto-submit)
-            so.insert(ignore_permissions=True)
+            _insert_sales_order(so, desired_name)
             so.submit()
 
             # Create Delivery Note if configured and order is shipped

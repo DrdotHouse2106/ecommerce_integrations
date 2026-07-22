@@ -6,6 +6,7 @@ live here. They orchestrate the ``ShopwareCustomer`` class plus the lock /
 VAT / mapping helpers in sibling modules.
 """
 
+import time
 from typing import Any
 
 import frappe
@@ -55,7 +56,10 @@ def _build_customer_criteria(*, limit: int | None = None, ids: list[str] | None 
     return criteria
 
 
-def get_customer_from_shopware_order(order: dict[str, Any]) -> str:
+_CUSTOMER_LOCK_RETRY_DELAYS = [1, 2, 3]  # seconds
+
+
+def get_customer_from_shopware_order(order: dict[str, Any], _retry_count: int = 0) -> str:
     """
     Get or create ERPNext Customer from Shopware order data.
 
@@ -63,6 +67,11 @@ def get_customer_from_shopware_order(order: dict[str, Any]) -> str:
     1. Check if customer is synced
     2. If not, sync the customer
     3. If yes, update addresses if needed
+
+    ``_retry_count`` is internal — used to bound the short retry-with-delay
+    below when the sync lock for this customer is busy (e.g. a
+    ``customer.written`` webhook for the same brand-new customer is
+    processing concurrently) and no Customer exists yet to fall back to.
     """
     setting = frappe.get_doc(SETTING_DOCTYPE)
 
@@ -131,6 +140,17 @@ def get_customer_from_shopware_order(order: dict[str, Any]) -> str:
                 f"reusing existing customer {existing_customer}"
             )
             return existing_customer
+
+        if _retry_count < len(_CUSTOMER_LOCK_RETRY_DELAYS):
+            delay = _CUSTOMER_LOCK_RETRY_DELAYS[_retry_count]
+            logger.info(
+                f"Customer sync lock busy for customer_id={customer_id} and no "
+                f"Customer exists yet (likely a concurrent webhook still creating "
+                f"it); retrying in {delay}s ({_retry_count + 1}/{len(_CUSTOMER_LOCK_RETRY_DELAYS)})"
+            )
+            time.sleep(delay)
+            return get_customer_from_shopware_order(order, _retry_count=_retry_count + 1)
+
         raise
 
 
