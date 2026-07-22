@@ -141,6 +141,41 @@ frappe.ui.form.on('Shopware Setting', {
 			);
 		}, __('Sync öffnen'));
 
+		// Companion to the category import above: links existing Items to
+		// the just-imported Item Groups based on Shopware's real
+		// product→category assignment (Product.categoryIds). Never touches
+		// an Item's existing item_group — only adds rows to
+		// additional_item_groups, so a category from a WeClapp import is
+		// never overwritten.
+		frm.add_custom_button(__('Artikel-Kategorien aus Shopware verknüpfen'), function() {
+			frappe.confirm(
+				__('Dies ordnet bestehende Artikel den (bereits importierten) Item Groups zu, basierend auf ihrer tatsächlichen Kategorie-Zuordnung in Shopware. Die bisherige Item Group jedes Artikels bleibt unangetastet — Shopware-Kategorien werden nur zusätzlich ergänzt. Fortfahren?'),
+				function() {
+					frappe.call({
+						method: 'ecommerce_integrations.shopware6.import_handlers.product_category_linker.link_item_categories_from_shopware',
+						freeze: true,
+						freeze_message: __('Artikel werden mit Shopware-Kategorien verknüpft...'),
+						callback: function(r) {
+							let s = r.message || {};
+							let lines = [
+								__('Produkte durchsucht: {0}', [s.products_scanned || 0]),
+								__('Artikel aktualisiert: {0}', [s.items_updated || 0]),
+								__('Kategorie-Zuordnungen hinzugefügt: {0}', [s.rows_added || 0]),
+							];
+							if (s.errors && s.errors.length) {
+								lines.push('', __('Fehler:'), ...s.errors);
+							}
+							frappe.msgprint({
+								title: __('Ergebnis Artikel-Kategorie-Verknüpfung'),
+								message: lines.join('<br>'),
+								indicator: (s.errors && s.errors.length) ? 'orange' : 'green'
+							});
+						}
+					});
+				}
+			);
+		}, __('Sync öffnen'));
+
 		// Pull Sync öffnen — single source of truth for backend → ERP
 		// pulls (orders, customers, stock). The legacy "Orders" /
 		// "Customers" / "Stock" / "Properties" dialogs duplicated what
