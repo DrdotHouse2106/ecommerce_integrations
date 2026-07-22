@@ -259,9 +259,14 @@ def update_shopware_log(
         if message:
             log.message = message
         if exception:
-            log.traceback = sanitize_shopware_log_text(
-                frappe.get_traceback() if not isinstance(exception, str) else str(exception)
-            )
+            # Callers almost always pass `exception=str(e)` from inside their
+            # own `except` block — at that point `frappe.get_traceback()`
+            # still sees the active exception and returns the full stack,
+            # which is far more useful than the bare message `str(e)` gives.
+            # Only fall back to the passed-in string if there's truly no
+            # traceback available (e.g. called outside an except block).
+            tb = frappe.get_traceback()
+            log.traceback = sanitize_shopware_log_text(tb if tb and tb.strip() else str(exception))
 
         log.save(ignore_permissions=True)
         frappe.db.commit()

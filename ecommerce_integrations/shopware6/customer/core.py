@@ -13,7 +13,7 @@ from typing import Any
 import frappe
 from frappe import _
 
-from ecommerce_integrations.controllers.customer import EcommerceCustomer
+from ecommerce_integrations.controllers.customer import EcommerceCustomer, resolve_customer_type
 from ecommerce_integrations.shopware6.constants import (
     ADDRESS_ID_FIELD,
     CUSTOMER_ID_FIELD,
@@ -102,7 +102,7 @@ class ShopwareCustomer(EcommerceCustomer):
         # Shopware accountType: "business" or "private"
         account_type = customer.get("accountType", "")
         is_business = account_type == "business" or bool(company)
-        customer_doc.customer_type = "Company" if is_business else "Individual"
+        customer_doc.customer_type = resolve_customer_type(is_business)
 
         # Multi-Storefront: Track source sales channel (where customer first registered)
         source_channel_id = sales_channel_id or customer.get("salesChannelId", "")
@@ -195,7 +195,7 @@ class ShopwareCustomer(EcommerceCustomer):
         company = customer.get("company", "") or ""
         account_type = customer.get("accountType", "")
         is_business = account_type == "business" or bool(company)
-        new_customer_type = "Company" if is_business else "Individual"
+        new_customer_type = resolve_customer_type(is_business)
 
         if customer_doc.customer_type != new_customer_type:
             update_dict["customer_type"] = new_customer_type

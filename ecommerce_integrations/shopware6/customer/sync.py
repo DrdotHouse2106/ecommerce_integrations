@@ -12,6 +12,7 @@ import frappe
 from frappe import _
 from lib_shopware6_api_base import Criteria, Shopware6AdminAPIClientBase
 
+from ecommerce_integrations.controllers.customer import resolve_customer_type
 from ecommerce_integrations.shopware6.connection import (
     get_shopware_client,
     temp_shopware_session,
@@ -247,7 +248,7 @@ def create_guest_customer() -> str:
     customer = frappe.get_doc({
         "doctype": "Customer",
         "customer_name": guest_name,
-        "customer_type": "Individual",
+        "customer_type": resolve_customer_type(is_business=False),
         "customer_group": setting.customer_group,
         "territory": territory,
     })

@@ -5,6 +5,36 @@ from frappe import _
 from frappe.utils.nestedset import get_root_of
 
 
+def resolve_customer_type(is_business: bool) -> str:
+    """Map a business/individual flag to a valid ``Customer.customer_type``
+    option on *this* site.
+
+    Sites sometimes customize this Select field's raw option values (e.g.
+    German "Firma" / "Einzelperson" / "GbR" instead of ERPNext's default
+    "Company" / "Individual" / "Partnership"). Hardcoding the English
+    default then fails Select validation with a confusing error where the
+    rejected value and a valid option can even render identically once
+    translated. Resolving dynamically against the doctype's actual current
+    options avoids that regardless of how the site customized it.
+    """
+    options = (frappe.get_meta("Customer").get_field("customer_type").options or "").splitlines()
+    options = [o.strip() for o in options if o.strip()]
+
+    business_hints = ("company", "firma", "business", "unternehmen", "gmbh")
+    individual_hints = ("individual", "einzelperson", "person", "privat")
+    hints = business_hints if is_business else individual_hints
+
+    for option in options:
+        if option.lower() in hints:
+            return option
+    for option in options:
+        if any(hint in option.lower() for hint in hints):
+            return option
+
+    # Nothing matched (unlikely) — fall back to the ERPNext default.
+    return "Company" if is_business else "Individual"
+
+
 class EcommerceCustomer:
 	def __init__(self, customer_id: str, customer_id_field: str, integration: str):
 		self.customer_id = customer_id
@@ -42,7 +72,7 @@ class EcommerceCustomer:
 				"customer_name": customer_name,
 				"customer_group": customer_group,
 				"territory": get_root_of("Territory"),
-				"customer_type": _("Individual"),
+				"customer_type": resolve_customer_type(is_business=False),
 			}
 		)
 
