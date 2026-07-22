@@ -26,17 +26,17 @@
    "fieldname": "erpnext_field",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "ERPNext Field",
+   "label": "ERPNext-Feld",
    "reqd": 1,
-   "description": "Field name in ERPNext Item (e.g. 'shopware_zubehoer' or 'jattr_color')"
+   "description": "Feldname im ERPNext-Artikel (z. B. 'shopware_zubehoer' oder 'jattr_color')"
   },
   {
    "fieldname": "shopware_field",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Shopware Field",
+   "label": "Shopware-Feld",
    "reqd": 1,
-   "description": "Field name in Shopware (e.g. 'erpnext_zubehoer')"
+   "description": "Feldname in Shopware (z. B. 'erpnext_zubehoer')"
   },
   {
    "fieldname": "column_break_1",
@@ -46,30 +46,30 @@
    "fieldname": "mapping_type",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Mapping Type",
+   "label": "Zuordnungstyp",
    "options": "Custom Field\nProperty\nStandard Field",
    "default": "Custom Field",
    "reqd": 1,
-   "description": "Custom Field = Shopware customFields, Property = PropertyGroup/Option (filterable in shop), Standard Field = Shopware product field"
+   "description": "Custom Field = Shopware customFields, Property = PropertyGroup/Option (im Shop filterbar), Standard Field = Shopware-Produktfeld"
   },
   {
    "fieldname": "shopware_field_type",
    "fieldtype": "Select",
-   "label": "Shopware Field Type",
+   "label": "Shopware-Feldtyp",
    "options": "text\nhtml\nswitch\nnumber\nselect\ndatetime",
    "default": "text",
-   "description": "Data type of the field in Shopware (only for Custom Fields)"
+   "description": "Datentyp des Felds in Shopware (nur für Custom Fields)"
   },
   {
    "fieldname": "section_break_labels",
    "fieldtype": "Section Break",
-   "label": "Labels"
+   "label": "Beschriftungen"
   },
   {
    "fieldname": "label_de",
    "fieldtype": "Data",
-   "label": "Label (DE)",
-   "description": "German label for Shopware Admin/Frontend"
+   "label": "Beschriftung (DE)",
+   "description": "Deutsche Beschriftung für Shopware Admin/Frontend"
   },
   {
    "fieldname": "column_break_2",
@@ -78,20 +78,20 @@
   {
    "fieldname": "label_en",
    "fieldtype": "Data",
-   "label": "Label (EN)",
-   "description": "English label for Shopware Admin/Frontend"
+   "label": "Beschriftung (EN)",
+   "description": "Englische Beschriftung für Shopware Admin/Frontend"
   },
   {
    "fieldname": "section_break_options",
    "fieldtype": "Section Break",
-   "label": "Options"
+   "label": "Optionen"
   },
   {
    "fieldname": "filterable",
    "fieldtype": "Check",
-   "label": "Filterable",
+   "label": "Filterbar",
    "default": 0,
-   "description": "Only for Properties: Show as filter in shop frontend"
+   "description": "Nur für Properties: Als Filter im Shop-Frontend anzeigen"
   },
   {
    "fieldname": "column_break_3",
@@ -102,7 +102,7 @@
    "fieldname": "enabled",
    "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Enabled"
+   "label": "Aktiv"
   }
  ],
  "index_web_pages_for_search": 1,

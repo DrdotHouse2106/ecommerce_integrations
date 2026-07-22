@@ -508,7 +508,7 @@ def test_connection() -> dict[str, Any]:
         response = client.request_get("sales-channel")
         return {
             "success": True,
-            "message": _("Connection successful!"),
+            "message": _("Verbindung erfolgreich!"),
             "sales_channels": len(response.data or []),
         }
     except ShopwareAPIError as e:
@@ -519,7 +519,7 @@ def test_connection() -> dict[str, Any]:
     except Exception as e:
         return {
             "success": False,
-            "message": _("Connection failed: {0}").format(str(e)),
+            "message": _("Verbindung fehlgeschlagen: {0}").format(str(e)),
         }
 
 
@@ -598,7 +598,7 @@ def webhook_handler():
     try:
         setting = frappe.get_doc(SETTING_DOCTYPE)
         if not setting.is_enabled():
-            frappe.throw(_("Shopware integration is not enabled"))
+            frappe.throw(_("Shopware-Integration ist nicht aktiviert"))
 
         # Get signature from headers
         signature = frappe.get_request_header("X-Shopware-Signature") or ""
@@ -613,7 +613,7 @@ def webhook_handler():
                 signature,
                 webhook_secret
             ):
-                frappe.throw(_("Invalid webhook signature"), frappe.AuthenticationError)
+                frappe.throw(_("Ungültige Webhook-Signatur"), frappe.AuthenticationError)
         else:
             # No secret configured - check if unsigned webhooks are explicitly allowed
             allow_unsigned = getattr(setting, "allow_unsigned_webhooks", False)
@@ -623,7 +623,7 @@ def webhook_handler():
                     "Configure webhook_secret in Shopware Settings or enable allow_unsigned_webhooks."
                 )
                 frappe.throw(
-                    _("Webhook signature validation required. Configure webhook_secret in Shopware Settings."),
+                    _("Webhook-Signaturprüfung erforderlich. webhook_secret in den Shopware Settings konfigurieren."),
                     frappe.AuthenticationError
                 )
 
@@ -638,7 +638,7 @@ def webhook_handler():
                 status="Error",
                 message=f"Invalid JSON in webhook payload: {e}"
             )
-            frappe.throw(_("Invalid webhook payload format"))
+            frappe.throw(_("Ungültiges Webhook-Payload-Format"))
 
         event_type = data.get("event", "unknown")
 

@@ -28,7 +28,7 @@
    "fieldname": "sales_channel_id",
    "fieldtype": "Data",
    "hidden": 1,
-   "label": "Sales Channel ID",
+   "label": "Sales-Channel-ID",
    "reqd": 1
   },
   {
@@ -44,40 +44,40 @@
   },
   {
    "default": "1",
-   "description": "Apply this mapping to all child Item Groups",
+   "description": "Diese Zuordnung auf alle Unter-Item-Groups anwenden",
    "fieldname": "include_subcategories",
    "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Include Subcategories"
+   "label": "Unterkategorien einschließen"
   },
   {
    "default": "All (30)",
-   "description": "10=link only, 20=search+list, 30=all (recommended)",
+   "description": "10=nur Link, 20=Suche+Liste, 30=alles (empfohlen)",
    "fieldname": "visibility",
    "fieldtype": "Select",
-   "label": "Visibility Level",
+   "label": "Sichtbarkeitsstufe",
    "options": "All (30)\nSearch & List (20)\nLink Only (10)"
   },
   {
    "fieldname": "section_break_filter",
    "fieldtype": "Section Break",
-   "label": "Brand/Manufacturer Filter (Optional)"
+   "label": "Marken-/Hersteller-Filter (optional)"
   },
   {
-   "description": "Only include products from this manufacturer/brand. Leave empty to include all products in the Item Group.",
+   "description": "Nur Produkte dieses Herstellers/dieser Marke einschließen. Leer lassen, um alle Produkte der Item Group einzuschließen.",
    "fieldname": "manufacturer_filter",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Manufacturer Filter",
+   "label": "Hersteller-Filter",
    "options": "Brand"
   },
   {
    "default": "Include Only",
    "depends_on": "eval:doc.manufacturer_filter",
-   "description": "Include Only: Only products with this brand. Exclude: All products EXCEPT this brand.",
+   "description": "Include Only: Nur Produkte dieser Marke. Exclude: Alle Produkte AUSSER dieser Marke.",
    "fieldname": "manufacturer_filter_mode",
    "fieldtype": "Select",
-   "label": "Filter Mode",
+   "label": "Filter-Modus",
    "options": "Include Only\nExclude"
   }
  ],

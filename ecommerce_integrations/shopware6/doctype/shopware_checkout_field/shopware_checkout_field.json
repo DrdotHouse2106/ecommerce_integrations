@@ -22,23 +22,23 @@
    "fieldname": "enabled",
    "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Enabled"
+   "label": "Aktiv"
   },
   {
    "fieldname": "field_key",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Field Key",
+   "label": "Feld-Schlüssel",
    "reqd": 1,
-   "description": "Internal identifier (e.g., 'po_number', 'delivery_notification', 'buyer_reference')"
+   "description": "Interner Bezeichner (z. B. 'po_number', 'delivery_notification', 'buyer_reference')"
   },
   {
    "fieldname": "shopware_field_names",
    "fieldtype": "Small Text",
    "in_list_view": 1,
-   "label": "Shopware Field Names",
+   "label": "Shopware-Feldnamen",
    "reqd": 1,
-   "description": "Comma-separated list of Shopware custom field names to search for (e.g., 'custom_po_number, po_number, poNumber')"
+   "description": "Kommagetrennte Liste von Shopware-Custom-Field-Namen, nach denen gesucht wird (z. B. 'custom_po_number, po_number, poNumber')"
   },
   {
    "fieldname": "column_break_1",
@@ -48,33 +48,33 @@
    "fieldname": "mapping_type",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Mapping Type",
+   "label": "Zuordnungstyp",
    "options": "Sales Order Field\nService Item\nCustomer Update\nInfo Only",
    "reqd": 1,
    "default": "Sales Order Field",
-   "description": "How this field should be processed: map to SO field, add a service item, update customer record, or just log"
+   "description": "Wie dieses Feld verarbeitet werden soll: auf ein Sales-Order-Feld abbilden, einen Service-Artikel hinzufügen, den Kundendatensatz aktualisieren oder nur protokollieren"
   },
   {
    "fieldname": "target_field",
    "fieldtype": "Data",
-   "label": "Target Field",
+   "label": "Zielfeld",
    "depends_on": "eval:['Sales Order Field', 'Customer Update'].includes(doc.mapping_type)",
-   "description": "ERPNext field name on Sales Order or Customer (e.g., 'po_no', 'buyer_reference')"
+   "description": "ERPNext-Feldname auf Sales Order oder Customer (z. B. 'po_no', 'buyer_reference')"
   },
   {
    "fieldname": "section_break_service",
    "fieldtype": "Section Break",
-   "label": "Service Item Settings",
+   "label": "Service-Artikel-Einstellungen",
    "depends_on": "eval:doc.mapping_type === 'Service Item'",
    "collapsible": 1
   },
   {
    "fieldname": "service_item",
    "fieldtype": "Link",
-   "label": "Service Item",
+   "label": "Service-Artikel",
    "options": "Item",
    "depends_on": "eval:doc.mapping_type === 'Service Item'",
-   "description": "ERPNext Item to add to Sales Order when this checkout field is set"
+   "description": "ERPNext-Artikel, der der Sales Order hinzugefügt wird, wenn dieses Checkout-Feld gesetzt ist"
   },
   {
    "fieldname": "column_break_service",
@@ -83,9 +83,9 @@
   {
    "fieldname": "service_price",
    "fieldtype": "Currency",
-   "label": "Default Price",
+   "label": "Standardpreis",
    "depends_on": "eval:doc.mapping_type === 'Service Item'",
-   "description": "Override price for the service item (leave empty to use item's standard rate)"
+   "description": "Überschreibt den Preis des Service-Artikels (leer lassen, um den Standardpreis des Artikels zu verwenden)"
   }
  ],
  "index_web_pages_for_search": 0,

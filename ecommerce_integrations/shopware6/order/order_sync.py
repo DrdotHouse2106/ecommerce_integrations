@@ -70,7 +70,7 @@ class ShopwareOrder:
         self.setting = frappe.get_cached_doc(SETTING_DOCTYPE)
 
         if not self.setting.is_enabled():
-            frappe.throw(_("Shopware integration is not enabled."))
+            frappe.throw(_("Shopware-Integration ist nicht aktiviert."))
 
     def _get_existing_sales_order(self) -> str | None:
         """Check if order is already synced."""
@@ -129,7 +129,7 @@ def sync_order_by_id(
     orders = response.data or []
 
     if not orders:
-        frappe.throw(_("Order not found in Shopware: {0}").format(order_id))
+        frappe.throw(_("Bestellung nicht in Shopware gefunden: {0}").format(order_id))
 
     order_data = orders[0]
     if webhook_custom_fields:

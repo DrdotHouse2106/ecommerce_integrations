@@ -53,16 +53,18 @@ class EcommerceCustomer:
 		else:
 			raise frappe.DoesNotExistError()
 
-	def sync_customer(self, customer_name: str, customer_group: str) -> None:
+	def sync_customer(self, customer_name: str, customer_group: str, set_name: str | None = None) -> None:
 		"""Create customer in ERPNext if one does not exist already.
 
-		Uses the ecommerce customer_id as the ERPNext document name (ID column)
-		to ensure uniqueness and prevent duplicate customer errors.
+		Names the document after ``set_name`` when given (e.g. a human-facing
+		customer number) — otherwise falls back to the ecommerce customer_id
+		(bypasses autoname either way, same as before this parameter existed).
 		"""
-		# Check if customer with this ID already exists
-		if frappe.db.exists("Customer", self.customer_id):
-			# Customer exists - just update the customer_id_field if needed
-			frappe.db.set_value("Customer", self.customer_id, self.customer_id_field, self.customer_id)
+		# Check if a customer for this ecommerce ID already exists — by the
+		# id field, not by document name, since the name is no longer
+		# guaranteed to be the raw customer_id.
+		existing = frappe.db.get_value("Customer", {self.customer_id_field: self.customer_id}, "name")
+		if existing:
 			return
 
 		customer = frappe.get_doc(
@@ -77,15 +79,20 @@ class EcommerceCustomer:
 		)
 
 		customer.flags.ignore_mandatory = True
-		# Force the document name to be the customer_id (bypasses autoname)
+		name_to_use = set_name or self.customer_id
 		# Use try/except to handle race conditions where multiple webhooks
 		# try to create the same customer simultaneously
 		try:
-			customer.insert(ignore_permissions=True, set_name=self.customer_id)
+			customer.insert(ignore_permissions=True, set_name=name_to_use)
 		except frappe.DuplicateEntryError:
-			# Customer was created by another concurrent process - that's fine
-			frappe.db.set_value("Customer", self.customer_id, self.customer_id_field, self.customer_id)
-			return
+			# Was it created by another concurrent process for this same
+			# ecommerce customer? Then we're done, nothing to do.
+			if frappe.db.exists("Customer", {self.customer_id_field: self.customer_id}):
+				return
+			# Otherwise `name_to_use` collided with an unrelated document
+			# (e.g. a reused plain customer number) — fall back to the
+			# guaranteed-unique ecommerce id rather than failing the sync.
+			customer.insert(ignore_permissions=True, set_name=self.customer_id)
 
 	def get_customer_address_doc(self, address_type: str):
 		"""Get customer address by type using Dynamic Links.

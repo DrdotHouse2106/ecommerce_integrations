@@ -45,7 +45,7 @@ function render_shopware_item_indicators(frm) {
             rows.forEach(row => {
                 let when = row.modified ? frappe.datetime.comment_when(row.modified) : '';
                 let label = when
-                    ? __('Shopware: {0} (last sync {1})', [row.integration_item_code, when])
+                    ? __('Shopware: {0} (letzter Sync {1})', [row.integration_item_code, when])
                     : __('Shopware: {0}', [row.integration_item_code]);
                 frm.dashboard.add_indicator(label, 'green');
             });
@@ -56,7 +56,7 @@ function render_shopware_item_indicators(frm) {
             if (shop_url && first && first.integration_item_code) {
                 let admin_url = `${shop_url}/admin#/sw/product/detail/${first.integration_item_code}`;
                 frm.add_custom_button(
-                    __('Open in Shopware Admin'),
+                    __('In Shopware Admin öffnen'),
                     function() { window.open(admin_url, '_blank'); },
                     __('Shopware')
                 );
@@ -75,7 +75,7 @@ function add_shopware_resync_button(frm) {
 
         // Add Full Resync button under Shopware group
         frm.add_custom_button(
-            __('Full Resync to Shopware'),
+            __('Komplett-Resync zu Shopware'),
             function() {
                 sync_item_to_shopware(frm, is_template);
             },
@@ -83,7 +83,7 @@ function add_shopware_resync_button(frm) {
         );
 
         // Style the button
-        frm.change_custom_button_type(__('Full Resync to Shopware'), __('Shopware'), 'primary');
+        frm.change_custom_button_type(__('Komplett-Resync zu Shopware'), __('Shopware'), 'primary');
     });
 }
 
@@ -92,28 +92,28 @@ function sync_item_to_shopware(frm, is_template) {
     const item_code = frm.doc.item_code;
 
     let dialog = new frappe.ui.Dialog({
-        title: __('Full Resync to Shopware'),
+        title: __('Komplett-Resync zu Shopware'),
         fields: [
             {
                 fieldtype: 'HTML',
                 options: is_template
-                    ? `<p>${__('This will sync the template product and all its variants to Shopware.')}</p>
-                       <p><strong>${__('Item')}:</strong> ${item_code}</p>
-                       <p class="text-muted">${__('All product data including images, prices, and properties will be synchronized.')}</p>`
-                    : `<p>${__('This will sync the product with all its data to Shopware.')}</p>
-                       <p><strong>${__('Item')}:</strong> ${item_code}</p>
-                       <p class="text-muted">${__('Includes images, prices, properties, and all configured fields.')}</p>`
+                    ? `<p>${__('Dies synchronisiert das Vorlagenprodukt und alle seine Varianten mit Shopware.')}</p>
+                       <p><strong>${__('Artikel')}:</strong> ${item_code}</p>
+                       <p class="text-muted">${__('Alle Produktdaten inklusive Bilder, Preise und Eigenschaften werden synchronisiert.')}</p>`
+                    : `<p>${__('Dies synchronisiert das Produkt mit all seinen Daten mit Shopware.')}</p>
+                       <p><strong>${__('Artikel')}:</strong> ${item_code}</p>
+                       <p class="text-muted">${__('Enthält Bilder, Preise, Eigenschaften und alle konfigurierten Felder.')}</p>`
             },
             {
                 fieldtype: 'Check',
                 fieldname: 'include_variants',
-                label: __('Include all variants'),
+                label: __('Alle Varianten einschließen'),
                 default: 1,
                 hidden: !is_template,
-                description: is_template ? __('Sync all variant products along with the template') : ''
+                description: is_template ? __('Synchronisiert alle Variantenprodukte zusammen mit der Vorlage') : ''
             }
         ],
-        primary_action_label: __('Sync Now'),
+        primary_action_label: __('Jetzt synchronisieren'),
         primary_action: function() {
             dialog.hide();
 
@@ -132,23 +132,23 @@ function sync_item_to_shopware(frm, is_template) {
                 args: args,
                 freeze: true,
                 freeze_message: include_variants
-                    ? __('Syncing template and variants to Shopware...')
-                    : __('Syncing to Shopware...'),
+                    ? __('Vorlage und Varianten werden mit Shopware synchronisiert...')
+                    : __('Wird mit Shopware synchronisiert...'),
                 callback: function(r) {
                     if (r.message) {
                         if (r.message.success) {
-                            let message = r.message.message || __('Synced successfully to Shopware');
+                            let message = r.message.message || __('Erfolgreich mit Shopware synchronisiert');
 
                             if (r.message.variants_synced !== undefined) {
-                                message += `<br><br><strong>${__('Variants synced')}:</strong> ${r.message.variants_synced}`;
+                                message += `<br><br><strong>${__('Varianten synchronisiert')}:</strong> ${r.message.variants_synced}`;
                             }
 
                             if (r.message.shopware_id) {
-                                message += `<br><strong>${__('Shopware ID')}:</strong> ${r.message.shopware_id}`;
+                                message += `<br><strong>${__('Shopware-ID')}:</strong> ${r.message.shopware_id}`;
                             }
 
                             frappe.msgprint({
-                                title: __('Sync Successful'),
+                                title: __('Sync erfolgreich'),
                                 indicator: 'green',
                                 message: message
                             });
@@ -156,18 +156,18 @@ function sync_item_to_shopware(frm, is_template) {
                             frm.reload_doc();
                         } else {
                             frappe.msgprint({
-                                title: __('Sync Failed'),
+                                title: __('Sync fehlgeschlagen'),
                                 indicator: 'red',
-                                message: r.message.message || __('Failed to sync to Shopware. Check the error log for details.')
+                                message: r.message.message || __('Sync mit Shopware fehlgeschlagen. Details siehe Error Log.')
                             });
                         }
                     }
                 },
                 error: function(r) {
                     frappe.msgprint({
-                        title: __('Error'),
+                        title: __('Fehler'),
                         indicator: 'red',
-                        message: __('Failed to sync to Shopware. Check the error log for details.')
+                        message: __('Sync mit Shopware fehlgeschlagen. Details siehe Error Log.')
                     });
                 }
             });
@@ -213,7 +213,7 @@ function render_combined_channel_resolution(frm) {
 
 function _render_resolver_unavailable(frm) {
     frm.dashboard.add_indicator(
-        __('Resolver not yet available — run bench migrate'),
+        __('Resolver noch nicht verfügbar — bench migrate ausführen'),
         'orange'
     );
 }
@@ -226,13 +226,13 @@ function _render_channel_resolution_card(frm, data) {
     const html = $(`
         <div class="ecommerce-channel-resolution" style="margin: 10px 0; padding: 10px;
              border: 1px solid var(--border-color); border-radius: 6px; background: var(--fg-color);">
-            <h6 style="margin-top:0;">${frappe.utils.escape_html(__('Ecommerce Visibility (live, computed)'))}</h6>
+            <h6 style="margin-top:0;">${frappe.utils.escape_html(__('Ecommerce-Sichtbarkeit (live berechnet)'))}</h6>
             <div class="ec-visibility"></div>
-            <h6 style="margin-top:14px;">${frappe.utils.escape_html(__('Categories (would be linked next sync)'))}</h6>
+            <h6 style="margin-top:14px;">${frappe.utils.escape_html(__('Kategorien (würden beim nächsten Sync verknüpft)'))}</h6>
             <div class="ec-categories"></div>
             <div style="margin-top:10px;">
                 <button class="btn btn-xs btn-default ec-edit-overrides">
-                    ${frappe.utils.escape_html(__('Edit Channel Overrides'))}
+                    ${frappe.utils.escape_html(__('Channel-Overrides bearbeiten'))}
                 </button>
             </div>
         </div>
@@ -274,7 +274,7 @@ function _render_backend_visibility(backend_label, payload) {
 
     if (!included.length && !excluded.length) {
         rows.push(`<div style="padding-left:14px; color: var(--text-muted);">
-            ${frappe.utils.escape_html(__('(none — backend not yet configured)'))}
+            ${frappe.utils.escape_html(__('(keine — Backend noch nicht konfiguriert)'))}
         </div>`);
         return rows.join('');
     }
@@ -286,7 +286,7 @@ function _render_backend_visibility(backend_label, payload) {
         rows.push(`<div style="padding-left:14px;">
             <span style="color: var(--green-600);">&#10003;</span>
             <span>${name}</span>
-            <span style="color: var(--text-muted); margin-left:8px;">${__('visibility')} ${vis}</span>
+            <span style="color: var(--text-muted); margin-left:8px;">${__('Sichtbarkeit')} ${vis}</span>
             <span style="margin-left:8px;">${src_html}</span>
         </div>`);
     });
@@ -297,7 +297,7 @@ function _render_backend_visibility(backend_label, payload) {
         rows.push(`<div style="padding-left:14px; color: var(--text-muted);">
             <span>&#8856;</span>
             <span>${name}</span>
-            <span style="margin-left:8px;">${frappe.utils.escape_html(__('(excluded)'))}</span>
+            <span style="margin-left:8px;">${frappe.utils.escape_html(__('(ausgeschlossen)'))}</span>
             <span style="margin-left:8px;">${src_html}</span>
         </div>`);
     });
@@ -312,7 +312,7 @@ function _render_backend_categories(backend_label, payload) {
     out.push(`<div style="font-weight:600; margin-top:6px;">${frappe.utils.escape_html(backend_label)}:</div>`);
     if (!cats.length) {
         out.push(`<div style="padding-left:14px; color: var(--text-muted);">
-            ${frappe.utils.escape_html(__('(none — backend not yet configured)'))}
+            ${frappe.utils.escape_html(__('(keine — Backend noch nicht konfiguriert)'))}
         </div>`);
         return out.join('');
     }
@@ -342,24 +342,24 @@ function _format_source(entry) {
     }
 
     if (source === 'override:include' || source === 'override:exclude') {
-        return tag(__('from Override'));
+        return tag(__('von Override'));
     }
     if (source === 'default') {
-        return tag(__('from default'));
+        return tag(__('von Standard'));
     }
     if (source.indexOf('mirror:') === 0) {
         const name = source.slice('mirror:'.length);
         const href = doc
             ? `/app/ecommerce-catalog-mirror/${encodeURIComponent(doc)}`
             : `/app/ecommerce-catalog-mirror/${encodeURIComponent(name)}`;
-        return tag(__('from Mirror: {0}', [name]), href);
+        return tag(__('von Mirror: {0}', [name]), href);
     }
     if (source.indexOf('smart_collection:') === 0) {
         const name = source.slice('smart_collection:'.length);
         const href = doc
             ? `/app/ecommerce-smart-collection/${encodeURIComponent(doc)}`
             : `/app/ecommerce-smart-collection/${encodeURIComponent(name)}`;
-        return tag(__('from SC: {0}', [name]), href);
+        return tag(__('von SC: {0}', [name]), href);
     }
     return tag(source);
 }

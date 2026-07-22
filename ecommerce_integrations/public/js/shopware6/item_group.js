@@ -34,7 +34,7 @@ function add_shopware_category_resync_button(frm) {
 
             // Add Full Resync button under Shopware group
             frm.add_custom_button(
-                __('Full Resync to Shopware'),
+                __('Komplett-Resync zu Shopware'),
                 function() {
                     sync_category_to_shopware(frm);
                 },
@@ -42,7 +42,7 @@ function add_shopware_category_resync_button(frm) {
             );
 
             // Style the button
-            frm.change_custom_button_type(__('Full Resync to Shopware'), __('Shopware'), 'primary');
+            frm.change_custom_button_type(__('Komplett-Resync zu Shopware'), __('Shopware'), 'primary');
         }
     });
 }
@@ -53,7 +53,7 @@ function sync_category_to_shopware(frm) {
 
     // Show confirmation dialog
     frappe.confirm(
-        __('This will sync the category "{0}" to Shopware.<br><br>The category hierarchy (parent categories) will also be synced if needed.', [item_group_name]),
+        __('Dies synchronisiert die Kategorie "{0}" mit Shopware.<br><br>Die Kategorie-Hierarchie (übergeordnete Kategorien) wird bei Bedarf ebenfalls synchronisiert.', [item_group_name]),
         function() {
             frappe.call({
                 method: 'ecommerce_integrations.shopware6.product_export.sync_category_to_shopware',
@@ -61,30 +61,30 @@ function sync_category_to_shopware(frm) {
                     item_group_name: item_group_name
                 },
                 freeze: true,
-                freeze_message: __('Syncing category to Shopware...'),
+                freeze_message: __('Kategorie wird mit Shopware synchronisiert...'),
                 callback: function(r) {
                     if (r.message) {
                         if (r.message.success) {
                             frappe.msgprint({
-                                title: __('Sync Successful'),
+                                title: __('Sync erfolgreich'),
                                 indicator: 'green',
-                                message: r.message.message || __('Category synced successfully to Shopware')
+                                message: r.message.message || __('Kategorie erfolgreich mit Shopware synchronisiert')
                             });
                             frm.reload_doc();
                         } else {
                             frappe.msgprint({
-                                title: __('Sync Failed'),
+                                title: __('Sync fehlgeschlagen'),
                                 indicator: 'red',
-                                message: r.message.message || __('Failed to sync category to Shopware')
+                                message: r.message.message || __('Kategorie konnte nicht mit Shopware synchronisiert werden')
                             });
                         }
                     }
                 },
                 error: function(r) {
                     frappe.msgprint({
-                        title: __('Error'),
+                        title: __('Fehler'),
                         indicator: 'red',
-                        message: __('Failed to sync category to Shopware. Check the error log for details.')
+                        message: __('Kategorie konnte nicht mit Shopware synchronisiert werden. Details siehe Error Log.')
                     });
                 }
             });

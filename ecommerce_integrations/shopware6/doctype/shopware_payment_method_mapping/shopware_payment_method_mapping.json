@@ -12,34 +12,34 @@
  ],
  "fields": [
   {
-   "description": "Shopware payment method shortName/name. Match is case-insensitive and ignores spaces/hyphens. Partial matches are supported (e.g. 'pay_pal' matches 'pay_pal_payment_handler').",
+   "description": "Shopware-Zahlungsart shortName/name. Abgleich ohne Berücksichtigung von Groß-/Kleinschreibung, ignoriert Leerzeichen/Bindestriche. Teiltreffer werden unterstützt (z. B. passt 'pay_pal' auf 'pay_pal_payment_handler').",
    "fieldname": "shopware_method",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Shopware Method",
+   "label": "Shopware-Zahlungsart",
    "reqd": 1
   },
   {
    "fieldname": "mode_of_payment",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Mode of Payment",
+   "label": "Zahlungsart",
    "options": "Mode of Payment",
    "reqd": 1
   },
   {
    "default": "0",
-   "description": "Tick for methods where the customer pays out-of-band after placing the order (Vorkasse, Rechnung/Kauf auf Rechnung, SEPA-Lastschrift mit Pre-Auth). For these the Auftragsbestätigung is sent as soon as the order is placed, even while the payment is still 'Unpaid'. Leave unticked for instant-clearing methods (PayPal, Klarna, Karte, Apple/Google Pay) where the order acknowledgment must wait until the payment is actually 'Paid' — otherwise a customer with a stuck or failing PayPal/Klarna flow would receive a confirmation for an order that may never settle.",
+   "description": "Anhaken für Zahlungsarten, bei denen der Kunde außerhalb des Shops nach Bestellabgabe zahlt (Vorkasse, Rechnung/Kauf auf Rechnung, SEPA-Lastschrift mit Vorautorisierung). Für diese wird die Auftragsbestätigung sofort bei Bestelleingang versendet, auch solange die Zahlung noch 'Unbezahlt' ist. Bei Sofort-Clearing-Zahlungsarten (PayPal, Klarna, Karte, Apple/Google Pay) nicht ankreuzen — dort muss die Auftragsbestätigung warten, bis die Zahlung tatsächlich 'Bezahlt' ist, sonst würde ein Kunde bei einem hängenden oder fehlschlagenden PayPal-/Klarna-Vorgang eine Bestätigung für eine Bestellung erhalten, die vielleicht nie abgeschlossen wird.",
    "fieldname": "is_deferred_payment",
    "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Customer pays out-of-band (Vorkasse / Rechnung)"
+   "label": "Kunde zahlt außerhalb des Shops (Vorkasse / Rechnung)"
   },
   {
    "fieldname": "description",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Notes"
+   "label": "Notizen"
   }
  ],
  "index_web_pages_for_search": 1,

@@ -26,7 +26,7 @@
    "fieldname": "sales_channel_id",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Sales Channel ID",
+   "label": "Sales-Channel-ID",
    "read_only": 1,
    "reqd": 1
   },
@@ -39,14 +39,14 @@
    "reqd": 1
   },
   {
-   "description": "Short code for display (e.g., 'TG' for Transportgeraete)",
+   "description": "Kurzcode zur Anzeige (z. B. 'TG' für Transportgeraete)",
    "fieldname": "short_code",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Short Code"
+   "label": "Kurzcode"
   },
   {
-   "description": "Primary storefront domain (e.g. https://shop.example.com). Populated by 'Storefronts aktualisieren' from the Shopware sales-channel-domain API; used as a human-friendly label in the Catalog Mirror picker.",
+   "description": "Primäre Storefront-Domain (z. B. https://shop.example.com). Wird durch 'Storefronts aktualisieren' aus der Shopware-sales-channel-domain-API befüllt; dient als lesbare Bezeichnung im Catalog-Mirror-Auswahldialog.",
    "fieldname": "domain_url",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -59,17 +59,17 @@
   },
   {
    "default": "0",
-   "description": "Default channel for products without specific assignment",
+   "description": "Standard-Kanal für Produkte ohne spezifische Zuordnung",
    "fieldname": "is_default",
    "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Is Default"
+   "label": "Ist Standard"
   },
   {
    "default": "1",
    "fieldname": "active",
    "fieldtype": "Check",
-   "label": "Active",
+   "label": "Aktiv",
    "read_only": 1
   },
   {
@@ -81,23 +81,23 @@
   {
    "fieldname": "pricing_section",
    "fieldtype": "Section Break",
-   "label": "Channel Pricing"
+   "label": "Kanal-Preisgestaltung"
   },
   {
-   "description": "Price list to use for this channel. If empty, uses default price list from settings.",
+   "description": "Preisliste für diesen Kanal. Wenn leer, wird die Standard-Preisliste aus den Einstellungen verwendet.",
    "fieldname": "price_list",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Price List",
+   "label": "Preisliste",
    "options": "Price List"
   },
   {
    "default": "0",
    "depends_on": "price_list",
-   "description": "Enable if the Price List contains gross prices (including tax). The price will be converted to net before syncing to Shopware.",
+   "description": "Aktivieren, wenn die Preisliste Bruttopreise (inkl. MwSt.) enthält. Der Preis wird vor dem Sync nach Shopware in Netto umgerechnet.",
    "fieldname": "price_list_includes_tax",
    "fieldtype": "Check",
-   "label": "Price List Includes Tax"
+   "label": "Preisliste enthält Bruttopreise"
   },
   {
    "fieldname": "column_break_pricing",
@@ -105,26 +105,26 @@
   },
   {
    "default": "0",
-   "description": "Percentage adjustment on base price. E.g., +10 = 10% markup, -5 = 5% discount. Applied when no Price List is set.",
+   "description": "Prozentuale Anpassung auf den Grundpreis. Z. B. +10 = 10% Aufschlag, -5 = 5% Rabatt. Wird angewendet, wenn keine Preisliste gesetzt ist.",
    "fieldname": "price_adjustment_percent",
    "fieldtype": "Float",
    "in_list_view": 1,
-   "label": "Price Adjustment %"
+   "label": "Preisanpassung %"
   },
   {
    "fieldname": "shopware_rule_id",
    "fieldtype": "Data",
    "hidden": 1,
-   "label": "Shopware Rule ID",
+   "label": "Shopware-Regel-ID",
    "read_only": 1
   },
   {
    "fieldname": "is_sandbox",
-   "label": "Sandbox / Test-Channel",
+   "label": "Sandbox / Test-Kanal",
    "fieldtype": "Check",
    "default": "0",
    "in_list_view": 1,
-   "description": "Marks this channel as sandbox. Only sandbox-flagged channels appear in the Product Sync sandbox-push dialog without a production warning."
+   "description": "Markiert diesen Kanal als Sandbox. Nur als Sandbox markierte Kanäle erscheinen im Sandbox-Push-Dialog des Produkt-Syncs ohne Produktions-Warnung."
   }
  ],
  "index_web_pages_for_search": 1,

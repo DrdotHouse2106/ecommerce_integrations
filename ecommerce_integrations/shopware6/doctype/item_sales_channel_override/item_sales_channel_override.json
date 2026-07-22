@@ -15,7 +15,7 @@
    "fieldname": "sales_channel_id",
    "fieldtype": "Data",
    "hidden": 1,
-   "label": "Sales Channel ID",
+   "label": "Sales-Channel-ID",
    "reqd": 1
   },
   {
@@ -35,7 +35,7 @@
    "fieldname": "visibility",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Visibility",
+   "label": "Sichtbarkeit",
    "options": "All (30)\nSearch & List (20)\nLink Only (10)\nExclude"
   }
  ],

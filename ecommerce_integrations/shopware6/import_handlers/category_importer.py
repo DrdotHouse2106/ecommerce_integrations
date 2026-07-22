@@ -45,7 +45,7 @@ def import_categories_from_shopware() -> dict[str, Any]:
 
     setting = frappe.get_doc(SETTING_DOCTYPE)
     if not setting.is_enabled():
-        frappe.throw(_("Enable Shopware integration first"))
+        frappe.throw(_("Bitte zuerst die Shopware-Integration aktivieren"))
 
     stats: dict[str, Any] = {
         "created": 0,

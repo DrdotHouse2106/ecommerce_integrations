@@ -87,6 +87,7 @@ def get_customer_from_shopware_order(order: dict[str, Any], _retry_count: int = 
 
     customer_data = {
         "id": customer_id,
+        "customerNumber": order_customer.get("customerNumber") or nested_customer.get("customerNumber"),
         "firstName": order_customer.get("firstName", ""),
         "lastName": order_customer.get("lastName", ""),
         "email": order_customer.get("email", ""),
@@ -407,7 +408,7 @@ def create_customer_from_shopware_data(customer_data: dict[str, Any]) -> str:
     customer_id = customer_data.get("id")
 
     if not customer_id:
-        frappe.throw(_("Customer ID is required"))
+        frappe.throw(_("Customer ID ist erforderlich"))
 
     try:
         with _acquire_customer_sync_lock(customer_id):

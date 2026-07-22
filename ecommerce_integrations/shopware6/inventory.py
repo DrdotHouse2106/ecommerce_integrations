@@ -275,7 +275,7 @@ def sync_single_item_stock(item_code: str) -> dict[str, Any]:
     setting = frappe.get_doc(SETTING_DOCTYPE)
 
     if not setting.is_enabled():
-        return {"success": False, "message": _("Shopware integration is not enabled")}
+        return {"success": False, "message": _("Shopware-Integration ist nicht aktiviert")}
 
     # Find the ecommerce item
     ecom_item = frappe.db.get_value(
@@ -286,7 +286,7 @@ def sync_single_item_stock(item_code: str) -> dict[str, Any]:
     )
 
     if not ecom_item:
-        return {"success": False, "message": _("Item is not synced with Shopware")}
+        return {"success": False, "message": _("Artikel ist nicht mit Shopware synchronisiert")}
 
     try:
         client = get_shopware_client()
@@ -302,7 +302,7 @@ def sync_single_item_stock(item_code: str) -> dict[str, Any]:
 
         return {
             "success": True,
-            "message": _("Stock updated successfully"),
+            "message": _("Bestand erfolgreich aktualisiert"),
             "stock": stock_qty,
         }
 

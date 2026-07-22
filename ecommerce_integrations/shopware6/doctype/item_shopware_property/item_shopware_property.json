@@ -19,17 +19,17 @@
    "fieldname": "property_name",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Property Name",
+   "label": "Eigenschaftsname",
    "reqd": 1,
-   "description": "Name of the property (e.g. 'Color', 'Size', 'Accessories')"
+   "description": "Name der Eigenschaft (z. B. 'Farbe', 'Größe', 'Zubehör')"
   },
   {
    "fieldname": "property_value",
    "fieldtype": "Small Text",
    "in_list_view": 1,
-   "label": "Value",
+   "label": "Wert",
    "reqd": 1,
-   "description": "Value of the property (can contain HTML for Custom Fields)"
+   "description": "Wert der Eigenschaft (kann bei Custom Fields HTML enthalten)"
   },
   {
    "fieldname": "column_break_1",
@@ -39,29 +39,29 @@
    "fieldname": "property_type",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Type",
+   "label": "Typ",
    "options": "Property\nText\nCustom Field",
    "default": "Property",
    "reqd": 1,
-   "description": "Property = filterable in shop, Text = non-filterable product property (Technische Daten), Custom Field = product detail page only"
+   "description": "Property = im Shop filterbar, Text = nicht filterbare Produkteigenschaft (Technische Daten), Custom Field = nur Produktdetailseite"
   },
   {
    "fieldname": "shopware_field_type",
    "fieldtype": "Select",
-   "label": "Field Type",
+   "label": "Feldtyp",
    "options": "text\nhtml\nswitch\nnumber\nselect\ndatetime",
    "default": "text",
    "depends_on": "eval:doc.property_type=='Custom Field'",
-   "description": "Data type for Shopware Custom Fields"
+   "description": "Datentyp für Shopware Custom Fields"
   },
   {
    "default": "1",
    "fieldname": "filterable",
    "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Filterable",
+   "label": "Filterbar",
    "depends_on": "eval:doc.property_type=='Property'",
-   "description": "Show as filter in shop frontend (only for Properties)"
+   "description": "Als Filter im Shop-Frontend anzeigen (nur für Properties)"
   }
  ],
  "index_web_pages_for_search": 0,

@@ -17,7 +17,7 @@ def get_quotations_by_shopware_customer(shopware_customer_id: str):
         List of quotations with relevant fields
     """
     if not shopware_customer_id:
-        frappe.throw(_("Shopware Customer ID is required"))
+        frappe.throw(_("Shopware Customer ID ist erforderlich"))
 
     # Find ERPNext Customer by shopware_customer_id
     customer_name = frappe.db.get_value(
@@ -36,7 +36,7 @@ def get_quotations_by_shopware_customer(shopware_customer_id: str):
     # query layer through ``ignore_permissions=False`` (the default).
     if not frappe.has_permission("Customer", "read", doc=customer_name):
         frappe.throw(
-            _("Not permitted to read quotations for this customer"),
+            _("Keine Berechtigung, Angebote für diesen Kunden zu lesen"),
             frappe.PermissionError,
         )
 

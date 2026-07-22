@@ -42,20 +42,20 @@ CUSTOM_FIELDS = {
         },
         {
             "fieldname": "seo_title",
-            "label": "SEO Title (Shopware)",
+            "label": "SEO-Titel (Shopware)",
             "fieldtype": "Data",
             "insert_after": "category_image",
-            "description": "Meta title sent to Shopware for this category. Leave empty to use the category name.",
+            "description": "Meta-Titel, der an Shopware übertragen wird. Leer lassen, um den Kategorienamen zu verwenden.",
         },
         {
             "fieldname": "seo_meta_description",
-            "label": "SEO Meta Description (Shopware)",
+            "label": "SEO-Meta-Beschreibung (Shopware)",
             "fieldtype": "Small Text",
             "insert_after": "seo_title",
         },
         {
             "fieldname": "seo_keywords",
-            "label": "SEO Keywords (Shopware)",
+            "label": "SEO-Schlüsselwörter (Shopware)",
             "fieldtype": "Data",
             "insert_after": "seo_meta_description",
         },
@@ -85,24 +85,24 @@ CUSTOM_FIELDS = {
         },
         {
             "fieldname": "shopware_description_override",
-            "label": "Description Override (Shopware)",
+            "label": "Beschreibung überschreiben (Shopware)",
             "fieldtype": "Text Editor",
             "insert_after": "shopware_topseller",
             "description": (
-                "Optional description used only for the Shopware product push, taking "
-                "priority over the AI/web description and the standard Item description. "
-                "Leave empty to use the normal description."
+                "Optionale Beschreibung, die nur beim Shopware-Produkt-Push verwendet wird "
+                "und Vorrang vor KI-/Web-Beschreibung sowie der Standard-Artikelbeschreibung hat. "
+                "Leer lassen, um die normale Beschreibung zu verwenden."
             ),
         },
         {
             "fieldname": "delivery_time",
-            "label": "Delivery Time (Shopware)",
+            "label": "Lieferzeit (Shopware)",
             "fieldtype": "Data",
             "insert_after": "shopware_description_override",
             "description": (
-                "Free-text delivery time sent to Shopware, e.g. '3-5 Tage' or '1-2 Wochen'. "
-                "Parsed into a Shopware Delivery Time entity automatically. Empty = no "
-                "delivery time set on the product."
+                "Freitext-Lieferzeit für Shopware, z. B. '3-5 Tage' oder '1-2 Wochen'. "
+                "Wird automatisch in eine Shopware-Lieferzeit-Entität umgewandelt. Leer = "
+                "keine Lieferzeit am Produkt gesetzt."
             ),
         },
         # SEO: no new fields here — the WeClapp import already brought
@@ -255,8 +255,8 @@ CUSTOM_FIELDS = {
             "in_global_search": 1,
             "in_standard_filter": 1,
             "description": (
-                "Also used as the Sales Order's own name/ID when Sales Order's "
-                "Auto Name is set to Prompt (see order_sync.create_sales_order)."
+                "Wird auch als Name/ID des Verkaufsauftrags selbst verwendet, wenn bei "
+                "Sales Order als Auto Name 'Prompt' eingestellt ist (siehe order_sync.create_sales_order)."
             ),
         },
         {

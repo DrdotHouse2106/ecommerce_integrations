@@ -14,7 +14,7 @@
 	const TOTAL_STEPS = 6;
 
 	const STEP_TITLES = () => ([
-		__('Connection'),
+		__('Verbindung'),
 		__('Verbindung testen'),
 		__('Synchronisations-Modus wählen'),
 		__('Standardwerte für Aufträge'),
@@ -82,7 +82,7 @@
 		const fields = [
 			{ fieldname: 'info', fieldtype: 'HTML',
 				options: `${progress_html(idx)}<p>${__('Trage deine Shopware Admin API Credentials ein. Du findest sie in Shopware: Einstellungen → System → Integrationen.')}</p>` },
-			{ fieldname: 'shop_url', fieldtype: 'Data', label: __('Shop URL'), reqd: 1,
+			{ fieldname: 'shop_url', fieldtype: 'Data', label: __('Shop-URL'), reqd: 1,
 				default: state.shop_url,
 				description: __('z. B. https://yourshop.com') },
 			{ fieldname: 'grant_type', fieldtype: 'Select', label: __('Authentifizierung'),
@@ -90,17 +90,17 @@
 				description: __('Empfohlen: resource_owner (Integration mit Client ID + Client Secret).') },
 			{ fieldname: 'section_int', fieldtype: 'Section Break',
 				depends_on: 'eval:doc.grant_type==="resource_owner"' },
-			{ fieldname: 'client_id', fieldtype: 'Data', label: __('Client ID'),
+			{ fieldname: 'client_id', fieldtype: 'Data', label: __('Client-ID'),
 				default: state.client_id,
 				mandatory_depends_on: 'eval:doc.grant_type==="resource_owner"' },
-			{ fieldname: 'client_secret', fieldtype: 'Password', label: __('Client Secret'),
+			{ fieldname: 'client_secret', fieldtype: 'Password', label: __('Client-Secret'),
 				mandatory_depends_on: 'eval:doc.grant_type==="resource_owner"' },
 			{ fieldname: 'section_user', fieldtype: 'Section Break',
 				depends_on: 'eval:doc.grant_type==="user_credentials"' },
-			{ fieldname: 'api_username', fieldtype: 'Data', label: __('API Username'),
+			{ fieldname: 'api_username', fieldtype: 'Data', label: __('API-Benutzername'),
 				default: state.api_username,
 				mandatory_depends_on: 'eval:doc.grant_type==="user_credentials"' },
-			{ fieldname: 'api_password', fieldtype: 'Password', label: __('API Password'),
+			{ fieldname: 'api_password', fieldtype: 'Password', label: __('API-Passwort'),
 				mandatory_depends_on: 'eval:doc.grant_type==="user_credentials"' },
 		];
 
@@ -187,7 +187,7 @@
 						state.tested_ok = true;
 						const channels = r.message.sales_channels;
 						const msg = (channels !== undefined)
-							? __('Verbindung erfolgreich. {0} Sales Channels gefunden.', [channels])
+							? __('Verbindung erfolgreich. {0} Verkaufskanäle gefunden.', [channels])
 							: __('Verbindung erfolgreich.');
 						$body.html(
 							`<div class="alert alert-success" style="margin:0;display:flex;align-items:center;gap:6px">${_i('circle-check', 'sm')} <span>${frappe.utils.escape_html(msg)}</span></div>`
@@ -224,9 +224,9 @@
 				},
 				{ fieldname: 'mode_help', fieldtype: 'HTML',
 					options: `<ul>
-						<li><b>receive</b> — ${__('Receive from Shopware: orders, customers, stock flow into ERPNext (safe default for getting started).')}</li>
+						<li><b>receive</b> — ${__('Empfang aus Shopware: Bestellungen, Kunden und Bestand fließen in ERPNext (sicherer Standard für den Einstieg).')}</li>
 						<li><b>manual</b> — ${__('Empfang + manueller Versand: Empfang automatisch, Produkt-/Kategorie-Sync läuft nur wenn du auf "Sync starten" klickst.')}</li>
-						<li><b>full</b> — ${__('Fully automatic (advanced): item saves push to Shopware immediately, Catalog Mirror cron runs hourly (enable with care).')}</li>
+						<li><b>full</b> — ${__('Vollautomatisch (fortgeschritten): Artikel-Speichern überträgt sofort an Shopware, Catalog-Mirror-Cron läuft stündlich (mit Vorsicht aktivieren).')}</li>
 					</ul>` },
 			],
 			primary_action_label: __('Weiter'),
@@ -489,9 +489,9 @@
 	// form), we offer a single one-click follow-up.
 	function _offer_product_sync_followup(backend) {
 		const d = new frappe.ui.Dialog({
-			title: __('Next step: create a Product Sync'),
+			title: __('Nächster Schritt: Product Sync anlegen'),
 			fields: [{ fieldname: 'body', fieldtype: 'HTML', options: `
-				<p>${__('For products to flow from ERPNext to {0} you need a <b>Product Sync</b>. There you pick scope (category, smart collection, …), storefronts, and sync schedule.', [backend])}</p>
+				<p>${__('Damit Produkte von ERPNext zu {0} fließen, brauchst du einen <b>Product Sync</b>. Dort legst du Geltungsbereich (Kategorie, Smart Collection, …), Storefronts und Sync-Zeitplan fest.', [backend])}</p>
 				<p class="text-muted">${__('Tipp: ein einziger Product Sync deckt mehrere Storefronts ab — leg also nicht pro Storefront einen eigenen an.')}</p>
 			` }],
 			primary_action_label: __('Product Sync anlegen'),
@@ -500,7 +500,7 @@
 				frappe.new_doc('Ecommerce Product Sync', { backend: backend });
 			},
 		});
-		d.set_secondary_action_label(__('Later'));
+		d.set_secondary_action_label(__('Später'));
 		d.set_secondary_action(function () { d.hide(); });
 		d.show();
 	}

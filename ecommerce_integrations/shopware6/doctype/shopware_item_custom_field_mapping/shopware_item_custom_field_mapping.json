@@ -12,15 +12,15 @@
  ],
  "fields": [
   {
-   "description": "Item DocType fieldname whose value should be forwarded to Shopware (e.g. 'include_in_idealo_feed', 'include_in_google_shopping'). Must be an existing field on Item — usually a Custom Field added via Customize Form.",
+   "description": "Feldname im Item-DocType, dessen Wert an Shopware übertragen werden soll (z. B. 'include_in_idealo_feed', 'include_in_google_shopping'). Muss ein bestehendes Feld am Item sein — meist ein über Customize Form hinzugefügtes Custom Field.",
    "fieldname": "item_field",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Item Field",
+   "label": "Artikel-Feld",
    "reqd": 1
   },
   {
-   "description": "Shopware product customField key the value is written to (e.g. 'idealo_feed', 'google_shopping_feed'). The customField slot must exist in Shopware (Settings → System → Custom Fields) and be assigned to the product entity, otherwise Shopware accepts the value into the JSON column but the storefront / product-stream filters won't see it.",
+   "description": "Shopware-Produkt-customField-Key, in den der Wert geschrieben wird (z. B. 'idealo_feed', 'google_shopping_feed'). Das customField muss in Shopware existieren (Einstellungen → System → Custom Fields) und der Produkt-Entität zugewiesen sein, sonst nimmt Shopware den Wert zwar in die JSON-Spalte auf, aber Storefront/Produkt-Stream-Filter sehen ihn nicht.",
    "fieldname": "shopware_custom_field",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -29,11 +29,11 @@
   },
   {
    "default": "Boolean",
-   "description": "How to coerce the Item field value before sending. Boolean forces true/false (useful for Check fields driving Shopware product-stream filters). Text passes the value as-is. Integer / Float convert. Skip-If-Empty suppresses the customField entirely when the Item field is empty / null / 0 (use when the absence of a value is meaningful, e.g. an optional URL).",
+   "description": "Wie der Artikelfeld-Wert vor dem Senden umgewandelt wird. Boolean erzwingt true/false (nützlich für Check-Felder, die Shopware-Produkt-Stream-Filter steuern). Text übernimmt den Wert unverändert. Integer/Float wandeln um. Skip-If-Empty unterdrückt das customField komplett, wenn das Artikelfeld leer/null/0 ist (verwenden, wenn das Fehlen eines Werts bedeutsam ist, z. B. bei einer optionalen URL).",
    "fieldname": "field_type",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Field Type",
+   "label": "Feldtyp",
    "options": "Boolean\nText\nInteger\nFloat\nSkip-If-Empty",
    "reqd": 1
   },
@@ -41,7 +41,7 @@
    "fieldname": "description",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Notes"
+   "label": "Notizen"
   }
  ],
  "index_web_pages_for_search": 1,

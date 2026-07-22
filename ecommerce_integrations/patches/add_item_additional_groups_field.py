@@ -23,14 +23,14 @@ ADDITIONAL_ITEM_GROUPS_FIELD = {
     "Item": [
         {
             "fieldname": "additional_item_groups",
-            "label": "Additional Categories (Shopware)",
+            "label": "Zusätzliche Kategorien (Shopware)",
             "fieldtype": "Table MultiSelect",
             "options": "Item Additional Group",
             "insert_after": "item_group",
             "description": (
-                "Extra Shopware categories for this Item, on top of its "
-                "main Item Group above. Use this instead of / alongside "
-                "the Webshop app's Website Item Groups."
+                "Weitere Shopware-Kategorien für diesen Artikel, zusätzlich zu seiner "
+                "Haupt-Artikelgruppe oben. Alternativ oder ergänzend zu den Website "
+                "Item Groups der Webshop-App."
             ),
         },
     ],

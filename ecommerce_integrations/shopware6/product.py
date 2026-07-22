@@ -58,7 +58,7 @@ class ShopwareProduct:
         self.setting = frappe.get_doc(SETTING_DOCTYPE)
 
         if not self.setting.is_enabled():
-            frappe.throw(_("Cannot sync Shopware product when integration is disabled."))
+            frappe.throw(_("Shopware-Produkt kann nicht synchronisiert werden, solange die Integration deaktiviert ist."))
 
     def is_synced(self) -> bool:
         """Check if product is already synced to ERPNext."""
@@ -112,7 +112,7 @@ class ShopwareProduct:
 
         products = response.data or []
         if not products:
-            frappe.throw(_("Product not found in Shopware: {0}").format(self.product_id))
+            frappe.throw(_("Produkt nicht in Shopware gefunden: {0}").format(self.product_id))
 
         product_data = products[0]
         self._make_item(product_data, client)

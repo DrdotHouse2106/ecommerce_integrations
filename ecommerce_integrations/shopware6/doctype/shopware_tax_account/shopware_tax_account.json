@@ -13,14 +13,14 @@
    "fieldname": "shopware_tax",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Shopware Tax Name/Rate",
+   "label": "Shopware Steuername/-satz",
    "reqd": 1
   },
   {
    "fieldname": "tax_account",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Tax Account",
+   "label": "Steuerkonto",
    "options": "Account",
    "reqd": 1
   }

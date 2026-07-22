@@ -509,7 +509,7 @@ def manually_create_payment_entry(sales_order_name: str) -> dict[str, Any]:
     # guard any authenticated user can create payments against any SO.
     if not frappe.has_permission("Sales Order", "write", doc=sales_order_name):
         frappe.throw(
-            _("Not permitted to create payments for this Sales Order"),
+            _("Keine Berechtigung, Zahlungen für diese Sales Order anzulegen"),
             frappe.PermissionError,
         )
     try:

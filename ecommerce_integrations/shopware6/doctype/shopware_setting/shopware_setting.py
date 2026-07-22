@@ -41,14 +41,14 @@ class ShopwareSetting(Document):
 
         if self.grant_type == "resource_owner":
             if not self.client_id:
-                frappe.throw(_("Client ID is required for Integration authentication"))
+                frappe.throw(_("Client-ID ist für die Integrations-Authentifizierung erforderlich"))
             if not self.client_secret:
-                frappe.throw(_("Client Secret is required for Integration authentication"))
+                frappe.throw(_("Client-Secret ist für die Integrations-Authentifizierung erforderlich"))
         elif self.grant_type == "user_credentials":
             if not self.api_username:
-                frappe.throw(_("API Username is required for User Credentials authentication"))
+                frappe.throw(_("API-Benutzername ist für die Benutzer-Authentifizierung erforderlich"))
             if not self.api_password:
-                frappe.throw(_("API Password is required for User Credentials authentication"))
+                frappe.throw(_("API-Passwort ist für die Benutzer-Authentifizierung erforderlich"))
 
     def is_enabled(self) -> bool:
         """Check if Shopware integration is enabled."""
@@ -64,7 +64,7 @@ class ShopwareSetting(Document):
 
         if result.get("success"):
             frappe.msgprint(
-                _("Connection successful! Found {0} sales channel(s).").format(
+                _("Verbindung erfolgreich! {0} Verkaufskanal/-kanäle gefunden.").format(
                     result.get("sales_channels", 0)
                 ),
                 title=_("Success"),
@@ -72,7 +72,7 @@ class ShopwareSetting(Document):
             )
         else:
             frappe.msgprint(
-                _("Connection failed: {0}").format(result.get("message")),
+                _("Verbindung fehlgeschlagen: {0}").format(result.get("message")),
                 title=_("Error"),
                 indicator="red",
             )
@@ -86,7 +86,7 @@ class ShopwareSetting(Document):
         from ecommerce_integrations.shopware6.connection import get_shopware_client
 
         if not self.is_enabled():
-            frappe.throw(_("Please enable Shopware integration first"))
+            frappe.throw(_("Bitte zuerst die Shopware-Integration aktivieren"))
 
         try:
             client = get_shopware_client()
@@ -101,13 +101,13 @@ class ShopwareSetting(Document):
 
             if locations:
                 frappe.msgprint(
-                    _("Found {0} Shopware stock location(s)").format(len(locations)),
+                    _("{0} Shopware-Lagerstandort(e) gefunden").format(len(locations)),
                     title=_("Success"),
                     indicator="green",
                 )
             else:
                 frappe.msgprint(
-                    _("No stock locations found. Stock will be managed at product level."),
+                    _("Keine Lagerstandorte gefunden. Bestand wird auf Produktebene verwaltet."),
                     title=_("Info"),
                     indicator="blue",
                 )
@@ -116,7 +116,7 @@ class ShopwareSetting(Document):
 
         except Exception as e:
             get_logger().error("Error occurred", persist=False)
-            frappe.throw(_("Failed to fetch Shopware warehouses: {0}").format(str(e)))
+            frappe.throw(_("Shopware-Lager konnten nicht abgerufen werden: {0}").format(str(e)))
 
     @frappe.whitelist()
     def fetch_sales_channels(self):
@@ -125,7 +125,7 @@ class ShopwareSetting(Document):
         from ecommerce_integrations.shopware6.connection import get_shopware_client
 
         if not self.is_enabled():
-            frappe.throw(_("Please enable Shopware integration first"))
+            frappe.throw(_("Bitte zuerst die Shopware-Integration aktivieren"))
 
         try:
             client = get_shopware_client()
@@ -185,7 +185,7 @@ class ShopwareSetting(Document):
 
             self.save()
             frappe.msgprint(
-                _("Found {0} Sales Channel(s). Created/verified {1} pricing rule(s).").format(
+                _("{0} Verkaufskanal/-kanäle gefunden. {1} Preisregel(n) erstellt/geprüft.").format(
                     len(channels), rules_created
                 ),
                 title=_("Success"),
@@ -195,7 +195,7 @@ class ShopwareSetting(Document):
 
         except Exception as e:
             get_logger().error("Error occurred", persist=False)
-            frappe.throw(_("Failed to fetch Sales Channels: {0}").format(str(e)))
+            frappe.throw(_("Verkaufskanäle konnten nicht abgerufen werden: {0}").format(str(e)))
 
     def _fetch_sales_channel_domains(self, client) -> dict[str, str]:
         """Return ``{sales_channel_id: domain_url}`` for the primary domain

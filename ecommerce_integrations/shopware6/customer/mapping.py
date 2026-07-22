@@ -59,7 +59,7 @@ def _map_address_fields(
         # Silently inventing placeholders ("Straße"/"Stadt") hides bad webhook
         # data and creates non-routable Address rows. Fail loudly instead.
         frappe.throw(
-            _("Shopware address payload missing street/city; cannot create Address.")
+            _("Shopware-Adress-Payload fehlt Straße/Stadt; Adresse kann nicht angelegt werden.")
         )
 
     address_fields = {

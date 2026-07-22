@@ -40,7 +40,7 @@ frappe.ui.form.on('Shopware Setting', {
 		}
 		if (window.shopware6_setup_wizard && !frm.is_new()) {
 			const _i = window.ecom_icon || (() => '');
-			const wizard_label = _i('wand-sparkles', 'sm') + ' ' + __('Setup Wizard');
+			const wizard_label = _i('wand-sparkles', 'sm') + ' ' + __('Einrichtungsassistent');
 			if (!frm.custom_buttons || !frm.custom_buttons[wizard_label]) {
 				frm.add_custom_button(wizard_label, function() {
 					window.shopware6_setup_wizard.open(frm);
@@ -53,7 +53,7 @@ frappe.ui.form.on('Shopware Setting', {
 					method: 'fetch_sales_channels',
 					doc: frm.doc,
 					freeze: true,
-					freeze_message: __('Fetching Sales Channels...'),
+					freeze_message: __('Verkaufskanäle werden abgerufen...'),
 					callback: function() { frm.reload_doc(); }
 				});
 			});
@@ -64,7 +64,7 @@ frappe.ui.form.on('Shopware Setting', {
 		// First-time setup intro (U14)
 		if (!frm.doc.shop_url) {
 			frm.set_intro(
-				__('Setup: 1) Connection (Shop URL + Client ID/Secret). 2) Test Connection. 3) Refresh Sales Channels. 4) Company + Customer defaults. 5) Enable Upload only after a Dry-Run Complete Sync.'),
+				__('Einrichtung: 1) Verbindung (Shop-URL + Client-ID/Secret). 2) Verbindung testen. 3) Verkaufskanäle aktualisieren. 4) Firma + Kunden-Standardwerte. 5) Upload erst nach einem Trockenlauf-Komplett-Sync aktivieren.'),
 				'blue'
 			);
 		}
@@ -78,7 +78,7 @@ frappe.ui.form.on('Shopware Setting', {
 			}
 		}).then(count => {
 			frm.dashboard.add_indicator(
-				__('{0} sync errors in last 24h', [count]),
+				__('{0} Sync-Fehler in den letzten 24h', [count]),
 				count ? 'red' : 'green'
 			);
 		});
@@ -90,7 +90,7 @@ frappe.ui.form.on('Shopware Setting', {
 		// hash-delta detection, no background runner, no audit row).
 		// We keep one big button at the top of the form so operators
 		// land on the right surface from any direction.
-		frm.add_custom_button(__('Open Product Sync'), function() {
+		frm.add_custom_button(__('Produkt-Sync öffnen'), function() {
 			frappe.set_route('List', 'Ecommerce Product Sync', { backend: 'Shopware' });
 		}).addClass('btn-primary-dark');
 
@@ -99,9 +99,9 @@ frappe.ui.form.on('Shopware Setting', {
 		// cleanup). The Shopware Setting page used to ship "Categories" and
 		// "Remove Orphaned Categories" buttons each with their own dialog;
 		// both lived in Catalog Mirror's domain so we now redirect there.
-		frm.add_custom_button(__('Open Catalog Mirror'), function() {
+		frm.add_custom_button(__('Catalog Mirror öffnen'), function() {
 			frappe.set_route('List', 'Ecommerce Catalog Mirror', { backend: 'Shopware' });
-		}, __('Open sync'));
+		}, __('Sync öffnen'));
 
 		// One-time backfill for shops that maintained categories only in
 		// Shopware so far (no matching Item Group tree exists yet).
@@ -110,28 +110,28 @@ frappe.ui.form.on('Shopware Setting', {
 		// once. Safe to re-run: matches by shopware_category_id first,
 		// then by name (adopts a same-named hand-made Item Group instead
 		// of duplicating it).
-		frm.add_custom_button(__('Import Categories from Shopware'), function() {
+		frm.add_custom_button(__('Kategorien aus Shopware importieren'), function() {
 			frappe.confirm(
-				__('This creates/updates Item Groups in ERPNext from your entire live Shopware category tree, including images. Re-running it is safe (it won\'t duplicate categories). Continue?'),
+				__('Dies erstellt/aktualisiert Item Groups in ERPNext aus eurem gesamten live Shopware-Kategoriebaum, inklusive Bilder. Erneutes Ausführen ist sicher (keine Duplikate). Fortfahren?'),
 				function() {
 					frappe.call({
 						method: 'ecommerce_integrations.shopware6.import_handlers.category_importer.import_categories_from_shopware',
 						freeze: true,
-						freeze_message: __('Importing categories from Shopware...'),
+						freeze_message: __('Kategorien werden aus Shopware importiert...'),
 						callback: function(r) {
 							let s = r.message || {};
 							let lines = [
-								__('Created: {0}', [s.created || 0]),
-								__('Adopted (matched existing by name): {0}', [s.adopted || 0]),
-								__('Updated (already linked): {0}', [s.updated || 0]),
-								__('Images set: {0}', [s.images_set || 0]),
-								__('Skipped (flagged erp_ignored): {0}', [s.skipped_ignored || 0]),
+								__('Erstellt: {0}', [s.created || 0]),
+								__('Übernommen (per Name zugeordnet): {0}', [s.adopted || 0]),
+								__('Aktualisiert (bereits verknüpft): {0}', [s.updated || 0]),
+								__('Bilder gesetzt: {0}', [s.images_set || 0]),
+								__('Übersprungen (markiert als erp_ignored): {0}', [s.skipped_ignored || 0]),
 							];
 							if (s.errors && s.errors.length) {
-								lines.push('', __('Errors:'), ...s.errors);
+								lines.push('', __('Fehler:'), ...s.errors);
 							}
 							frappe.msgprint({
-								title: __('Category Import Result'),
+								title: __('Ergebnis Kategorie-Import'),
 								message: lines.join('<br>'),
 								indicator: (s.errors && s.errors.length) ? 'orange' : 'green'
 							});
@@ -139,57 +139,57 @@ frappe.ui.form.on('Shopware Setting', {
 					});
 				}
 			);
-		}, __('Open sync'));
+		}, __('Sync öffnen'));
 
 		// Pull Sync öffnen — single source of truth for backend → ERP
 		// pulls (orders, customers, stock). The legacy "Orders" /
 		// "Customers" / "Stock" / "Properties" dialogs duplicated what
 		// the Pull Sync doctype now does with watermarks and audit runs.
-		frm.add_custom_button(__('Open Pull Sync'), function() {
+		frm.add_custom_button(__('Pull Sync öffnen'), function() {
 			frappe.set_route('List', 'Ecommerce Pull Sync', { backend: 'Shopware' });
-		}, __('Open sync'));
+		}, __('Sync öffnen'));
 
 		// Operational buttons (Maintenance group) — these are not sync
 		// triggers, they belong on the Setting page because they act
 		// on this Setting's own state (connection probe, local caches,
 		// queue lifecycle). Keeping them under the same Maintenance
 		// group label so the existing UI grouping stays consistent.
-		frm.add_custom_button(__('Test Connection'), function() {
+		frm.add_custom_button(__('Verbindung testen'), function() {
 			frm.call({
 				method: 'test_connection',
 				doc: frm.doc,
 				freeze: true,
-				freeze_message: __('Testing connection...'),
+				freeze_message: __('Verbindung wird getestet...'),
 				callback: function(r) {
 					let backend = frm.doc.shop_url || 'Shopware';
 					if (r.message && (r.message.success || r.message.status === 'success')) {
 						let channels = r.message.sales_channels;
 						let msg = (channels !== undefined)
-							? __('Connection OK – {0} sales channel(s)', [channels])
-							: __('Connection OK – {0}', [backend]);
+							? __('Verbindung OK – {0} Verkaufskanal/-kanäle', [channels])
+							: __('Verbindung OK – {0}', [backend]);
 						frappe.show_alert({ message: msg, indicator: 'green' });
 					} else {
 						let err = (r.message && (r.message.error || r.message.message))
-							|| __('Could not reach {0}. Check URL and credentials.', [backend]);
+							|| __('{0} nicht erreichbar. URL und Zugangsdaten prüfen.', [backend]);
 						frappe.msgprint({
-							title: __('Connection failed'),
+							title: __('Verbindung fehlgeschlagen'),
 							message: err,
 							indicator: 'red'
 						});
 					}
 				}
 			});
-		}, __('Maintenance'));
+		}, __('Wartung'));
 
-		frm.add_custom_button(__('Clear Cache'), function() {
+		frm.add_custom_button(__('Cache leeren'), function() {
 			frappe.call({
 				method: 'ecommerce_integrations.shopware6.product_export.clear_shopware_cache',
 				callback: function(r) {
 					if (r.message && r.message.status === 'success') {
-						frappe.show_alert({ message: __('Cache cleared.'), indicator: 'green' });
+						frappe.show_alert({ message: __('Cache geleert.'), indicator: 'green' });
 					}
 				}
 			});
-		}, __('Maintenance'));
+		}, __('Wartung'));
 	}
 });

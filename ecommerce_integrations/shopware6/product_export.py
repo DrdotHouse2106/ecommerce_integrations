@@ -183,7 +183,7 @@ def sync_category_to_shopware(item_group_name: str) -> dict:
     if item_group_name in root_to_skip:
         return {
             "success": False,
-            "message": _("Root categories cannot be synced")
+            "message": _("Root-Kategorien können nicht synchronisiert werden")
         }
 
     try:
@@ -193,12 +193,12 @@ def sync_category_to_shopware(item_group_name: str) -> dict:
         if result:
             return {
                 "success": True,
-                "message": _("Category {0} synced to Shopware").format(item_group_name)
+                "message": _("Kategorie {0} mit Shopware synchronisiert").format(item_group_name)
             }
         else:
             return {
                 "success": False,
-                "message": _("Failed to sync category {0}").format(item_group_name)
+                "message": _("Kategorie {0} konnte nicht synchronisiert werden").format(item_group_name)
             }
     except Exception as e:
         logger.error(f"Failed to sync category {item_group_name} to Shopware", exception=e)

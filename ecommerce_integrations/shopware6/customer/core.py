@@ -42,7 +42,7 @@ def _acquire_customer_sync_lock(customer_id: str):
     )
     if not lock.acquire(blocking=False):
         raise CustomerSyncInProgressError(
-            _("Customer sync already in progress for Shopware customer {0}").format(customer_id)
+            _("Kunden-Sync läuft bereits für Shopware-Kunde {0}").format(customer_id)
         )
 
     try:
@@ -85,8 +85,13 @@ class ShopwareCustomer(EcommerceCustomer):
 
         customer_group = self.setting.customer_group
 
+        # Name the Customer after Shopware's human-facing customer number
+        # (e.g. "17722") instead of the raw internal UUID — same reasoning
+        # as Sales Order using the Shopware order number.
+        customer_number = customer.get("customerNumber")
+
         # Use base class to create customer
-        super().sync_customer(customer_name, customer_group)
+        super().sync_customer(customer_name, customer_group, set_name=customer_number)
 
         customer_doc = self.get_customer_doc()
         if email:
