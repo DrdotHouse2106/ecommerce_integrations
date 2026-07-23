@@ -37,6 +37,7 @@ from typing import Any
 
 import frappe
 from frappe import _
+from frappe.utils.nestedset import rebuild_tree
 
 from ecommerce_integrations.catalog_mirror.engine.adapters.base import LiveCategoryNode
 from ecommerce_integrations.catalog_mirror.engine.adapters.shopware import ShopwareCatalogAdapter
@@ -135,6 +136,18 @@ def _run_category_import(request_id: str) -> None:
             # keeps whatever it already finished instead of losing it
             # to a rollback.
             frappe.db.commit()
+
+        # Item Group is a Frappe NestedSet doctype: the tree view reads
+        # the internal lft/rgt columns, not parent_item_group directly.
+        # Hundreds of inserts/reparents in one job can leave lft/rgt out
+        # of sync with parent_item_group even though every individual
+        # save() went through the normal ORM path — the symptom is
+        # exactly "List View filtered by shopware_category_id shows
+        # everything, Tree View shows almost nothing". Rebuild once at
+        # the end of a run rather than after every single node (which
+        # would be one full-tree recalculation per insert).
+        if stats["created"] or stats["updated"]:
+            rebuild_tree("Item Group", "parent_item_group")
 
         update_shopware_log(
             request_id,
