@@ -74,6 +74,13 @@ def _run_item_category_linking(request_id: str) -> None:
         "errors": [],
     }
 
+    # Same reasoning as category_importer._run_category_import: every
+    # Item.save() below fires the "Item" on_update hook, which would
+    # otherwise queue a pointless (and, on read-only permissions,
+    # 403-failing) push of the Item straight back to Shopware for data
+    # we just pulled from Shopware. Suppress it for the job's duration.
+    previous_skip_flag = getattr(frappe.flags, "skip_shopware_sync", False)
+    frappe.flags.skip_shopware_sync = True
     try:
         category_to_item_group = _build_category_item_group_map()
         if not category_to_item_group:
@@ -137,6 +144,8 @@ def _run_item_category_linking(request_id: str) -> None:
     except Exception as e:
         update_shopware_log(request_id, status="Error", exception=str(e))
         raise
+    finally:
+        frappe.flags.skip_shopware_sync = previous_skip_flag
 
 
 def _build_category_item_group_map() -> dict[str, str]:

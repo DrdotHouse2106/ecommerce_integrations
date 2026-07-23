@@ -87,6 +87,16 @@ def _run_category_import(request_id: str) -> None:
         "errors": [],
     }
 
+    # Every Item Group insert/save below fires the "Item Group" on_update
+    # hook, which normally queues an *outbound* push back to Shopware
+    # (shopware6.services.queue_hooks.queue_item_group_for_sync). That's
+    # exactly backwards here — we're pulling categories that already
+    # exist in Shopware, so pushing them straight back is both redundant
+    # and, on a read-only-permissioned integration, a guaranteed 403
+    # (category:create / category:update). Suppress it for the duration
+    # of this job via the same flag the queue hook already checks.
+    previous_skip_flag = getattr(frappe.flags, "skip_shopware_sync", False)
+    frappe.flags.skip_shopware_sync = True
     try:
         setting = frappe.get_doc(SETTING_DOCTYPE)
         root_parent = _ensure_root_item_group(setting.category_sync_root or "Products")
@@ -127,6 +137,8 @@ def _run_category_import(request_id: str) -> None:
     except Exception as e:
         update_shopware_log(request_id, status="Error", exception=str(e))
         raise
+    finally:
+        frappe.flags.skip_shopware_sync = previous_skip_flag
 
 
 def _ensure_root_item_group(name: str) -> str:
@@ -252,7 +264,22 @@ def _fetch_absolute_root_ids(client) -> list[str]:
 
 @temp_shopware_session
 def _fetch_category_image_url(client, category_id: str) -> str | None:
-    response = client.request_get(f"category/{category_id}?associations[media]=")
-    data = response.data or {}
-    media = data.get("media") or {}
+    # Query-string associations (``category/{id}?associations[media]=``)
+    # are rejected outright by newer lib_shopware6_api_base versions —
+    # validate_endpoint only allows alphanumerics, hyphens, underscores,
+    # dots and slashes in the path. Use the same POST-to-search pattern
+    # the rest of the codebase already relies on for association fetches
+    # instead of a GET with bracketed query params.
+    response = client.request_post(
+        "search/category",
+        {
+            "filter": [{"type": "equals", "field": "id", "value": category_id}],
+            "associations": {"media": {}},
+            "limit": 1,
+        },
+    )
+    results = response.data or []
+    if not results:
+        return None
+    media = results[0].get("media") or {}
     return media.get("url")
