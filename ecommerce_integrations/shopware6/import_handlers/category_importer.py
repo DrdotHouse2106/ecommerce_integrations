@@ -16,13 +16,19 @@ can have more than one such tree (main navigation, footer navigation,
 ...); importing every root's subtree is what "all categories" means
 here.
 
-Matching is by ``shopware_category_id`` first (idempotent re-run: a
+Matching is by ``shopware_category_id`` only (idempotent re-run: a
 node already linked to an Item Group is updated in place, not
-duplicated), then by name (an existing hand-made Item Group with a
-matching name and no ``shopware_category_id`` yet is *adopted* — same
-semantics as Catalog Mirror's manual Adopt, just automatic). A name
-already claimed by a *different* mapped category is disambiguated
-with a suffix rather than silently dropped or misfiled.
+duplicated). Deliberately does **not** auto-adopt a same-named
+pre-existing Item Group the way Catalog Mirror's manual per-node
+Adopt does — a name match against a hand-maintained (e.g. WeClapp)
+tree is a coincidence, not proof the two nodes should share identity,
+and blindly reparenting/rewriting the existing node under it turned
+out to rearrange large parts of an operator's real tree in one run.
+Any name collision — with an unlinked hand-made group or with a
+*different* already-mapped category — is disambiguated with a suffix
+and imported as its own new node instead; the existing node is never
+touched. Adoption stays a deliberate, per-node, human-reviewed action
+in Catalog Mirror's UI.
 """
 
 from __future__ import annotations
@@ -80,9 +86,9 @@ def import_categories_from_shopware() -> dict[str, Any]:
 def _run_category_import(request_id: str) -> None:
     stats: dict[str, Any] = {
         "created": 0,
-        "adopted": 0,
         "updated": 0,
         "skipped_ignored": 0,
+        "name_conflicts": 0,
         "images_set": 0,
         "errors": [],
     }
@@ -126,11 +132,12 @@ def _run_category_import(request_id: str) -> None:
             request_id,
             status="Success" if not stats["errors"] else "Error",
             message=_(
-                "Erstellt: {0}, Übernommen: {1}, Aktualisiert: {2}, "
-                "Bilder gesetzt: {3}, Übersprungen: {4}"
+                "Erstellt: {0}, Aktualisiert: {1}, Bilder gesetzt: {2}, "
+                "Übersprungen: {3}, Namenskonflikte (als neue Kategorie angelegt, "
+                "bestehende unangetastet): {4}"
             ).format(
-                stats["created"], stats["adopted"], stats["updated"],
-                stats["images_set"], stats["skipped_ignored"],
+                stats["created"], stats["updated"], stats["images_set"],
+                stats["skipped_ignored"], stats["name_conflicts"],
             ),
             exception="\n".join(stats["errors"]) if stats["errors"] else None,
         )
@@ -162,18 +169,22 @@ def _import_node(node: LiveCategoryNode, parent_item_group: str, stats: dict[str
         return
 
     item_group_name = _resolve_item_group(node, parent_item_group, stats)
-    if item_group_name is None:
-        return
 
     # Commit periodically, not just per root — a deep single tree (the
     # common case: one big main-navigation root) would otherwise stay
     # one giant uncommitted transaction until it finished entirely.
-    processed = stats["created"] + stats["adopted"] + stats["updated"]
+    processed = stats["created"] + stats["updated"]
     if processed and processed % 20 == 0:
         frappe.db.commit()
 
+    # Even when this node itself failed to resolve (logged in
+    # stats["errors"]), still walk its children — attaching them one
+    # level up under this node's own parent instead of silently
+    # dropping the entire subtree because one ancestor errored. A
+    # single duplicate-name collision further down the tree shouldn't
+    # cost dozens of otherwise-fine descendant categories.
     for child in node.children:
-        _import_node(child, parent_item_group=item_group_name, stats=stats)
+        _import_node(child, parent_item_group=item_group_name or parent_item_group, stats=stats)
 
 
 def _resolve_item_group(node: LiveCategoryNode, parent_item_group: str, stats: dict[str, Any]) -> str | None:
@@ -191,30 +202,21 @@ def _resolve_item_group(node: LiveCategoryNode, parent_item_group: str, stats: d
             return ig.name
 
         base_name = node.name or _("Unnamed Category")
-        existing = frappe.db.get_value(
-            "Item Group",
-            {"item_group_name": base_name},
-            ["name", "shopware_category_id"],
-            as_dict=True,
-        )
-
-        if existing and not existing.shopware_category_id:
-            # 2. Hand-made Item Group with a matching name — adopt it.
-            ig = frappe.get_doc("Item Group", existing.name)
-            ig.shopware_category_id = node.external_id
-            _apply_fields(ig, node, parent_item_group)
-            ig.save(ignore_permissions=True)
-            stats["adopted"] += 1
-            _maybe_set_image(ig, node, stats)
-            return ig.name
+        existing = frappe.db.exists("Item Group", {"item_group_name": base_name})
 
         target_name = base_name
         if existing:
-            # 3. Name already claimed by a *different* mapped category —
-            # disambiguate instead of silently dropping this one.
+            # 2. Name already claimed — either by a hand-made group
+            # (e.g. from WeClapp) or a different already-mapped
+            # category. Either way: never reparent or overwrite fields
+            # on a node we don't own. Disambiguate and import as a new,
+            # separate node instead. An operator who actually wants to
+            # link an existing hand-made group to this Shopware category
+            # does so explicitly via Catalog Mirror's per-node Adopt.
             target_name = _unique_item_group_name(base_name, parent_item_group, node.external_id)
+            stats["name_conflicts"] += 1
 
-        # 4. New Item Group.
+        # 3. New Item Group.
         ig = frappe.new_doc("Item Group")
         ig.item_group_name = target_name
         ig.shopware_category_id = node.external_id
