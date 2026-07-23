@@ -90,7 +90,13 @@ def _run_category_import(request_id: str) -> None:
         "skipped_ignored": 0,
         "name_conflicts": 0,
         "images_set": 0,
+        "nodes_seen": 0,
         "errors": [],
+        # Diagnostics: one entry per Shopware absolute root actually
+        # fetched, "<name> (<n> children)" — the fastest way to see
+        # whether a given navigation/footer tree was reached at all
+        # without guessing from the ERPNext side.
+        "root_summaries": [],
     }
 
     # Every Item Group insert/save below fires the "Item Group" on_update
@@ -108,6 +114,7 @@ def _run_category_import(request_id: str) -> None:
         root_parent = _ensure_root_item_group(setting.category_sync_root or "Products")
 
         root_ids = _fetch_absolute_root_ids()
+        stats["roots_found"] = len(root_ids)
         if not root_ids:
             stats["errors"].append("No categories found in Shopware.")
 
@@ -117,6 +124,7 @@ def _run_category_import(request_id: str) -> None:
             if not tree_root:
                 stats["errors"].append(f"Could not fetch category tree for root {root_id}.")
                 continue
+            stats["root_summaries"].append(f"{tree_root.name or root_id} ({len(tree_root.children)})")
             # The technical root itself isn't imported as an Item Group —
             # only its children are, parented under category_sync_root.
             # Mirrors the export side's "skip_root_category" convention.
@@ -132,10 +140,12 @@ def _run_category_import(request_id: str) -> None:
             request_id,
             status="Success" if not stats["errors"] else "Error",
             message=_(
-                "Erstellt: {0}, Aktualisiert: {1}, Bilder gesetzt: {2}, "
-                "Übersprungen: {3}, Namenskonflikte (als neue Kategorie angelegt, "
-                "bestehende unangetastet): {4}"
+                "Wurzelbäume: {0} ({1}), besuchte Knoten: {2} — "
+                "Erstellt: {3}, Aktualisiert: {4}, Bilder gesetzt: {5}, "
+                "Übersprungen: {6}, Namenskonflikte (als neue Kategorie angelegt, "
+                "bestehende unangetastet): {7}"
             ).format(
+                stats["roots_found"], ", ".join(stats["root_summaries"]), stats["nodes_seen"],
                 stats["created"], stats["updated"], stats["images_set"],
                 stats["skipped_ignored"], stats["name_conflicts"],
             ),
@@ -164,6 +174,8 @@ def _ensure_root_item_group(name: str) -> str:
 
 
 def _import_node(node: LiveCategoryNode, parent_item_group: str, stats: dict[str, Any]) -> None:
+    stats["nodes_seen"] += 1
+
     if node.ignored:
         stats["skipped_ignored"] += 1
         return
