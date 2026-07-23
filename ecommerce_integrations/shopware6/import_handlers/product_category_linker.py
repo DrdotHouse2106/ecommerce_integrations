@@ -26,19 +26,47 @@ from frappe import _
 
 from ecommerce_integrations.shopware6.connection import get_shopware_client
 from ecommerce_integrations.shopware6.constants import MODULE_NAME, SETTING_DOCTYPE
+from ecommerce_integrations.shopware6.utils import create_shopware_log, update_shopware_log
 
 _PAGE_SIZE = 250
 
 
 @frappe.whitelist()
 def link_item_categories_from_shopware() -> dict[str, Any]:
-    """Entry point for the "Artikel-Kategorien aus Shopware verknüpfen" button."""
+    """Entry point for the "Artikel-Kategorien aus Shopware verknüpfen" button.
+
+    Runs as a background job — same reasoning as
+    ``category_importer.import_categories_from_shopware``: a full
+    paginated product scan (potentially thousands of items, one
+    ``Item.save()`` per match) can outlast the web worker's request
+    timeout, and a killed synchronous call leaves nothing logged.
+    """
     frappe.only_for("System Manager")
 
     setting = frappe.get_doc(SETTING_DOCTYPE)
     if not setting.is_enabled():
         frappe.throw(_("Bitte zuerst die Shopware-Integration aktivieren"))
 
+    log = create_shopware_log(
+        status="Queued",
+        method="product_category_linking",
+        message=_("Artikel-Kategorie-Verknüpfung wurde eingereiht..."),
+        make_new=True,
+    )
+
+    frappe.enqueue(
+        _run_item_category_linking,
+        queue="long",
+        timeout=3600,
+        job_name=f"shopware6_product_category_linking_{log.name}",
+        request_id=log.name,
+        enqueue_after_commit=True,
+    )
+
+    return {"queued": True, "log": log.name}
+
+
+def _run_item_category_linking(request_id: str) -> None:
     stats: dict[str, Any] = {
         "products_scanned": 0,
         "items_updated": 0,
@@ -46,55 +74,69 @@ def link_item_categories_from_shopware() -> dict[str, Any]:
         "errors": [],
     }
 
-    category_to_item_group = _build_category_item_group_map()
-    if not category_to_item_group:
-        stats["errors"].append(
-            _('Keine importierten Kategorien gefunden — zuerst "Kategorien aus Shopware importieren" ausführen.')
+    try:
+        category_to_item_group = _build_category_item_group_map()
+        if not category_to_item_group:
+            stats["errors"].append(
+                'Keine importierten Kategorien gefunden — zuerst "Kategorien aus '
+                'Shopware importieren" ausführen.'
+            )
+
+        product_to_item = _build_product_item_map() if category_to_item_group else {}
+        if category_to_item_group and not product_to_item:
+            stats["errors"].append("Keine mit Shopware synchronisierten Artikel gefunden.")
+
+        if category_to_item_group and product_to_item:
+            client = get_shopware_client()
+            page = 1
+            while True:
+                response = client.request_post(
+                    "search/product",
+                    {
+                        "limit": _PAGE_SIZE,
+                        "page": page,
+                        "includes": {"product": ["id", "categoryIds"]},
+                    },
+                )
+                products = response.data or []
+                if not products:
+                    break
+
+                for product in products:
+                    stats["products_scanned"] += 1
+                    item_code = product_to_item.get(product.get("id"))
+                    if not item_code:
+                        continue
+
+                    category_ids = product.get("categoryIds") or []
+                    item_groups = {
+                        category_to_item_group[c]
+                        for c in category_ids
+                        if c in category_to_item_group
+                    }
+                    if not item_groups:
+                        continue
+
+                    added = _add_additional_item_groups(item_code, item_groups)
+                    if added:
+                        stats["items_updated"] += 1
+                        stats["rows_added"] += added
+
+                frappe.db.commit()
+                page += 1
+
+        update_shopware_log(
+            request_id,
+            status="Success" if not stats["errors"] else "Error",
+            message=_(
+                "Produkte durchsucht: {0}, Artikel aktualisiert: {1}, "
+                "Kategorie-Zuordnungen hinzugefügt: {2}"
+            ).format(stats["products_scanned"], stats["items_updated"], stats["rows_added"]),
+            exception="\n".join(stats["errors"]) if stats["errors"] else None,
         )
-        return stats
-
-    product_to_item = _build_product_item_map()
-    if not product_to_item:
-        stats["errors"].append(_("Keine mit Shopware synchronisierten Artikel gefunden."))
-        return stats
-
-    client = get_shopware_client()
-    page = 1
-    while True:
-        response = client.request_post(
-            "search/product",
-            {
-                "limit": _PAGE_SIZE,
-                "page": page,
-                "includes": {"product": ["id", "categoryIds"]},
-            },
-        )
-        products = response.data or []
-        if not products:
-            break
-
-        for product in products:
-            stats["products_scanned"] += 1
-            item_code = product_to_item.get(product.get("id"))
-            if not item_code:
-                continue
-
-            category_ids = product.get("categoryIds") or []
-            item_groups = {
-                category_to_item_group[c] for c in category_ids if c in category_to_item_group
-            }
-            if not item_groups:
-                continue
-
-            added = _add_additional_item_groups(item_code, item_groups)
-            if added:
-                stats["items_updated"] += 1
-                stats["rows_added"] += added
-
-        frappe.db.commit()
-        page += 1
-
-    return stats
+    except Exception as e:
+        update_shopware_log(request_id, status="Error", exception=str(e))
+        raise
 
 
 def _build_category_item_group_map() -> dict[str, str]:

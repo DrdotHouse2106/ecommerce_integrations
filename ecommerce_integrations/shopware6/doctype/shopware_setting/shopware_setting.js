@@ -112,29 +112,21 @@ frappe.ui.form.on('Shopware Setting', {
 		// of duplicating it).
 		frm.add_custom_button(__('Kategorien aus Shopware importieren'), function() {
 			frappe.confirm(
-				__('Dies erstellt/aktualisiert Item Groups in ERPNext aus eurem gesamten live Shopware-Kategoriebaum, inklusive Bilder. Erneutes Ausführen ist sicher (keine Duplikate). Fortfahren?'),
+				__('Dies erstellt/aktualisiert Item Groups in ERPNext aus eurem gesamten live Shopware-Kategoriebaum, inklusive Bilder. Erneutes Ausführen ist sicher (keine Duplikate). Der Import läuft im Hintergrund. Fortfahren?'),
 				function() {
 					frappe.call({
 						method: 'ecommerce_integrations.shopware6.import_handlers.category_importer.import_categories_from_shopware',
-						freeze: true,
-						freeze_message: __('Kategorien werden aus Shopware importiert...'),
 						callback: function(r) {
 							let s = r.message || {};
-							let lines = [
-								__('Erstellt: {0}', [s.created || 0]),
-								__('Übernommen (per Name zugeordnet): {0}', [s.adopted || 0]),
-								__('Aktualisiert (bereits verknüpft): {0}', [s.updated || 0]),
-								__('Bilder gesetzt: {0}', [s.images_set || 0]),
-								__('Übersprungen (markiert als erp_ignored): {0}', [s.skipped_ignored || 0]),
-							];
-							if (s.errors && s.errors.length) {
-								lines.push('', __('Fehler:'), ...s.errors);
+							if (s.log) {
+								frappe.msgprint({
+									title: __('Kategorie-Import läuft'),
+									message: __('Der Import wurde im Hintergrund eingereiht. Fortschritt und Ergebnis findet ihr im Ecommerce Integration Log {0}.', [
+										`<a href="/app/ecommerce-integration-log/${s.log}">${s.log}</a>`
+									]),
+									indicator: 'blue'
+								});
 							}
-							frappe.msgprint({
-								title: __('Ergebnis Kategorie-Import'),
-								message: lines.join('<br>'),
-								indicator: (s.errors && s.errors.length) ? 'orange' : 'green'
-							});
 						}
 					});
 				}
@@ -149,27 +141,21 @@ frappe.ui.form.on('Shopware Setting', {
 		// never overwritten.
 		frm.add_custom_button(__('Artikel-Kategorien aus Shopware verknüpfen'), function() {
 			frappe.confirm(
-				__('Dies ordnet bestehende Artikel den (bereits importierten) Item Groups zu, basierend auf ihrer tatsächlichen Kategorie-Zuordnung in Shopware. Die bisherige Item Group jedes Artikels bleibt unangetastet — Shopware-Kategorien werden nur zusätzlich ergänzt. Fortfahren?'),
+				__('Dies ordnet bestehende Artikel den (bereits importierten) Item Groups zu, basierend auf ihrer tatsächlichen Kategorie-Zuordnung in Shopware. Die bisherige Item Group jedes Artikels bleibt unangetastet — Shopware-Kategorien werden nur zusätzlich ergänzt. Die Verknüpfung läuft im Hintergrund. Fortfahren?'),
 				function() {
 					frappe.call({
 						method: 'ecommerce_integrations.shopware6.import_handlers.product_category_linker.link_item_categories_from_shopware',
-						freeze: true,
-						freeze_message: __('Artikel werden mit Shopware-Kategorien verknüpft...'),
 						callback: function(r) {
 							let s = r.message || {};
-							let lines = [
-								__('Produkte durchsucht: {0}', [s.products_scanned || 0]),
-								__('Artikel aktualisiert: {0}', [s.items_updated || 0]),
-								__('Kategorie-Zuordnungen hinzugefügt: {0}', [s.rows_added || 0]),
-							];
-							if (s.errors && s.errors.length) {
-								lines.push('', __('Fehler:'), ...s.errors);
+							if (s.log) {
+								frappe.msgprint({
+									title: __('Artikel-Kategorie-Verknüpfung läuft'),
+									message: __('Die Verknüpfung wurde im Hintergrund eingereiht. Fortschritt und Ergebnis findet ihr im Ecommerce Integration Log {0}.', [
+										`<a href="/app/ecommerce-integration-log/${s.log}">${s.log}</a>`
+									]),
+									indicator: 'blue'
+								});
 							}
-							frappe.msgprint({
-								title: __('Ergebnis Artikel-Kategorie-Verknüpfung'),
-								message: lines.join('<br>'),
-								indicator: (s.errors && s.errors.length) ? 'orange' : 'green'
-							});
 						}
 					});
 				}

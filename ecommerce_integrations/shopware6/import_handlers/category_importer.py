@@ -36,17 +36,48 @@ from ecommerce_integrations.catalog_mirror.engine.adapters.base import LiveCateg
 from ecommerce_integrations.catalog_mirror.engine.adapters.shopware import ShopwareCatalogAdapter
 from ecommerce_integrations.shopware6.connection import temp_shopware_session
 from ecommerce_integrations.shopware6.constants import SETTING_DOCTYPE
+from ecommerce_integrations.shopware6.utils import create_shopware_log, update_shopware_log
 
 
 @frappe.whitelist()
 def import_categories_from_shopware() -> dict[str, Any]:
-    """Entry point for the "Import Categories from Shopware" button."""
+    """Entry point for the "Kategorien aus Shopware importieren" button.
+
+    Runs as a background job. A full tree walk (one HTTP round trip
+    per category for children + a media lookup per node) reliably
+    exceeds the web worker's request timeout on anything but a tiny
+    catalog — and a killed synchronous request leaves no trace,
+    nothing gets logged, nothing to retry. Progress is committed
+    incrementally (per root, see ``_run_category_import``) and the
+    final result is written to Ecommerce Integration Log instead of
+    being returned inline.
+    """
     frappe.only_for("System Manager")
 
     setting = frappe.get_doc(SETTING_DOCTYPE)
     if not setting.is_enabled():
         frappe.throw(_("Bitte zuerst die Shopware-Integration aktivieren"))
 
+    log = create_shopware_log(
+        status="Queued",
+        method="category_import",
+        message=_("Kategorie-Import wurde eingereiht..."),
+        make_new=True,
+    )
+
+    frappe.enqueue(
+        _run_category_import,
+        queue="long",
+        timeout=3600,
+        job_name=f"shopware6_category_import_{log.name}",
+        request_id=log.name,
+        enqueue_after_commit=True,
+    )
+
+    return {"queued": True, "log": log.name}
+
+
+def _run_category_import(request_id: str) -> None:
     stats: dict[str, Any] = {
         "created": 0,
         "adopted": 0,
@@ -56,27 +87,46 @@ def import_categories_from_shopware() -> dict[str, Any]:
         "errors": [],
     }
 
-    root_parent = _ensure_root_item_group(setting.category_sync_root or "Products")
+    try:
+        setting = frappe.get_doc(SETTING_DOCTYPE)
+        root_parent = _ensure_root_item_group(setting.category_sync_root or "Products")
 
-    root_ids = _fetch_absolute_root_ids()
-    if not root_ids:
-        stats["errors"].append("No categories found in Shopware.")
-        return stats
+        root_ids = _fetch_absolute_root_ids()
+        if not root_ids:
+            stats["errors"].append("No categories found in Shopware.")
 
-    adapter = ShopwareCatalogAdapter()
-    for root_id in root_ids:
-        tree_root = adapter.fetch_tree(root_id)
-        if not tree_root:
-            stats["errors"].append(f"Could not fetch category tree for root {root_id}.")
-            continue
-        # The technical root itself isn't imported as an Item Group —
-        # only its children are, parented under category_sync_root.
-        # Mirrors the export side's "skip_root_category" convention.
-        for child in tree_root.children:
-            _import_node(child, parent_item_group=root_parent, stats=stats)
+        adapter = ShopwareCatalogAdapter()
+        for root_id in root_ids:
+            tree_root = adapter.fetch_tree(root_id)
+            if not tree_root:
+                stats["errors"].append(f"Could not fetch category tree for root {root_id}.")
+                continue
+            # The technical root itself isn't imported as an Item Group —
+            # only its children are, parented under category_sync_root.
+            # Mirrors the export side's "skip_root_category" convention.
+            for child in tree_root.children:
+                _import_node(child, parent_item_group=root_parent, stats=stats)
+            # Commit after each root tree rather than only at the very
+            # end — a job that dies partway (worker restart, OOM) still
+            # keeps whatever it already finished instead of losing it
+            # to a rollback.
+            frappe.db.commit()
 
-    frappe.db.commit()
-    return stats
+        update_shopware_log(
+            request_id,
+            status="Success" if not stats["errors"] else "Error",
+            message=_(
+                "Erstellt: {0}, Übernommen: {1}, Aktualisiert: {2}, "
+                "Bilder gesetzt: {3}, Übersprungen: {4}"
+            ).format(
+                stats["created"], stats["adopted"], stats["updated"],
+                stats["images_set"], stats["skipped_ignored"],
+            ),
+            exception="\n".join(stats["errors"]) if stats["errors"] else None,
+        )
+    except Exception as e:
+        update_shopware_log(request_id, status="Error", exception=str(e))
+        raise
 
 
 def _ensure_root_item_group(name: str) -> str:
@@ -102,6 +152,13 @@ def _import_node(node: LiveCategoryNode, parent_item_group: str, stats: dict[str
     item_group_name = _resolve_item_group(node, parent_item_group, stats)
     if item_group_name is None:
         return
+
+    # Commit periodically, not just per root — a deep single tree (the
+    # common case: one big main-navigation root) would otherwise stay
+    # one giant uncommitted transaction until it finished entirely.
+    processed = stats["created"] + stats["adopted"] + stats["updated"]
+    if processed and processed % 20 == 0:
+        frappe.db.commit()
 
     for child in node.children:
         _import_node(child, parent_item_group=item_group_name, stats=stats)
