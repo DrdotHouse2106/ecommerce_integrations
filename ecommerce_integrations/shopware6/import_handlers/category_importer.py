@@ -147,7 +147,7 @@ def _run_category_import(request_id: str) -> None:
         # the end of a run rather than after every single node (which
         # would be one full-tree recalculation per insert).
         if stats["created"] or stats["updated"]:
-            rebuild_tree("Item Group", "parent_item_group")
+            rebuild_tree("Item Group")
 
         update_shopware_log(
             request_id,
