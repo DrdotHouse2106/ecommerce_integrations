@@ -190,10 +190,10 @@ def _resolve_item_group(node: LiveCategoryNode, parent_item_group: str, stats: d
             _maybe_set_image(ig, node, stats)
             return ig.name
 
-        target_name = node.name or _("Unnamed Category")
+        base_name = node.name or _("Unnamed Category")
         existing = frappe.db.get_value(
             "Item Group",
-            {"item_group_name": target_name},
+            {"item_group_name": base_name},
             ["name", "shopware_category_id"],
             as_dict=True,
         )
@@ -208,10 +208,11 @@ def _resolve_item_group(node: LiveCategoryNode, parent_item_group: str, stats: d
             _maybe_set_image(ig, node, stats)
             return ig.name
 
-        if existing and existing.shopware_category_id and existing.shopware_category_id != node.external_id:
+        target_name = base_name
+        if existing:
             # 3. Name already claimed by a *different* mapped category —
             # disambiguate instead of silently dropping this one.
-            target_name = f"{target_name} ({node.external_id[:8]})"
+            target_name = _unique_item_group_name(base_name, parent_item_group, node.external_id)
 
         # 4. New Item Group.
         ig = frappe.new_doc("Item Group")
@@ -229,9 +230,51 @@ def _resolve_item_group(node: LiveCategoryNode, parent_item_group: str, stats: d
         return None
 
 
+def _unique_item_group_name(base_name: str, parent_item_group: str, external_id: str) -> str:
+    """Find a free Item Group name for a category whose plain name is
+    already claimed by a different mapped category.
+
+    Shopware categories are commonly duplicated by name under
+    different parents (e.g. a "Motor" category under every vehicle
+    brand). A truncated external_id was tried first but Shopware's
+    UUIDs are time-ordered, so categories bulk-created close together
+    share the same leading hex characters — the truncated suffix
+    collided across siblings-in-name-only just as often as it
+    disambiguated them. Try the parent context first (meaningful to a
+    human), then the full external_id (guaranteed unique), then a
+    numeric counter — actually checking each candidate rather than
+    assuming any of them is free.
+    """
+    candidates = [
+        f"{base_name} ({parent_item_group})",
+        f"{base_name} ({external_id})",
+    ]
+    for candidate in candidates:
+        if not frappe.db.exists("Item Group", candidate):
+            return candidate
+
+    n = 2
+    while frappe.db.exists("Item Group", f"{base_name} ({parent_item_group}) #{n}"):
+        n += 1
+    return f"{base_name} ({parent_item_group}) #{n}"
+
+
 def _apply_fields(ig, node: LiveCategoryNode, parent_item_group: str) -> None:
     ig.parent_item_group = parent_item_group
-    ig.is_group = 1 if node.children else 0
+
+    # Shopware's tree fetch for a node can transiently come back with
+    # zero children (partial page, API hiccup) even though ERPNext
+    # already has real child Item Groups linked underneath it from an
+    # earlier successful run. Flipping is_group to 0 in that case trips
+    # ERPNext's own "cannot be a leaf, has children" validation — and
+    # rightly so, since demoting a node that actually has children
+    # would orphan them. Only ever grow into a group, never shrink out
+    # of one based on a single fetch.
+    already_has_children = bool(ig.name) and frappe.db.exists(
+        "Item Group", {"parent_item_group": ig.name}
+    )
+    ig.is_group = 1 if (node.children or already_has_children) else 0
+
     if node.description:
         ig.description = node.description
     ig.shopware_active = 1 if node.active else 0
