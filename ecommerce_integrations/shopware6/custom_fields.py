@@ -63,7 +63,12 @@ CUSTOM_FIELDS = {
         {
             "fieldname": "seo_keywords",
             "label": "SEO-Schlüsselwörter (Shopware)",
-            "fieldtype": "Data",
+            # "Data" caps at 140 chars by default — Shopware's keywords
+            # list for a category routinely exceeds that (comma-separated
+            # keyword lists), which made saving fail outright instead of
+            # just truncating. "Small Text" (like seo_meta_description
+            # above) has no length limit.
+            "fieldtype": "Small Text",
             "insert_after": "seo_meta_description",
         },
     ],
