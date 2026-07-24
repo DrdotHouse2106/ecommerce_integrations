@@ -204,7 +204,13 @@ def _build_criteria(page: int) -> dict[str, Any]:
             "manufacturer": {},
             "deliveryTime": {},
             "unit": {},
-            "customFields": {},
+            # NOT an association — customFields is a plain JSON column on
+            # the product entity, always present in the response by
+            # default. Requesting it as an association 500s with
+            # FRAMEWORK__ASSOCIATION_NOT_FOUND (confirmed against a real
+            # Shopware instance). PropertyImporter's per-product GET gets
+            # away with `associations[customFields]={}` because that's a
+            # different (query-string) request shape, not this criteria.
             "children": {
                 "associations": {
                     "prices": {},
@@ -215,7 +221,6 @@ def _build_criteria(page: int) -> dict[str, Any]:
                     "unit": {},
                     "manufacturer": {},
                     "deliveryTime": {},
-                    "customFields": {},
                 },
             },
         },
