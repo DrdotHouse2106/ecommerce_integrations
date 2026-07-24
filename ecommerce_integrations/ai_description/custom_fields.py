@@ -96,7 +96,7 @@ CUSTOM_FIELDS = {
             "fieldtype": "Check",
             "insert_after": "ai_metadata_section",
             "read_only": 1,
-            "default": 0
+            "default": "0"
         },
         {
             "fieldname": "ai_generation_date",
@@ -122,7 +122,7 @@ CUSTOM_FIELDS = {
             "label": "Reviewed by Human",
             "fieldtype": "Check",
             "insert_after": "ai_model_used",
-            "default": 0,
+            "default": "0",
             "description": "Check after reviewing and approving the AI-generated content"
         }
     ]

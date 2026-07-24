@@ -22,7 +22,7 @@ CUSTOM_FIELDS = {
             "label": "Aktiv in Shopware",
             "fieldtype": "Check",
             "insert_after": "shopware_section",
-            "default": 1,
+            "default": "1",
             "description": "Wenn deaktiviert, wird diese Kategorie in Shopware auf inaktiv gesetzt (für Kunden unsichtbar). Betrifft nur die Sichtbarkeit in Shopware, nicht ERPNext.",
         },
         {
