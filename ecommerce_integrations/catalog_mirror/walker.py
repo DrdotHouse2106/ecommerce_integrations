@@ -106,7 +106,7 @@ def _build_node(
             "parent_item_group",
             "is_group",
             "catalog_mirror_skip",
-            "description",
+            "category_description",
             "seo_title",
             "seo_meta_description",
         ],
@@ -122,7 +122,13 @@ def _build_node(
         is_group=int(ig.is_group or 0),
         has_items=item_counts.get(ig.name, 0) > 0,
         catalog_mirror_skip=int(ig.catalog_mirror_skip or 0),
-        description=ig.description,
+        # Item Group has no native "description" field in ERPNext v16 —
+        # category_description is our own custom field that stands in
+        # for it. ErpTreeNode keeps the attribute name "description"
+        # since that's the name already exposed to operator-authored
+        # Jinja templates (see ecommerce_catalog_mirror.json's
+        # description_template help text).
+        description=ig.category_description,
         seo_title=ig.seo_title,
         seo_meta_description=ig.seo_meta_description,
     )

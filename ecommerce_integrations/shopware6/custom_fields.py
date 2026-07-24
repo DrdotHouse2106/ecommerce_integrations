@@ -41,10 +41,17 @@ CUSTOM_FIELDS = {
             "description": "Bild, das für diese Kategorie in Shopware angezeigt wird. Wenn leer, wird das Standard-Artikelgruppenbild verwendet.",
         },
         {
+            "fieldname": "category_description",
+            "label": "Kategoriebeschreibung (Shopware)",
+            "fieldtype": "Text Editor",
+            "insert_after": "category_image",
+            "description": "Beschreibungstext dieser Kategorie, der an Shopware übertragen wird. ERPNext hat kein natives Beschreibungsfeld für Artikelgruppen — dieses Feld übernimmt diese Rolle für den Shopware-Sync.",
+        },
+        {
             "fieldname": "seo_title",
             "label": "SEO-Titel (Shopware)",
             "fieldtype": "Data",
-            "insert_after": "category_image",
+            "insert_after": "category_description",
             "description": "Meta-Titel, der an Shopware übertragen wird. Leer lassen, um den Kategorienamen zu verwenden.",
         },
         {

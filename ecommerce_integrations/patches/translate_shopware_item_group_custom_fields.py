@@ -1,5 +1,6 @@
 """Re-sync Shopware custom fields to pick up German label/description
-translations on already-migrated sites.
+translations, plus the new ``category_description`` field, on
+already-migrated sites.
 
 ``Item Group.shopware_section`` / ``shopware_active`` / ``shopware_priority``
 / ``category_image`` shipped with English labels and descriptions from
@@ -8,6 +9,13 @@ in the later full-plugin German translation pass, which only reached
 fields added after it (the neighbouring ``seo_title`` /
 ``seo_meta_description`` / ``seo_keywords`` fields were already
 German).
+
+Also installs ``Item Group.category_description`` — ERPNext v16 has no
+native "description" field on Item Group at all (confirmed against
+both the shipped doctype JSON and an operator's live Customize Form
+view), so every module that assumed one (category import, the
+Shopware export direction, Catalog Mirror's tree walker) was silently
+writing to / reading from a field that never persisted anything.
 
 ``setup_custom_fields()`` is only applied on fresh installs
 (``after_install``); on an existing site with the previous English

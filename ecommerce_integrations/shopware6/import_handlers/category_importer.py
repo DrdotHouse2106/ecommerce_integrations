@@ -339,11 +339,16 @@ def _apply_fields(ig, node: LiveCategoryNode, parent_item_group: str) -> None:
     )
     ig.is_group = 1 if (node.children or already_has_children) else 0
 
-    if node.description:
-        ig.description = node.description
     ig.shopware_active = 1 if node.active else 0
 
+    # Item Group has no native "description" field in ERPNext v16 —
+    # writing to ig.description would silently discard the value
+    # (Frappe accepts setting an unknown attribute on a Document but
+    # never persists it, no error). category_description is our own
+    # custom field that actually gets saved.
     meta = frappe.get_meta("Item Group")
+    if node.description and meta.has_field("category_description"):
+        ig.category_description = node.description
     if node.meta_title and meta.has_field("seo_title"):
         ig.seo_title = node.meta_title
     if node.meta_description and meta.has_field("seo_meta_description"):

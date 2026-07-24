@@ -159,7 +159,7 @@ def get_item_group_data(item_group_name: str) -> dict[str, Any] | None:
         return {
             "name": item_group.name,
             "item_group_name": item_group.item_group_name,
-            "description": getattr(item_group, "description", None),
+            "description": getattr(item_group, "category_description", None),
             "image": item_group.image,
             "category_image": getattr(item_group, "category_image", None),
             "seo_title": getattr(item_group, "seo_title", None),
