@@ -117,16 +117,16 @@ def _run_category_import(request_id: str) -> None:
     previous_skip_flag = getattr(frappe.flags, "skip_shopware_sync", False)
     frappe.flags.skip_shopware_sync = True
     try:
-        setting = frappe.get_doc(SETTING_DOCTYPE)
-        category_root = _ensure_root_item_group(setting.category_sync_root or "Products")
         # Every Shopware root tree gets corralled under one clearly
-        # labelled "Shopware" node, one level inside category_sync_root
-        # — a shop that hasn't dedicated a specific Item Group to the
-        # sync (category_sync_root falls back to ERPNext's own generic
-        # "Products" group) still gets a visibly distinct boundary
-        # between its native catalogue and everything this importer
-        # owns, instead of the two being indistinguishable siblings.
-        root_parent = _ensure_item_group("Shopware", category_root)
+        # labelled, top-level "Shopware" node — a sibling of the
+        # operator's native catalogue root(s), not nested inside one
+        # of them. category_sync_root is a legacy/fallback setting
+        # shared with the old export-direction sync and commonly
+        # points at ERPNext's own generic "Products" group; nesting
+        # "Shopware" inside it made the import look like a subset of
+        # the operator's native catalogue instead of a clearly
+        # separate, importer-owned boundary.
+        root_parent = _ensure_root_item_group("Shopware")
 
         root_ids = _fetch_absolute_root_ids()
         stats["roots_found"] = len(root_ids)
@@ -165,9 +165,11 @@ def _run_category_import(request_id: str) -> None:
         # exactly "List View filtered by shopware_category_id shows
         # everything, Tree View shows almost nothing". Rebuild once at
         # the end of a run rather than after every single node (which
-        # would be one full-tree recalculation per insert).
-        if stats["created"] or stats["updated"]:
-            rebuild_tree("Item Group")
+        # would be one full-tree recalculation per insert). Unconditional
+        # — _ensure_root_item_group can also reparent the "Shopware"
+        # node itself via a direct db.set_value (no NestedSet hook),
+        # which wouldn't be reflected by created/updated counts alone.
+        rebuild_tree("Item Group")
 
         update_shopware_log(
             request_id,
@@ -192,12 +194,20 @@ def _run_category_import(request_id: str) -> None:
 
 
 def _ensure_root_item_group(name: str) -> str:
-    if frappe.db.exists("Item Group", name):
-        return name
-
     true_root = frappe.db.get_value(
         "Item Group", {"is_group": 1, "parent_item_group": ["in", ["", None]]}, "name"
     )
+
+    if frappe.db.exists("Item Group", name):
+        # Fix up a node that already exists but ended up nested under
+        # something else on an earlier run (e.g. "Shopware" used to be
+        # created one level inside category_sync_root) — this function's
+        # whole contract is "make sure this is a top-level node."
+        current_parent = frappe.db.get_value("Item Group", name, "parent_item_group")
+        if true_root and current_parent != true_root:
+            frappe.db.set_value("Item Group", name, "parent_item_group", true_root)
+        return name
+
     return _ensure_item_group(name, true_root)
 
 
