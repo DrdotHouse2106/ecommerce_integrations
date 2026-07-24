@@ -348,6 +348,8 @@ def _apply_fields(ig, node: LiveCategoryNode, parent_item_group: str) -> None:
         ig.seo_title = node.meta_title
     if node.meta_description and meta.has_field("seo_meta_description"):
         ig.seo_meta_description = node.meta_description
+    if node.meta_keywords and meta.has_field("seo_keywords"):
+        ig.seo_keywords = node.meta_keywords
 
 
 def _maybe_set_image(ig, node: LiveCategoryNode, stats: dict[str, Any]) -> None:

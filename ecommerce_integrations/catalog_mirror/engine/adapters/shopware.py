@@ -119,6 +119,7 @@ class ShopwareCatalogAdapter(CatalogAdapter):
             active=bool(root_attrs.get("active", True)),
             meta_title=root_attrs.get("metaTitle"),
             meta_description=root_attrs.get("metaDescription"),
+            meta_keywords=root_attrs.get("keywords"),
             ignored=_is_erp_ignored(root_attrs),
         )
 
@@ -145,6 +146,7 @@ class ShopwareCatalogAdapter(CatalogAdapter):
                     active=bool(child_attrs.get("active", True)),
                     meta_title=child_attrs.get("metaTitle"),
                     meta_description=child_attrs.get("metaDescription"),
+                    meta_keywords=child_attrs.get("keywords"),
                     # Inherit ``ignored`` down the subtree: a flagged
                     # parent shields all descendants from orphan /
                     # overwrite handling, even if a child isn't flagged
@@ -270,6 +272,7 @@ class ShopwareCatalogAdapter(CatalogAdapter):
                         "active",
                         "metaTitle",
                         "metaDescription",
+                        "keywords",
                         "customFields",
                     ],
                 },
@@ -294,6 +297,7 @@ class ShopwareCatalogAdapter(CatalogAdapter):
                     "active": attrs.get("active", True),
                     "metaTitle": attrs.get("metaTitle"),
                     "metaDescription": attrs.get("metaDescription"),
+                    "keywords": attrs.get("keywords"),
                     "customFields": attrs.get("customFields"),
                 })
             if len(data) < _TREE_PAGE_SIZE:

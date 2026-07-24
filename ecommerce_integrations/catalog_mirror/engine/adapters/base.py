@@ -52,6 +52,7 @@ class LiveCategoryNode:
     # ``None`` by backends without a native SEO-meta concept.
     meta_title: str | None = None
     meta_description: str | None = None
+    meta_keywords: str | None = None
     children: list["LiveCategoryNode"] = field(default_factory=list)
     # Operator opt-out: the live category carries a backend flag
     # (Shopware ``customFields.erp_ignored = true``) marking it as
