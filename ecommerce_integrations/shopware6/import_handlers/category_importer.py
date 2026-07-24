@@ -12,9 +12,15 @@ Reuses ``ShopwareCatalogAdapter.fetch_tree`` (the same tree-walk
 Catalog Mirror itself uses for previews) instead of re-implementing
 Shopware category pagination. Every Shopware category with no parent
 (``parentId is None``) is treated as a root — Shopware installations
-can have more than one such tree (main navigation, footer navigation,
-...); importing every root's subtree is what "all categories" means
-here.
+commonly have many such trees, one main-navigation and one
+footer-navigation root per sales channel/domain; importing every
+root's subtree is what "all categories" means here. Each root becomes
+its own Item Group (named after Shopware's own category name for it,
+e.g. "teile-fundgrube.de", "Footer GFVerlag") parented under
+``category_sync_root``, with that tree's real categories nested
+underneath — keeping every sales channel's tree visibly distinct
+instead of merging all of them into one flat bucket under the shared
+root.
 
 Matching is by ``shopware_category_id`` only (idempotent re-run: a
 node already linked to an Item Group is updated in place, not
@@ -112,7 +118,15 @@ def _run_category_import(request_id: str) -> None:
     frappe.flags.skip_shopware_sync = True
     try:
         setting = frappe.get_doc(SETTING_DOCTYPE)
-        root_parent = _ensure_root_item_group(setting.category_sync_root or "Products")
+        category_root = _ensure_root_item_group(setting.category_sync_root or "Products")
+        # Every Shopware root tree gets corralled under one clearly
+        # labelled "Shopware" node, one level inside category_sync_root
+        # — a shop that hasn't dedicated a specific Item Group to the
+        # sync (category_sync_root falls back to ERPNext's own generic
+        # "Products" group) still gets a visibly distinct boundary
+        # between its native catalogue and everything this importer
+        # owns, instead of the two being indistinguishable siblings.
+        root_parent = _ensure_item_group("Shopware", category_root)
 
         root_ids = _fetch_absolute_root_ids()
         stats["roots_found"] = len(root_ids)
@@ -126,11 +140,17 @@ def _run_category_import(request_id: str) -> None:
                 stats["errors"].append(f"Could not fetch category tree for root {root_id}.")
                 continue
             stats["root_summaries"].append(f"{tree_root.name or root_id} ({len(tree_root.children)})")
-            # The technical root itself isn't imported as an Item Group —
-            # only its children are, parented under category_sync_root.
-            # Mirrors the export side's "skip_root_category" convention.
-            for child in tree_root.children:
-                _import_node(child, parent_item_group=root_parent, stats=stats)
+            # Each Shopware absolute root is its own real Item Group —
+            # e.g. "teile-fundgrube.de", "Footer GFVerlag" — parented
+            # under category_sync_root, with that tree's actual
+            # categories nested underneath it. Merging every root's
+            # children directly into one shared category_sync_root
+            # (the old behaviour) flattened all 16 navigation/footer
+            # trees from every sales channel into one bucket with no
+            # indication of which shop or tree a category came from.
+            # _import_node already handles name collisions safely, so
+            # importing the root itself needs no special-casing.
+            _import_node(tree_root, parent_item_group=root_parent, stats=stats)
             # Commit after each root tree rather than only at the very
             # end — a job that dies partway (worker restart, OOM) still
             # keeps whatever it already finished instead of losing it
@@ -178,10 +198,17 @@ def _ensure_root_item_group(name: str) -> str:
     true_root = frappe.db.get_value(
         "Item Group", {"is_group": 1, "parent_item_group": ["in", ["", None]]}, "name"
     )
+    return _ensure_item_group(name, true_root)
+
+
+def _ensure_item_group(name: str, parent_item_group: str) -> str:
+    if frappe.db.exists("Item Group", name):
+        return name
+
     ig = frappe.new_doc("Item Group")
     ig.item_group_name = name
     ig.is_group = 1
-    ig.parent_item_group = true_root
+    ig.parent_item_group = parent_item_group
     ig.insert(ignore_permissions=True)
     return ig.name
 
