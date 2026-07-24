@@ -242,9 +242,15 @@ def _patch_client_binary_upload(client: Shopware6AdminAPIClientBase):
 
             return response
 
-        # All other requests go through the original path
+        # All other requests go through the original path. request_url/
+        # payload/etc. are keyword-only in newer lib_shopware6_api_base
+        # versions (a `*` was added ahead of them in _request's
+        # signature) — pass everything but http_method as keywords so
+        # this works across both old and new signatures.
         return _orig_request(
-            http_method, request_url, payload,
+            http_method,
+            request_url=request_url,
+            payload=payload,
             content_type=content_type,
             additional_query_params=additional_query_params,
             update_header_fields=update_header_fields,
