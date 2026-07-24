@@ -162,6 +162,34 @@ frappe.ui.form.on('Shopware Setting', {
 			);
 		}, __('Sync öffnen'));
 
+		// One-time full catalogue backfill (products, variants, prices,
+		// stock, images, properties, brand, delivery time, SEO/closeout).
+		// SKU-matched non-destructively against existing Items — never
+		// wired into the recurring Pull Sync/cron, purely a manual
+		// button for "pull everything from Shopware into ERPNext once".
+		frm.add_custom_button(__('Produkte aus Shopware importieren'), function() {
+			frappe.confirm(
+				__('Dies importiert den gesamten Shopware-Produktkatalog (Varianten, Preise, Lagerbestand, Bilder, Eigenschaften, Marke, Lieferzeit, SEO/Abverkauf) nach ERPNext. Bereits vorhandene Artikel werden per SKU zugeordnet und nicht überschrieben — nur ergänzt. Läuft im Hintergrund und kann bei großen Katalogen mehrere Stunden dauern. Fortfahren?'),
+				function() {
+					frappe.call({
+						method: 'ecommerce_integrations.shopware6.import_handlers.product_importer.import_products_from_shopware',
+						callback: function(r) {
+							let s = r.message || {};
+							if (s.log) {
+								frappe.msgprint({
+									title: __('Produkt-Import läuft'),
+									message: __('Der Import wurde im Hintergrund eingereiht. Fortschritt und Ergebnis findet ihr im Ecommerce Integration Log {0}.', [
+										`<a href="/app/ecommerce-integration-log/${s.log}">${s.log}</a>`
+									]),
+									indicator: 'blue'
+								});
+							}
+						}
+					});
+				}
+			);
+		}, __('Sync öffnen'));
+
 		// Pull Sync öffnen — single source of truth for backend → ERP
 		// pulls (orders, customers, stock). The legacy "Orders" /
 		// "Customers" / "Stock" / "Properties" dialogs duplicated what
