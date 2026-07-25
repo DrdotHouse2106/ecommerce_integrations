@@ -236,10 +236,14 @@ class ShopwareProduct:
             "item_group": self._get_item_group(product_data),
             "has_variants": has_variant,
             "attributes": attributes or [],
-            "stock_uom": _("Nos"),
+            # Literal "Nos"/"Kg", not _(...) — these are Link-field
+            # values that must match tabUOM's actual document name,
+            # not a translated display label (e.g. German renders
+            # "Nos" as "Stk", which isn't a real UOM record).
+            "stock_uom": "Nos",
             "default_warehouse": warehouse,
             "image": image_url,
-            "weight_uom": WEIGHT_TO_ERPNEXT_UOM_MAP.get(weight_unit, _("Kg")),
+            "weight_uom": WEIGHT_TO_ERPNEXT_UOM_MAP.get(weight_unit, "Kg"),
             "weight_per_unit": weight,
             "default_supplier": self._get_supplier(supplier_name) if supplier_name else None,
             ITEM_SELLING_RATE_FIELD: price,

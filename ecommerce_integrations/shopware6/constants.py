@@ -1,7 +1,5 @@
 """Constants for Shopware 6 Integration"""
 
-from frappe import _
-
 # Root item groups to skip during category sync (ERPNext default root nodes)
 ROOT_ITEM_GROUPS = {"All Item Groups"}
 
@@ -100,12 +98,18 @@ CATEGORY_FAQ_FIELDS_MAP = {
 # Shopware variant attributes (max 3 in Shopware)
 SHOPWARE_VARIANTS_ATTR_LIST = ["option1", "option2", "option3"]
 
-# Weight unit mapping: Shopware -> ERPNext
+# Weight unit mapping: Shopware -> ERPNext.
+# Literal UOM document names, not _(...) — this dict is built once at
+# module import time and used as a Link-field value later. _() would
+# eagerly translate to whatever language happened to be active at
+# import time (e.g. German renders the "Nos"/"Kg" UOM's label
+# differently from its actual tabUOM primary key), baking in a
+# mismatch for the rest of that worker process's lifetime.
 WEIGHT_TO_ERPNEXT_UOM_MAP = {
-    "kg": _("Kg"),
-    "g": _("Gram"),
-    "lb": _("Pound"),
-    "oz": _("Ounce"),
+    "kg": "Kg",
+    "g": "Gram",
+    "lb": "Pound",
+    "oz": "Ounce",
 }
 
 # Default pagination settings

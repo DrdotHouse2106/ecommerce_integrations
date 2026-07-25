@@ -571,7 +571,10 @@ def _apply_supplementary_fields(item_code: str, data: dict[str, Any], stats: dic
     weight = flt(data.get("weight") or 0)
     if weight and item.weight_per_unit != weight:
         item.weight_per_unit = weight
-        item.weight_uom = item.weight_uom or _("Kg")
+        # Literal "Kg", not _("Kg") — same reasoning as _ensure_uom:
+        # this has to match tabUOM's actual document name, not a
+        # translated display label.
+        item.weight_uom = item.weight_uom or "Kg"
         changed = True
 
     for dim_field, sw_field in (("item_height", "height"), ("item_width", "width"), ("item_length", "length")):
@@ -600,17 +603,24 @@ def _ensure_uom(name: str | None) -> str:
     ERPNext UOM just because it's a string — stock_uom is a Link field,
     and saving with an unknown UOM throws. Auto-create it once rather
     than collapsing every distinct Shopware unit down to "Nos".
+
+    The fallback is the literal document name "Nos", not _("Nos") —
+    _() translates to the site's display language (e.g. German
+    renders the "Nos" UOM's label as "Stk"), but a Link field needs
+    the actual tabUOM primary key, not a translated label. Building a
+    Link value from a translated string is exactly the label-vs-value
+    mistake that bit the Select-field options earlier in this project.
     """
     name = (name or "").strip()
     if not name:
-        return _("Nos")
+        return "Nos"
     if frappe.db.exists("UOM", name):
         return name
     try:
         frappe.get_doc({"doctype": "UOM", "uom_name": name}).insert(ignore_permissions=True)
     except Exception:
         frappe.log_error(title="Shopware product import: UOM creation failed", message=frappe.get_traceback())
-        return _("Nos")
+        return "Nos"
     return name
 
 
