@@ -133,6 +133,21 @@ def _run_product_import(request_id: str) -> None:
         setting = frappe.get_doc(SETTING_DOCTYPE)
         warehouse = setting.warehouse
 
+        # ERPNext refuses any Stock Ledger Entry against a group
+        # (organisational) warehouse node — every single stock
+        # adjustment would otherwise fail with the same
+        # "Group node warehouse is not allowed" error. Check once,
+        # skip stock for the whole run with one clear message instead
+        # of flooding the log with a per-item stack trace.
+        if warehouse and frappe.db.get_value("Warehouse", warehouse, "is_group"):
+            stats["errors"].append(
+                f'Lager "{warehouse}" in den Shopware-Einstellungen ist ein Gruppenknoten '
+                '— Lagerbuchungen sind dort nicht erlaubt. Bitte in den Shopware-'
+                "Einstellungen ein echtes (Blatt-)Lager auswählen. Lagerbestand wurde "
+                "für diesen Lauf übersprungen, alles andere lief normal weiter."
+            )
+            warehouse = None
+
         category_to_item_group = _build_category_item_group_map()
         if not category_to_item_group:
             stats["errors"].append(
