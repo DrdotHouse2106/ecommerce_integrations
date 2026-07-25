@@ -56,7 +56,7 @@ class TestResolveOrCreateItem(ShopwareTestCase, IntegrationTestCase):
     safety-critical property of this module."""
 
     def _stats(self):
-        return {"created": 0, "variants_created": 0, "matched": 0, "errors": []}
+        return {"created": 0, "variants_created": 0, "matched": 0, "variant_of_mismatches": 0, "errors": []}
 
     def test_creates_new_item_for_unknown_sku(self):
         sku = _unique_sku("PI-NEW")
@@ -137,7 +137,12 @@ class TestResolveOrCreateItem(ShopwareTestCase, IntegrationTestCase):
 
         self.assertEqual(item_code, sku)
         self.assertTrue(matched)
-        self.assertTrue(stats["errors"])
+        # Tracked as an informational count, not a per-item error line —
+        # this is expected on a WeClapp-origin catalogue (no native
+        # ERPNext variant structure there), not a failure worth flipping
+        # the whole run to "Error" over.
+        self.assertEqual(stats["variant_of_mismatches"], 1)
+        self.assertEqual(stats["errors"], [])
         # Never reparented onto the mismatched template.
         self.assertNotEqual(frappe.db.get_value("Item", sku, "variant_of"), "SOME-TEMPLATE")
 

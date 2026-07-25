@@ -96,6 +96,7 @@ def _run_category_import(request_id: str) -> None:
         "updated": 0,
         "skipped_ignored": 0,
         "name_conflicts": 0,
+        "renamed": 0,
         "images_set": 0,
         "nodes_seen": 0,
         "errors": [],
@@ -150,7 +151,7 @@ def _run_category_import(request_id: str) -> None:
             # indication of which shop or tree a category came from.
             # _import_node already handles name collisions safely, so
             # importing the root itself needs no special-casing.
-            _import_node(tree_root, parent_item_group=root_parent, stats=stats)
+            _import_node(tree_root, parent_item_group=root_parent, breadcrumb=[], stats=stats)
             # Commit after each root tree rather than only at the very
             # end — a job that dies partway (worker restart, OOM) still
             # keeps whatever it already finished instead of losing it
@@ -176,12 +177,12 @@ def _run_category_import(request_id: str) -> None:
             status="Success" if not stats["errors"] else "Error",
             message=_(
                 "Wurzelbäume: {0} ({1}), besuchte Knoten: {2} — "
-                "Erstellt: {3}, Aktualisiert: {4}, Bilder gesetzt: {5}, "
-                "Übersprungen: {6}, Namenskonflikte (als neue Kategorie angelegt, "
-                "bestehende unangetastet): {7}"
+                "Erstellt: {3}, Aktualisiert: {4}, Umbenannt (lesbarerer Pfad): {5}, "
+                "Bilder gesetzt: {6}, Übersprungen: {7}, Namenskonflikte (als neue "
+                "Kategorie angelegt, bestehende unangetastet): {8}"
             ).format(
                 stats["roots_found"], ", ".join(stats["root_summaries"]), stats["nodes_seen"],
-                stats["created"], stats["updated"], stats["images_set"],
+                stats["created"], stats["updated"], stats["renamed"], stats["images_set"],
                 stats["skipped_ignored"], stats["name_conflicts"],
             ),
             exception="\n".join(stats["errors"]) if stats["errors"] else None,
@@ -223,14 +224,16 @@ def _ensure_item_group(name: str, parent_item_group: str) -> str:
     return ig.name
 
 
-def _import_node(node: LiveCategoryNode, parent_item_group: str, stats: dict[str, Any]) -> None:
+def _import_node(
+    node: LiveCategoryNode, parent_item_group: str, breadcrumb: list[str], stats: dict[str, Any],
+) -> None:
     stats["nodes_seen"] += 1
 
     if node.ignored:
         stats["skipped_ignored"] += 1
         return
 
-    item_group_name = _resolve_item_group(node, parent_item_group, stats)
+    item_group_name = _resolve_item_group(node, parent_item_group, breadcrumb, stats)
 
     # Commit periodically, not just per root — a deep single tree (the
     # common case: one big main-navigation root) would otherwise stay
@@ -245,17 +248,42 @@ def _import_node(node: LiveCategoryNode, parent_item_group: str, stats: dict[str
     # dropping the entire subtree because one ancestor errored. A
     # single duplicate-name collision further down the tree shouldn't
     # cost dozens of otherwise-fine descendant categories.
+    child_breadcrumb = [*breadcrumb, node.name or node.external_id]
     for child in node.children:
-        _import_node(child, parent_item_group=item_group_name or parent_item_group, stats=stats)
+        _import_node(
+            child, parent_item_group=item_group_name or parent_item_group,
+            breadcrumb=child_breadcrumb, stats=stats,
+        )
 
 
-def _resolve_item_group(node: LiveCategoryNode, parent_item_group: str, stats: dict[str, Any]) -> str | None:
+def _resolve_item_group(
+    node: LiveCategoryNode, parent_item_group: str, breadcrumb: list[str], stats: dict[str, Any],
+) -> str | None:
     try:
+        base_name = node.name or _("Unnamed Category")
+
         # 1. Already imported on a previous run of this script.
         linked_name = frappe.db.get_value(
             "Item Group", {"shopware_category_id": node.external_id}, "name"
         )
         if linked_name:
+            desired_name = _desired_item_group_name(base_name, breadcrumb, node.external_id, linked_name)
+            if desired_name != linked_name:
+                # Fix up a name that was disambiguated under the old
+                # scheme (bare parent name, or a raw UUID) into the
+                # current, human-readable breadcrumb form. Item Group
+                # is otherwise ours to manage once shopware_category_id
+                # is set, and frappe.rename_doc keeps every Item
+                # reference (item_group, additional_item_groups) intact.
+                try:
+                    frappe.rename_doc("Item Group", linked_name, desired_name, ignore_permissions=True)
+                    linked_name = desired_name
+                    stats["renamed"] += 1
+                except Exception:
+                    frappe.log_error(
+                        title="Shopware category import: rename failed",
+                        message=frappe.get_traceback(),
+                    )
             ig = frappe.get_doc("Item Group", linked_name)
             _apply_fields(ig, node, parent_item_group)
             ig.save(ignore_permissions=True)
@@ -263,7 +291,6 @@ def _resolve_item_group(node: LiveCategoryNode, parent_item_group: str, stats: d
             _maybe_set_image(ig, node, stats)
             return ig.name
 
-        base_name = node.name or _("Unnamed Category")
         existing = frappe.db.exists("Item Group", {"item_group_name": base_name})
 
         target_name = base_name
@@ -275,7 +302,7 @@ def _resolve_item_group(node: LiveCategoryNode, parent_item_group: str, stats: d
             # separate node instead. An operator who actually wants to
             # link an existing hand-made group to this Shopware category
             # does so explicitly via Catalog Mirror's per-node Adopt.
-            target_name = _unique_item_group_name(base_name, parent_item_group, node.external_id)
+            target_name = _unique_item_group_name(base_name, breadcrumb, node.external_id)
             stats["name_conflicts"] += 1
 
         # 3. New Item Group.
@@ -294,33 +321,68 @@ def _resolve_item_group(node: LiveCategoryNode, parent_item_group: str, stats: d
         return None
 
 
-def _unique_item_group_name(base_name: str, parent_item_group: str, external_id: str) -> str:
+def _desired_item_group_name(
+    base_name: str, breadcrumb: list[str], external_id: str, current_name: str,
+) -> str:
+    """What an already-linked node's name should be right now — plain
+    base_name if that's free (or already this node's own), otherwise
+    the same breadcrumb disambiguation a brand-new node would get.
+    """
+    existing = frappe.db.get_value(
+        "Item Group", {"item_group_name": base_name}, ["name", "shopware_category_id"], as_dict=True,
+    )
+    if not existing or existing.name == current_name:
+        return base_name
+    if existing.shopware_category_id == external_id:
+        return base_name
+    return _unique_item_group_name(base_name, breadcrumb, external_id)
+
+
+def _format_breadcrumb(breadcrumb: list[str]) -> str:
+    segments = ["SW", *[b for b in breadcrumb if b]]
+    path = "/".join(segments)
+    # Item Group names are capped at 140 chars total — a deep tree
+    # could otherwise blow that budget on the breadcrumb alone. Root +
+    # immediate parent are the most useful for placing the category at
+    # a glance, so trim the middle first rather than the ends.
+    if len(path) > 90 and len(segments) > 3:
+        path = "/".join([segments[0], segments[1], "…", segments[-1]])
+    return path
+
+
+def _unique_item_group_name(base_name: str, breadcrumb: list[str], external_id: str) -> str:
     """Find a free Item Group name for a category whose plain name is
     already claimed by a different mapped category.
 
-    Shopware categories are commonly duplicated by name under
-    different parents (e.g. a "Motor" category under every vehicle
-    brand). A truncated external_id was tried first but Shopware's
-    UUIDs are time-ordered, so categories bulk-created close together
-    share the same leading hex characters — the truncated suffix
-    collided across siblings-in-name-only just as often as it
-    disambiguated them. Try the parent context first (meaningful to a
-    human), then the full external_id (guaranteed unique), then a
-    numeric counter — actually checking each candidate rather than
-    assuming any of them is free.
+    Shopware categories are commonly duplicated by name across
+    completely different trees (e.g. a "Bremsleitung" category under
+    both "francetec.de/2CV6" and some other domain/model) — a single
+    immediate-parent name isn't reliably unique either, and a raw
+    external_id is unreadable. Disambiguate with the full human-
+    readable breadcrumb (Shopware's own category names, root tree down
+    to the immediate parent) instead — e.g.
+    "Bremsleitung (SW/francetec.de/2CV6/Bremsanlage)" tells the
+    operator exactly where in which tree this lives without opening
+    the tree view. Falls back to appending the external_id, then a
+    numeric counter, only in the (very unlikely) case the full path
+    itself collides too.
     """
+    path = _format_breadcrumb(breadcrumb)
     candidates = [
-        f"{base_name} ({parent_item_group})",
-        f"{base_name} ({external_id})",
+        f"{base_name} ({path})",
+        f"{base_name} ({path}/{external_id[:8]})",
     ]
     for candidate in candidates:
+        candidate = candidate[:140]
         if not frappe.db.exists("Item Group", candidate):
             return candidate
 
     n = 2
-    while frappe.db.exists("Item Group", f"{base_name} ({parent_item_group}) #{n}"):
+    while True:
+        candidate = f"{base_name} ({path}) #{n}"[:140]
+        if not frappe.db.exists("Item Group", candidate):
+            return candidate
         n += 1
-    return f"{base_name} ({parent_item_group}) #{n}"
 
 
 def _apply_fields(ig, node: LiveCategoryNode, parent_item_group: str) -> None:

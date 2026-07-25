@@ -118,6 +118,7 @@ def _run_product_import(request_id: str) -> None:
         "prices_set": 0,
         "images_set": 0,
         "stock_adjusted": 0,
+        "variant_of_mismatches": 0,
         "errors": [],
     }
 
@@ -173,11 +174,12 @@ def _run_product_import(request_id: str) -> None:
                 "Produkte gesehen: {0}, Erstellt: {1}, Varianten erstellt: {2}, "
                 "Zugeordnet (bestehender Artikel per SKU): {3}, Kategorie-Zuordnungen "
                 "ergänzt: {4}, Preise gesetzt: {5}, Bilder gesetzt: {6}, "
-                "Lagerbestand angepasst: {7}"
+                "Lagerbestand angepasst: {7}, Varianten-Zuordnungen ohne passende "
+                "ERPNext-Vorlage (nur verknüpft, nichts verschoben): {8}"
             ).format(
                 stats["products_seen"], stats["created"], stats["variants_created"],
                 stats["matched"], stats["category_links_added"], stats["prices_set"],
-                stats["images_set"], stats["stock_adjusted"],
+                stats["images_set"], stats["stock_adjusted"], stats["variant_of_mismatches"],
             ),
             exception="\n".join(stats["errors"]) if stats["errors"] else None,
         )
@@ -325,7 +327,7 @@ def _import_simple_product(
         or (product_data.get("translated") or {}).get("description")
         or name
     )
-    uom = ((product_data.get("unit") or {}).get("name")) or _("Nos")
+    uom = _ensure_uom((product_data.get("unit") or {}).get("name"))
 
     item_dict = {
         "item_code": sku,
@@ -349,7 +351,7 @@ def _import_template(
         or (product_data.get("translated") or {}).get("name")
         or sku
     ).strip()
-    uom = ((product_data.get("unit") or {}).get("name")) or _("Nos")
+    uom = _ensure_uom((product_data.get("unit") or {}).get("name"))
 
     item_dict = {
         "item_code": sku,
@@ -385,7 +387,7 @@ def _import_variant(
                 break
         variant_attributes.append(attr_copy)
 
-    uom = ((child.get("unit") or {}).get("name")) or _("Nos")
+    uom = _ensure_uom((child.get("unit") or {}).get("name"))
     item_dict = {
         "item_code": sku,
         "item_name": (name or f"{template_item_code}-{sku}")[:140],
@@ -441,11 +443,16 @@ def _resolve_or_create_item(
         if variant_of:
             existing_variant_of = frappe.db.get_value("Item", existing_item_code, "variant_of")
             if existing_variant_of != variant_of:
-                stats["errors"].append(
-                    f"SKU {sku}: bestehender Artikel ist nicht (oder anders) mit Vorlage "
-                    f"{variant_of} verknüpft — nur Shopware-Zuordnung ergänzt, Artikel "
-                    "selbst unangetastet."
-                )
+                # Expected, not exceptional, on a WeClapp-origin catalogue:
+                # WeClapp doesn't use ERPNext's native has_variants/
+                # variant_of at all, so Shopware modelling a product as
+                # parent+children will almost always "mismatch" against
+                # the flat WeClapp item structure. Track it as an
+                # informational count, not a per-item error line — with
+                # thousands of variants this would otherwise flood the
+                # log and flip the whole run to "Error" for something
+                # that isn't actually broken.
+                stats["variant_of_mismatches"] = stats.get("variant_of_mismatches", 0) + 1
         if not ecommerce_item.is_synced(MODULE_NAME, product_id, variant_id=variant_id, sku=sku):
             try:
                 frappe.get_doc({
@@ -563,6 +570,25 @@ def _ensure_brand(name: str | None) -> str | None:
     if frappe.db.exists("Brand", name):
         return name
     frappe.get_doc({"doctype": "Brand", "brand": name}).insert(ignore_permissions=True)
+    return name
+
+
+def _ensure_uom(name: str | None) -> str:
+    """Shopware's unit name (e.g. "Stk", "Stück (Menge)") isn't a valid
+    ERPNext UOM just because it's a string — stock_uom is a Link field,
+    and saving with an unknown UOM throws. Auto-create it once rather
+    than collapsing every distinct Shopware unit down to "Nos".
+    """
+    name = (name or "").strip()
+    if not name:
+        return _("Nos")
+    if frappe.db.exists("UOM", name):
+        return name
+    try:
+        frappe.get_doc({"doctype": "UOM", "uom_name": name}).insert(ignore_permissions=True)
+    except Exception:
+        frappe.log_error(title="Shopware product import: UOM creation failed", message=frappe.get_traceback())
+        return _("Nos")
     return name
 
 
