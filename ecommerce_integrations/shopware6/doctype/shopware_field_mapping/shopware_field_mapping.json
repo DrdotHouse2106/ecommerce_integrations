@@ -47,10 +47,10 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Zuordnungstyp",
-   "options": "Custom Field\nProperty\nStandard Field",
-   "default": "Custom Field",
+   "options": "Property\nStandard Field",
+   "default": "Property",
    "reqd": 1,
-   "description": "Custom Field = Shopware customFields, Property = PropertyGroup/Option (im Shop filterbar), Standard Field = Shopware-Produktfeld"
+   "description": "Property = PropertyGroup/Option (im Shop filterbar). Für Zusatzfelder (Shopware customFields) die Tabelle 'Zusatzfeld-Zuordnungen' weiter unten verwenden — die ist die einzige Quelle, die sowohl der einfache Artikel-Push als auch der Varianten-Push lesen."
   },
   {
    "fieldname": "shopware_field_type",
@@ -58,7 +58,8 @@
    "label": "Shopware-Feldtyp",
    "options": "text\nhtml\nswitch\nnumber\nselect\ndatetime",
    "default": "text",
-   "description": "Datentyp des Felds in Shopware (nur für Custom Fields)"
+   "depends_on": "eval:doc.mapping_type=='Standard Field'",
+   "description": "Datentyp des Felds in Shopware"
   },
   {
    "fieldname": "section_break_labels",

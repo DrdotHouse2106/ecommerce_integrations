@@ -18,7 +18,7 @@ class ShopwareFieldMapping(Document):
 		filterable: DF.Check
 		label_de: DF.Data | None
 		label_en: DF.Data | None
-		mapping_type: DF.Literal["Custom Field", "Property", "Standard Field"]
+		mapping_type: DF.Literal["Property", "Standard Field"]
 		parent: DF.Data
 		parentfield: DF.Data
 		parenttype: DF.Data

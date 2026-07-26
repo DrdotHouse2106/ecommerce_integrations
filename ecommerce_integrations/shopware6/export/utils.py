@@ -60,12 +60,42 @@ def get_setting():
     return frappe.get_cached_doc(SETTING_DOCTYPE)
 
 
+#: Coercion type on ``item_custom_field_mappings`` rows (Boolean / Text /
+#: Integer / Float / Skip-If-Empty — used by the product-sync engine's
+#: value coercion) has no 1:1 counterpart in Shopware's own field-type
+#: vocabulary (text/html/switch/number/select/datetime — used only to
+#: declare the customField's UI widget in Shopware). This is a
+#: best-effort, UI-widget-only mapping; it never affects the pushed
+#: value itself.
+_COERCION_TO_SHOPWARE_FIELD_TYPE = {
+    "Boolean": "switch",
+    "Integer": "number",
+    "Float": "number",
+    "Text": "text",
+    "Skip-If-Empty": "text",
+}
+
+
 def get_field_mappings() -> dict[str, dict]:
     """
     Get all configured field mappings from Shopware Settings.
 
-    Reads from the product_field_mappings table in Shopware Settings,
-    plus auto-detected jattr_* fields if enabled.
+    Two tables feed this, each for a different mapping_type:
+
+    - ``product_field_mappings`` (``Shopware Field Mapping``) — Property
+      and Standard Field mappings only. Custom Field rows used to live
+      here too, but that made "map an ERPNext field to a Shopware
+      customField" a two-tables-do-the-same-thing situation depending on
+      whether the legacy variant-push path or the modern product-sync
+      engine was reading it. They've been consolidated onto
+      ``item_custom_field_mappings`` below (migrated by
+      ``patches.migrate_custom_field_mappings_to_unified_table``).
+    - ``item_custom_field_mappings`` (``Shopware Item Custom Field
+      Mapping``) — the single source of truth for Custom Field mappings,
+      shared with the product-sync engine's canonical builder
+      (``canonical.py::_get_dynamic_field_mappings`` reads the exact same
+      rows for the modern single-item push path). Also auto-detected
+      jattr_* fields if enabled.
 
     Returns:
         Dict with structure:
@@ -82,9 +112,12 @@ def get_field_mappings() -> dict[str, dict]:
     setting = get_setting()
     mappings = {}
 
-    # Explicit mappings from table
+    # Property / Standard Field mappings only — Custom Field rows on this
+    # table are legacy leftovers a migration may not have caught (e.g. a
+    # row added after the migration patch ran); skip them defensively so
+    # they don't shadow the unified table below.
     for row in setting.get('product_field_mappings', []):
-        if row.enabled:
+        if row.enabled and row.mapping_type != 'Custom Field':
             mappings[row.erpnext_field] = {
                 'shopware_field': row.shopware_field,
                 'mapping_type': row.mapping_type,
@@ -94,6 +127,22 @@ def get_field_mappings() -> dict[str, dict]:
                     'en-GB': row.label_en or row.erpnext_field
                 },
                 'filterable': bool(row.filterable)
+            }
+
+    # Custom Field mappings: the unified table.
+    for row in setting.get('item_custom_field_mappings', []):
+        if row.item_field and row.shopware_custom_field:
+            mappings[row.item_field] = {
+                'shopware_field': row.shopware_custom_field,
+                'mapping_type': 'Custom Field',
+                'shopware_field_type': _COERCION_TO_SHOPWARE_FIELD_TYPE.get(
+                    row.field_type, 'text',
+                ),
+                'labels': {
+                    'de-DE': row.description or row.item_field,
+                    'en-GB': row.description or row.item_field,
+                },
+                'filterable': False,
             }
 
     # Auto-detect jattr_* fields if enabled

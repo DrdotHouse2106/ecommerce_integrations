@@ -890,14 +890,14 @@
    "fieldname": "field_mapping_section",
    "fieldtype": "Section Break",
    "label": "Feld-Zuordnungen (erweitert)",
-   "description": "Welche ERPNext-Artikelfelder an Shopware übertragen werden — und ob als Custom Field (nicht filterbar) oder als Eigenschaft (im Shop filterbar)."
+   "description": "Welche ERPNext-Artikelfelder an Shopware übertragen werden. Für Zusatzfelder (Shopware customFields) siehe die Tabelle 'Zusatzfeld-Zuordnungen' weiter unten — hier geht es nur noch um Eigenschaften (im Shop filterbar) und Standard-Produktfelder."
   },
   {
    "fieldname": "product_field_mappings",
    "fieldtype": "Table",
-   "label": "Feld-Zuordnungen",
+   "label": "Eigenschafts-/Standardfeld-Zuordnungen",
    "options": "Shopware Field Mapping",
-   "description": "ERPNext-Artikel-Felder auf Shopware-Produkt-Felder abbilden (Custom Field oder Eigenschaft)."
+   "description": "ERPNext-Artikel-Felder auf Shopware-Eigenschaften oder Standard-Produktfelder abbilden."
   },
   {
    "fieldname": "column_break_field_mapping",
@@ -914,7 +914,7 @@
    "fieldname": "field_mapping_info_html",
    "fieldtype": "HTML",
    "label": "Info Feld-Zuordnung",
-   "options": "<div class=\"alert alert-info\"><h5>Arten der Feld-Zuordnung</h5><ul><li><strong>Custom Field:</strong> Wird in Shopwares customFields synchronisiert (Produktdetailseite, nicht filterbar)</li><li><strong>Eigenschaft:</strong> Wird als PropertyGroup/Option synchronisiert (im Shop-Frontend filterbar)</li><li><strong>Standard Field:</strong> Wird auf eingebaute Shopware-Produktfelder abgebildet</li></ul><p><strong>Tipp:</strong> 'jattr_*-Felder automatisch erkennen' aktivieren, um alle JTL-Attribute automatisch als Eigenschaften zu synchronisieren.</p></div>"
+   "options": "<div class=\"alert alert-info\"><h5>Arten der Feld-Zuordnung</h5><ul><li><strong>Zusatzfeld (Custom Field):</strong> Tabelle 'Zusatzfeld-Zuordnungen' weiter unten — wird in Shopwares customFields synchronisiert (Produktdetailseite, nicht filterbar). Einzige Quelle für beide Push-Wege (einfache Artikel und Varianten) sowie den Produkt-Import.</li><li><strong>Eigenschaft:</strong> Tabelle oben — wird als PropertyGroup/Option synchronisiert (im Shop-Frontend filterbar)</li><li><strong>Standard Field:</strong> Tabelle oben — wird auf eingebaute Shopware-Produktfelder abgebildet</li></ul><p><strong>Tipp:</strong> 'jattr_*-Felder automatisch erkennen' aktivieren, um alle JTL-Attribute automatisch als Eigenschaften zu synchronisieren.</p></div>"
   },
   {
    "fieldname": "inventory_sync_section",

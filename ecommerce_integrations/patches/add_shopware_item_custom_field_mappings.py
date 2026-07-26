@@ -1,14 +1,28 @@
-"""Install the ``Shopware Setting.item_custom_field_mappings`` table.
+"""Install (and, on re-run, reposition/re-label) the
+``Shopware Setting.item_custom_field_mappings`` table.
 
 Adds a generic Item-field → Shopware-customField mapping table on
 the Shopware Setting singleton so operators can wire up Idealo,
 Google Shopping, age-rating or any other Shopware product
-``customFields`` slot without code changes. The product-sync engine
-reads the rows once per run (memoised on ``frappe.local``) and
-hashes each mapped value into the canonical so a value flip on
-the Item flips the per-section hash → drift → push.
+``customFields`` slot without code changes. This is the single
+unified mapping table: the product-sync engine's canonical builder
+reads it directly for the modern single-item push
+(``product_sync/engine/canonical.py::_get_dynamic_field_mappings``),
+and ``export/utils.py::get_field_mappings`` folds the same rows in
+for the legacy variant-push path and the pull-direction product
+importer — see ``patches.migrate_custom_field_mappings_to_unified_table``
+for the one-time data migration off the older, narrower
+``product_field_mappings`` table.
 
-Idempotent — skipped if the field already exists.
+Called both by the original one-time patch and by later re-run
+patches (``translate_shopware_item_custom_field_mapping_section``,
+``reposition_item_custom_field_mappings_section``) whenever the
+label/description/position here changes — ``create_custom_fields``
+with ``update=True`` applies label, description AND position
+(``insert_after``) to an already-existing Custom Field, so re-running
+is how a field ships a fix to sites that already installed it.
+
+Idempotent — skipped if the child DocType doesn't exist yet.
 """
 
 from __future__ import annotations
@@ -31,20 +45,30 @@ def execute() -> None:
         "Shopware Setting": [
             {
                 "fieldname": "item_custom_field_mappings_section",
-                "label": "Artikel → Shopware Zusatzfeld-Zuordnung",
+                "label": "Zusatzfeld-Zuordnungen (Shopware Custom Fields)",
                 "fieldtype": "Section Break",
-                "insert_after": "list_price_includes_tax",
-                "collapsible": 1,
+                # Originally inserted after list_price_includes_tax (buried
+                # in the Preise section, hard to find). Repositioned right
+                # after the existing "Feld-Zuordnungen (erweitert)" section
+                # so both mapping tables live next to each other.
+                "insert_after": "field_mapping_info_html",
+                "collapsible": 0,
+                # Deliberately NOT gated behind upload_erpnext_items (unlike
+                # the "Feld-Zuordnungen (erweitert)" section above it) — this
+                # table also feeds the pull-direction product importer
+                # (Shopware → ERPNext), which works independently of the
+                # push being enabled.
                 "description": (
-                    "Artikel-Felder auf Shopware-Produkt-``customFields``-"
-                    "Keys abbilden. Das Produkt-Sync liest jede Zeile "
-                    "einmal pro Lauf und überträgt den zugeordneten Wert "
-                    "bei jedem Push in den konfigurierten Shopware-Slot. "
-                    "Nützlich für Marketing-Feed-Flags (Idealo, Google "
-                    "Shopping), Altersfreigaben, eigene Kennzeichnungen — "
-                    "alles, was Shopwares Produkt-Stream-Filter oder "
-                    "Storefront-Templates aus einem customField-Key lesen "
-                    "sollen."
+                    "Ein ERPNext-Artikelfeld immer auf denselben Shopware-"
+                    "Zusatzfeld-Key abbilden — keine Property-Tabelle pro "
+                    "Artikel nötig. Einzige Quelle für Zusatzfelder, gilt "
+                    "gleichermaßen für den einfachen Artikel-Push, den "
+                    "Varianten-Push und den Produkt-Import (Shopware → "
+                    "ERPNext). Nützlich für Marketing-Feed-Flags (Idealo, "
+                    "Google Shopping), Altersfreigaben, eigene "
+                    "Kennzeichnungen — alles, was Shopwares "
+                    "Produkt-Stream-Filter oder Storefront-Templates aus "
+                    "einem customField-Key lesen sollen."
                 ),
             },
             {
