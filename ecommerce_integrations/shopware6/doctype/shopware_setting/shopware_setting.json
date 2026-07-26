@@ -890,7 +890,7 @@
    "fieldname": "field_mapping_section",
    "fieldtype": "Section Break",
    "label": "Feld-Zuordnungen (erweitert)",
-   "description": "Welche ERPNext-Artikelfelder an Shopware übertragen werden. Für Zusatzfelder (Shopware customFields) siehe die Tabelle 'Zusatzfeld-Zuordnungen' weiter unten — hier geht es nur noch um Eigenschaften (im Shop filterbar) und Standard-Produktfelder."
+   "description": "Eigenschaften (im Shop filterbar) und Standard-Produktfelder für den Artikel-Push. Für Zusatzfelder (Shopware customFields) den Abschnitt 'Zusatzfeld-Zuordnungen' direkt darunter verwenden — der ist bewusst ein eigener Abschnitt, weil er unabhängig vom Push auch beim Rückimport aus Shopware greift."
   },
   {
    "fieldname": "product_field_mappings",
@@ -914,7 +914,7 @@
    "fieldname": "field_mapping_info_html",
    "fieldtype": "HTML",
    "label": "Info Feld-Zuordnung",
-   "options": "<div class=\"alert alert-info\"><h5>Arten der Feld-Zuordnung</h5><ul><li><strong>Zusatzfeld (Custom Field):</strong> Tabelle 'Zusatzfeld-Zuordnungen' weiter unten — wird in Shopwares customFields synchronisiert (Produktdetailseite, nicht filterbar). Einzige Quelle für beide Push-Wege (einfache Artikel und Varianten) sowie den Produkt-Import.</li><li><strong>Eigenschaft:</strong> Tabelle oben — wird als PropertyGroup/Option synchronisiert (im Shop-Frontend filterbar)</li><li><strong>Standard Field:</strong> Tabelle oben — wird auf eingebaute Shopware-Produktfelder abgebildet</li></ul><p><strong>Tipp:</strong> 'jattr_*-Felder automatisch erkennen' aktivieren, um alle JTL-Attribute automatisch als Eigenschaften zu synchronisieren.</p></div>"
+   "options": "<div class=\"alert alert-info\"><p><strong>Eigenschaft:</strong> wird als PropertyGroup/Option synchronisiert (im Shop-Frontend filterbar). <strong>Standard Field:</strong> wird auf eingebaute Shopware-Produktfelder abgebildet.</p><p><strong>Tipp:</strong> 'jattr_*-Felder automatisch erkennen' aktivieren, um alle JTL-Attribute automatisch als Eigenschaften zu synchronisieren.</p></div>"
   },
   {
    "fieldname": "inventory_sync_section",

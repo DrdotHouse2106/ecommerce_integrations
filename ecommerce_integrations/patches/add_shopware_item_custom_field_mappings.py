@@ -53,22 +53,20 @@ def execute() -> None:
                 # so both mapping tables live next to each other.
                 "insert_after": "field_mapping_info_html",
                 "collapsible": 0,
-                # Deliberately NOT gated behind upload_erpnext_items (unlike
-                # the "Feld-Zuordnungen (erweitert)" section above it) — this
-                # table also feeds the pull-direction product importer
-                # (Shopware → ERPNext), which works independently of the
-                # push being enabled.
+                # Deliberately its own Section Break with NO depends_on
+                # (unlike "Feld-Zuordnungen (erweitert)" right above it,
+                # which requires upload_erpnext_items) — this table also
+                # feeds the pull-direction product importer (Shopware →
+                # ERPNext), which works independently of the push being
+                # enabled. That's the *only* reason this is a separate
+                # section rather than folded into the one above — keep
+                # the description short, the section above already
+                # explains why the split exists.
                 "description": (
                     "Ein ERPNext-Artikelfeld immer auf denselben Shopware-"
                     "Zusatzfeld-Key abbilden — keine Property-Tabelle pro "
-                    "Artikel nötig. Einzige Quelle für Zusatzfelder, gilt "
-                    "gleichermaßen für den einfachen Artikel-Push, den "
-                    "Varianten-Push und den Produkt-Import (Shopware → "
-                    "ERPNext). Nützlich für Marketing-Feed-Flags (Idealo, "
-                    "Google Shopping), Altersfreigaben, eigene "
-                    "Kennzeichnungen — alles, was Shopwares "
-                    "Produkt-Stream-Filter oder Storefront-Templates aus "
-                    "einem customField-Key lesen sollen."
+                    "Artikel nötig. Gilt für einfachen Artikel-Push, "
+                    "Varianten-Push und Produkt-Import gleichermaßen."
                 ),
             },
             {
