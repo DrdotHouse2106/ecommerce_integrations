@@ -31,10 +31,10 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "in_standard_filter": 1,
-   "label": "Property Name",
+   "label": "Eigenschaftsname",
    "reqd": 1,
    "unique": 1,
-   "description": "Canonical name for this property (e.g. 'Farbe', 'Material'). Matches the existing property_name on Item Ecommerce Property rows verbatim — the migration uses this as the join key."
+   "description": "Kanonischer Name dieser Eigenschaft (z. B. 'Farbe', 'Material'). Muss exakt mit property_name auf den Item-Ecommerce-Property-Zeilen übereinstimmen — dient als Verknüpfungsschlüssel für die Migration."
   },
   {
    "default": "800",
@@ -42,9 +42,9 @@
    "fieldtype": "Int",
    "in_list_view": 1,
    "in_standard_filter": 1,
-   "label": "Display Order",
+   "label": "Reihenfolge",
    "non_negative": 1,
-   "description": "Lower number = appears earlier on the storefront PDP. Initial seed comes from the legacy property_classifier regex priorities (100..900). Operator-editable — change here propagates on the next sync via Shopware property_group.position and Medusa metadata ordering."
+   "description": "Kleinere Zahl = erscheint weiter oben auf der Shop-Produktseite. Änderungen wirken sich beim nächsten Sync über Shopwares property_group.position und die Medusa-Metadaten-Reihenfolge aus."
   },
   {
    "fieldname": "column_break_1",
@@ -54,35 +54,35 @@
    "fieldname": "display_name_de",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Display Name (DE)",
-   "description": "Optional friendly label shown in storefront filter sidebar (DE). Falls back to property_name when empty."
+   "label": "Anzeigename (DE)",
+   "description": "Optionale, kundenfreundliche Bezeichnung in der Shop-Filterleiste (DE). Ohne Angabe wird der Eigenschaftsname verwendet."
   },
   {
    "fieldname": "display_name_en",
    "fieldtype": "Data",
-   "label": "Display Name (EN)",
-   "description": "Optional friendly label shown in storefront filter sidebar (EN). Falls back to property_name when empty."
+   "label": "Anzeigename (EN)",
+   "description": "Optionale, kundenfreundliche Bezeichnung in der Shop-Filterleiste (EN). Ohne Angabe wird der Eigenschaftsname verwendet."
   },
   {
    "fieldname": "section_break_type",
    "fieldtype": "Section Break",
-   "label": "Type"
+   "label": "Art"
   },
   {
    "default": "Property",
    "fieldname": "property_type",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Type",
+   "label": "Art",
    "options": "Property\nText\nCustom Field",
    "reqd": 1,
-   "description": "Property = filterable storefront facet. Text = non-filterable Technische-Daten row. Custom Field = product detail page only."
+   "description": "Property = filterbares Merkmal im Shop. Text = nicht filterbare Zeile unter Technische Daten. Custom Field = nur auf der Produktdetailseite."
   },
   {
    "depends_on": "eval:doc.property_type=='Custom Field'",
    "fieldname": "field_data_type",
    "fieldtype": "Select",
-   "label": "Custom Field Data Type",
+   "label": "Datentyp (Zusatzfeld)",
    "options": "text\nhtml\nboolean\nnumber\nselect\ndatetime",
    "default": "text"
   },
@@ -95,38 +95,38 @@
    "depends_on": "eval:doc.property_type=='Property'",
    "fieldname": "filterable",
    "fieldtype": "Check",
-   "label": "Filterable"
+   "label": "Filterbar"
   },
   {
    "fieldname": "section_break_sync",
    "fieldtype": "Section Break",
-   "label": "Sync Targets"
+   "label": "Sync-Ziele"
   },
   {
    "default": "1",
    "fieldname": "sync_to_shopware",
    "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Sync to Shopware"
+   "label": "Zu Shopware synchronisieren"
   },
   {
    "default": "0",
    "fieldname": "sync_to_medusa",
    "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Sync to Medusa"
+   "label": "Zu Medusa synchronisieren"
   },
   {
    "fieldname": "section_break_options",
    "fieldtype": "Section Break",
-   "label": "Options"
+   "label": "Optionen"
   },
   {
    "fieldname": "options",
    "fieldtype": "Table",
-   "label": "Options",
+   "label": "Optionen",
    "options": "Ecommerce Property Option",
-   "description": "Known values for this property. Operator can reorder via display_order on each row. Item rows whose value is not in this list are appended last (alphabetical) in canonical output."
+   "description": "Bekannte Werte dieser Eigenschaft. Reihenfolge über display_order je Zeile einstellbar. Artikel-Werte, die hier nicht gelistet sind, werden im kanonischen Output alphabetisch ans Ende angehängt."
   },
   {
    "fieldname": "section_break_meta",
@@ -137,8 +137,8 @@
   {
    "fieldname": "notes",
    "fieldtype": "Small Text",
-   "label": "Notes",
-   "description": "Free-text. Migration notes (type-conflict resolution etc.) get appended here automatically."
+   "label": "Notizen",
+   "description": "Freitext. Migrationshinweise (z. B. gelöste Typkonflikte) werden hier automatisch ergänzt."
   }
  ],
  "index_web_pages_for_search": 0,

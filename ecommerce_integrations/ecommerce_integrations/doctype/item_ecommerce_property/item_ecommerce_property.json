@@ -23,24 +23,24 @@
    "fieldname": "property_group",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Property Group",
+   "label": "Eigenschaftsgruppe",
    "options": "Ecommerce Property Group",
-   "description": "Link to the global Property Group that owns this property's order, type and per-backend sync flags. Backfilled by the migration patch from the legacy property_name string. Take precedence over the legacy per-row fields once non-null."
+   "description": "Verknüpfung zur zentralen Eigenschaftsgruppe, die Reihenfolge, Art und Sync-Ziele dieser Eigenschaft festlegt. Sobald gesetzt, hat sie Vorrang vor den alten Einzelfeldern unten."
   },
   {
    "fieldname": "property_name",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Property Name (legacy)",
-   "description": "Legacy free-text property name. Kept in lock-step with property_group during the migration window so a rollback stays possible; drop in a follow-up patch once the apply pipeline reads exclusively from property_group."
+   "label": "Eigenschaftsname (alt)",
+   "description": "Alter Freitext-Eigenschaftsname. Nur noch relevant, solange keine Eigenschaftsgruppe verknüpft ist."
   },
   {
    "fieldname": "property_value",
    "fieldtype": "Small Text",
    "in_list_view": 1,
-   "label": "Value",
+   "label": "Wert",
    "reqd": 1,
-   "description": "Value of the property (can contain HTML for Custom Fields)"
+   "description": "Wert der Eigenschaft (kann HTML enthalten, bei Zusatzfeldern)"
   },
   {
    "fieldname": "column_break_1",
@@ -50,33 +50,33 @@
    "fieldname": "property_type",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Type",
+   "label": "Art",
    "options": "Property\nText\nCustom Field",
    "default": "Property",
    "reqd": 1,
-   "description": "Property = filterable in shop, Text = non-filterable product property (Technische Daten), Custom Field = product detail page only"
+   "description": "Property = im Shop filterbar, Text = nicht filterbare Produkteigenschaft (Technische Daten), Custom Field = nur auf der Produktdetailseite"
   },
   {
    "fieldname": "field_data_type",
    "fieldtype": "Select",
-   "label": "Data Type",
+   "label": "Datentyp",
    "options": "text\nhtml\nboolean\nnumber\nselect\ndatetime",
    "default": "text",
    "depends_on": "eval:doc.property_type=='Custom Field'",
-   "description": "Data type for Custom Fields (used by Shopware and other integrations)"
+   "description": "Datentyp für Zusatzfelder (wird von Shopware und anderen Integrationen verwendet)"
   },
   {
    "default": "1",
    "fieldname": "filterable",
    "fieldtype": "Check",
-   "label": "Filterable",
+   "label": "Filterbar",
    "depends_on": "eval:doc.property_type=='Property'",
-   "description": "Show as filter in shop frontend (only for Properties)"
+   "description": "Als Filter im Shop-Frontend anzeigen (nur bei Property)"
   },
   {
    "fieldname": "section_break_sync",
    "fieldtype": "Section Break",
-   "label": "Sync To"
+   "label": "Sync-Ziel"
   },
   {
    "default": "1",
@@ -84,7 +84,7 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Shopware",
-   "description": "Sync this property to Shopware 6"
+   "description": "Diese Eigenschaft zu Shopware 6 synchronisieren"
   },
   {
    "default": "0",
@@ -92,7 +92,7 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Medusa",
-   "description": "Sync this property to Medusa as product metadata"
+   "description": "Diese Eigenschaft als Produkt-Metadaten zu Medusa synchronisieren"
   }
  ],
  "index_web_pages_for_search": 0,

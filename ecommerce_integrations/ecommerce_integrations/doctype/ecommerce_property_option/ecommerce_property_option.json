@@ -17,18 +17,18 @@
    "fieldname": "value",
    "fieldtype": "Small Text",
    "in_list_view": 1,
-   "label": "Value",
+   "label": "Wert",
    "reqd": 1,
-   "description": "Raw value as stored on Item Ecommerce Property rows — verbatim match. The migration deduplicates values per Group. Small Text (not Data) because some catalog values exceed the 140-char Data limit."
+   "description": "Rohwert, wie er auf den Item-Ecommerce-Property-Zeilen steht — muss exakt übereinstimmen. Small Text (nicht Data), da manche Katalogwerte das 140-Zeichen-Limit von Data überschreiten."
   },
   {
    "default": "100",
    "fieldname": "display_order",
    "fieldtype": "Int",
    "in_list_view": 1,
-   "label": "Display Order",
+   "label": "Reihenfolge",
    "non_negative": 1,
-   "description": "Order within the group on the storefront. Seed value is row idx * 10 so the operator can drop new options in between without renumbering."
+   "description": "Reihenfolge innerhalb der Gruppe im Shop. Startwert ist Zeilenindex × 10, damit neue Optionen dazwischen eingefügt werden können, ohne alles neu zu nummerieren."
   },
   {
    "fieldname": "column_break_1",
@@ -38,13 +38,13 @@
    "fieldname": "display_value_de",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Display (DE)",
-   "description": "Optional friendly label shown in the storefront. Falls back to value when empty."
+   "label": "Anzeige (DE)",
+   "description": "Optionale, kundenfreundliche Bezeichnung im Shop. Ohne Angabe wird der Wert verwendet."
   },
   {
    "fieldname": "display_value_en",
    "fieldtype": "Data",
-   "label": "Display (EN)"
+   "label": "Anzeige (EN)"
   }
  ],
  "index_web_pages_for_search": 0,

@@ -136,19 +136,19 @@ CUSTOM_FIELDS = {
         # Shopware push reads those directly (see product_mapper.py).
         {
             "fieldname": "ecommerce_properties_section",
-            "label": "Ecommerce Properties",
+            "label": "Ecommerce-Eigenschaften",
             "fieldtype": "Section Break",
             "insert_after": "shopware_selling_rate",
             "collapsible": 0,
-            "description": "Universal property table for all ecommerce integrations (Shopware, Medusa, etc.)",
+            "description": "Artikelspezifische Eigenschaftswerte (z. B. Farbe, Material) für alle Ecommerce-Integrationen (Shopware, Medusa, ...). Art, Filterbarkeit und Ziel-Backend jeder Eigenschaft werden zentral unter Artikel-Eigenschaftsgruppen (Ecommerce Property Group) gepflegt — hier wird nur noch der Wert pro Artikel eingetragen.",
         },
         {
             "fieldname": "ecommerce_properties",
-            "label": "Properties",
+            "label": "Eigenschaften",
             "fieldtype": "Table",
             "options": "Item Ecommerce Property",
             "insert_after": "ecommerce_properties_section",
-            "description": "Add properties here. Enable sync checkboxes to control which integrations receive each property.",
+            "description": "Eine Zeile pro Eigenschaft, die für diesen Artikel gilt. Sync-Ziel und Art der Eigenschaft kommen aus der zentral gepflegten Eigenschaftsgruppe, sobald diese verknüpft ist.",
         },
         # Multi-Storefront / Sales Channel settings
         {

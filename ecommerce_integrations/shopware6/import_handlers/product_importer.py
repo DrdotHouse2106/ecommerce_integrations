@@ -551,17 +551,17 @@ def _apply_supplementary_fields(item_code: str, data: dict[str, Any], stats: dic
     meta = frappe.get_meta("Item")
     changed = False
 
-    # Backfill only — an existing (SKU-matched) Item never gets its
-    # description overwritten, since it may carry a manually-edited
-    # WeClapp/ERPNext description. A genuinely empty description is
-    # filled in from Shopware either way (new Items already get theirs
-    # from the item_dict built at creation time, so this only fires for
-    # matched items whose description was blank to begin with).
-    if not (item.description or "").strip():
-        description = _resolve_description(data, item.item_name or item_code)
-        if description:
-            item.description = description
-            changed = True
+    # Synced unconditionally, same as brand/delivery_time/weight below —
+    # this run's whole point is to make ERPNext the authoritative mirror
+    # of Shopware's catalogue, so a WeClapp-origin placeholder (often
+    # just the item name) must not block the real Shopware description
+    # from landing. Only item_code/item_name/item_group/variant_of are
+    # protected identity fields (see module docstring); description is
+    # not one of them.
+    description = _resolve_description(data, item.item_name or item_code)
+    if description and item.description != description:
+        item.description = description
+        changed = True
 
     manufacturer = (data.get("manufacturer") or {}).get("name")
     brand = _ensure_brand(manufacturer)

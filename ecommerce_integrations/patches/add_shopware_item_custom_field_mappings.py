@@ -31,29 +31,29 @@ def execute() -> None:
         "Shopware Setting": [
             {
                 "fieldname": "item_custom_field_mappings_section",
-                "label": "Item → Shopware Custom Field Mapping",
+                "label": "Artikel → Shopware Zusatzfeld-Zuordnung",
                 "fieldtype": "Section Break",
                 "insert_after": "list_price_includes_tax",
                 "collapsible": 1,
                 "description": (
-                    "Map Item DocType fields to Shopware product "
-                    "``customFields`` keys. The product-sync engine "
-                    "forwards each mapped value to the configured "
-                    "Shopware slot on every push. Useful for "
-                    "marketing-feed flags (Idealo, Google "
-                    "Shopping), age ratings, custom labels — "
-                    "anything Shopware's product-stream filters "
-                    "or storefront templates need to read from a "
-                    "customField key."
+                    "Artikel-Felder auf Shopware-Produkt-``customFields``-"
+                    "Keys abbilden. Das Produkt-Sync liest jede Zeile "
+                    "einmal pro Lauf und überträgt den zugeordneten Wert "
+                    "bei jedem Push in den konfigurierten Shopware-Slot. "
+                    "Nützlich für Marketing-Feed-Flags (Idealo, Google "
+                    "Shopping), Altersfreigaben, eigene Kennzeichnungen — "
+                    "alles, was Shopwares Produkt-Stream-Filter oder "
+                    "Storefront-Templates aus einem customField-Key lesen "
+                    "sollen."
                 ),
             },
             {
                 "fieldname": "item_custom_field_mappings",
-                "label": "Item Custom Field Mappings",
+                "label": "Zusatzfeld-Zuordnungen",
                 "fieldtype": "Table",
                 "options": "Shopware Item Custom Field Mapping",
                 "insert_after": "item_custom_field_mappings_section",
             },
         ],
-    }, ignore_validate=True)
+    }, ignore_validate=True, update=True)
     frappe.db.commit()  # noqa: SLF001
