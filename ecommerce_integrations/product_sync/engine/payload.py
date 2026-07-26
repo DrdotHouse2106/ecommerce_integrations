@@ -179,7 +179,7 @@ def build_shopware_payload(
     section builders in :mod:`canonical`:
 
     - ``basic``      → name, productNumber, description, active,
-                       deliveryTime, minPurchase/purchaseSteps
+                       deliveryTime, restockTime, minPurchase/purchaseSteps
     - ``inventory``  → stock
     - ``pricing``    → price, taxId
     - ``categories`` → categories
@@ -325,6 +325,14 @@ def build_shopware_payload(
         delivery_time_str = (basic.get("delivery_time") or "").strip()
         if delivery_time_str:
             payload["deliveryTime"] = delivery_time_str
+
+        # Days until back-in-stock — plain int column on the Shopware
+        # product entity (no separate entity to resolve, unlike
+        # deliveryTime). Canonical already folds in Shopware Setting's
+        # default_restock_time fallback, so this is just a pass-through.
+        restock_time = basic.get("restock_time")
+        if restock_time:
+            payload["restockTime"] = int(restock_time)
 
         # AI customFields: surface short description, benefits,
         # SEO meta description and youtube video URL via the

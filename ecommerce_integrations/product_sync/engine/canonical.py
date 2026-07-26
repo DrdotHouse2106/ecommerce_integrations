@@ -81,7 +81,15 @@ from typing import Any
 # Medusa (previously it reached no channel — Shopware customFields gate
 # on ``sync_to_shopware``, the Medusa metadata.properties list excludes
 # Custom-Field rows).
-PAYLOAD_VERSION = 6
+#
+# v7 (2026-07): ``basic.restock_time`` added (sparse — only when > 0)
+# so Shopware's "Nachbestellung in X Tagen" (restockTime) reaches the
+# product. ``basic.delivery_time`` now also folds in Shopware Setting's
+# ``default_delivery_time`` fallback (and restock_time folds in
+# ``default_restock_time``) when the Item's own field is empty — the
+# bump ensures a change to either global default re-hashes every item
+# still relying on the fallback, instead of silently going stale.
+PAYLOAD_VERSION = 7
 
 # Float precision for hashing. 4 decimals is "1/100th of a cent" —
 # plenty for retail prices and stock floats; small enough to swallow
@@ -379,6 +387,32 @@ def _get_dynamic_field_mappings() -> list[dict[str, str]]:
     return out
 
 
+def _get_shopware_product_defaults() -> dict[str, Any]:
+    """Read Shopware Setting's ``default_delivery_time`` /
+    ``default_restock_time`` — global fallbacks applied only when an
+    Item's own field is empty. Cached on ``frappe.local`` per the same
+    pattern as :func:`_get_dynamic_field_mappings`. Returns ``{}`` on
+    Medusa-only sites where the doctype doesn't exist.
+    """
+    import frappe
+    cache_key = "_psync_shopware_product_defaults"
+    cached = getattr(frappe.local, cache_key, None)
+    if cached is not None:
+        return cached
+    out: dict[str, Any] = {}
+    try:
+        settings = frappe.get_cached_doc("Shopware Setting")
+        out["delivery_time"] = (getattr(settings, "default_delivery_time", "") or "").strip()
+        out["restock_time"] = int(getattr(settings, "default_restock_time", 0) or 0)
+    except Exception:  # noqa: BLE001
+        # Setting doctype missing on this site (Medusa-only) or the
+        # patch hasn't run yet — silently return empty so the engine
+        # behaves as if no defaults were configured.
+        pass
+    setattr(frappe.local, cache_key, out)
+    return out
+
+
 def _coerce_dynamic_value(raw: Any, field_type: str) -> Any:
     """Coerce an Item field value to the operator-selected output
     type. ``Skip-If-Empty`` returns ``None`` to signal "omit this
@@ -625,6 +659,7 @@ def _get_linked_sc_member_codes(sync) -> frozenset[str]:
 
 
 def _canonical_basic(item, sync) -> dict[str, Any]:
+    defaults = _get_shopware_product_defaults()
     out = {
         "name": _norm_str(_render_name(item, sync)),
         "sku": _norm_str(item.item_code),
@@ -638,8 +673,13 @@ def _canonical_basic(item, sync) -> dict[str, Any]:
         # Backend adapters resolve this to their native entity (Shopware's
         # ``delivery_time`` uuid) when pushing — hashing the source string
         # is enough to detect drift without coupling canonical to any
-        # backend's id space.
-        "delivery_time": _norm_str(getattr(item, "delivery_time", "")),
+        # backend's id space. Falls back to Shopware Setting's
+        # ``default_delivery_time`` when the Item's own field is empty —
+        # the Item value always wins when set.
+        "delivery_time": (
+            _norm_str(getattr(item, "delivery_time", ""))
+            or _norm_str(defaults.get("delivery_time", ""))
+        ),
         # AI-generated content that lives on Item custom fields.
         # The Shopware adapter projects each non-empty value onto its
         # corresponding ``customFields`` slot (the storefront block
@@ -669,6 +709,20 @@ def _canonical_basic(item, sync) -> dict[str, Any]:
         moq = 0.0
     if moq > 1:
         out["min_order_qty"] = _normalize_float(moq)
+
+    # Days until back-in-stock (Shopware's ``restockTime``, shown as
+    # "Nachbestellung in X Tagen"). Sparse — 0 means "no restock time
+    # set", so hashing every item's implicit 0 would be noise. Falls
+    # back to Shopware Setting's ``default_restock_time`` when the
+    # Item's own field is empty/0.
+    try:
+        restock_time = int(getattr(item, "restock_time", 0) or 0)
+    except (TypeError, ValueError):
+        restock_time = 0
+    if not restock_time:
+        restock_time = int(defaults.get("restock_time", 0) or 0)
+    if restock_time > 0:
+        out["restock_time"] = restock_time
     return out
 
 

@@ -114,7 +114,21 @@ CUSTOM_FIELDS = {
             "description": (
                 "Freitext-Lieferzeit für Shopware, z. B. '3-5 Tage' oder '1-2 Wochen'. "
                 "Wird automatisch in eine Shopware-Lieferzeit-Entität umgewandelt. Leer = "
-                "keine Lieferzeit am Produkt gesetzt."
+                "keine Lieferzeit am Produkt gesetzt. Ist dieses Feld leer, greift beim Push "
+                "die Standard-Lieferzeit aus den Shopware-Einstellungen (falls dort gesetzt)."
+            ),
+        },
+        {
+            "fieldname": "restock_time",
+            "label": "Wiederauffüllzeit in Tagen (Shopware)",
+            "fieldtype": "Int",
+            "insert_after": "delivery_time",
+            "description": (
+                "Tage bis zur Wiederverfügbarkeit, wenn der Artikel ausverkauft ist "
+                "(Shopware-Feld 'restockTime', erscheint im Shop als 'Nachbestellung in "
+                "X Tagen'). Leer/0 = keine Wiederauffüllzeit am Produkt gesetzt. Ist dieses "
+                "Feld leer, greift beim Push die Standard-Wiederauffüllzeit aus den "
+                "Shopware-Einstellungen (falls dort gesetzt)."
             ),
         },
         # SEO: no new fields here — the WeClapp import already brought

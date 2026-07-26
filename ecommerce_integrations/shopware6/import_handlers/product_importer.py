@@ -335,6 +335,19 @@ def _link_categories(item_code: str, item_groups: list[str], stats: dict[str, An
         stats["category_links_added"] += added
 
 
+def _resolve_description(data: dict[str, Any], fallback: str) -> str:
+    """Shopware's ``description`` is a translatable field — like ``name``,
+    it can arrive either as a top-level value or nested under
+    ``translated`` depending on which language context the API resolved
+    against. Fall back to the item name only if genuinely absent.
+    """
+    return (
+        data.get("description")
+        or (data.get("translated") or {}).get("description")
+        or fallback
+    )
+
+
 def _import_simple_product(
     product_data: dict[str, Any], primary_group: str, stats: dict[str, Any],
 ) -> tuple[str | None, bool]:
@@ -344,11 +357,7 @@ def _import_simple_product(
         or (product_data.get("translated") or {}).get("name")
         or sku
     ).strip()
-    description = (
-        product_data.get("description")
-        or (product_data.get("translated") or {}).get("description")
-        or name
-    )
+    description = _resolve_description(product_data, name)
     uom = _ensure_uom((product_data.get("unit") or {}).get("name"))
 
     item_dict = {
@@ -378,7 +387,7 @@ def _import_template(
     item_dict = {
         "item_code": sku,
         "item_name": name[:140],
-        "description": product_data.get("description") or name,
+        "description": _resolve_description(product_data, name),
         "item_group": primary_group,
         "has_variants": 1,
         "attributes": attributes,
@@ -413,7 +422,7 @@ def _import_variant(
     item_dict = {
         "item_code": sku,
         "item_name": (name or f"{template_item_code}-{sku}")[:140],
-        "description": child.get("description") or name,
+        "description": _resolve_description(child, name),
         "item_group": primary_group,
         "has_variants": 0,
         "variant_of": template_item_code,
@@ -542,6 +551,18 @@ def _apply_supplementary_fields(item_code: str, data: dict[str, Any], stats: dic
     meta = frappe.get_meta("Item")
     changed = False
 
+    # Backfill only — an existing (SKU-matched) Item never gets its
+    # description overwritten, since it may carry a manually-edited
+    # WeClapp/ERPNext description. A genuinely empty description is
+    # filled in from Shopware either way (new Items already get theirs
+    # from the item_dict built at creation time, so this only fires for
+    # matched items whose description was blank to begin with).
+    if not (item.description or "").strip():
+        description = _resolve_description(data, item.item_name or item_code)
+        if description:
+            item.description = description
+            changed = True
+
     manufacturer = (data.get("manufacturer") or {}).get("name")
     brand = _ensure_brand(manufacturer)
     if brand and item.brand != brand:
@@ -551,6 +572,11 @@ def _apply_supplementary_fields(item_code: str, data: dict[str, Any], stats: dic
     delivery_time = (data.get("deliveryTime") or {}).get("name")
     if delivery_time and meta.has_field("delivery_time") and item.get("delivery_time") != delivery_time:
         item.delivery_time = delivery_time
+        changed = True
+
+    restock_time = data.get("restockTime")
+    if restock_time and meta.has_field("restock_time") and item.get("restock_time") != restock_time:
+        item.restock_time = restock_time
         changed = True
 
     if meta.has_field("abverkauf"):

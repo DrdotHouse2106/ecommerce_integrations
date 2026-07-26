@@ -87,6 +87,11 @@
   "shipping_item",
   "column_break_shipping",
   "shipping_info_html",
+  "product_defaults_section",
+  "default_delivery_time",
+  "column_break_product_defaults",
+  "default_restock_time",
+  "product_defaults_info_html",
   "erpnext_to_shopware_sync_section",
   "upload_erpnext_items",
   "update_shopware_item_on_update",
@@ -690,6 +695,35 @@
    "label": "Standardkonto Versandkosten",
    "options": "Account",
    "link_filters": "[[\"Account\",\"account_type\",\"=\",\"Income Account\"],[\"Account\",\"is_group\",\"=\",0]]"
+  },
+  {
+   "fieldname": "product_defaults_section",
+   "fieldtype": "Section Break",
+   "label": "Produkt-Standardwerte (Fallback)",
+   "depends_on": "eval:doc.enable_shopware",
+   "description": "Werden beim Produkt-Push nur verwendet, wenn der Artikel selbst keinen Wert für das jeweilige Feld hat — überschreiben nie einen am Artikel gesetzten Wert.",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "default_delivery_time",
+   "fieldtype": "Data",
+   "label": "Standard-Lieferzeit (Fallback)",
+   "description": "Freitext-Lieferzeit, z. B. '3-5 Tage'. Wird nur an Shopware übertragen, wenn der Artikel selbst kein 'Lieferzeit (Shopware)' gesetzt hat."
+  },
+  {
+   "fieldname": "column_break_product_defaults",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "default_restock_time",
+   "fieldtype": "Int",
+   "label": "Standard-Wiederauffüllzeit in Tagen (Fallback)",
+   "description": "Wird nur an Shopware übertragen, wenn der Artikel selbst keine 'Wiederauffüllzeit in Tagen (Shopware)' gesetzt hat."
+  },
+  {
+   "fieldname": "product_defaults_info_html",
+   "fieldtype": "HTML",
+   "options": "<div class=\"alert alert-info\"><p>Diese Standardwerte greifen nur als <strong>Fallback</strong> beim Produkt-Push, wenn das entsprechende Feld am Artikel selbst leer ist. Ein am Artikel gesetzter Wert hat immer Vorrang.</p></div>"
   },
   {
    "fieldname": "erpnext_to_shopware_sync_section",

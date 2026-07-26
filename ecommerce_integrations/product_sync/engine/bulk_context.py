@@ -74,6 +74,10 @@ class ItemSnapshot:
     youtube_video_url: str | None = None
     ean: str | None = None
     delivery_time: str | None = None
+    # Days until back-in-stock — feeds Shopware ``restockTime`` via
+    # ``canonical.basic.restock_time``. Same differ/apply hash-parity
+    # requirement as ``delivery_time`` above.
+    restock_time: int = 0
     # Minimum order quantity — feeds Shopware ``minPurchase`` /
     # ``purchaseSteps`` via ``canonical.basic.min_order_qty``. Must be
     # carried here for differ/apply hash parity (see AI-field note
@@ -188,7 +192,7 @@ class BulkContext:
             "seo_slug", "slug", "meta_title", "meta_description",
             "ai_short_description", "ai_benefits",
             "ai_seo_description", "ai_long_description", "ai_seo_title",
-            "youtube_video_url", "ean", "delivery_time",
+            "youtube_video_url", "ean", "delivery_time", "restock_time",
             "min_order_qty",
         ):
             if cf in present:
@@ -226,6 +230,7 @@ class BulkContext:
                 youtube_video_url=r.get("youtube_video_url"),
                 ean=r.get("ean"),
                 delivery_time=r.get("delivery_time"),
+                restock_time=int(r.get("restock_time") or 0),
                 min_order_qty=float(r.get("min_order_qty") or 0),
             )
             self._items[snap.item_code] = snap
