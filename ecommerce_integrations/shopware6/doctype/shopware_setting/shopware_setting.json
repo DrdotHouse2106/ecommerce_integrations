@@ -109,6 +109,7 @@
   "inventory_sync_section",
   "warehouse",
   "sync_inventory_from_shopware",
+  "import_properties_from_shopware",
   "update_erpnext_stock_levels_to_shopware",
   "clamp_negative_stock",
   "inventory_sync_frequency",
@@ -937,6 +938,13 @@
    "fieldtype": "Check",
    "label": "Lagerbestand aus Shopware importieren",
    "description": "Wenn aktiviert, wird beim \"Produkte aus Shopware importieren\"-Lauf auch der Lagerbestand aus Shopware übernommen (als Lagerbuchung im oben gewählten Standard-Lager). Wenn deaktiviert (Standard), wird nur der Bestand übersprungen — alle anderen Artikeldaten werden trotzdem importiert."
+  },
+  {
+   "default": "0",
+   "fieldname": "import_properties_from_shopware",
+   "fieldtype": "Check",
+   "label": "Eigenschaften aus Shopware importieren (Einzelabruf)",
+   "description": "Schalter für den artikelweisen Eigenschaften-Rückimport (z. B. über die API-Methode import_properties_from_shopware). Der große \"Produkte aus Shopware importieren\"-Lauf importiert Eigenschaften unabhängig von diesem Schalter immer mit."
   },
   {
    "default": "0",

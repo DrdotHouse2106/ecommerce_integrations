@@ -330,9 +330,13 @@ def build_shopware_payload(
         # product entity (no separate entity to resolve, unlike
         # deliveryTime). Canonical already folds in Shopware Setting's
         # default_restock_time fallback, so this is just a pass-through.
+        # Always emitted when the basic section is pushed (same reset
+        # semantics as minPurchase above): clearing the ERP field drops
+        # the key from canonical, flips the basic hash, and this null
+        # then clears restockTime on the live product — emit-only-when-
+        # truthy would leave the stale value in Shopware forever.
         restock_time = basic.get("restock_time")
-        if restock_time:
-            payload["restockTime"] = int(restock_time)
+        payload["restockTime"] = int(restock_time) if restock_time else None
 
         # AI customFields: surface short description, benefits,
         # SEO meta description and youtube video URL via the

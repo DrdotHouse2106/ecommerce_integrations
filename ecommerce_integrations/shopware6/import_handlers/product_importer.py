@@ -118,6 +118,7 @@ def _run_product_import(request_id: str) -> None:
         "prices_set": 0,
         "images_set": 0,
         "stock_adjusted": 0,
+        "descriptions_set": 0,
         "variant_of_mismatches": 0,
         "errors": [],
     }
@@ -196,12 +197,14 @@ def _run_product_import(request_id: str) -> None:
                 "Produkte gesehen: {0}, Erstellt: {1}, Varianten erstellt: {2}, "
                 "Zugeordnet (bestehender Artikel per SKU): {3}, Kategorie-Zuordnungen "
                 "ergänzt: {4}, Preise gesetzt: {5}, Bilder gesetzt: {6}, "
-                "Lagerbestand angepasst: {7}, Varianten-Zuordnungen ohne passende "
-                "ERPNext-Vorlage (nur verknüpft, nichts verschoben): {8}"
+                "Beschreibungen übernommen: {7}, Lagerbestand angepasst: {8}, "
+                "Varianten-Zuordnungen ohne passende ERPNext-Vorlage (nur "
+                "verknüpft, nichts verschoben): {9}"
             ).format(
                 stats["products_seen"], stats["created"], stats["variants_created"],
                 stats["matched"], stats["category_links_added"], stats["prices_set"],
-                stats["images_set"], stats["stock_adjusted"], stats["variant_of_mismatches"],
+                stats["images_set"], stats["descriptions_set"], stats["stock_adjusted"],
+                stats["variant_of_mismatches"],
             ),
             exception="\n".join(stats["errors"]) if stats["errors"] else None,
         )
@@ -281,14 +284,25 @@ def _import_product(
             )
 
             for child in children:
-                child_code, child_matched = _import_variant(child, template_code, primary_group, attributes, stats)
-                if not child_code:
-                    continue
-                _link_categories(child_code, item_groups if child_matched else extra_groups, stats)
-                _finish_item(
-                    child_code, child, setting, warehouse,
-                    property_importer, stock_importer, stats, include_price_stock=True,
-                )
+                # Per-child isolation: one broken variant (missing
+                # option value, validation error) must not abort the
+                # remaining siblings of the same template.
+                try:
+                    child = _merge_inherited_fields(child, product_data)
+                    child_code, child_matched = _import_variant(child, template_code, primary_group, attributes, stats)
+                    if not child_code:
+                        continue
+                    _link_categories(child_code, item_groups if child_matched else extra_groups, stats)
+                    _finish_item(
+                        child_code, child, setting, warehouse,
+                        property_importer, stock_importer, stats, include_price_stock=True,
+                    )
+                except Exception as e:
+                    stats["errors"].append(f"{child.get('productNumber') or child.get('id')}: {e}")
+                    frappe.log_error(
+                        title="Shopware product import: variant failed",
+                        message=frappe.get_traceback(),
+                    )
         else:
             item_code, matched = _import_simple_product(product_data, primary_group, stats)
             if not item_code:
@@ -435,12 +449,29 @@ def _import_variant(
 
 
 def _build_variant_attributes(product_data: dict[str, Any], property_importer: PropertyImporter) -> list[dict]:
+    """Collect the (option group → values) matrix for a variant product.
+
+    Shopware keeps the matrix on the *children*: a parent product's own
+    ``options`` list is empty (the parent-side definition lives in
+    ``configuratorSettings``, which the bulk fetch doesn't expand).
+    Reading only the parent therefore yields zero attributes — and
+    ERPNext refuses a ``has_variants`` Item with an empty attribute
+    table — so the children's options are the authoritative source
+    here. The parent's list is still walked defensively in case a
+    setup does populate it.
+    """
     groups: dict[str, list[str]] = {}
-    for option in product_data.get("options") or []:
-        group_name = ((option.get("group") or {}).get("name") or "").strip()
-        value = (option.get("name") or "").strip()
-        if group_name and value:
-            groups.setdefault(group_name, []).append(value)
+
+    def _collect(options: list | None) -> None:
+        for option in options or []:
+            group_name = ((option.get("group") or {}).get("name") or "").strip()
+            value = (option.get("name") or "").strip()
+            if group_name and value and value not in groups.setdefault(group_name, []):
+                groups[group_name].append(value)
+
+    _collect(product_data.get("options"))
+    for child in product_data.get("children") or []:
+        _collect(child.get("options"))
 
     attributes = []
     for group_name, values in groups.items():
@@ -450,6 +481,37 @@ def _build_variant_attributes(product_data: dict[str, Any], property_importer: P
             property_importer._ensure_item_attribute(group_name, value)
         attributes.append({"attribute": group_name})
     return attributes
+
+
+# Fields Shopware resolves via parent/child inheritance: a child with
+# ``None`` here means "inherit from parent", not "empty". ``stock`` is
+# deliberately absent — every variant carries its own real stock.
+_INHERITED_CHILD_FIELDS = (
+    "description", "unit", "price", "manufacturer", "deliveryTime", "tax",
+    "weight", "height", "width", "length", "isCloseout",
+    "metaTitle", "metaDescription", "keywords", "customFields",
+    "media", "cover",
+)
+
+
+def _merge_inherited_fields(child: dict[str, Any], parent: dict[str, Any]) -> dict[str, Any]:
+    """Resolve Shopware's field inheritance for a variant row.
+
+    Without this, every inherited field reads as ``None``/empty on the
+    child: variants land with UOM "Nos" instead of the parent's unit,
+    no Item Price, no description, and — worst — ``active: None`` is
+    falsy, so every inheriting variant imported as *disabled*.
+    """
+    merged = dict(child)
+    for key in _INHERITED_CHILD_FIELDS:
+        if not merged.get(key):
+            merged[key] = parent.get(key)
+    # ``active`` is tri-state on children: True/False are explicit,
+    # None means inherit — only fill in the None case so an explicitly
+    # deactivated variant stays deactivated.
+    if merged.get("active") is None:
+        merged["active"] = parent.get("active", True)
+    return merged
 
 
 def _resolve_or_create_item(
@@ -557,14 +619,26 @@ def _apply_supplementary_fields(item_code: str, data: dict[str, Any], stats: dic
     # just the item name) must not block the real Shopware description
     # from landing. Only item_code/item_name/item_group/variant_of are
     # protected identity fields (see module docstring); description is
-    # not one of them.
-    description = _resolve_description(data, item.item_name or item_code)
-    if description and item.description != description:
+    # not one of them. No name-fallback here: when Shopware carries no
+    # description we leave the ERP field alone instead of writing noise,
+    # and the counter below only counts real Shopware descriptions — so
+    # the run log answers "did descriptions arrive at all?" directly.
+    description = _resolve_description(data, "")
+    if description and (item.description or "").strip() != description.strip():
         item.description = description
         changed = True
+        stats["descriptions_set"] = stats.get("descriptions_set", 0) + 1
 
     manufacturer = (data.get("manufacturer") or {}).get("name")
-    brand = _ensure_brand(manufacturer)
+    try:
+        brand = _ensure_brand(manufacturer)
+    except Exception:
+        # A failed Brand insert (140-char limit, duplicate under a
+        # different casing, …) must not abort the whole supplementary
+        # save — description/SEO/weight above and below would be lost
+        # with it.
+        frappe.log_error(title="Shopware product import: brand creation failed", message=frappe.get_traceback())
+        brand = None
     if brand and item.brand != brand:
         item.brand = brand
         changed = True
@@ -651,7 +725,10 @@ def _ensure_uom(name: str | None) -> str:
 
 
 def _write_item_prices(item_code: str, data: dict[str, Any], setting, stats: dict[str, Any]) -> None:
-    price_rows = data.get("price") or data.get("prices") or []
+    # Only the plain ``price`` array — ``prices`` (rule-based advanced
+    # prices) has a different row shape ({ruleId, price: [...]}) whose
+    # rows carry no top-level gross/net and would silently read as 0.
+    price_rows = data.get("price") or []
     if not price_rows:
         return
     entry = price_rows[0]

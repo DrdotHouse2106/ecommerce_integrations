@@ -92,23 +92,26 @@ class ShopwareProduct:
         client = get_shopware_client()
 
         # Fetch product with associations (including tax for accurate price calculations)
-        criteria = Criteria()
+        criteria = Criteria(ids=[self.product_id])
         criteria.associations["prices"] = Criteria()
         criteria.associations["options"] = Criteria()
         criteria.associations["options"].associations["group"] = Criteria()
         criteria.associations["children"] = Criteria()
         criteria.associations["children"].associations["prices"] = Criteria()
         criteria.associations["children"].associations["options"] = Criteria()
+        criteria.associations["children"].associations["options"].associations["group"] = Criteria()
         criteria.associations["children"].associations["tax"] = Criteria()
         criteria.associations["manufacturer"] = Criteria()
         criteria.associations["media"] = Criteria()
         criteria.associations["cover"] = Criteria()
         criteria.associations["tax"] = Criteria()  # For accurate net/gross conversion
 
-        response = client.request_post(
-            "search/product",
-            Criteria(ids=[self.product_id])
-        )
+        # The criteria built above was historically discarded here — a
+        # bare Criteria(ids=[...]) went over the wire instead, so the
+        # response carried no children/options/prices/tax associations
+        # and every downstream branch reading them silently no-opped
+        # (variants never created, tax fell back to 19%, media ignored).
+        response = client.request_post("search/product", criteria)
 
         products = response.data or []
         if not products:
@@ -138,17 +141,26 @@ class ShopwareProduct:
         Shopware stores variant options in property groups.
         """
         attributes = []
-        options = product_data.get("options", []) or []
 
-        # Group options by their group
+        # Group options by their group. Shopware keeps the variant
+        # matrix on the children — the parent's own ``options`` list is
+        # empty (its definition lives in configuratorSettings), so the
+        # children are the authoritative source here.
         option_groups = {}
-        for option in options:
-            group = option.get("group", {})
-            group_name = group.get("name", "")
-            if group_name:
-                if group_name not in option_groups:
-                    option_groups[group_name] = []
-                option_groups[group_name].append(option.get("name", ""))
+
+        def _collect(options):
+            for option in options or []:
+                group = option.get("group") or {}
+                group_name = group.get("name", "")
+                value = option.get("name", "")
+                if group_name and value:
+                    values = option_groups.setdefault(group_name, [])
+                    if value not in values:
+                        values.append(value)
+
+        _collect(product_data.get("options"))
+        for child in product_data.get("children") or []:
+            _collect(child.get("options"))
 
         for group_name, values in option_groups.items():
             if not frappe.db.get_value("Item Attribute", group_name, "name"):
