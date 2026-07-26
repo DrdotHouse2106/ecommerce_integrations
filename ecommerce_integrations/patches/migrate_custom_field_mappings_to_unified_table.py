@@ -43,11 +43,17 @@ def execute() -> None:
         return
     if not frappe.db.exists("DocType", "Shopware Item Custom Field Mapping"):
         return
-    if not frappe.db.has_column("Shopware Setting", "item_custom_field_mappings"):
+    if not frappe.db.exists("Custom Field", "Shopware Setting-item_custom_field_mappings"):
         # Custom Field not installed on this site yet — the
         # add_shopware_item_custom_field_mappings patch will create it;
         # re-run this migration afterwards (patches.txt order already
         # places this patch after that one).
+        #
+        # NOTE: Shopware Setting is a Single doctype — it has no
+        # ``tabShopware Setting`` table, so ``frappe.db.has_column()``
+        # (which was used here originally) raises TableMissingError
+        # instead of returning False. Check for the Custom Field record
+        # itself instead.
         return
 
     setting = frappe.get_single("Shopware Setting")
