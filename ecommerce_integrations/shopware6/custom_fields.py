@@ -96,21 +96,10 @@ CUSTOM_FIELDS = {
             "description": "Markiert dieses Produkt als Topseller im Shop (gelbes 'Tipp'-Badge)",
         },
         {
-            "fieldname": "shopware_description_override",
-            "label": "Beschreibung überschreiben (Shopware)",
-            "fieldtype": "Text Editor",
-            "insert_after": "shopware_topseller",
-            "description": (
-                "Optionale Beschreibung, die nur beim Shopware-Produkt-Push verwendet wird "
-                "und Vorrang vor KI-/Web-Beschreibung sowie der Standard-Artikelbeschreibung hat. "
-                "Leer lassen, um die normale Beschreibung zu verwenden."
-            ),
-        },
-        {
             "fieldname": "delivery_time",
             "label": "Lieferzeit (Shopware)",
             "fieldtype": "Data",
-            "insert_after": "shopware_description_override",
+            "insert_after": "shopware_topseller",
             "description": (
                 "Freitext-Lieferzeit für Shopware, z. B. '3-5 Tage' oder '1-2 Wochen'. "
                 "Wird automatisch in eine Shopware-Lieferzeit-Entität umgewandelt. Leer = "

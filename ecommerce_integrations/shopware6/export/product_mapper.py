@@ -296,9 +296,10 @@ def map_erpnext_item_to_shopware(erpnext_item) -> dict[str, Any]:
     Returns:
         Dict suitable for Shopware product API
     """
-    # Description priority
+    # Description priority. No separate Shopware-only override field —
+    # the standard Item.description is the single field this
+    # integration reads and writes for the product description.
     description = (
-        getattr(erpnext_item, 'shopware_description_override', None) or
         getattr(erpnext_item, 'ai_long_description', None) or
         getattr(erpnext_item, 'web_long_description', None) or
         erpnext_item.description or

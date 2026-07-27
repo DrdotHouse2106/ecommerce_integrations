@@ -353,7 +353,11 @@ def _resolve_description(data: dict[str, Any], fallback: str) -> str:
     """Shopware's ``description`` is a translatable field — like ``name``,
     it can arrive either as a top-level value or nested under
     ``translated`` depending on which language context the API resolved
-    against. Fall back to the item name only if genuinely absent.
+    against. Written straight to the standard ``Item.description`` field
+    — the single field this integration treats as the product
+    description, in both directions. No separate override field: the
+    push side's default description_source already reads
+    ``item.description``, so there's exactly one place to look.
     """
     return (
         data.get("description")
@@ -371,13 +375,12 @@ def _import_simple_product(
         or (product_data.get("translated") or {}).get("name")
         or sku
     ).strip()
-    description = _resolve_description(product_data, name)
     uom = _ensure_uom((product_data.get("unit") or {}).get("name"))
 
     item_dict = {
         "item_code": sku,
         "item_name": name[:140],
-        "description": description,
+        "description": _resolve_description(product_data, name),
         "item_group": primary_group,
         "has_variants": 0,
         "stock_uom": uom,
@@ -436,7 +439,7 @@ def _import_variant(
     item_dict = {
         "item_code": sku,
         "item_name": (name or f"{template_item_code}-{sku}")[:140],
-        "description": _resolve_description(child, name),
+        "description": _resolve_description(child, name or f"{template_item_code}-{sku}"),
         "item_group": primary_group,
         "has_variants": 0,
         "variant_of": template_item_code,
@@ -613,16 +616,16 @@ def _apply_supplementary_fields(item_code: str, data: dict[str, Any], stats: dic
     meta = frappe.get_meta("Item")
     changed = False
 
-    # Synced unconditionally, same as brand/delivery_time/weight below —
-    # this run's whole point is to make ERPNext the authoritative mirror
-    # of Shopware's catalogue, so a WeClapp-origin placeholder (often
-    # just the item name) must not block the real Shopware description
-    # from landing. Only item_code/item_name/item_group/variant_of are
-    # protected identity fields (see module docstring); description is
-    # not one of them. No name-fallback here: when Shopware carries no
-    # description we leave the ERP field alone instead of writing noise,
-    # and the counter below only counts real Shopware descriptions — so
-    # the run log answers "did descriptions arrive at all?" directly.
+    # Standard Item.description is the single field this integration
+    # treats as the product description, in both directions — the push
+    # side's default description_source already reads it directly, no
+    # separate override field. Synced unconditionally, same as brand/
+    # delivery_time/weight below — only item_code/item_name/item_group/
+    # variant_of are protected identity fields (see module docstring).
+    # No name-fallback here: when Shopware genuinely has no description,
+    # leave the field as-is instead of writing noise, and the counter
+    # below only counts real Shopware descriptions — so the run log
+    # answers "did descriptions arrive at all?" directly.
     description = _resolve_description(data, "")
     if description and (item.description or "").strip() != description.strip():
         item.description = description
