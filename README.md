@@ -1,137 +1,202 @@
 <div align="center">
     <img src="https://frappecloud.com/files/ERPNext%20-%20Ecommerce%20Integrations.png" height="128">
-    <h2>Ecommerce Integrations for ERPNext</h2>
+    <h2>Ecommerce Integrations für ERPNext</h2>
 
 [![CI](https://github.com/frappe/ecommerce_integrations/actions/workflows/ci.yml/badge.svg)](https://github.com/frappe/ecommerce_integrations/actions/workflows/ci.yml)
 
+**[English version / Englische Version](README.en.md)**
+
 </div>
 
-> **Note:** This is an extended fork with Shopware 6, Medusa v2, RAG (AI-powered product search) and German E-Invoice support. Targets **Frappe / ERPNext v16**.
+> **Hinweis:** Dies ist ein erweiterter Fork von [`frappe/ecommerce_integrations`](https://github.com/frappe/ecommerce_integrations) mit vollwertiger **Shopware 6**- und **Medusa v2**-Integration, einer gemeinsamen Delta-Sync-Engine, Katalog-Kategorisierung, KI-gestützter Produktbeschreibung und Vektorsuche sowie deutschen Rechnungs-/Bestellprozessen. Zielplattform ist **Frappe / ERPNext v16**.
 
-### Supported Integrations
+## Unterstützte Integrationen
 
-| Integration | Description | Documentation |
-|-------------|-------------|---------------|
-| **Shopware 6** | Full bidirectional sync with Shopware 6 | See below |
-| **Medusa v2** | Product, order, customer and inventory sync with Medusa v2 | See below |
-| **RAG** | AI-powered product search (FAQ, assistant integration) | See below |
-| Shopify | Shopify integration | [User docs](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/shopify_integration) |
-| Unicommerce | Unicommerce integration | [User docs](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/unicommerce_integration) |
-| Zenoti | Zenoti integration | [User docs](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/zenoti_integration) |
-| Amazon | Amazon SP API integration | [User docs](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/amazon_integration) |
+| Integration | Beschreibung | Doku |
+|-------------|--------------|------|
+| **Shopware 6** | Vollständige bidirektionale Synchronisation (Produkte, Bestellungen, Kunden, Status) | siehe unten |
+| **Medusa v2** | Produkt-, Bestell-, Kunden- und Lagersynchronisation mit Medusa v2 (headless commerce) | siehe unten |
+| **Product Sync Engine** | Gemeinsame Delta-Sync-Engine für Shopware & Medusa | [`docs/product_sync.md`](docs/product_sync.md) |
+| **Catalog Mirror** | 1:1-Spiegelung der ERPNext-Artikelgruppen als Shop-Kategorien | [`docs/catalog_mirror.md`](docs/catalog_mirror.md) |
+| **Smart Collections** | Regelbasierte Produktgruppen (Sale, Bestseller, Themenwelten …) | [`docs/smart_collections.md`](docs/smart_collections.md) |
+| **RAG (Vektorsuche)** | Export der Produktdaten als Embeddings nach Pinecone für KI-Suchassistenten | siehe unten |
+| **AI Description** | KI-generierte Produktbeschreibungen, Kurztexte und SEO-Texte via Google Gemini | siehe unten |
+| Shopify | Shopify-Integration (unverändert von Upstream übernommen) | [User-Doku](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/shopify_integration) |
+| Unicommerce | Unicommerce-Integration (unverändert von Upstream übernommen) | [User-Doku](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/unicommerce_integration) |
+| Zenoti | Zenoti-Integration (unverändert von Upstream übernommen) | [User-Doku](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/zenoti_integration) |
+| Amazon | Amazon SP-API-Integration (unverändert von Upstream übernommen) | [User-Doku](https://docs.erpnext.com/docs/v13/user/manual/en/erpnext_integration/amazon_integration) |
 
+---
 
-### Shopware 6 Integration
+## Shopware 6 Integration
 
-Full bidirectional sync between ERPNext and Shopware 6:
+Vollständige bidirektionale Anbindung zwischen ERPNext und Shopware 6:
 
-- **Products**: Items, prices, stock, images, properties, custom fields
-- **Orders**: Import orders from Shopware to ERPNext
-- **Customers**: Sync customer data
-- **Status Sync**: Delivery notes, payments, invoices update Shopware order status
-- **Bulk Sync**: Redis queue for high-performance bulk operations
-- **Flexible Properties**: Key-value table for unlimited product attributes
+**Produkte (ERPNext → Shopware)**
+- Einfache Artikel und Varianten (inkl. Konfigurator/Optionen, Attribute)
+- Basispreis (netto/brutto, je Preisliste konfigurierbar) sowie UVP/Streichpreis
+- Lagerbestand je Artikel (Summierung über alle Lager)
+- Bildergalerie inkl. Titelbild, automatischer Medien-Upload und -Abgleich
+- Eigenschaften/Property-Groups mit Filterfunktion im Shop-Frontend, inkl. sortierbarer Reihenfolge
+- Frei konfigurierbare Zusatzfelder (Shopware Custom Fields) — ein ERPNext-Feld wird zentral auf ein Shopware-Feld gemappt, kein Pflegeaufwand pro Artikel
+- Marke/Hersteller inkl. Logo und Beschreibung
+- Lieferzeit und Nachbestellzeit („Wiederauffüllzeit"), mit globalem Standardwert als Fallback
+- SEO-Metadaten (Meta-Titel, Meta-Beschreibung)
+- Kategorien über Catalog Mirror bzw. Smart Collections
+- Mindestbestellmenge/Staffelmengen, Steuersätze
+- Verkaufskanal-Sichtbarkeit je Artikel (inkl. manueller Ausnahmen)
 
-**Setup:**
-1. Go to `Shopware Setting` in ERPNext
-2. Enter your Shopware 6 API credentials (Admin API)
-3. Configure warehouse and tax mappings
-4. Enable sync options as needed
+**Produkte (Shopware → ERPNext, Rückimport)**
+- Artikel, Varianten, Kategorien, Bilder, Preise, Bestand, Eigenschaften, Marke, Lieferzeit, Beschreibung, SEO- und Rabattfelder
 
+**Bestellungen & Status**
+- Bestellimport von Shopware nach ERPNext
+- Rückmeldung des Auftragsstatus an Shopware bei Lieferschein-, Zahlungs- und Rechnungsbuchung
 
-### Medusa v2 Integration
+**Kunden**
+- Kundenabgleich inkl. Leitweg-ID für die E-Rechnung (XRechnung)
 
-Sync ERPNext with Medusa v2 headless commerce:
+**Technik**
+- Redis-Warteschlange für performante Massensynchronisation
+- Läuft über die gemeinsame **Product Sync Engine** (siehe unten) mit Hash-basiertem Delta-Erkennung — unveränderte Artikel erzeugen keine API-Aufrufe
 
-- **Products**: Export items with prices, metadata from ecommerce_properties
-- **Orders**: Import orders from Medusa via webhooks or scheduled sync
-- **Customers**: Bidirectional customer sync
-- **Inventory**: Stock level sync to Medusa locations
-- **Status Sync**: Order fulfillment and payment status updates
+**Einrichtung:**
+1. `Shopware Setting` in ERPNext öffnen
+2. Zugangsdaten der Shopware-6-Admin-API hinterlegen
+3. Lager- und Steuerzuordnung konfigurieren
+4. Gewünschte Sync-Optionen aktivieren
 
-**Setup:**
-1. Go to `Medusa Setting` in ERPNext
-2. Enter your Medusa v2 API key and base URL
-3. Configure price list and warehouse mappings
-4. Enable sync options as needed
+---
 
+## Medusa v2 Integration
 
-### RAG Integration (AI Product Search)
+Anbindung von ERPNext an Medusa v2 (headless commerce):
 
-AI-powered product search and FAQ generation for shop assistants:
+- **Produkte**: Export inkl. Preis (netto), Metadaten aus den Ecommerce-Eigenschaften, Marke, Bildergalerie
+- **Bestellungen**: Import via Webhook oder geplanter Synchronisation
+- **Kunden**: Bidirektionaler Abgleich
+- **Lagerbestand**: Übertragung auf Medusa-Standorte
+- **Status-Sync**: Rückmeldung von Versand- und Zahlungsstatus
+- **Verkaufskanäle**: Zuordnung je Artikel
+- Läuft ebenfalls über die gemeinsame **Product Sync Engine**
 
-- FAQ field sync to Shopware custom fields
-- AI-generated product descriptions
-- Integration with AI assistants and chatbots
+**Einrichtung:**
+1. `Medusa Setting` in ERPNext öffnen
+2. API-Schlüssel und Basis-URL der Medusa-v2-Instanz eintragen
+3. Preislisten- und Lagerzuordnung konfigurieren
+4. Gewünschte Sync-Optionen aktivieren
 
-**Setup:**
-1. Go to `Shopware Setting` > AI/RAG section in ERPNext
-2. Configure your AI service endpoint
-3. Enable FAQ and description sync
+---
 
+## Product Sync Engine
 
-### Catalog Mirror & Smart Collections
+Die gemeinsame Delta-Sync-Engine für Shopware und Medusa (Dokumentart `Ecommerce Product Sync`):
 
-Backend category placement is split across two complementary modules.
+- **Geltungsbereich** wählbar: gesamter Katalog, eine Artikelgruppe (mit/ohne Unterbaum), ein Catalog Mirror oder eine Smart Collection
+- **Kanonischer Hash** pro Artikel — nur tatsächlich geänderte Felder werden gepusht; ein unveränderter Katalog erzeugt bei jedem Lauf null Backend-Schreibzugriffe
+- **Vorschau mit Feld-Diff**: vor dem Live-Push zeigt eine Vorschau genau, was sich ändern würde (inkl. Risikohinweisen bei großen Preis-/Bestandssprüngen)
+- **Zeitplan** je Sync (stündlich, alle 6 Stunden, täglich, individueller Cron-Ausdruck) oder rein manuell
+- **Priorisierung** bei überlappenden Syncs sowie Konfliktauflösung (manuelle Prüfung, "zuletzt gewinnt", überspringen)
+- **Pro-Artikel-Overrides**: einzelne Artikel lassen sich anheften, überspringen oder mit abweichendem Namen/Preis/Beschreibung ausstatten
+- Bulk-Push in Batches über die jeweilige Backend-API, mit deterministischen IDs für wiederholbare, idempotente Läufe
+- Ausführliches Audit-Log je Lauf (`Ecommerce Sync Run`, `Ecommerce Sync Error`)
 
-**Catalog Mirror** keeps a 1:1 mirror of the ERPNext Item Group tree
-under one root in the backend (Shopware or Medusa). One mirror per
-(backend, root Item Group) pair; renames, moves and new IGs propagate
-on the next sync. Use this whenever the storefront's standard category
-structure should track ERPNext. See `docs/catalog_mirror.md`.
+---
 
-**Smart Collections** are rule-based ad-hoc groupings — `Sale`,
-`Bestseller`, themed listings — that do not follow the Item Group tree.
-A collection's rules resolve to a set of items, and each enabled target
-pushes those items onto a sales channel (Shopware) or product category
-(Medusa). See `docs/smart_collections.md`.
+## Catalog Mirror & Smart Collections
 
-Per-item exceptions live on `Item.ecommerce_channel_overrides`; an
-`exclude` row wins over both modules, an `include` row injects a
-channel that neither would have produced. See `docs/multi_shop_setup.md`
-for the resolver precedence rules.
+Die Kategorie-Zuordnung im Backend ist auf zwei sich ergänzende Module aufgeteilt.
 
+**Catalog Mirror** hält eine 1:1-Spiegelung des ERPNext-Artikelgruppenbaums unterhalb eines Wurzelknotens im Backend (Shopware oder Medusa). Ein Mirror pro (Backend, Wurzel-Artikelgruppe); Umbenennungen, Verschiebungen und neue Artikelgruppen werden beim nächsten Sync automatisch übernommen. Sinnvoll, wenn die reguläre Shop-Kategoriestruktur der ERPNext-Struktur folgen soll. Siehe [`docs/catalog_mirror.md`](docs/catalog_mirror.md).
 
-### Installation
+**Smart Collections** sind regelbasierte, freie Gruppierungen — `Sale`, `Bestseller`, Themenwelten — die nicht dem Artikelgruppenbaum folgen. Die Regeln einer Collection lösen sich zu einer Artikelmenge auf; jedes aktivierte Ziel schiebt diese Artikel auf einen Verkaufskanal (Shopware) oder eine Produktkategorie (Medusa). Siehe [`docs/smart_collections.md`](docs/smart_collections.md).
 
-**For Shopware6 / Medusa / RAG users (this fork):**
+Ausnahmen auf Artikelebene liegen auf `Item.ecommerce_channel_overrides`: eine `exclude`-Zeile gewinnt über beide Module, eine `include`-Zeile fügt einen Kanal hinzu, den keines der beiden Module produziert hätte. Die Auflösungsreihenfolge ist in [`docs/multi_shop_setup.md`](docs/multi_shop_setup.md) beschrieben.
+
+---
+
+## RAG-Integration (Vektorsuche)
+
+Export der Produktdaten als Vektor-Embeddings nach **Pinecone**, als Grundlage für KI-gestützte Shop-Suchassistenten und Chatbots:
+
+- Automatische und manuelle Bulk-Synchronisation über eine eigene Warteschlange
+- Filterbar nach Artikelgruppe und Verkaufsfähigkeit
+- Eigenes Audit-Log (`RAG Log`)
+
+**Einrichtung:**
+1. `RAG Setting` in ERPNext öffnen
+2. Pinecone-API-Schlüssel hinterlegen
+3. Synchronisationsfilter und Batch-Größe konfigurieren
+
+---
+
+## AI Description (KI-Produktbeschreibungen)
+
+Automatische Generierung von Produktbeschreibungen, Kurzbeschreibungen, Vorteils-Listen und SEO-Texten über **Google Gemini**:
+
+- Lang- und Kurzbeschreibung, Benefits, SEO-Meta-Beschreibung
+- Geplante Stapelverarbeitung (stündlich, konfigurierbares Intervall) für noch nicht bearbeitete Artikel
+- Rate-Limit-Behandlung für die Gemini-API
+- Eigenes Audit-Log (`AI Description Log`)
+- Ergebnisse fließen automatisch in den Shopware-/Medusa-Push ein (Beschreibungsfelder, Zusatzfelder)
+
+**Einrichtung:**
+1. `AI Description Setting` in ERPNext öffnen
+2. Google-Gemini-API-Schlüssel hinterlegen
+3. Stapelverarbeitung und Intervall konfigurieren
+
+---
+
+## Kanalübergreifende Funktionen
+
+- **Ecommerce Item**: zentrale ID-Zuordnungstabelle zwischen ERPNext-Artikeln und Backend-IDs (Shopware/Medusa), inkl. Varianten
+- **Ecommerce Channel Branding**: Logo, Absenderadresse, IBAN/BIC, Impressum und Signatur je Verkaufskanal — Druckformate und E-Mails ziehen diese Daten zur Laufzeit
+- **Ecommerce Channel Override**: manuelle Sichtbarkeits-Ausnahmen je Artikel und Kanal
+- **Kanalbewusste Benachrichtigungen**: E-Mail-Versand (Absenderadresse, CC-Routing, E-Rechnung) richtet sich nach dem Herkunftskanal des Belegs
+- **Deutsche Druckformate**: Auftragsbestätigung, Bestellbestätigung, Rechnung, Versandbestätigung — generisch gehalten und je Betrieb anpassbar, gerendert über den in Frappe v16 integrierten Chrome-PDF-Generator
+- **E-Rechnung (XRechnung)**: Leitweg-ID wird automatisch in das Standardfeld für die elektronische Adresse gespiegelt
+
+---
+
+## Installation
+
+**Für Shopware 6 / Medusa / RAG / AI Description (dieser Fork):**
 
 ```bash
-# Install from this fork
-$ bench get-app ecommerce_integrations https://github.com/TubaApollo/ecommerce_integrations --branch feat/multi-channel-integrations
+# App aus diesem Fork holen
+$ bench get-app ecommerce_integrations https://github.com/DrdotHouse2106/ecommerce_integrations.git --branch feat/multi-channel-integrations
 
-# Install on site
-$ bench --site sitename install-app ecommerce_integrations
+# Auf einer Site installieren
+$ bench --site <deine-site> install-app ecommerce_integrations
 ```
 
-**For upstream (Frappe Cloud/standard integrations):**
+**Für die reine Upstream-Version (Standard-Integrationen von Frappe/ERPNext):**
 
 ```bash
-# Production
+# Produktiv
 $ bench get-app ecommerce_integrations --branch main
 
-# Development
+# Entwicklung
 $ bench get-app ecommerce_integrations --branch develop
 
-# Install on site
-$ bench --site sitename install-app ecommerce_integrations
+# Auf einer Site installieren
+$ bench --site <deine-site> install-app ecommerce_integrations
 ```
 
-After installation, follow the documentation for each integration.
+Nach der Installation die Dokumentation der jeweiligen Integration befolgen.
 
+---
 
-### Contributing
+## Mitwirken
 
-- For Shopware6/Medusa/RAG: PRs to `feat/multi-channel-integrations` branch
-- For upstream integrations: Follow [ERPNext contribution guidelines](https://github.com/frappe/erpnext/wiki/Contribution-Guidelines)
+- Für Shopware 6 / Medusa / RAG / AI Description: Pull Requests gegen den Branch `feat/multi-channel-integrations`
+- Für Upstream-Integrationen: den [ERPNext-Beitragsrichtlinien](https://github.com/frappe/erpnext/wiki/Contribution-Guidelines) folgen
 
+## Entwicklungsumgebung
 
-### Development Setup
+- Entwicklermodus aktivieren
+- Für Webhook-Tests: `localtunnel_url` in der `site_config.json` auf eine ngrok-/localtunnel-URL setzen
 
-- Enable developer mode
-- For webhook testing: Set `localtunnel_url` in site_config with ngrok/localtunnel URL
-
-
-#### License
+## Lizenz
 
 GNU GPL v3.0
