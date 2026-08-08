@@ -197,6 +197,11 @@ Nach der Installation die Dokumentation der jeweiligen Integration befolgen.
 - Entwicklermodus aktivieren
 - Für Webhook-Tests: `localtunnel_url` in der `site_config.json` auf eine ngrok-/localtunnel-URL setzen
 
+## Unterstützung
+
+Dieser Fork wird in der Freizeit gepflegt. Wenn er dir weiterhilft, freue ich mich über eine kleine Spende:
+[paypal.me/DrdotHouse](https://paypal.me/DrdotHouse)
+
 ## Lizenz
 
 GNU GPL v3.0
