@@ -7,9 +7,10 @@ Scheduler functions for AI Description batch processing
 Called hourly by Frappe's scheduler.
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import frappe
+from frappe.utils import now_datetime
 
 
 def process_batch_descriptions():
@@ -36,7 +37,10 @@ def process_batch_descriptions():
             last_run = frappe.utils.get_datetime(settings.last_batch_run)
             next_run = last_run + timedelta(minutes=interval_minutes)
 
-            if datetime.now() < next_run:
+            # ``now_datetime`` respects the site's configured time zone;
+            # naive ``datetime.now()`` drifts against the stored
+            # ``last_batch_run`` when system and site time zones differ.
+            if now_datetime() < next_run:
                 # Not time to run yet
                 return
 

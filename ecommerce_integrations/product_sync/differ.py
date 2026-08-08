@@ -267,7 +267,11 @@ def compute_product_diff(
     # then iterate" memory spike.
     adapter_available = False
     adapter = None
-    if fetch_live and (drift_candidates or detect_orphans):
+    # The adapter is needed for per-field live diffs (fetch_live) AND
+    # for orphan detection — the latter must work in hash-only mode too
+    # (the cron apply runs with fetch_live=False but may carry an
+    # orphan_policy that acts on the result).
+    if (fetch_live and drift_candidates) or detect_orphans:
         try:
             adapter = _get_adapter(backend)
             adapter_available = True
@@ -281,7 +285,7 @@ def compute_product_diff(
                 _("Unexpected error loading adapter: {0}").format(exc),
             )
 
-    def _emit_update(item, proposed_name, external_id, live, mapping):
+    def _emit_update(item, proposed, proposed_name, external_id, live, mapping):
         diffs = (
             _diff_proposed_against_live(proposed, live, mapping=mapping)
             if live else []
@@ -306,21 +310,28 @@ def compute_product_diff(
             )
         )
 
-    if not adapter_available or adapter is None:
+    if not fetch_live or not adapter_available or adapter is None:
         # Hash-only path: every drift candidate becomes a no-diff
-        # update (apply will re-push). Identical to the legacy
-        # ``adapter_available=False`` branch in step 5.
+        # update (apply will re-push). Also taken when the adapter was
+        # only loaded for orphan detection (fetch_live=False) — the
+        # cron apply doesn't need per-field diffs, so we don't pay the
+        # live roundtrips for them.
         for (item, proposed, _h, proposed_name, mapping) in drift_candidates:
             _emit_update(
-                item, proposed_name, mapping["integration_item_code"],
-                None, mapping,
+                item, proposed, proposed_name,
+                mapping["integration_item_code"], None, mapping,
             )
     elif drift_candidates:
         import time as _t
-        index_by_ext = {
-            mapping["integration_item_code"]: (item, proposed, proposed_name, mapping)
-            for (item, proposed, _h, proposed_name, mapping) in drift_candidates
-        }
+        # Group by external id instead of a flat dict: two Ecommerce
+        # Item rows pointing at the same backend product (duplicate
+        # mappings) would otherwise silently drop one candidate from
+        # the plan.
+        index_by_ext: dict[str, list[tuple]] = {}
+        for (item, proposed, _h, proposed_name, mapping) in drift_candidates:
+            index_by_ext.setdefault(
+                mapping["integration_item_code"], [],
+            ).append((item, proposed, proposed_name, mapping))
         ext_ids = list(index_by_ext.keys())
         fetch_total = len(ext_ids)
         fetched = 0
@@ -351,27 +362,30 @@ def compute_product_diff(
                 # Emit the remaining candidates in this chunk as
                 # no-diff updates so the apply pass still runs.
                 for ext_id in chunk:
-                    item, proposed, proposed_name, mapping = index_by_ext[ext_id]
-                    _emit_update(item, proposed_name, ext_id, None, mapping)
+                    for item, proposed, proposed_name, mapping in index_by_ext[ext_id]:
+                        _emit_update(
+                            item, proposed, proposed_name, ext_id, None, mapping,
+                        )
                 continue
 
             # Diff each candidate in this chunk, then drop the live
             # nodes (chunk_live falls out of scope at the next loop
             # iteration; Python's refcounting frees the memory then).
             for ext_id in chunk:
-                item, proposed, proposed_name, mapping = index_by_ext[ext_id]
-                if ext_id not in chunk_live:
-                    plan.mapping_drift.append(
-                        MappingDriftItem(
-                            item_code=item.item_code,
-                            stale_external_id=ext_id,
-                            proposed_name=proposed_name,
+                for item, proposed, proposed_name, mapping in index_by_ext[ext_id]:
+                    if ext_id not in chunk_live:
+                        plan.mapping_drift.append(
+                            MappingDriftItem(
+                                item_code=item.item_code,
+                                stale_external_id=ext_id,
+                                proposed_name=proposed_name,
+                            )
                         )
+                        continue
+                    _emit_update(
+                        item, proposed, proposed_name, ext_id,
+                        chunk_live[ext_id], mapping,
                     )
-                    continue
-                _emit_update(
-                    item, proposed_name, ext_id, chunk_live[ext_id], mapping,
-                )
             chunk_live.clear()
 
     # 6. Phase D — Orphan walk, opt-in only.
@@ -498,6 +512,7 @@ def _diff_proposed_against_live(
     prop_names = {_basename(u) for u in prop_images if u}
     live_names = {_basename(u) for u in live_images if u}
 
+    images_in_sync = False
     pushed_map_json = (mapping or {}).get("pushed_image_map") or ""
     if pushed_map_json and prop_names:
         try:
@@ -524,10 +539,14 @@ def _diff_proposed_against_live(
                 if resolved_ids and resolved_ids.issubset(live_image_ids):
                     # Stage-1 short-circuit: every proposed image is
                     # present in the live set under its tracked UUID.
-                    return diffs
+                    # Only the image comparison is settled — the
+                    # category/property/SEO diffs below must still
+                    # run (an earlier ``return`` here suppressed them
+                    # for every item with in-sync images).
+                    images_in_sync = True
 
     # Stage 2 fallback (no map / partial coverage): basename set check.
-    if prop_names != live_names:
+    if not images_in_sync and prop_names != live_names:
         added = sorted(prop_names - live_names)
         removed = sorted(live_names - prop_names)
         diffs.append(
@@ -812,7 +831,15 @@ def _detect_unmatched_orphans(
     mapped_ext_ids: list[str],
 ) -> None:
     """Walk all live products in the target channels — anything not
-    in our mapping table is an orphan candidate."""
+    in our mapping table is an orphan candidate.
+
+    The comparison set is EVERY mapping for this integration, not just
+    the ones belonging to this Sync's scope: a product mapped to an
+    out-of-scope ERP item (another Sync's scope, a legacy uploader run)
+    is managed — treating it as an orphan would let a
+    ``deactivate``/``delete`` policy tear down a sibling Sync's
+    products.
+    """
     sales_channels = [
         c.sales_channel_id
         for c in (sync_doc.target_sales_channels or [])
@@ -821,6 +848,23 @@ def _detect_unmatched_orphans(
     if not sales_channels:
         return
     mapped_set = set(mapped_ext_ids)
+    integration_key = BACKEND_TO_INTEGRATION_KEY.get(
+        sync_doc.backend or "", (sync_doc.backend or "").lower(),
+    )
+    try:
+        mapped_set.update(
+            frappe.get_all(
+                _ECOMMERCE_ITEM_DOCTYPE,
+                filters={
+                    "integration": integration_key,
+                    "integration_item_code": ("!=", ""),
+                },
+                pluck="integration_item_code",
+                limit=0,
+            )
+        )
+    except Exception:  # noqa: BLE001 — fall back to the in-scope set
+        pass
     try:
         for live in adapter.fetch_products(sales_channel_ids=sales_channels):
             if live.external_id in mapped_set:

@@ -230,13 +230,20 @@ def build_shopware_payload(
     # ``visibilities`` section hash and the apply pipeline
     # re-pushes the new channel set for that item alone.
     canonical_vis = canonical.get("visibilities") or []
-    if canonical_vis:
+    if canonical_vis and _wants("visibilities"):
         payload["visibilities"] = [
             {"salesChannelId": v["channel_id"],
              "visibility": v.get("visibility") or _SHOPWARE_VISIBILITY_ALL}
             for v in canonical_vis
             if v.get("channel_id")
         ]
+        # NOTE: the adapter strips ``visibilities`` again on UPDATE
+        # (``_prepare_upsert_payload`` — re-sending existing
+        # ``product_visibility`` rows through /_action/sync trips the
+        # unique-key constraint and aborts the whole batch). Updates
+        # are covered by the orchestrator's Phase-C
+        # ``reconcile_product_visibilities`` call instead; the payload
+        # field only takes effect on CREATE.
 
     # Pricing: single base-price for the system default currency.
     # ``canonical.base_price`` is always normalised to GROSS by
@@ -292,6 +299,19 @@ def build_shopware_payload(
                 tax_id = _resolve_shopware_tax_id(tax_rate_pct)
                 if tax_id:
                     payload["taxId"] = tax_id
+
+    # SEO: metaTitle / metaDescription live directly on the Shopware
+    # product entity. The canonical only carries the ``seo`` section
+    # when ``sync_seo_fields=1``, so emission is naturally gated on the
+    # operator's opt-in. Empty values are sent as ``null`` so clearing
+    # the ERP field also clears the live product (emit-only-when-truthy
+    # would leave stale meta text in Shopware forever). The slug is NOT
+    # pushed here — Shopware SEO URLs are a separate entity with
+    # per-channel templates, out of scope for the product upsert.
+    seo = canonical.get("seo")
+    if seo is not None and _wants("seo"):
+        payload["metaTitle"] = seo.get("meta_title") or None
+        payload["metaDescription"] = seo.get("meta_description") or None
 
     # Categories: link the product to its Item-Group's backend category
     # (written by Catalog Mirror on its own apply). When the mapping is
@@ -531,6 +551,7 @@ def build_medusa_payload(
     _reserved_meta = {
         "erpnext_item_code", "sync_source", "properties",
         "properties_filterable", "brand", "manufacturer",
+        "meta_title", "meta_description",
     }
     cur_cf = properties_canonical.get("custom_fields") or {}
     for cf_name, cf_value in cur_cf.items():
@@ -547,6 +568,17 @@ def build_medusa_payload(
         for cf_name in prev_cf:
             if cf_name and cf_name not in _reserved_meta and cf_name not in cur_cf:
                 metadata[cf_name] = None
+
+    # SEO: Medusa has no first-class meta fields on the product, so
+    # meta title/description ride on ``metadata`` under the same keys
+    # the storefront convention reads. Only present when the Sync's
+    # ``sync_seo_fields`` opt-in put a ``seo`` section into the
+    # canonical; ``None`` clears a previously-pushed value (Medusa
+    # merges metadata).
+    seo = canonical.get("seo")
+    if seo is not None:
+        metadata["meta_title"] = seo.get("meta_title") or None
+        metadata["meta_description"] = seo.get("meta_description") or None
 
     payload: dict[str, Any] = {
         "title": basic.get("name") or item.item_code,

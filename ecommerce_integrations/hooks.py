@@ -319,6 +319,15 @@ scheduler_events = {
 	"weekly": [],
 	"monthly": [],
 	"cron": {
+		# Every minute: drain the Redis-backed bulk-sync queues. When bulk
+		# mode activates (mass imports), the doc-event hooks only queue and
+		# deliberately skip enqueuing a processor job — this tick is what
+		# picks the work up once the save burst has quieted down. Without
+		# it the Medusa queue (1 h TTL) silently expires after an import.
+		"* * * * *": [
+			"ecommerce_integrations.medusa.bulk_sync.check_and_process_queue",
+			"ecommerce_integrations.rag.bulk_sync.check_and_process_queue",
+		],
 		# Every five minutes
 		"*/5 * * * *": [
 			"ecommerce_integrations.unicommerce.order.sync_new_orders",

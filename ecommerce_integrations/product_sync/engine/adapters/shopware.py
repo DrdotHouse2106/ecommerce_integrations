@@ -19,13 +19,14 @@ because they are session-level concerns, not endpoint-level:
    preserved, so the orchestrator's log row has the original
    traceback.
 
-Live-side hashing (:meth:`ShopwareProductAdapter.compute_live_hash`)
-re-uses the canonical-payload section builders from
-:mod:`product_sync.engine.canonical` deliberately: if the live-side
-hash is computed against a different shape than the ERP-side hash,
-the differ would loop forever ("they don't match — push — still
-don't match — push"). The section keys produced here must remain in
-lock-step with ``_canonical_basic`` / ``_canonical_pricing`` / etc.
+Drift detection compares the ERP-side canonical hash against the
+STORED ``last_synced_hash`` — there is deliberately no live-side hash
+builder in this adapter. (An earlier ``compute_live_hash`` +
+``_build_live_*`` family existed but was never wired into the differ
+and silently drifted from the canonical schema; it was removed rather
+than maintained as a parallel universe. ``_live_properties`` /
+``_live_seo`` survive because the per-field diff view reads them via
+``_row_to_live_node``.)
 """
 
 from __future__ import annotations
@@ -41,10 +42,6 @@ from ecommerce_integrations.product_sync.engine.adapters.base import (
     LiveProductNode,
     ProductAdapter,
     ProductMatch,
-)
-from ecommerce_integrations.product_sync.engine.canonical import (
-    PAYLOAD_VERSION,
-    compute_hash,
 )
 from ecommerce_integrations.shopware6.connection import temp_shopware_session
 
@@ -666,6 +663,36 @@ class ShopwareProductAdapter(ProductAdapter):
             keep_option_ids=set(keep_option_ids or ()),
         )
 
+    def reconcile_product_visibilities(
+        self,
+        external_id: str,
+        entries: list[dict],
+    ) -> dict:
+        """Align a product's ``product_visibility`` rows with the
+        canonical ``visibilities`` section.
+
+        The bulk product upsert cannot carry ``visibilities`` on UPDATE
+        (re-sending an existing row through ``/_action/sync`` trips the
+        ``product_id__sales_channel_id`` unique key and aborts the
+        whole batch), so per-item visibility changes on existing
+        products need this out-of-band pass: read the live rows, upsert
+        changed/missing ones (existing rows keep their id, new rows get
+        a deterministic one) and delete rows for channels the canonical
+        no longer lists.
+
+        ``entries`` is the canonical shape
+        (``[{channel_id, visibility}, …]``). Callers must NOT invoke
+        this with an empty list — an empty canonical means "no
+        opinion", not "unlink every channel".
+
+        Returns ``{created, updated, deleted}``.
+        """
+        return _with_client(
+            self._reconcile_visibilities_impl,
+            external_id=external_id,
+            entries=list(entries or []),
+        )
+
     def upload_product_images(
         self,
         external_id: str,
@@ -818,25 +845,6 @@ class ShopwareProductAdapter(ProductAdapter):
             skus=skus,
             eans=eans,
         )
-
-    # ─── Hashing parity with engine/canonical.py ─────────────────────
-
-    def compute_live_hash(self, product: dict[str, Any], sync) -> str:
-        """Hash a live Shopware product the same way the ERP side hashes
-        the source Item, so the differ can compare apples to apples.
-
-        ``product`` is the raw response dict as it appears in the
-        ``data[]`` array of ``POST /search/product`` — the same shape
-        that backs :class:`LiveProductNode`. ``sync`` is the
-        ``Ecommerce Product Sync`` doc whose toggles decide which
-        sections land in the payload.
-
-        The output dict mirrors :func:`build_canonical_payload` by
-        construction: same top-level keys, same section schemas, same
-        sort orders. Any divergence and the differ flaps.
-        """
-        payload = self._build_live_canonical(product, sync)
-        return compute_hash(payload)
 
     # ─── Implementations (run inside temp_shopware_session) ──────────
 
@@ -1320,8 +1328,11 @@ class ShopwareProductAdapter(ProductAdapter):
         # every batch in FailedJobRegistry.
         #
         # Visibility *changes* (channel added/removed for an item) are
-        # handled out-of-band by the channel-assignment helper, not the
-        # bulk upsert, so dropping them here on UPDATE is safe.
+        # handled out-of-band by the orchestrator's Phase-C
+        # ``reconcile_product_visibilities`` call (plus the Smart
+        # Collection / Catalog Mirror channel-assignment helpers for
+        # their own layers), not the bulk upsert — so dropping them
+        # here on UPDATE is safe.
         if external_id:
             # Update path: strip any inherited visibilities (the
             # canonical payload builder sets one row per target
@@ -1427,23 +1438,40 @@ class ShopwareProductAdapter(ProductAdapter):
             _reused = None
             try:
                 _hit = client.request_post("search/media", payload={
-                    "filter": [{
-                        "type": "multi", "operator": "or", "queries": [
-                            {"type": "equals", "field": "id", "value": _det_id},
-                            {"type": "equals", "field": "fileName", "value": _stem},
-                        ],
-                    }],
+                    "filter": [
+                        {"type": "equals", "field": "id", "value": _det_id},
+                    ],
                     "includes": {"media": ["id", "fileName"]},
-                    "limit": 2,
+                    "limit": 1,
                 })
                 _rows = _hit.data or []
-                # Prefer the deterministic id; legacy name-hit second.
-                _reused = next(
-                    (m["id"] for m in _rows if m.get("id") == _det_id),
-                    (_rows[0]["id"] if _rows else None),
-                )
+                _reused = _rows[0]["id"] if _rows else None
             except Exception:  # noqa: BLE001
                 _reused = None
+            if not _reused:
+                # Legacy fallback: media created before the
+                # deterministic-id scheme (random uuid4). Scoped to
+                # THIS product via the productMedia association — a
+                # global fileName match could adopt an unrelated
+                # product's image when the stem is generic
+                # ("bild1.jpg" without frappe's content-hash suffix).
+                try:
+                    _hit = client.request_post("search/media", payload={
+                        "filter": [
+                            {"type": "equals", "field": "fileName", "value": _stem},
+                            {
+                                "type": "equals",
+                                "field": "productMedia.productId",
+                                "value": external_id,
+                            },
+                        ],
+                        "includes": {"media": ["id", "fileName"]},
+                        "limit": 1,
+                    })
+                    _rows = _hit.data or []
+                    _reused = _rows[0]["id"] if _rows else None
+                except Exception:  # noqa: BLE001
+                    _reused = None
             if _reused:
                 counters["uploaded"] += 1
                 new_media_ids.append(_reused)
@@ -1822,6 +1850,83 @@ class ShopwareProductAdapter(ProductAdapter):
 
         return counters
 
+    def _reconcile_visibilities_impl(
+        self,
+        client,
+        *,
+        external_id: str,
+        entries: list[dict],
+    ) -> dict:
+        counters = {"created": 0, "updated": 0, "deleted": 0}
+        if not external_id or not entries:
+            return counters
+
+        r = client.request_post("search/product", payload={
+            "filter": [{"type": "equals", "field": "id", "value": external_id}],
+            "associations": {"visibilities": {}},
+            "includes": {
+                "product": ["id", "visibilities"],
+                "product_visibility": ["id", "salesChannelId", "visibility"],
+            },
+            "limit": 1,
+        })
+        product = ((r.data or [{}])[0]) or {}
+        live: dict[str, dict] = {}
+        for vis in product.get("visibilities") or []:
+            if isinstance(vis, dict) and vis.get("salesChannelId") and vis.get("id"):
+                live[vis["salesChannelId"]] = vis
+
+        wanted: dict[str, int] = {}
+        for e in entries:
+            sc_id = (e.get("channel_id") or "").strip()
+            if sc_id:
+                wanted[sc_id] = int(e.get("visibility") or _VISIBILITY_ALL)
+
+        import hashlib as _hl
+        to_upsert: list[dict] = []
+        for sc_id, vis_level in wanted.items():
+            cur = live.get(sc_id)
+            if cur is None:
+                # Deterministic id keyed on (product, channel) so a
+                # re-run upserts in place instead of colliding with the
+                # unique key.
+                to_upsert.append({
+                    "id": _hl.md5(f"pv::{external_id}::{sc_id}".encode()).hexdigest(),
+                    "productId": external_id,
+                    "salesChannelId": sc_id,
+                    "visibility": vis_level,
+                })
+                counters["created"] += 1
+            elif int(cur.get("visibility") or 0) != vis_level:
+                # Existing row: reuse ITS id — a fresh deterministic id
+                # for the same (product, channel) pair would violate
+                # the unique key.
+                to_upsert.append({"id": cur["id"], "visibility": vis_level})
+                counters["updated"] += 1
+
+        to_delete = [
+            v["id"] for sc_id, v in live.items() if sc_id not in wanted
+        ]
+
+        if to_upsert:
+            client.request_post("_action/sync", payload={
+                "vis": {
+                    "entity": "product_visibility",
+                    "action": "upsert",
+                    "payload": to_upsert,
+                },
+            })
+        if to_delete:
+            client.request_post("_action/sync", payload={
+                "visdel": {
+                    "entity": "product_visibility",
+                    "action": "delete",
+                    "payload": [{"id": vid} for vid in to_delete],
+                },
+            })
+            counters["deleted"] = len(to_delete)
+        return counters
+
     def _push_variant_options_impl(
         self,
         client,
@@ -2182,177 +2287,9 @@ class ShopwareProductAdapter(ProductAdapter):
             )
         return out
 
-    # ─── Live-hash payload builders ──────────────────────────────────
-
-    def _build_live_canonical(
-        self, product: dict[str, Any], sync,
-    ) -> dict[str, Any]:
-        """Build a canonical-payload dict from a live Shopware product.
-
-        Section names and shapes mirror
-        :func:`product_sync.engine.canonical.build_canonical_payload`
-        exactly. Toggles are honoured via ``_live_flag`` — the same
-        ``sync_*`` flags that gate the ERP-side sections gate the
-        live-side ones, otherwise the differ would compare a
-        toggle-trimmed ERP payload against a full live payload and
-        always declare drift.
-        """
-        merged = self._merge_attrs(product)
-        out: dict[str, Any] = {
-            "v": PAYLOAD_VERSION,
-            "item_code": _ns(merged.get("productNumber")),
-            # ``variant_of`` deliberately not emitted — ERPNext uses
-            # the parent item_code, Shopware uses its own parentId
-            # UUID. Hashing either side would force permanent drift.
-            "is_variant": bool(merged.get("parentId")),
-        }
-        if _live_flag(sync, "sync_basic_fields", default=True):
-            out["basic"] = self._live_basic(merged)
-        if _live_flag(sync, "sync_pricing", default=True):
-            out["pricing"] = self._live_pricing(merged, sync)
-        if _live_flag(sync, "sync_inventory", default=True):
-            out["inventory"] = self._live_inventory(merged)
-        if _live_flag(sync, "sync_images", default=True):
-            out["images"] = self._live_images(merged)
-        if _live_flag(sync, "sync_properties", default=True):
-            out["properties"] = self._live_properties(merged)
-        if _live_flag(sync, "sync_seo_fields", default=False):
-            out["seo"] = self._live_seo(merged)
-        if _live_flag(sync, "sync_taxes", default=True):
-            out["taxes"] = self._live_taxes(merged, sync)
-        out["categories"] = self._live_categories(merged)
-        # Per-item visibilities — only emitted when the Sync opted
-        # in via ``sync_visibilities=1`` (matches the ERP-side gate
-        # in ``build_canonical_payload``). Without the symmetric
-        # gate the ERP canonical would omit the section while the
-        # live canonical includes it, and the per-field differ in
-        # ``fetch_live=True`` mode would flag every item as drift.
-        if _live_flag(sync, "sync_visibilities", default=False):
-            out["visibilities"] = self._live_visibilities(merged)
-        return out
-
-    def _live_visibilities(
-        self, merged: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        """Project Shopware ``product.visibilities`` rows onto the
-        canonical visibility shape."""
-        out: list[dict[str, Any]] = []
-        for vis in merged.get("visibilities") or []:
-            if not isinstance(vis, dict):
-                continue
-            sc_id = vis.get("salesChannelId")
-            if not sc_id:
-                continue
-            out.append({
-                "channel_id": _ns(sc_id),
-                "visibility": int(vis.get("visibility") or 0),
-            })
-        out.sort(key=lambda d: d["channel_id"])
-        return out
-
     def _merge_attrs(self, product: dict[str, Any]) -> dict[str, Any]:
         attrs = product.get("attributes") or {}
         return {**attrs, **{k: v for k, v in product.items() if k != "attributes"}}
-
-    def _live_basic(self, merged: dict[str, Any]) -> dict[str, Any]:
-        translated = merged.get("translated") or {}
-        return {
-            "name": _ns(merged.get("name") or translated.get("name")),
-            "sku": _ns(merged.get("productNumber")),
-            "description": _ns(
-                merged.get("description") or translated.get("description"),
-            ),
-            "ean": _ns(merged.get("ean")),
-            "is_active": bool(merged.get("active", True)),
-            # Shopware stores the UoM on a separate ``unit`` association;
-            # without expanding it we can only echo the unit-id. The ERP
-            # side hashes the UoM name, so a UoM-only drift may not
-            # converge until Phase 5 expands the unit association.
-            # TODO: expand ``unit`` association to compare on UoM name.
-            "uom": _ns(merged.get("unitId")),
-        }
-
-    def _live_pricing(
-        self, merged: dict[str, Any], sync,
-    ) -> dict[str, Any]:
-        prices = merged.get("price") or []
-        base = 0.0
-        currency_iso = ""
-        if isinstance(prices, list) and prices:
-            first = prices[0] or {}
-            try:
-                # Always read gross so we match the canonical's basis.
-                # 2-decimal precision (currency cents) to keep hash
-                # parity with the canonical — sub-cent rounding from
-                # net-to-gross computation would otherwise flap.
-                base = round(float(first.get("gross") or first.get("net") or 0), 2)
-            except (TypeError, ValueError):
-                base = 0.0
-            # Resolve the Shopware currency UUID to an ISO code so we
-            # hash on the same shape the canonical emits ("EUR", not a
-            # UUID). The mapping is reverse-cached per session to keep
-            # the per-item cost negligible.
-            currency_id = _ns(first.get("currencyId"))
-            if currency_id:
-                currency_iso = _resolve_iso_for_currency_id(currency_id) or ""
-
-        # Tax rate from the product's ``tax`` association (Shopware
-        # returns ``{taxRate: 19.0, ...}``). Falls back to 19 % so a
-        # missing association doesn't force a spurious hash mismatch
-        # on installs where Shopware didn't include the association.
-        tax_rate_pct = 19.0
-        tax = merged.get("tax")
-        if isinstance(tax, dict):
-            raw = tax.get("taxRate")
-            if raw is not None:
-                try:
-                    tax_rate_pct = float(raw)
-                except (TypeError, ValueError):
-                    pass
-
-        # Channel-tier prices live in the ``prices`` association
-        # (rule-based price tiers) — Phase 5 will reconcile these
-        # against ERP price lists. For now we emit an empty list, which
-        # matches what ``_canonical_pricing`` does on the ERP side when
-        # the sync has no per-channel overrides configured.
-        return {
-            "currency": currency_iso,
-            "base_price": base,
-            "channel_prices": [],
-            "tax_rate_pct": round(tax_rate_pct, 4),
-        }
-
-    def _live_inventory(self, merged: dict[str, Any]) -> dict[str, Any]:
-        # ERP side sums across warehouses; live side reports the same
-        # number Shopware shows the customer — see _row_to_live_node
-        # for the availableStock-over-stock preference.
-        raw = merged.get("availableStock")
-        if raw is None:
-            raw = merged.get("stock")
-        try:
-            qty = round(float(raw or 0), 4)
-        except (TypeError, ValueError):
-            qty = 0.0
-        return {"qty": qty}
-
-    def _live_images(self, merged: dict[str, Any]) -> list[dict[str, Any]]:
-        out: list[dict[str, Any]] = []
-        cover = merged.get("cover")
-        cover_id = cover.get("mediaId") if isinstance(cover, dict) else None
-        for m in merged.get("media") or []:
-            if not isinstance(m, dict):
-                continue
-            inner = m.get("media") or {}
-            url = inner.get("url") if isinstance(inner, dict) else None
-            media_id = (inner.get("id") if isinstance(inner, dict) else None) or m.get("mediaId")
-            if not url:
-                continue
-            out.append({
-                "url": url,
-                "primary": bool(cover_id and media_id == cover_id),
-            })
-        out.sort(key=lambda d: d["url"])
-        return out
 
     def _live_properties(self, merged: dict[str, Any]) -> dict[str, Any]:
         # Brand lives on the expanded ``manufacturer`` association,
@@ -2411,48 +2348,6 @@ class ShopwareProductAdapter(ProductAdapter):
             "meta_title": _ns(merged.get("metaTitle")),
             "meta_description": _ns(merged.get("metaDescription")),
         }
-
-    def _live_taxes(
-        self, merged: dict[str, Any], sync,
-    ) -> dict[str, Any]:
-        """Tax rate (%) Shopware reports via the ``tax`` association.
-
-        Hashes the same shape as ``_canonical_taxes``: a single
-        ``rate_pct`` float, normalised to 4 decimals. Mismatched
-        backend tax-entity names that used to force permanent drift
-        are gone — the percentage is the only anchor that survives
-        the round-trip cleanly.
-        """
-        rate = 0.0
-        tax = merged.get("tax") or {}
-        if isinstance(tax, dict):
-            raw = tax.get("taxRate")
-            if raw is not None:
-                try:
-                    rate = float(raw)
-                except (TypeError, ValueError):
-                    rate = 0.0
-        return {"rate_pct": round(rate, 4)}
-
-    def _live_categories(self, merged: dict[str, Any]) -> dict[str, Any]:
-        """Live category UUIDs Shopware reports for this product.
-
-        Mirrors the shape ``_canonical_categories`` produces on the ERP
-        side: ``{"item_group": <name-or-empty>, "ids": [<uuid>, …]}``.
-        The ``ids`` list is what we actually hash for parity. ``item_group``
-        stays empty here because Shopware doesn't carry the ERP-side IG
-        name — only its own category UUIDs.
-        """
-        ids: list[str] = []
-        for c in merged.get("categories") or []:
-            if isinstance(c, dict) and c.get("id"):
-                ids.append(c["id"])
-        if not ids:
-            for raw in merged.get("categoryIds") or []:
-                if raw:
-                    ids.append(str(raw))
-        # Match canonical's shape: only the UUID set goes into the hash.
-        return {"ids": sorted(set(ids))}
 
 
 # ─── Module-level helpers ────────────────────────────────────────────
@@ -2675,47 +2570,6 @@ def _with_client(fn, *args, **kwargs):
     return runner(*args, **kwargs)
 
 
-def _resolve_iso_for_currency_id(currency_id: str) -> str | None:
-    """Reverse of ``payload._resolve_shopware_currency_id``.
-
-    Map a Shopware ``currency.id`` UUID back to the ISO code so the
-    live-side canonical can hash the same shape the ERP-side emits.
-    Cached per-host to keep the per-item cost negligible during a
-    DETAIL preview's drift fetch.
-    """
-    if not currency_id:
-        return None
-    try:
-        import frappe
-        cache_key = f"_psync_shopware_currency_iso:{currency_id}"
-        cached = frappe.cache().get_value(cache_key)
-        if cached:
-            return cached or None
-
-        @temp_shopware_session
-        def _lookup(client):
-            resp = client.request_post(
-                "search/currency",
-                payload={
-                    "limit": 1,
-                    "filter": [{"type": "equals", "field": "id", "value": currency_id}],
-                    "includes": {"currency": ["id", "isoCode"]},
-                },
-            )
-            data = (resp.data if resp else None) or []
-            if data:
-                attrs = (data[0].get("attributes") or {})
-                return (data[0].get("isoCode") or attrs.get("isoCode") or "").upper() or None
-            return None
-
-        value = _lookup()
-        if value:
-            frappe.cache().set_value(cache_key, value, expires_in_sec=3600)
-        return value
-    except Exception:  # noqa: BLE001
-        return None
-
-
 def _ns(value) -> str:
     """Normalise to single-space-collapsed stripped string.
 
@@ -2730,16 +2584,3 @@ def _ns(value) -> str:
     if not s:
         return ""
     return " ".join(s.split())
-
-
-def _live_flag(sync, name: str, *, default: bool) -> bool:
-    """Toggle reader that matches ``canonical._flag``.
-
-    Importing the private symbol directly from ``canonical`` would
-    couple this module to an underscore-prefixed name; reimplementing
-    is one line and keeps the boundary clean.
-    """
-    val = getattr(sync, name, None)
-    if val is None:
-        return default
-    return bool(int(val) if isinstance(val, (str, int, float)) else val)

@@ -248,6 +248,11 @@ CANONICAL_SECTIONS: tuple[str, ...] = (
     "seo",
     "taxes",
     "categories",
+    # Per-item Sales-Channel visibility (opt-in via ``sync_visibilities``).
+    # Listed here so a visibility-only change produces a non-empty
+    # ``changed_sections`` set and the apply pipeline's Phase-C
+    # visibility reconcile can gate on it.
+    "visibilities",
 )
 
 
@@ -508,16 +513,18 @@ def _get_ecommerce_properties_for_custom_fields(item) -> list:
     customFields (``property_type == "Custom Field"`` and
     ``sync_to_shopware``).
 
-    Reads from the item's already-loaded child table when present
-    (apply-path with a full ``frappe.get_doc``) and falls back to a
-    per-item SQL when ``item.ecommerce_properties`` isn't populated
-    (differ-path with an ``ItemSnapshot`` that hasn't pre-loaded the
-    child table). N+1 is acceptable here because the typical
-    catalogue has only a handful of custom-field-type rows per item.
+    Reads from the item's already-loaded child table when present —
+    the apply-path's full ``frappe.get_doc`` AND the differ-path's
+    ``ItemSnapshot`` (BulkContext pre-loads the child rows) both carry
+    it. ``None`` (attribute absent entirely) is the only state that
+    falls back to a per-item SQL — ad-hoc callers passing a bare
+    object. An empty list means "genuinely no rows" and must NOT
+    trigger the SQL, otherwise every property-less item pays a
+    pointless query per canonical build.
     """
     import frappe
-    rows = getattr(item, "ecommerce_properties", None) or []
-    if rows:
+    rows = getattr(item, "ecommerce_properties", None)
+    if rows is not None:
         return [
             r for r in rows
             if (getattr(r, "property_type", "") or "") == "Custom Field"
@@ -1225,12 +1232,16 @@ def _canonical_properties(item, sync) -> dict[str, Any]:
     sync_flag = "sync_to_medusa" if backend == "medusa" else "sync_to_shopware"
 
     catalog = _load_property_catalog()
-    in_mem = getattr(item, "ecommerce_properties", None) or []
+    # ``None`` = child table not loaded on this object → per-item SQL
+    # fallback. An empty list means "no rows" and skips the SQL — the
+    # BulkContext pre-loads the rows for every snapshot, so the
+    # differ-path stays free of per-item queries.
+    in_mem = getattr(item, "ecommerce_properties", None)
     # (name, value, property_type, per-row backend sync flag). The row
     # flag only gates UNCATALOGUED rows — catalogued rows are gated by
     # their Group's flag below.
     raw_rows: list[tuple[str, str, str, int]] = []
-    if in_mem:
+    if in_mem is not None:
         for row in in_mem:
             pn = _norm_str(getattr(row, "property_name", ""))
             pv = _norm_numeric_value(_norm_str(getattr(row, "property_value", "")))

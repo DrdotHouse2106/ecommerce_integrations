@@ -26,7 +26,7 @@ Precedence (locked):
    - ``skip`` → no Sync wins; the Item is dropped from this run.
 
 ``find_active_syncs_covering_item`` walks each active Sync's scope
-exactly once per run via the ``_SCOPE_CACHE`` below, then probes
+exactly once per run via the request-local scope cache, then probes
 the cached frozen sets — O(C) per item where C is the (small)
 number of active candidate Syncs. The differ resets the cache
 between runs so scope-doc edits show up on the next pass.
@@ -329,37 +329,55 @@ def resolve_item(item_code: str, backend: str) -> ProductDecision:
     )
 
 
-# Process-local scope cache, populated lazily and shared across all
-# ``resolve_item`` calls within one differ run. Keys are Sync names,
-# values are the frozen set of item_codes that fall in that Sync's
-# scope. Without this cache ``find_active_syncs_covering_item`` was
-# O(N × walk(sync)) per call — for a 37k-item catalogue with one
+# Request-/job-local scope cache, populated lazily and shared across
+# all ``resolve_item`` calls within one differ run. Keys are Sync
+# names, values are the frozen set of item_codes that fall in that
+# Sync's scope. Without this cache ``find_active_syncs_covering_item``
+# was O(N × walk(sync)) per call — for a 37k-item catalogue with one
 # active Sync that's ~1.4B inner iterations per full diff, which is
 # why cron-triggered apply runs were crawling at <1 item/sec.
-_SCOPE_CACHE: dict[str, frozenset[str]] = {}
-_CANDIDATES_CACHE: dict[str, list[str]] = {}
+#
+# Lives on ``frappe.local`` (NOT module globals) for two reasons:
+# module globals in a long-lived worker (a) leak scope sets between
+# sites in a multi-site bench — keys are Sync names, which can collide
+# across sites — and (b) go stale for the doc-event save gate: a
+# brand-new Item wasn't in the frozen set until the next differ run
+# happened to clear the cache. ``frappe.local`` resets per
+# request/job, which bounds staleness to a single request while still
+# amortising the walk across a full differ run (one job).
+
+
+def _local_caches() -> tuple[dict, dict]:
+    local = frappe.local
+    if not hasattr(local, "_psync_scope_cache"):
+        local._psync_scope_cache = {}
+        local._psync_candidates_cache = {}
+    return local._psync_scope_cache, local._psync_candidates_cache
 
 
 def clear_scope_cache() -> None:
-    """Invalidate the resolver's process-local scope cache.
+    """Invalidate the resolver's request-local scope cache.
 
     The differ calls this at the top of every run so a Sync whose
     scope changed between runs picks up the new membership. Within
     one run the cache is safe to share — Sync scopes don't shift
     mid-run.
     """
-    _SCOPE_CACHE.clear()
-    _CANDIDATES_CACHE.clear()
+    scope_cache, candidates_cache = _local_caches()
+    scope_cache.clear()
+    candidates_cache.clear()
 
 
 def _scope_set(sync_name: str) -> frozenset[str]:
     """Return the frozen set of item_codes covered by ``sync_name``.
 
-    Lazily populates ``_SCOPE_CACHE``. Walking a Sync's scope is the
+    Lazily populates the request-local scope cache. Walking a Sync's
+    scope is the
     expensive operation we want to do once per Sync per run, not once
     per (item, Sync) pair.
     """
-    cached = _SCOPE_CACHE.get(sync_name)
+    scope_cache, _ = _local_caches()
+    cached = scope_cache.get(sync_name)
     if cached is not None:
         return cached
     from ecommerce_integrations.product_sync.walker import walk_items_for_sync
@@ -369,14 +387,14 @@ def _scope_set(sync_name: str) -> frozenset[str]:
         result: frozenset[str] = frozenset()
     else:
         result = frozenset(n.item_code for n in walk_items_for_sync(sync))
-    _SCOPE_CACHE[sync_name] = result
+    scope_cache[sync_name] = result
     return result
 
 
 def find_active_syncs_covering_item(item_code: str, backend: str) -> list[str]:
     """Return the names of every active Sync whose scope covers ``item_code``.
 
-    Uses the process-local ``_SCOPE_CACHE`` so the per-Sync walk runs
+    Uses the request-local scope cache so the per-Sync walk runs
     at most once per run regardless of how many items the differ
     classifies. Callers that mutate Sync scopes should invoke
     :func:`clear_scope_cache` before the next dispatch.
@@ -384,14 +402,15 @@ def find_active_syncs_covering_item(item_code: str, backend: str) -> list[str]:
     if not frappe.db.exists("DocType", SYNC_DOCTYPE):
         return []
 
-    candidates = _CANDIDATES_CACHE.get(backend)
+    _, candidates_cache = _local_caches()
+    candidates = candidates_cache.get(backend)
     if candidates is None:
         candidates = frappe.get_all(
             SYNC_DOCTYPE,
             filters={"is_active": 1, "backend": backend},
             pluck="name",
         )
-        _CANDIDATES_CACHE[backend] = candidates
+        candidates_cache[backend] = candidates
 
     if not candidates:
         return []

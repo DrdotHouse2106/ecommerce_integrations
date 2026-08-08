@@ -91,6 +91,13 @@ class ItemSnapshot:
     attributes: list[Any] = field(default_factory=list)
     barcodes: list[Any] = field(default_factory=list)
     taxes: list[Any] = field(default_factory=list)
+    # Item Ecommerce Property rows. ``None`` means "not loaded" and
+    # makes the canonical builder fall back to its per-item SQL; the
+    # BulkContext loader always sets a list (possibly empty) so the
+    # differ path never pays the N+1 — previously every canonical
+    # build issued up to two ``tabItem Ecommerce Property`` queries
+    # per item, ~60k queries per diff tick on a 30k catalogue.
+    ecommerce_properties: list[Any] | None = None
     # Operator-configured dynamic field values keyed by Item fieldname.
     # Populated by ``_load_dynamic_fields`` for the keys listed on
     # Shopware Setting.item_custom_field_mappings. ``__getattr__``
@@ -143,6 +150,20 @@ class TaxRow:
     item_tax_template: str
 
 
+@dataclass
+class EcomPropertyRow:
+    """Duck-typed Item Ecommerce Property child row. Carries every
+    field the canonical builders read (``_canonical_properties`` and
+    ``_canonical_dynamic_custom_fields``)."""
+
+    property_name: str
+    property_value: str
+    property_type: str
+    field_data_type: str
+    sync_to_shopware: int
+    sync_to_medusa: int
+
+
 class BulkContext:
     """Pre-loaded snapshot for one Sync's full scope.
 
@@ -167,6 +188,7 @@ class BulkContext:
         self._load_attributes(codes)
         self._load_taxes(codes)
         self._load_dynamic_fields(codes)
+        self._load_ecommerce_properties(codes)
 
     # ─── Loaders ────────────────────────────────────────────────────
 
@@ -376,6 +398,48 @@ class BulkContext:
                 continue
             for f in wanted_fields:
                 snap.dynamic_field_values[f] = r.get(f)
+
+    def _load_ecommerce_properties(self, item_codes: list[str]) -> None:
+        """Pre-load Item Ecommerce Property rows in one query.
+
+        Every snapshot gets a list (empty when the item has no rows) so
+        the canonical builders' ``is not None`` check skips their
+        per-item SQL fallback — that fallback fired for EVERY item on
+        the differ path before this loader existed. Silent no-op when
+        the child doctype isn't installed (upstream-only sites)."""
+        for snap in self._items.values():
+            snap.ecommerce_properties = []
+        try:
+            rows = frappe.db.sql(
+                """SELECT parent, property_name, property_value,
+                          COALESCE(property_type, '') AS property_type,
+                          COALESCE(field_data_type, '') AS field_data_type,
+                          COALESCE(sync_to_shopware, 0) AS sync_to_shopware,
+                          COALESCE(sync_to_medusa, 0) AS sync_to_medusa
+                   FROM `tabItem Ecommerce Property`
+                   WHERE parent IN %(codes)s AND parenttype = 'Item'
+                   ORDER BY parent, idx""",
+                {"codes": tuple(item_codes) or ("__none__",)},
+                as_dict=True,
+            )
+        except Exception:  # noqa: BLE001 — doctype not installed
+            for snap in self._items.values():
+                snap.ecommerce_properties = None
+            return
+        for r in rows:
+            snap = self._items.get(r["parent"])
+            if snap is None:
+                continue
+            snap.ecommerce_properties.append(
+                EcomPropertyRow(
+                    property_name=r["property_name"] or "",
+                    property_value=r["property_value"] or "",
+                    property_type=r["property_type"] or "",
+                    field_data_type=r["field_data_type"] or "",
+                    sync_to_shopware=int(r["sync_to_shopware"] or 0),
+                    sync_to_medusa=int(r["sync_to_medusa"] or 0),
+                ),
+            )
 
     def _load_taxes(self, item_codes: list[str]) -> None:
         """Pre-load Item Tax template assignments. The canonical's

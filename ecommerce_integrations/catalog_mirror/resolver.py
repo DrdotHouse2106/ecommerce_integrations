@@ -203,8 +203,11 @@ def invalidate_cache(backend: str | None = None) -> None:
 
 def _index_for_backend(backend: str) -> dict[str, ItemResolution]:
     """Return ``{item_code: ItemResolution}`` for every item the layers
-    contribute to. Items absent from the index get resolved on demand
-    by :func:`_resolve_uncached`."""
+    contribute to. Items absent from the index have no layer
+    contribution as of the last build — the index is rebuilt on cache
+    miss (5-min TTL) and invalidated by the Item / Item Group /
+    Smart Collection save hooks, so a brand-new item is picked up on
+    the next lookup after its save."""
     key = _CACHE_KEY.format(backend=backend)
     try:
         cached = frappe.cache.get_value(key)
@@ -247,25 +250,6 @@ def _build_index(backend: str) -> dict[str, ItemResolution]:
         )
         index[item_code] = resolution
     return index
-
-
-def _resolve_uncached(item_code: str, backend: str) -> ItemResolution:
-    """Fall-through resolution for items not present in the cached index.
-
-    Called for ad-hoc lookups (e.g. a brand-new Item the cache hasn't
-    been rebuilt for yet). Reads the per-item layer for this item only
-    and reuses the cached mirror / SC contributions if present.
-    """
-    overrides = _load_overrides_for_item(item_code)
-    mirror_entries = _resolve_mirror_for_item(item_code, backend)
-    sc_entries = _resolve_sc_for_item(item_code, backend)
-    return _assemble_resolution(
-        item_code,
-        backend,
-        overrides=overrides,
-        mirror_entries=mirror_entries,
-        sc_entries=sc_entries,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -327,27 +311,6 @@ def _load_overrides_index() -> dict[str, list[dict]]:
     for r in rows:
         grouped[r["item_code"]].append(dict(r))
     return dict(grouped)
-
-
-def _load_overrides_for_item(item_code: str) -> list[dict]:
-    """Per-item override fetch for the ad-hoc lookup path."""
-    if not _override_field_exists():
-        return []
-    child = _override_child_doctype()
-    if not child:
-        return []
-    rows = frappe.db.sql(
-        f"""
-        SELECT sales_channel, visibility, mode, backend
-        FROM `tab{child}`
-        WHERE parent = %s
-          AND parenttype = 'Item'
-          AND parentfield = %s
-        """,
-        (item_code, _ITEM_OVERRIDE_FIELD),
-        as_dict=True,
-    )
-    return [dict(r) for r in rows]
 
 
 def _build_override_entries(
@@ -604,55 +567,6 @@ def _category_chain_for_ig(
     return out
 
 
-def _resolve_mirror_for_item(
-    item_code: str, backend: str,
-) -> tuple[list[ChannelEntry], list[CategoryEntry]]:
-    """Mirror layer for the ad-hoc (uncached) lookup path.
-
-    Reads the item's item_group, walks ancestors, and matches against
-    every active Mirror for the backend. Slower than the batched index
-    build but used only for items the cache hasn't seen.
-    """
-    ig = frappe.db.get_value("Item", item_code, "item_group")
-    if not ig:
-        return [], []
-    # Skip when the item's IG (or any ancestor) is flagged
-    # catalog_mirror_skip.
-    if _is_ig_skipped(ig):
-        return [], []
-    ancestors = _ig_ancestors(ig)
-    if not ancestors:
-        return [], []
-    ancestor_set = set(ancestors)
-
-    mirrors = frappe.get_all(
-        _MIRROR_DOCTYPE,
-        filters={"is_active": 1, "backend": backend},
-        fields=["name", "target_sales_channel", "root_item_group"],
-    )
-    field = _mapping_field(backend)
-    channels: list[ChannelEntry] = []
-    categories: list[CategoryEntry] = []
-    for mirror in mirrors:
-        if mirror.root_item_group not in ancestor_set:
-            continue
-        if mirror.target_sales_channel:
-            channels.append(
-                ChannelEntry(
-                    sales_channel=mirror.target_sales_channel,
-                    visibility=MIRROR_VISIBILITY,
-                    source=f"mirror:{mirror.name}",
-                    source_doc=mirror.name,
-                )
-            )
-        categories.extend(
-            _category_chain_for_ig(
-                ig, mirror.root_item_group, field, mirror.name,
-            )
-        )
-    return channels, categories
-
-
 def _is_ig_skipped(ig: str) -> bool:
     """True when the IG or any ancestor has ``catalog_mirror_skip=1``."""
     if not frappe.db.exists(
@@ -737,60 +651,6 @@ def _load_sc_contributions(
                         )
                     )
     return dict(contributions), all_items
-
-
-def _resolve_sc_for_item(
-    item_code: str, backend: str,
-) -> tuple[list[ChannelEntry], list[CategoryEntry]]:
-    """SC layer for the ad-hoc (uncached) lookup path."""
-    from ecommerce_integrations.smart_collections.engine.resolver import resolve
-
-    rows = frappe.db.sql(
-        """
-        SELECT sc.name AS collection, sc.title AS title,
-               t.sales_channel, t.visibility, t.external_id
-        FROM `tabEcommerce Smart Collection` sc
-        INNER JOIN `tabEcommerce Smart Collection Target` t
-            ON t.parent = sc.name
-            AND t.parenttype = 'Ecommerce Smart Collection'
-        WHERE sc.is_active = 1
-          AND t.enabled = 1
-          AND t.backend = %s
-        """,
-        (backend,),
-        as_dict=True,
-    )
-    by_collection: dict[str, list[dict]] = defaultdict(list)
-    for r in rows:
-        by_collection[r["collection"]].append(r)
-
-    channels: list[ChannelEntry] = []
-    categories: list[CategoryEntry] = []
-    for coll_name, targets in by_collection.items():
-        coll = frappe.get_doc(_SC_DOCTYPE, coll_name)
-        items = resolve(coll, persist_stats=False)
-        if item_code not in items:
-            continue
-        for t in targets:
-            vis = _parse_visibility_int(t["visibility"])
-            channels.append(
-                ChannelEntry(
-                    sales_channel=t["sales_channel"],
-                    visibility=vis,
-                    source=f"smart_collection:{coll_name}",
-                    source_doc=coll_name,
-                )
-            )
-            if t.get("external_id"):
-                categories.append(
-                    CategoryEntry(
-                        external_id=t["external_id"],
-                        name=None,
-                        source=f"smart_collection:{coll_name}",
-                        source_doc=coll_name,
-                    )
-                )
-    return channels, categories
 
 
 # ---------------------------------------------------------------------------

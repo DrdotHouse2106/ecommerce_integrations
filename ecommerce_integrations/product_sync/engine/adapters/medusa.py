@@ -29,12 +29,12 @@ idempotent:
    (``19.99`` for €19.99), unlike v1 which used integer cents. Wire
    payloads and live reads pass amounts through unchanged.
 
-Live-side hashing (:meth:`MedusaProductAdapter.compute_live_hash`)
-emits the same canonical sections as
-:func:`product_sync.engine.canonical.build_canonical_payload`. The
-section keys must stay in lock-step with the ERP-side builders or the
-differ will flap (live-hash says one thing, ERP-hash says another,
-push, still don't match, push again…).
+Drift detection compares the ERP-side canonical hash against the
+STORED ``last_synced_hash`` — there is deliberately no live-side hash
+builder in this adapter. (An earlier ``compute_live_hash`` +
+``_build_live_*`` family existed but was never wired into the differ
+and had drifted from the canonical schema; it was removed rather than
+maintained as a parallel universe.)
 """
 
 from __future__ import annotations
@@ -53,11 +53,6 @@ from ecommerce_integrations.product_sync.engine.adapters.base import (
     ProductAdapter,
     ProductMatch,
 )
-from ecommerce_integrations.product_sync.engine.canonical import (
-    PAYLOAD_VERSION,
-    compute_hash,
-)
-
 # Medusa v2 paginates with offset/limit. 200 is a comfortable page
 # size — the admin endpoint accepts more, but throughput plateaus
 # around here and bigger pages just inflate per-request latency on a
@@ -66,10 +61,9 @@ _FETCH_PAGE_SIZE = 200
 
 # Field projection for ``GET /admin/products``. Without an explicit
 # ``fields`` argument Medusa returns a slim product shape that omits
-# the variant-level inventory + price data we need for the live hash.
-# Keep this in sync with the read paths in ``_node_from_product`` and
-# ``_build_live_canonical`` — drop a field here and the live-hash
-# silently goes stale.
+# the variant-level inventory + price data the differ needs. Keep
+# this in sync with the read paths in ``_node_from_product`` — drop a
+# field here and the per-field diff silently goes stale.
 _FETCH_FIELDS = (
     "id,title,description,status,metadata,variants.*,variants.prices.*,"
     "sales_channels.*,categories.*,thumbnail,images.*"
@@ -472,23 +466,6 @@ class MedusaProductAdapter(ProductAdapter):
             )
         finally:
             session.close()
-
-    # ─── Hashing parity with engine/canonical.py ─────────────────────
-
-    def compute_live_hash(
-        self, product: dict[str, Any], sync,
-    ) -> str:
-        """Hash a live Medusa product the same way the ERP side hashes
-        the source Item, so the differ can compare apples to apples.
-
-        ``product`` is the raw response dict from the
-        ``products[]`` array of ``GET /admin/products``. ``sync`` is
-        the ``Ecommerce Product Sync`` doc; toggles on the sync gate
-        which sections land in the payload, matching the ERP-side
-        :func:`build_canonical_payload`.
-        """
-        payload = self._build_live_canonical(product, sync)
-        return compute_hash(payload)
 
     # ─── Implementations ─────────────────────────────────────────────
 
@@ -943,218 +920,6 @@ class MedusaProductAdapter(ProductAdapter):
             )
         return out
 
-    # ─── Live-hash payload builders ──────────────────────────────────
-
-    def _build_live_canonical(
-        self, product: dict[str, Any], sync,
-    ) -> dict[str, Any]:
-        """Build a canonical-payload dict from a live Medusa product.
-
-        Section names and shapes mirror
-        :func:`product_sync.engine.canonical.build_canonical_payload`
-        exactly. Toggles are honoured via ``_live_flag`` — the same
-        ``sync_*`` flags that gate the ERP-side sections gate the
-        live-side ones, otherwise the differ would compare a
-        toggle-trimmed ERP payload against a full live payload and
-        always declare drift.
-        """
-        variants = product.get("variants") or []
-        first_variant: dict[str, Any] = (
-            variants[0] if variants and isinstance(variants[0], dict) else {}
-        )
-        metadata = product.get("metadata") or {}
-        if not isinstance(metadata, dict):
-            metadata = {}
-
-        out: dict[str, Any] = {
-            "v": PAYLOAD_VERSION,
-            "item_code": _ns(first_variant.get("sku")),
-            # Medusa variants live inside a product; the engine-level
-            # canonical treats variants the same as standalone items
-            # for hash purposes (variant-of mapping is a Phase-5
-            # extension).
-            "is_variant": False,
-            "variant_of": None,
-        }
-
-        if _live_flag(sync, "sync_basic_fields", default=True):
-            out["basic"] = self._live_basic(product, first_variant)
-        if _live_flag(sync, "sync_pricing", default=True):
-            out["pricing"] = self._live_pricing(first_variant)
-        if _live_flag(sync, "sync_inventory", default=True):
-            out["inventory"] = self._live_inventory(first_variant)
-        if _live_flag(sync, "sync_images", default=True):
-            out["images"] = self._live_images(product)
-        if _live_flag(sync, "sync_properties", default=True):
-            out["properties"] = self._live_properties(metadata)
-        if _live_flag(sync, "sync_seo_fields", default=False):
-            out["seo"] = self._live_seo(product, metadata)
-        if _live_flag(sync, "sync_taxes", default=True):
-            out["taxes"] = self._live_taxes()
-        out["categories"] = self._live_categories(metadata)
-        # Per-item visibilities — only emitted when the Sync opted
-        # in via ``sync_visibilities=1`` (matches the ERP-side gate
-        # in ``build_canonical_payload``). Medusa doesn't carry a
-        # per-channel visibility level (binary in/out), so each
-        # entry gets ``visibility = 30`` to stay symmetric with the
-        # Shopware-side canonical.
-        if _live_flag(sync, "sync_visibilities", default=False):
-            out["visibilities"] = self._live_visibilities(product)
-        return out
-
-    def _live_visibilities(
-        self, product: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        """Convert Medusa's ``product.sales_channels`` association
-        to the engine-canonical visibility shape."""
-        out: list[dict[str, Any]] = []
-        for sc in (product.get("sales_channels") or []):
-            if not isinstance(sc, dict):
-                continue
-            sc_id = sc.get("id")
-            if not sc_id:
-                continue
-            out.append({
-                "channel_id": _ns(sc_id),
-                "visibility": 30,
-            })
-        out.sort(key=lambda d: d["channel_id"])
-        return out
-
-    def _live_basic(
-        self,
-        product: dict[str, Any],
-        first_variant: dict[str, Any],
-    ) -> dict[str, Any]:
-        return {
-            "name": _ns(product.get("title")),
-            "sku": _ns(first_variant.get("sku")),
-            "description": _ns(product.get("description")),
-            "ean": _ns(first_variant.get("ean")),
-            "is_active": (product.get("status") == "published"),
-            # Medusa doesn't carry an item-level UoM; the engine-side
-            # canonical hashes ``stock_uom`` (free-text) but there's
-            # no equivalent live field. Emit empty string so the
-            # presence-or-absence check stays deterministic; Phase 5
-            # can map this onto a metadata key if operators need it.
-            # TODO: surface UoM via metadata when Phase 5 lands.
-            "uom": "",
-        }
-
-    def _live_pricing(
-        self, first_variant: dict[str, Any],
-    ) -> dict[str, Any]:
-        prices = first_variant.get("prices") or []
-        base = 0.0
-        currency = ""
-        if isinstance(prices, list) and prices:
-            first = prices[0] or {}
-            try:
-                amount = first.get("amount")
-                base = round(float(amount or 0), 4)
-            except (TypeError, ValueError):
-                base = 0.0
-            currency = _ns(first.get("currency_code"))
-
-        # Channel-tier prices in Medusa land on price-list entries
-        # bound to sales channels; reconciling those against ERP
-        # price lists is a Phase 5 concern. For now we emit an empty
-        # list, which matches what ``_canonical_pricing`` does on the
-        # ERP side when the sync has no per-channel overrides.
-        # TODO: when sync.price_strategy = channel_price_list with
-        # per-channel rows, expand price-list rules and emit one
-        # channel_prices entry per matched rule.
-        return {
-            "currency": currency,
-            "base_price": base,
-            "channel_prices": [],
-        }
-
-    def _live_inventory(
-        self, first_variant: dict[str, Any],
-    ) -> dict[str, Any]:
-        raw = first_variant.get("inventory_quantity")
-        try:
-            qty = round(float(raw or 0), 4)
-        except (TypeError, ValueError):
-            qty = 0.0
-        return {"qty": qty}
-
-    def _live_images(
-        self, product: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        # Medusa carries the cover image as ``thumbnail`` separately
-        # from the ``images[]`` collection. Match the engine-side
-        # convention of marking the first sorted URL as primary —
-        # that way a hash stays stable across re-uploads that don't
-        # change the URL set.
-        out: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for img in product.get("images") or []:
-            if not isinstance(img, dict):
-                continue
-            url = img.get("url")
-            if not url or url in seen:
-                continue
-            seen.add(url)
-            out.append({"url": url, "primary": False})
-        out.sort(key=lambda d: d["url"])
-        if out:
-            out[0]["primary"] = True
-        return out
-
-    def _live_properties(
-        self, metadata: dict[str, Any],
-    ) -> dict[str, Any]:
-        # Medusa doesn't carry first-class brand/manufacturer fields
-        # on the product entity. The convention this plugin uses is
-        # to stash them on ``metadata`` (a free-form JSON map) under
-        # operator-chosen keys. We read ``brand``/``manufacturer``
-        # there; if the operator picked different keys, the hash
-        # will diverge until Phase 5 makes the keys configurable.
-        # TODO: make the metadata keys configurable on the sync doc.
-        return {
-            "brand": _ns(metadata.get("brand")),
-            "manufacturer": _ns(metadata.get("manufacturer")),
-            "attributes": [],
-        }
-
-    def _live_seo(
-        self,
-        product: dict[str, Any],
-        metadata: dict[str, Any],
-    ) -> dict[str, Any]:
-        return {
-            "slug": _ns(product.get("handle")),
-            "meta_title": _ns(metadata.get("meta_title")),
-            "meta_description": _ns(metadata.get("meta_description")),
-        }
-
-    def _live_taxes(self) -> dict[str, Any]:
-        # Medusa tax handling lives on tax-region/tax-rate objects
-        # rather than directly on the product. The engine-side
-        # canonical reports the operator-chosen Item Tax Template
-        # name, which has no direct equivalent on the live side.
-        # Emit empty string so the hash compares against the ERP
-        # "no template set" case; Phase 5 will map tax-rate ids
-        # back to a comparable string.
-        # TODO: resolve tax_rate_id → template name for parity.
-        return {"template": ""}
-
-    def _live_categories(
-        self, metadata: dict[str, Any],
-    ) -> dict[str, Any]:
-        # ERP side hashes the Item Group name, not the backend
-        # category id; category-tree drift is the Catalog Mirror's
-        # job, not this adapter's. We read an operator-stashed
-        # ``item_group`` key from ``metadata`` so that hash parity
-        # converges when the operator opts into round-tripping IG
-        # names through metadata; otherwise we emit empty string,
-        # matching the ERP "no IG set" case.
-        # TODO: when sync.match_categories_by_name is enabled, walk
-        # the categories association and emit the first IG name match.
-        return {"item_group": _ns(metadata.get("item_group"))}
-
 
 # ─── Module-level helpers ────────────────────────────────────────────
 
@@ -1174,32 +939,3 @@ def _matches_filters(
         if not wanted_categories.intersection(node.category_ids or []):
             return False
     return True
-
-
-def _ns(value) -> str:
-    """Normalise to single-space-collapsed stripped string.
-
-    Mirrors :func:`product_sync.engine.canonical._norm_str` so a value
-    that the ERP-side hashes as ``"Acme GmbH"`` doesn't hash as
-    ``"  Acme  GmbH "`` on the live side. ``None`` becomes empty
-    string, which is what the canonical builder also does.
-    """
-    if value is None:
-        return ""
-    s = str(value)
-    if not s:
-        return ""
-    return " ".join(s.split())
-
-
-def _live_flag(sync, name: str, *, default: bool) -> bool:
-    """Toggle reader that matches ``canonical._flag``.
-
-    Importing the private symbol directly from ``canonical`` would
-    couple this module to an underscore-prefixed name; reimplementing
-    is one line and keeps the boundary clean.
-    """
-    val = getattr(sync, name, None)
-    if val is None:
-        return default
-    return bool(int(val) if isinstance(val, (str, int, float)) else val)

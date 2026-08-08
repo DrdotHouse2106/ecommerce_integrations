@@ -306,12 +306,24 @@ def _apply_live(
             )
             frappe.db.commit()  # make live-diff progress visible to the UI
 
+        # Orphan detection is expensive (walks the backend's full
+        # channel inventory), so it only runs when the operator's
+        # ``orphan_policy`` actually acts on orphans. Without this the
+        # differ's opt-in default left ``plan.orphans`` permanently
+        # empty and the deactivate/delete policies never executed.
+        # Subset dispatches (single-item saves) skip it — acting on
+        # orphans from a one-item diff would be both slow and wrong.
+        _wants_orphans = (
+            (sync_doc.orphan_policy or "keep").lower() in ("deactivate", "delete")
+            and not subset_item_codes
+        )
         plan = compute_product_diff(
             sync_doc,
             max_items=None,
             fetch_live=fetch_live,
             subset_item_codes=subset_item_codes,
             on_progress=_on_diff_progress,
+            detect_orphans=_wants_orphans,
         )
         # Persist the plan up-front so the operator can see what was
         # intended even if the apply loop crashes halfway. Use
@@ -925,519 +937,545 @@ def _apply_batch(
         _phase_c_session.__enter__()
     else:
         _phase_c_session = None
-    for meta, row in zip(metadata, results, strict=False):
-        err = row.get("error")
-        if err:
-            _record_item_failure(
-                sync_doc.name, meta["item_code"], backend, Exception(err),
-                payload=None, response=None, run_name=run_name,
-            )
-            result.errors.append(f"{meta['item_code']}: {err}")
-            applied_diffs.append({
-                "item_code": meta["item_code"],
-                "action": meta["action"],
-                "status": "error",
-                "error": err,
-            })
-            continue
-
-        new_external_id = row.get("external_id") or prepared[
-            metadata.index(meta)
-        ].get("external_id")
-        if not new_external_id:
-            # Bulk-API didn't echo an id and we didn't have one. This
-            # shouldn't happen for a successful row but the defensive
-            # branch keeps us from persisting a broken mapping.
-            applied_diffs.append({
-                "item_code": meta["item_code"],
-                "action": meta["action"],
-                "status": "error",
-                "error": "Backend returned no external_id",
-            })
-            result.errors.append(
-                f"{meta['item_code']}: no external_id from backend",
-            )
-            continue
-
-        _persist_item_success(
-            item_code=meta["item_code"],
-            integration=integration_key,
-            external_id=new_external_id,
-            proposed_hash=meta["proposed_hash"],
-            run_name=run_name,
-            existing_row=meta["ecom_row"],
-            canonical=meta.get("canonical"),
-        )
-        # After the upsert, push images via the backend's dedicated
-        # two-step media flow (Shopware needs an explicit
-        # ``/_action/media/{id}/upload`` call — the sync endpoint's
-        # ``media`` field only creates empty records). Adapters without
-        # ``upload_product_images`` are silently skipped.
-        # Track whether this item's images are already perfectly in
-        # sync with what was last pushed — if so the whole Phase-C
-        # image block (upload + reconcile) can be skipped, which is
-        # the difference between a delta-aware re-sync and a
-        # full-rewalk after every canonical-schema bump.
-        #
-        # Per-section delta: when the stored canonical's ``images``
-        # section is byte-identical to the new ``images`` section, the
-        # item didn't drift in this dimension and Phase-C image work
-        # can be skipped wholesale. This is the cheap fast-path that
-        # turns 37k re-pushes (after a non-image schema bump) into
-        # 37k no-ops on the image side.
-        _delta_sections = meta.get("delta_sections") or set()
-        _images_in_sync = (
-            "images" not in _delta_sections and meta.get("ecom_row")
-            and bool(meta.get("ecom_row", {}).get("last_synced_canonical"))
-        )
-        if int(getattr(sync_doc, "sync_images", 0) or 0) and not _images_in_sync:
-            uploader = getattr(adapter, "upload_product_images", None)
-            if callable(uploader):
-                # Build the list of resolved absolute URLs from the same
-                # helper the (legacy) media-field code path used.
-                from ecommerce_integrations.product_sync.engine.payload import (
-                    _build_shopware_media,
+    try:
+        for meta, row in zip(metadata, results, strict=False):
+            err = row.get("error")
+            if err:
+                _record_item_failure(
+                    sync_doc.name, meta["item_code"], backend, Exception(err),
+                    payload=None, response=None, run_name=run_name,
                 )
-                canonical_images = (
-                    (meta.get("canonical") or {}).get("images") or []
+                result.errors.append(f"{meta['item_code']}: {err}")
+                applied_diffs.append({
+                    "item_code": meta["item_code"],
+                    "action": meta["action"],
+                    "status": "error",
+                    "error": err,
+                })
+                continue
+
+            new_external_id = row.get("external_id") or prepared[
+                metadata.index(meta)
+            ].get("external_id")
+            if not new_external_id:
+                # Bulk-API didn't echo an id and we didn't have one. This
+                # shouldn't happen for a successful row but the defensive
+                # branch keeps us from persisting a broken mapping.
+                applied_diffs.append({
+                    "item_code": meta["item_code"],
+                    "action": meta["action"],
+                    "status": "error",
+                    "error": "Backend returned no external_id",
+                })
+                result.errors.append(
+                    f"{meta['item_code']}: no external_id from backend",
                 )
-                media = _build_shopware_media(canonical_images)
-                urls = [
-                    m.get("media", {}).get("url")
-                    for m in media if m.get("media", {}).get("url")
-                ]
-                # Canonical gallery order (basenames) — captured before
-                # the short-circuit below empties ``urls``. Drives the
-                # ordered keep-list for reconcile (positions + cover).
-                _canonical_basenames = [
-                    (u.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]).lower()
-                    for u in urls
-                ]
-                # Skip image-upload when every canonical image has
-                # already been pushed (basename present in
-                # ``pushed_image_map``). Without this guard, every
-                # chunked re-sync of a 34k catalogue creates a fresh
-                # media record per image — duplicating the
-                # ``tabmedia`` rows and bloating Shopware storage on
-                # each pass. The differ uses the same map to suppress
-                # spurious image-drift, so checking it here keeps the
-                # short-circuit symmetric.
-                existing_basenames: set[str] = set()
-                if urls and meta.get("ecom_row"):
-                    try:
-                        import json as _json
-                        existing_map_raw = frappe.db.get_value(
-                            _ECOMMERCE_ITEM_DOCTYPE,
-                            meta["ecom_row"]["name"],
-                            "pushed_image_map",
-                        ) or ""
-                        existing_map = (
-                            _json.loads(existing_map_raw)
-                            if existing_map_raw else {}
-                        )
-                        existing_basenames = {
-                            k.lower() for k in (existing_map or {}).keys()
-                        }
-                    except (ValueError, TypeError):
-                        existing_basenames = set()
-                    needed_basenames = {
+                continue
+
+            _persist_item_success(
+                item_code=meta["item_code"],
+                integration=integration_key,
+                external_id=new_external_id,
+                proposed_hash=meta["proposed_hash"],
+                run_name=run_name,
+                existing_row=meta["ecom_row"],
+                canonical=meta.get("canonical"),
+            )
+            # After the upsert, push images via the backend's dedicated
+            # two-step media flow (Shopware needs an explicit
+            # ``/_action/media/{id}/upload`` call — the sync endpoint's
+            # ``media`` field only creates empty records). Adapters without
+            # ``upload_product_images`` are silently skipped.
+            # Track whether this item's images are already perfectly in
+            # sync with what was last pushed — if so the whole Phase-C
+            # image block (upload + reconcile) can be skipped, which is
+            # the difference between a delta-aware re-sync and a
+            # full-rewalk after every canonical-schema bump.
+            #
+            # Per-section delta: when the stored canonical's ``images``
+            # section is byte-identical to the new ``images`` section, the
+            # item didn't drift in this dimension and Phase-C image work
+            # can be skipped wholesale. This is the cheap fast-path that
+            # turns 37k re-pushes (after a non-image schema bump) into
+            # 37k no-ops on the image side.
+            _delta_sections = meta.get("delta_sections") or set()
+            _images_in_sync = (
+                "images" not in _delta_sections and meta.get("ecom_row")
+                and bool(meta.get("ecom_row", {}).get("last_synced_canonical"))
+            )
+            if int(getattr(sync_doc, "sync_images", 0) or 0) and not _images_in_sync:
+                uploader = getattr(adapter, "upload_product_images", None)
+                if callable(uploader):
+                    # Build the list of resolved absolute URLs from the same
+                    # helper the (legacy) media-field code path used.
+                    from ecommerce_integrations.product_sync.engine.payload import (
+                        _build_shopware_media,
+                    )
+                    canonical_images = (
+                        (meta.get("canonical") or {}).get("images") or []
+                    )
+                    media = _build_shopware_media(canonical_images)
+                    urls = [
+                        m.get("media", {}).get("url")
+                        for m in media if m.get("media", {}).get("url")
+                    ]
+                    # Canonical gallery order (basenames) — captured before
+                    # the short-circuit below empties ``urls``. Drives the
+                    # ordered keep-list for reconcile (positions + cover).
+                    _canonical_basenames = [
                         (u.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]).lower()
                         for u in urls
-                    }
-                    if needed_basenames and needed_basenames.issubset(existing_basenames):
-                        urls = []  # all already pushed → nothing to do
-                        # Exact-match check: if pushed_image_map's
-                        # basenames equal the canonical set (not just a
-                        # superset), there are no stale media to delete
-                        # either — reconcile would be a pure no-op
-                        # round-trip. Set the flag so the reconcile
-                        # block below skips. Items with new images, OR
-                        # items where pushed_image_map has *extra*
-                        # entries (potential stale media), still go
-                        # through reconcile.
-                        if needed_basenames == existing_basenames:
-                            _images_in_sync = True
-                elif not urls:
-                    # Item has no images at all — nothing to upload,
-                    # nothing to reconcile. (Items previously synced
-                    # with images would have a non-empty
-                    # ``pushed_image_map``; if both are empty the item
-                    # is truly image-less.)
-                    _images_in_sync = True
-
-                if urls:
-                    try:
-                        upload_result = uploader(new_external_id, urls) or {}
-                        # Persist ERP-basename → media-UUID map so the
-                        # next preview's image-diff can short-circuit
-                        # when the live Shopware media set matches.
-                        new_map = upload_result.get("media_map") or {}
-                        if new_map and meta.get("ecom_row"):
-                            existing_raw = frappe.db.get_value(
+                    ]
+                    # Skip image-upload when every canonical image has
+                    # already been pushed (basename present in
+                    # ``pushed_image_map``). Without this guard, every
+                    # chunked re-sync of a 34k catalogue creates a fresh
+                    # media record per image — duplicating the
+                    # ``tabmedia`` rows and bloating Shopware storage on
+                    # each pass. The differ uses the same map to suppress
+                    # spurious image-drift, so checking it here keeps the
+                    # short-circuit symmetric.
+                    existing_basenames: set[str] = set()
+                    if urls and meta.get("ecom_row"):
+                        try:
+                            import json as _json
+                            existing_map_raw = frappe.db.get_value(
                                 _ECOMMERCE_ITEM_DOCTYPE,
                                 meta["ecom_row"]["name"],
                                 "pushed_image_map",
                             ) or ""
-                            try:
-                                import json as _json
-                                merged = _json.loads(existing_raw) if existing_raw else {}
-                            except (ValueError, TypeError):
-                                merged = {}
-                            merged.update(new_map)
-                            frappe.db.set_value(
+                            existing_map = (
+                                _json.loads(existing_map_raw)
+                                if existing_map_raw else {}
+                            )
+                            existing_basenames = {
+                                k.lower() for k in (existing_map or {}).keys()
+                            }
+                        except (ValueError, TypeError):
+                            existing_basenames = set()
+                        needed_basenames = {
+                            (u.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]).lower()
+                            for u in urls
+                        }
+                        if needed_basenames and needed_basenames.issubset(existing_basenames):
+                            urls = []  # all already pushed → nothing to do
+                            # Exact-match check: if pushed_image_map's
+                            # basenames equal the canonical set (not just a
+                            # superset), there are no stale media to delete
+                            # either — reconcile would be a pure no-op
+                            # round-trip. Set the flag so the reconcile
+                            # block below skips. Items with new images, OR
+                            # items where pushed_image_map has *extra*
+                            # entries (potential stale media), still go
+                            # through reconcile.
+                            if needed_basenames == existing_basenames:
+                                _images_in_sync = True
+                    elif not urls:
+                        # Item has no images at all — nothing to upload,
+                        # nothing to reconcile. (Items previously synced
+                        # with images would have a non-empty
+                        # ``pushed_image_map``; if both are empty the item
+                        # is truly image-less.)
+                        _images_in_sync = True
+
+                    if urls:
+                        try:
+                            upload_result = uploader(new_external_id, urls) or {}
+                            # Persist ERP-basename → media-UUID map so the
+                            # next preview's image-diff can short-circuit
+                            # when the live Shopware media set matches.
+                            new_map = upload_result.get("media_map") or {}
+                            if new_map and meta.get("ecom_row"):
+                                existing_raw = frappe.db.get_value(
+                                    _ECOMMERCE_ITEM_DOCTYPE,
+                                    meta["ecom_row"]["name"],
+                                    "pushed_image_map",
+                                ) or ""
+                                try:
+                                    import json as _json
+                                    merged = _json.loads(existing_raw) if existing_raw else {}
+                                except (ValueError, TypeError):
+                                    merged = {}
+                                merged.update(new_map)
+                                frappe.db.set_value(
+                                    _ECOMMERCE_ITEM_DOCTYPE,
+                                    meta["ecom_row"]["name"],
+                                    "pushed_image_map",
+                                    frappe.as_json(merged),
+                                    update_modified=False,
+                                )
+                        except Exception as exc:  # noqa: BLE001
+                            # Per-image errors are already counted inside
+                            # the adapter; only a complete crash gets here.
+                            result.errors.append(
+                                f"{meta['item_code']}: image upload failed: {exc}",
+                            )
+                            # Self-heal: the item's success (incl. the
+                            # ``images`` canonical section) was already
+                            # persisted before Phase-C ran. Leaving it
+                            # there would make every following run treat
+                            # the FAILED upload as in-sync and never
+                            # retry. Strip the section from the stored
+                            # canonical so the next run flags ``images``
+                            # as changed and re-attempts the upload.
+                            _invalidate_stored_canonical_section(
+                                integration_key=integration_key,
+                                item_code=meta["item_code"],
+                                section="images",
+                            )
+
+                    # Delta media reconciliation: delete product_media rows
+                    # whose media UUID isn't in the (now-updated) pushed
+                    # image map. Without this the storefront accumulates
+                    # stale photos across re-syncs — old product
+                    # photography that the operator replaced, orphans from
+                    # prior mis-mappings, etc. The cover gets re-pointed
+                    # automatically if it landed on a deleted row.
+                    #
+                    # When ``_images_in_sync`` is set the canonical image
+                    # set is byte-for-byte the same as what was last
+                    # pushed — reconcile would issue one Shopware search +
+                    # zero deletes, which is pure latency. Skipping it
+                    # here is the difference between "delta sync touches
+                    # only what changed" and "delta sync re-walks every
+                    # item's Phase-C every cron tick after a
+                    # canonical-schema bump invalidates the run-level
+                    # hash".
+                    reconciler = getattr(adapter, "reconcile_product_media", None)
+                    if (
+                        callable(reconciler)
+                        and meta.get("ecom_row")
+                        and not _images_in_sync
+                    ):
+                        try:
+                            import json as _json2
+                            final_map_raw = frappe.db.get_value(
                                 _ECOMMERCE_ITEM_DOCTYPE,
                                 meta["ecom_row"]["name"],
                                 "pushed_image_map",
-                                frappe.as_json(merged),
-                                update_modified=False,
+                            ) or ""
+                            final_map = (
+                                _json2.loads(final_map_raw) if final_map_raw else {}
                             )
-                    except Exception as exc:  # noqa: BLE001
-                        # Per-image errors are already counted inside
-                        # the adapter; only a complete crash gets here.
-                        result.errors.append(
-                            f"{meta['item_code']}: image upload failed: {exc}",
-                        )
-                        # Self-heal: the item's success (incl. the
-                        # ``images`` canonical section) was already
-                        # persisted before Phase-C ran. Leaving it
-                        # there would make every following run treat
-                        # the FAILED upload as in-sync and never
-                        # retry. Strip the section from the stored
-                        # canonical so the next run flags ``images``
-                        # as changed and re-attempts the upload.
-                        _invalidate_stored_canonical_section(
-                            integration_key=integration_key,
-                            item_code=meta["item_code"],
-                            section="images",
-                        )
-
-                # Delta media reconciliation: delete product_media rows
-                # whose media UUID isn't in the (now-updated) pushed
-                # image map. Without this the storefront accumulates
-                # stale photos across re-syncs — old product
-                # photography that the operator replaced, orphans from
-                # prior mis-mappings, etc. The cover gets re-pointed
-                # automatically if it landed on a deleted row.
-                #
-                # When ``_images_in_sync`` is set the canonical image
-                # set is byte-for-byte the same as what was last
-                # pushed — reconcile would issue one Shopware search +
-                # zero deletes, which is pure latency. Skipping it
-                # here is the difference between "delta sync touches
-                # only what changed" and "delta sync re-walks every
-                # item's Phase-C every cron tick after a
-                # canonical-schema bump invalidates the run-level
-                # hash".
-                reconciler = getattr(adapter, "reconcile_product_media", None)
-                if (
-                    callable(reconciler)
-                    and meta.get("ecom_row")
-                    and not _images_in_sync
-                ):
-                    try:
-                        import json as _json2
-                        final_map_raw = frappe.db.get_value(
-                            _ECOMMERCE_ITEM_DOCTYPE,
-                            meta["ecom_row"]["name"],
-                            "pushed_image_map",
-                        ) or ""
-                        final_map = (
-                            _json2.loads(final_map_raw) if final_map_raw else {}
-                        )
-                        final_map = {
-                            (k or "").lower(): v for k, v in (final_map or {}).items()
-                        }
-                        # Keep-list in CANONICAL order (Item.image first,
-                        # gallery after) so the adapter can renumber
-                        # positions and point the cover at the primary.
-                        # Only reconcile when the map covers every
-                        # canonical image — a partial map means uploads
-                        # failed this round, and reconciling against it
-                        # would delete media that are still wanted.
-                        keep_ids = [
-                            final_map[bn] for bn in _canonical_basenames
-                            if bn in final_map
-                        ]
-                        if keep_ids and len(keep_ids) == len(_canonical_basenames):
-                            reconciler(new_external_id, keep_ids)
-                        elif _canonical_basenames:
+                            final_map = {
+                                (k or "").lower(): v for k, v in (final_map or {}).items()
+                            }
+                            # Keep-list in CANONICAL order (Item.image first,
+                            # gallery after) so the adapter can renumber
+                            # positions and point the cover at the primary.
+                            # Only reconcile when the map covers every
+                            # canonical image — a partial map means uploads
+                            # failed this round, and reconciling against it
+                            # would delete media that are still wanted.
+                            keep_ids = [
+                                final_map[bn] for bn in _canonical_basenames
+                                if bn in final_map
+                            ]
+                            if keep_ids and len(keep_ids) == len(_canonical_basenames):
+                                reconciler(new_external_id, keep_ids)
+                            elif _canonical_basenames:
+                                result.errors.append(
+                                    f"{meta['item_code']}: media reconcile "
+                                    f"skipped — pushed_image_map covers "
+                                    f"{len(keep_ids)}/{len(_canonical_basenames)} "
+                                    f"canonical images",
+                                )
+                                _invalidate_stored_canonical_section(
+                                    integration_key=integration_key,
+                                    item_code=meta["item_code"],
+                                    section="images",
+                                )
+                        except Exception as exc:  # noqa: BLE001
                             result.errors.append(
-                                f"{meta['item_code']}: media reconcile "
-                                f"skipped — pushed_image_map covers "
-                                f"{len(keep_ids)}/{len(_canonical_basenames)} "
-                                f"canonical images",
+                                f"{meta['item_code']}: media reconcile failed: {exc}",
                             )
                             _invalidate_stored_canonical_section(
                                 integration_key=integration_key,
                                 item_code=meta["item_code"],
                                 section="images",
                             )
-                    except Exception as exc:  # noqa: BLE001
-                        result.errors.append(
-                            f"{meta['item_code']}: media reconcile failed: {exc}",
-                        )
-                        _invalidate_stored_canonical_section(
-                            integration_key=integration_key,
-                            item_code=meta["item_code"],
-                            section="images",
-                        )
 
-        # Phase-C properties push: now handled via the nested
-        # ``properties`` m2m on the bulk product upsert above
-        # (``build_shopware_payload`` emits it when canonical's
-        # ``ecommerce_properties`` is non-empty, and the Phase-A.5
-        # pre-flight ensures the option entities exist). Keeping the
-        # per-item push here would just re-PATCH the same association
-        # one product at a time — pure latency, no new data.
-        #
-        # Backends without nested-association support fall back to
-        # the per-item push (the conditional below stays true for
-        # those — only Shopware ships the new helper).
-        _properties_handled_in_bulk = (
-            backend == BACKEND_SHOPWARE
-            and hasattr(adapter, "ensure_property_options_bulk")
-        )
-        _properties_in_sync = (
-            "properties" not in _delta_sections and meta.get("ecom_row")
-            and bool(meta.get("ecom_row", {}).get("last_synced_canonical"))
-        )
-        if (
-            int(getattr(sync_doc, "sync_properties", 0) or 0)
-            and not _properties_in_sync
-            and not _properties_handled_in_bulk
-        ):
-            pusher = getattr(adapter, "push_product_properties", None)
-            if callable(pusher):
-                ecom_props = []
-                try:
-                    rows = frappe.get_all(
-                        "Item Ecommerce Property",
-                        filters={
-                            "parent": meta["item_code"],
-                            "parenttype": "Item",
-                            "sync_to_shopware": 1,
-                        },
-                        fields=["property_name", "property_value"],
-                        order_by="idx",
-                    )
-                    ecom_props = [
-                        {"name": r["property_name"], "value": r["property_value"]}
-                        for r in rows
-                        if r.get("property_name") and r.get("property_value")
-                    ]
-                except Exception:  # noqa: BLE001
+            # Phase-C properties push: now handled via the nested
+            # ``properties`` m2m on the bulk product upsert above
+            # (``build_shopware_payload`` emits it when canonical's
+            # ``ecommerce_properties`` is non-empty, and the Phase-A.5
+            # pre-flight ensures the option entities exist). Keeping the
+            # per-item push here would just re-PATCH the same association
+            # one product at a time — pure latency, no new data.
+            #
+            # Backends without nested-association support fall back to
+            # the per-item push (the conditional below stays true for
+            # those — only Shopware ships the new helper).
+            _properties_handled_in_bulk = (
+                backend == BACKEND_SHOPWARE
+                and hasattr(adapter, "ensure_property_options_bulk")
+            )
+            _properties_in_sync = (
+                "properties" not in _delta_sections and meta.get("ecom_row")
+                and bool(meta.get("ecom_row", {}).get("last_synced_canonical"))
+            )
+            if (
+                int(getattr(sync_doc, "sync_properties", 0) or 0)
+                and not _properties_in_sync
+                and not _properties_handled_in_bulk
+            ):
+                pusher = getattr(adapter, "push_product_properties", None)
+                if callable(pusher):
                     ecom_props = []
-                if ecom_props:
                     try:
-                        pusher(new_external_id, ecom_props)
-                    except Exception as exc:  # noqa: BLE001
-                        result.errors.append(
-                            f"{meta['item_code']}: properties push failed: {exc}",
+                        rows = frappe.get_all(
+                            "Item Ecommerce Property",
+                            filters={
+                                "parent": meta["item_code"],
+                                "parenttype": "Item",
+                                "sync_to_shopware": 1,
+                            },
+                            fields=["property_name", "property_value"],
+                            order_by="idx",
                         )
-
-        # Phase-C properties reconcile: delete stale ``product_property``
-        # m2m rows so the live product's properties match the canonical
-        # verbatim. The bulk product upsert above MERGES nested m2m
-        # (it doesn't REPLACE), so without this every operator edit
-        # that renames a value or drops a property leaks one orphan
-        # link per item — surfacing on the PDP as duplicate properties
-        # or "Eigenschaften" the storefront should no longer show.
-        #
-        # Gated on the same delta flag as the per-item push (don't
-        # walk live properties when nothing changed) and on
-        # ``hasattr`` so backends without the helper just skip.
-        prop_reconciler = getattr(adapter, "reconcile_product_properties", None)
-        if (
-            int(getattr(sync_doc, "sync_properties", 0) or 0)
-            and not _properties_in_sync
-            and callable(prop_reconciler)
-            and new_external_id
-        ):
-            try:
-                from ecommerce_integrations.product_sync.engine.adapters.shopware import (
-                    property_option_uuid,
-                )
-                ecom_props_canon = (
-                    (meta.get("canonical") or {}).get("properties", {})
-                    .get("ecommerce_properties") or []
-                )
-                keep_ids = [
-                    property_option_uuid(p["name"], p["value"], kind="property")
-                    for p in ecom_props_canon
-                    if p.get("name") and p.get("value")
-                ]
-                prop_reconciler(new_external_id, keep_ids)
-            except Exception as exc:  # noqa: BLE001
-                result.errors.append(
-                    f"{meta['item_code']}: properties reconcile failed: {exc}",
-                )
-
-        # Variant configurator wiring: when this Item is a variant or
-        # a template-with-variants, push the property_group_option link
-        # so the storefront renders the variant selector. Without this
-        # variants are linked via ``parentId`` but the PDP shows them
-        # as standalone single products (no option picker).
-        #
-        # Per-section delta: variant attribute values live under the
-        # ``properties`` canonical section ("attributes" sub-key in
-        # ``_canonical_properties``). When that section didn't drift,
-        # neither the variant option assignment nor the template
-        # configurator needs touching — they're idempotent and
-        # already-applied on the live product.
-        _variants_in_sync = (
-            "properties" not in _delta_sections and meta.get("ecom_row")
-            and bool(meta.get("ecom_row", {}).get("last_synced_canonical"))
-        )
-        if (
-            int(getattr(sync_doc, "include_variants", 1) or 0)
-            and not _variants_in_sync
-        ):
-            opt_pusher = getattr(adapter, "push_variant_options", None)
-            cfg_pusher = getattr(adapter, "push_template_configurator", None)
-            # Reuse the Item doc loaded in Phase A — re-fetching the
-            # full doc here was the single biggest contributor to apply
-            # wall-time on a 37k catalogue.
-            item_doc = meta.get("item_doc")
-            if item_doc is not None and callable(opt_pusher) and callable(cfg_pusher):
-                variant_of = getattr(item_doc, "variant_of", None) or ""
-                has_variants = bool(int(getattr(item_doc, "has_variants", 0) or 0))
-                attrs = getattr(item_doc, "attributes", []) or []
-
-                if variant_of and attrs and not _properties_handled_in_bulk:
-                    # Variant: set its option ids on the live product.
-                    # When the bulk path coalesced ``options`` into the
-                    # nested product upsert above we skip the per-item
-                    # PATCH — it would just re-write the same m2m link.
-                    av = [
-                        {"name": a.attribute, "value": a.attribute_value}
-                        for a in attrs if a.attribute and a.attribute_value
-                    ]
-                    if av:
+                        ecom_props = [
+                            {"name": r["property_name"], "value": r["property_value"]}
+                            for r in rows
+                            if r.get("property_name") and r.get("property_value")
+                        ]
+                    except Exception:  # noqa: BLE001
+                        ecom_props = []
+                    if ecom_props:
                         try:
-                            opt_pusher(new_external_id, av)
+                            pusher(new_external_id, ecom_props)
                         except Exception as exc:  # noqa: BLE001
                             result.errors.append(
-                                f"{meta['item_code']}: variant options push failed: {exc}"
+                                f"{meta['item_code']}: properties push failed: {exc}",
                             )
 
-                if has_variants:
-                    # Template: collect the option ids across all
-                    # variants, set as ``configuratorSettings`` so the
-                    # storefront knows which axes to show on the PDP.
-                    #
-                    # Bulk-coalesced path: the variant ``options`` m2m
-                    # was already written into each variant's payload
-                    # via ``build_shopware_payload`` (nested in the
-                    # batch product upsert). The option entities were
-                    # pre-created by the Phase-A.5 ensure call. So we
-                    # don't need to ask Shopware for the option_ids —
-                    # we can derive them deterministically from the
-                    # canonical attributes via ``property_option_uuid``
-                    # without N×N variant API calls.
-                    if _properties_handled_in_bulk:
-                        from ecommerce_integrations.product_sync.engine.adapters.shopware import (
-                            property_option_uuid as _opt_uuid,
+            # Phase-C properties reconcile: delete stale ``product_property``
+            # m2m rows so the live product's properties match the canonical
+            # verbatim. The bulk product upsert above MERGES nested m2m
+            # (it doesn't REPLACE), so without this every operator edit
+            # that renames a value or drops a property leaks one orphan
+            # link per item — surfacing on the PDP as duplicate properties
+            # or "Eigenschaften" the storefront should no longer show.
+            #
+            # Gated on the same delta flag as the per-item push (don't
+            # walk live properties when nothing changed) and on
+            # ``hasattr`` so backends without the helper just skip.
+            prop_reconciler = getattr(adapter, "reconcile_product_properties", None)
+            if (
+                int(getattr(sync_doc, "sync_properties", 0) or 0)
+                and not _properties_in_sync
+                and callable(prop_reconciler)
+                and new_external_id
+            ):
+                try:
+                    from ecommerce_integrations.product_sync.engine.adapters.shopware import (
+                        property_option_uuid,
+                    )
+                    ecom_props_canon = (
+                        (meta.get("canonical") or {}).get("properties", {})
+                        .get("ecommerce_properties") or []
+                    )
+                    keep_ids = [
+                        property_option_uuid(p["name"], p["value"], kind="property")
+                        for p in ecom_props_canon
+                        if p.get("name") and p.get("value")
+                    ]
+                    prop_reconciler(new_external_id, keep_ids)
+                except Exception as exc:  # noqa: BLE001
+                    result.errors.append(
+                        f"{meta['item_code']}: properties reconcile failed: {exc}",
+                    )
+
+            # Phase-C visibility reconcile: the bulk upsert strips
+            # ``visibilities`` on UPDATE (unique-key collision on
+            # ``product_visibility`` aborts the whole /_action/sync batch),
+            # so per-item channel changes on existing products are applied
+            # out-of-band here. Gated on the ``visibilities`` delta section
+            # — untouched items skip the roundtrip — and never invoked with
+            # an empty canonical list (empty = "no opinion", not "unlink
+            # everything").
+            if int(getattr(sync_doc, "sync_visibilities", 0) or 0):
+                _vis_in_sync = (
+                    "visibilities" not in _delta_sections and meta.get("ecom_row")
+                    and bool(meta.get("ecom_row", {}).get("last_synced_canonical"))
+                )
+                vis_reconciler = getattr(adapter, "reconcile_product_visibilities", None)
+                canonical_vis = (meta.get("canonical") or {}).get("visibilities") or []
+                if callable(vis_reconciler) and not _vis_in_sync and canonical_vis:
+                    try:
+                        vis_reconciler(new_external_id, canonical_vis)
+                    except Exception as exc:  # noqa: BLE001
+                        result.errors.append(
+                            f"{meta['item_code']}: visibility reconcile failed: {exc}",
                         )
-                        variant_attr_rows = frappe.get_all(
-                            "Item Variant Attribute",
-                            filters={
-                                "parenttype": "Item",
-                                "parent": ("in", frappe.get_all(
-                                    "Item",
-                                    filters={
-                                        "variant_of": meta["item_code"],
-                                        "disabled": 0,
-                                    },
-                                    pluck="name",
-                                ) or ["__none__"]),
-                            },
-                            fields=["attribute", "attribute_value"],
-                        )
-                        option_ids = []
-                        seen_opts = set()
-                        for r in variant_attr_rows:
-                            a = (r.get("attribute") or "").strip()
-                            v = (r.get("attribute_value") or "").strip()
-                            if not a or not v:
-                                continue
-                            oid = _opt_uuid(a, v, kind="variant")
-                            if oid not in seen_opts:
-                                seen_opts.add(oid)
-                                option_ids.append(oid)
-                        if option_ids:
+
+            # Variant configurator wiring: when this Item is a variant or
+            # a template-with-variants, push the property_group_option link
+            # so the storefront renders the variant selector. Without this
+            # variants are linked via ``parentId`` but the PDP shows them
+            # as standalone single products (no option picker).
+            #
+            # Per-section delta: variant attribute values live under the
+            # ``properties`` canonical section ("attributes" sub-key in
+            # ``_canonical_properties``). When that section didn't drift,
+            # neither the variant option assignment nor the template
+            # configurator needs touching — they're idempotent and
+            # already-applied on the live product.
+            _variants_in_sync = (
+                "properties" not in _delta_sections and meta.get("ecom_row")
+                and bool(meta.get("ecom_row", {}).get("last_synced_canonical"))
+            )
+            if (
+                int(getattr(sync_doc, "include_variants", 1) or 0)
+                and not _variants_in_sync
+            ):
+                opt_pusher = getattr(adapter, "push_variant_options", None)
+                cfg_pusher = getattr(adapter, "push_template_configurator", None)
+                # Reuse the Item doc loaded in Phase A — re-fetching the
+                # full doc here was the single biggest contributor to apply
+                # wall-time on a 37k catalogue.
+                item_doc = meta.get("item_doc")
+                if item_doc is not None and callable(opt_pusher) and callable(cfg_pusher):
+                    variant_of = getattr(item_doc, "variant_of", None) or ""
+                    has_variants = bool(int(getattr(item_doc, "has_variants", 0) or 0))
+                    attrs = getattr(item_doc, "attributes", []) or []
+
+                    if variant_of and attrs and not _properties_handled_in_bulk:
+                        # Variant: set its option ids on the live product.
+                        # When the bulk path coalesced ``options`` into the
+                        # nested product upsert above we skip the per-item
+                        # PATCH — it would just re-write the same m2m link.
+                        av = [
+                            {"name": a.attribute, "value": a.attribute_value}
+                            for a in attrs if a.attribute and a.attribute_value
+                        ]
+                        if av:
                             try:
-                                cfg_pusher(new_external_id, option_ids)
+                                opt_pusher(new_external_id, av)
                             except Exception as exc:  # noqa: BLE001
                                 result.errors.append(
-                                    f"{meta['item_code']}: template configurator push failed: {exc}"
+                                    f"{meta['item_code']}: variant options push failed: {exc}"
                                 )
-                    else:
-                        # Legacy path: walk variant docs and call the
-                        # adapter helper to resolve option ids from
-                        # Shopware. Used when the bulk-coalesce
-                        # pipeline isn't available (e.g. tests, mock
-                        # adapters).
-                        variant_rows = frappe.get_all(
-                            "Item",
-                            filters={"variant_of": meta["item_code"], "disabled": 0},
-                            pluck="name",
-                        )
-                        option_ids: list[str] = []
-                        seen_opts: set[str] = set()
-                        for vcode in variant_rows:
-                            vext = frappe.db.get_value(
-                                _ECOMMERCE_ITEM_DOCTYPE,
-                                {"erpnext_item_code": vcode, "integration": integration_key},
-                                "integration_item_code",
+
+                    if has_variants:
+                        # Template: collect the option ids across all
+                        # variants, set as ``configuratorSettings`` so the
+                        # storefront knows which axes to show on the PDP.
+                        #
+                        # Bulk-coalesced path: the variant ``options`` m2m
+                        # was already written into each variant's payload
+                        # via ``build_shopware_payload`` (nested in the
+                        # batch product upsert). The option entities were
+                        # pre-created by the Phase-A.5 ensure call. So we
+                        # don't need to ask Shopware for the option_ids —
+                        # we can derive them deterministically from the
+                        # canonical attributes via ``property_option_uuid``
+                        # without N×N variant API calls.
+                        if _properties_handled_in_bulk:
+                            from ecommerce_integrations.product_sync.engine.adapters.shopware import (
+                                property_option_uuid as _opt_uuid,
                             )
-                            if not vext:
-                                continue
-                            try:
-                                v_doc = frappe.get_doc("Item", vcode)
-                            except frappe.DoesNotExistError:
-                                continue
-                            av = [
-                                {"name": a.attribute, "value": a.attribute_value}
-                                for a in (v_doc.attributes or [])
-                                if a.attribute and a.attribute_value
-                            ]
-                            if not av:
-                                continue
-                            try:
-                                res = opt_pusher(vext, av) or {}
-                            except Exception:  # noqa: BLE001
-                                continue
-                            for oid in res.get("option_ids") or []:
+                            variant_attr_rows = frappe.get_all(
+                                "Item Variant Attribute",
+                                filters={
+                                    "parenttype": "Item",
+                                    "parent": ("in", frappe.get_all(
+                                        "Item",
+                                        filters={
+                                            "variant_of": meta["item_code"],
+                                            "disabled": 0,
+                                        },
+                                        pluck="name",
+                                    ) or ["__none__"]),
+                                },
+                                fields=["attribute", "attribute_value"],
+                            )
+                            option_ids = []
+                            seen_opts = set()
+                            for r in variant_attr_rows:
+                                a = (r.get("attribute") or "").strip()
+                                v = (r.get("attribute_value") or "").strip()
+                                if not a or not v:
+                                    continue
+                                oid = _opt_uuid(a, v, kind="variant")
                                 if oid not in seen_opts:
                                     seen_opts.add(oid)
                                     option_ids.append(oid)
-                        if option_ids:
-                            try:
-                                cfg_pusher(new_external_id, option_ids)
-                            except Exception as exc:  # noqa: BLE001
-                                result.errors.append(
-                                    f"{meta['item_code']}: template configurator push failed: {exc}"
+                            if option_ids:
+                                try:
+                                    cfg_pusher(new_external_id, option_ids)
+                                except Exception as exc:  # noqa: BLE001
+                                    result.errors.append(
+                                        f"{meta['item_code']}: template configurator push failed: {exc}"
+                                    )
+                        else:
+                            # Legacy path: walk variant docs and call the
+                            # adapter helper to resolve option ids from
+                            # Shopware. Used when the bulk-coalesce
+                            # pipeline isn't available (e.g. tests, mock
+                            # adapters).
+                            variant_rows = frappe.get_all(
+                                "Item",
+                                filters={"variant_of": meta["item_code"], "disabled": 0},
+                                pluck="name",
+                            )
+                            option_ids: list[str] = []
+                            seen_opts: set[str] = set()
+                            for vcode in variant_rows:
+                                vext = frappe.db.get_value(
+                                    _ECOMMERCE_ITEM_DOCTYPE,
+                                    {"erpnext_item_code": vcode, "integration": integration_key},
+                                    "integration_item_code",
                                 )
+                                if not vext:
+                                    continue
+                                try:
+                                    v_doc = frappe.get_doc("Item", vcode)
+                                except frappe.DoesNotExistError:
+                                    continue
+                                av = [
+                                    {"name": a.attribute, "value": a.attribute_value}
+                                    for a in (v_doc.attributes or [])
+                                    if a.attribute and a.attribute_value
+                                ]
+                                if not av:
+                                    continue
+                                try:
+                                    res = opt_pusher(vext, av) or {}
+                                except Exception:  # noqa: BLE001
+                                    continue
+                                for oid in res.get("option_ids") or []:
+                                    if oid not in seen_opts:
+                                        seen_opts.add(oid)
+                                        option_ids.append(oid)
+                            if option_ids:
+                                try:
+                                    cfg_pusher(new_external_id, option_ids)
+                                except Exception as exc:  # noqa: BLE001
+                                    result.errors.append(
+                                        f"{meta['item_code']}: template configurator push failed: {exc}"
+                                    )
 
-        applied_diffs.append({
-            "item_code": meta["item_code"],
-            "action": meta["action"],
-            "status": "ok",
-            "external_id": new_external_id,
-        })
-        if meta["action"] == ACTION_CREATE:
-            result.created += 1
-        else:
-            result.updated += 1
-
-    # Close the shared Phase-C Shopware session (no-op when backend
-    # is not Shopware). Done in a finally-like guard so a per-item
-    # exception above can't leak the session.
-    if _phase_c_session is not None:
-        try:
-            _phase_c_session.__exit__(None, None, None)
-        except Exception:  # noqa: BLE001
-            pass
+            applied_diffs.append({
+                "item_code": meta["item_code"],
+                "action": meta["action"],
+                "status": "ok",
+                "external_id": new_external_id,
+            })
+            if meta["action"] == ACTION_CREATE:
+                result.created += 1
+            else:
+                result.updated += 1
+    finally:
+        # Close the shared Phase-C Shopware session (no-op when backend
+        # is not Shopware) and restore the ambient-client slot even when
+        # a per-item step raised — leaking the ambient client would make
+        # every later ``_with_client`` call in this worker reuse a stale,
+        # possibly-closed session.
+        if _phase_c_session is not None:
+            try:
+                _phase_c_session.__exit__(None, None, None)
+            except Exception:  # noqa: BLE001
+                pass
 
 
 def _apply_one_item(
@@ -1620,8 +1658,16 @@ def _invalidate_stored_canonical_section(
     enrichment is retried instead of being treated as in-sync forever.
     Failure here is swallowed — worst case the next run is a noop and
     the error stays visible in the run's error list.
+
+    The column stores the gzip+base64 form written by
+    ``encode_canonical`` — it must be decoded/re-encoded through the
+    same helpers, never treated as raw JSON.
     """
     try:
+        from ecommerce_integrations.product_sync.engine.canonical import (
+            decode_canonical,
+            encode_canonical,
+        )
         row_name = frappe.db.get_value(
             _ECOMMERCE_ITEM_DOCTYPE,
             {"erpnext_item_code": item_code, "integration": integration_key},
@@ -1633,15 +1679,14 @@ def _invalidate_stored_canonical_section(
         ) or ""
         if not raw:
             return
-        import json as _json
-        stored = _json.loads(raw)
-        if stored.pop(section, None) is None:
+        stored = decode_canonical(raw)
+        if stored is None or stored.pop(section, None) is None:
             return
         frappe.db.set_value(
             _ECOMMERCE_ITEM_DOCTYPE,
             row_name,
             "last_synced_canonical",
-            frappe.as_json(stored),
+            encode_canonical(stored),
             update_modified=False,
         )
     except Exception:  # noqa: BLE001
