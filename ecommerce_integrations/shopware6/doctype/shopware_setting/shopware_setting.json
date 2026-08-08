@@ -818,8 +818,7 @@
    "fieldtype": "Link",
    "label": "Root Item Group für Kategorie-Sync",
    "options": "Item Group",
-   "default": "Products",
-   "description": "Root-Kategorie für den Shopware-Sync. Alle darunterliegenden Unterkategorien werden synchronisiert."
+   "description": "Root-Kategorie für den Shopware-Sync. Alle darunterliegenden Unterkategorien werden synchronisiert. Leer lassen, wenn nur der moderne Kategorie-Sync (Catalog Mirror, oben) verwendet wird."
   },
   {
    "fieldname": "skip_root_category",
