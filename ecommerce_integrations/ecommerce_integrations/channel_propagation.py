@@ -19,6 +19,19 @@ import frappe
 CHANNEL_FIELDS = ("ecommerce_source", "ecommerce_sales_channel_id", "ecommerce_sales_channel_name")
 
 
+def _existing_channel_fields(doctype: str) -> list[str]:
+	"""Subset of CHANNEL_FIELDS actually present on doctype's meta.
+
+	A raw ``frappe.db.get_value(doctype, name, [...])`` call compiles the
+	field list straight into a SQL SELECT — an unknown column raises an
+	``OperationalError`` at the DB layer, not a catchable Python error. On
+	a site where these custom fields haven't (yet) been installed for a
+	given doctype, selecting them unconditionally crashes the caller.
+	"""
+	meta = frappe.get_meta(doctype)
+	return [f for f in CHANNEL_FIELDS if meta.has_field(f)]
+
+
 def _copy_channel_fields(target, channel_values: dict):
 	"""Set ecommerce_* fields on target if not already set."""
 	if not channel_values:
@@ -39,10 +52,13 @@ def _channel_from_sales_orders(so_names: Iterable[str]) -> dict:
 	non-empty channel info — they should all share a channel for ecommerce
 	flows anyway.
 	"""
+	fields = _existing_channel_fields("Sales Order")
+	if not fields:
+		return {}
 	for so_name in so_names:
 		if not so_name:
 			continue
-		row = frappe.db.get_value("Sales Order", so_name, list(CHANNEL_FIELDS), as_dict=True)
+		row = frappe.db.get_value("Sales Order", so_name, fields, as_dict=True)
 		if row and row.get("ecommerce_sales_channel_name"):
 			return row
 	return {}
@@ -93,11 +109,13 @@ def propagate_to_payment_entry(doc, method=None):
 	if not channel and si_names:
 		# Fall back: Sales Invoice already carries the channel (after this hook
 		# fires for invoices), so just copy from there.
-		for si in si_names:
-			row = frappe.db.get_value("Sales Invoice", si, list(CHANNEL_FIELDS), as_dict=True)
-			if row and row.get("ecommerce_sales_channel_name"):
-				channel = row
-				break
+		si_fields = _existing_channel_fields("Sales Invoice")
+		if si_fields:
+			for si in si_names:
+				row = frappe.db.get_value("Sales Invoice", si, si_fields, as_dict=True)
+				if row and row.get("ecommerce_sales_channel_name"):
+					channel = row
+					break
 
 	if not channel and si_names:
 		# Last resort: walk SI items to find a Sales Order link.
