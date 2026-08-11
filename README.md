@@ -55,6 +55,8 @@ Vollständige bidirektionale Anbindung zwischen ERPNext und Shopware 6:
 
 **Kunden**
 - Kundenabgleich inkl. Leitweg-ID für die E-Rechnung (XRechnung)
+- Einheitliche Kundennummern: ERPNext ist maßgeblich, Shopwares Kundennummer wird automatisch angeglichen — auch wenn sich ein Kunde selbst im Shop registriert
+- Optional (Opt-in je Kunde): neue ERPNext-Kunden automatisch als Account (ohne Passwort, Aktivierung über „Passwort vergessen") nach Shopware übertragen
 
 **Technik**
 - Redis-Warteschlange für performante Massensynchronisation

@@ -55,6 +55,8 @@ Full bidirectional sync between ERPNext and Shopware 6:
 
 **Customers**
 - Customer matching, including the Leitweg-ID for German e-invoicing (XRechnung)
+- Unified customer numbers: ERPNext is authoritative, Shopware's customer number is kept aligned automatically — even when a customer registers themselves on the storefront
+- Optional (per-customer opt-in): automatically push new ERPNext customers to Shopware as a passwordless account (activated via "forgot password")
 
 **Under the hood**
 - Redis-backed queue for high-performance bulk operations
