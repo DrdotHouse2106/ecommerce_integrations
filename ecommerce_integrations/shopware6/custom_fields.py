@@ -244,6 +244,18 @@ CUSTOM_FIELDS = {
             "description": "Tick when this customer is a public-sector entity. Influences einvoice_profile selection on Sales Invoice.",
         },
     ],
+    "Address": [
+        {
+            "fieldname": "shopware_address_id",
+            "label": "Shopware Address ID",
+            "fieldtype": "Data",
+            "insert_after": "address_type",
+            "read_only": 1,
+            "translatable": 0,
+            "no_copy": 1,
+            "description": "Identifies which Shopware address this ERPNext Address was created from. Used to detect when a returning customer's address changed between orders.",
+        },
+    ],
     "Sales Order": [
         {
             "fieldname": "shopware_section",

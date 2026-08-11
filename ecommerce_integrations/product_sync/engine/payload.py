@@ -213,6 +213,20 @@ def build_shopware_payload(
             _moq = 0
         payload["minPurchase"] = _moq if _moq > 1 else 1
         payload["purchaseSteps"] = _moq if _moq > 1 else 1
+        # Weight/dimensions (shipping-cost calculation). Sparse in
+        # canonical, so only set the key when present; leaving it
+        # absent (rather than forcing null) avoids clobbering a value
+        # Shopware may have received from a different source for items
+        # where ERPNext genuinely has no weight/dimension data.
+        if "weight" in basic:
+            payload["weight"] = basic["weight"]
+        for canonical_key in ("height", "width", "length"):
+            if canonical_key in basic:
+                payload[canonical_key] = basic[canonical_key]
+        # isCloseout: always emitted (reset semantics, like minPurchase/
+        # restockTime above) so un-ticking Abverkauf in the ERP clears
+        # the flag on the live product too.
+        payload["isCloseout"] = bool(basic.get("is_closeout", False))
     if _wants("inventory"):
         payload["stock"] = int(inventory.get("qty") or 0)
     if external_id:

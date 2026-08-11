@@ -300,7 +300,7 @@ def create_sales_order(order_data: dict[str, Any]) -> str:
             raise
 
     # Ensure customer has address (important for PayPal orders where address may be missing initially)
-    ensure_customer_has_address(customer, order_data)
+    order_addresses = ensure_customer_has_address(customer, order_data)
 
     # Get order date
     order_date = format_shopware_datetime(order_data.get("orderDateTime")) or nowdate()
@@ -321,6 +321,15 @@ def create_sales_order(order_data: dict[str, Any]) -> str:
     so.currency = currency_code
     so.shopware_order_id = order_id
     so.shopware_order_number = order_number
+    # Point at the exact Address docs resolved for THIS order (by
+    # shopware_address_id where available) instead of leaving ERPNext's
+    # "default address" heuristic to pick whichever one currently shows
+    # on the Customer — important once a repeat customer has more than
+    # one historical Billing/Shipping address on file.
+    if order_addresses.get("billing"):
+        so.customer_address = order_addresses["billing"]
+    if order_addresses.get("shipping"):
+        so.shipping_address_name = order_addresses["shipping"]
 
     # Multi-Storefront: Extract and set Sales Channel info
     sales_channel_id = order_data.get("salesChannelId", "")

@@ -155,23 +155,31 @@ def get_customer_from_shopware_order(order: dict[str, Any], _retry_count: int = 
         raise
 
 
-def ensure_customer_has_address(customer: str, order_data: dict[str, Any]) -> None:
+def ensure_customer_has_address(customer: str, order_data: dict[str, Any]) -> dict[str, str]:
     """
     Ensure customer has billing and shipping addresses from order data.
 
     This is especially important for PayPal Express orders where the address
     may not be available when the customer is initially created, but is
     included in the order data.
+
+    Returns ``{"billing": address_name, "shipping": address_name}`` (keys
+    omitted when no address could be resolved/created) so the caller can
+    point the Sales Order at the exact Address docs used for *this* order,
+    instead of leaving ERPNext's "default address" heuristic to pick
+    whichever one happens to display.
     """
     if not customer or not order_data:
-        return
+        return {}
 
     # Importing here keeps `mapping` importable independent of the order modules
     from .mapping import _map_address_fields
+    from ecommerce_integrations.shopware6.constants import ADDRESS_ID_FIELD
 
     existing_addresses = frappe.db.sql(
-        """
-        SELECT a.name, a.address_type, a.is_primary_address, a.is_shipping_address
+        f"""
+        SELECT a.name, a.address_type, a.is_primary_address, a.is_shipping_address,
+               a.`{ADDRESS_ID_FIELD}` AS shopware_address_id
         FROM `tabAddress` a
         INNER JOIN `tabDynamic Link` dl ON dl.parent = a.name AND dl.parenttype = 'Address'
         WHERE dl.link_doctype = 'Customer' AND dl.link_name = %s
@@ -180,21 +188,34 @@ def ensure_customer_has_address(customer: str, order_data: dict[str, Any]) -> No
         as_dict=True,
     )
 
-    has_billing = any(
-        addr.get("address_type") == "Billing" or addr.get("is_primary_address")
-        for addr in existing_addresses
-    )
-    has_shipping = any(
-        addr.get("address_type") == "Shipping" or addr.get("is_shipping_address")
-        for addr in existing_addresses
-    )
-
     billing_address = order_data.get("billingAddress") or {}
     shipping_address = order_data.get("shippingAddress") or (
         order_data.get("deliveries", [{}])[0].get("shippingOrderAddress")
         if order_data.get("deliveries")
         else None
     ) or {}
+
+    def _resolve(addr_type: str, shopware_id: str) -> str | None:
+        """Prefer an exact shopware-address-id match; else the first
+        existing address of this type (previous behaviour, kept as
+        fallback for addresses created before ``shopware_address_id``
+        was tracked)."""
+        candidates = [
+            a for a in existing_addresses
+            if a.get("address_type") == addr_type
+            or (addr_type == "Billing" and a.get("is_primary_address"))
+            or (addr_type == "Shipping" and a.get("is_shipping_address"))
+        ]
+        if shopware_id:
+            for a in candidates:
+                if a.get("shopware_address_id") == shopware_id:
+                    return a["name"]
+        return candidates[0]["name"] if candidates else None
+
+    billing_name = _resolve("Billing", billing_address.get("id", ""))
+    shipping_name = _resolve("Shipping", shipping_address.get("id", ""))
+    has_billing = billing_name is not None
+    has_shipping = shipping_name is not None
 
     order_customer = order_data.get("orderCustomer", {})
     first_name = order_customer.get("firstName", "")
@@ -208,6 +229,8 @@ def ensure_customer_has_address(customer: str, order_data: dict[str, Any]) -> No
         or shipping_address.get("id") == billing_address.get("id")
     )
 
+    result: dict[str, str] = {}
+
     if not has_billing and billing_address and billing_address.get("street"):
         address_fields = _map_address_fields(
             billing_address, customer_name, "Billing", email, is_also_shipping=same_address
@@ -220,13 +243,17 @@ def ensure_customer_has_address(customer: str, order_data: dict[str, Any]) -> No
             frappe.logger("shopware6").info(
                 f"Created billing address for {customer} from order data: {address.name}"
             )
+            billing_name = address.name
             has_billing = True
             if same_address:
+                shipping_name = address.name
                 has_shipping = True
         except Exception as e:
             frappe.logger("shopware6").warning(
                 f"Failed to create billing address for {customer}: {e}"
             )
+    if billing_name:
+        result["billing"] = billing_name
 
     if (
         not has_shipping
@@ -245,10 +272,15 @@ def ensure_customer_has_address(customer: str, order_data: dict[str, Any]) -> No
             frappe.logger("shopware6").info(
                 f"Created shipping address for {customer} from order data: {address.name}"
             )
+            shipping_name = address.name
         except Exception as e:
             frappe.logger("shopware6").warning(
                 f"Failed to create shipping address for {customer}: {e}"
             )
+    if shipping_name:
+        result["shipping"] = shipping_name
+
+    return result
 
 
 def create_guest_customer() -> str:

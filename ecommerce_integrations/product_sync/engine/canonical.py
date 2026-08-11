@@ -89,7 +89,26 @@ from typing import Any
 # ``default_restock_time``) when the Item's own field is empty — the
 # bump ensures a change to either global default re-hashes every item
 # still relying on the fallback, instead of silently going stale.
-PAYLOAD_VERSION = 7
+#
+# v8 (2026-08): ``basic.weight``/``height``/``width``/``length`` and
+# ``basic.is_closeout`` added. These previously only existed in the
+# dead legacy ``export/product_mapper.py`` uploader — the live
+# per-Item-save engine never pushed them, so shipping-cost calculation
+# (weight/dimension-based carrier rules) and closeout badge/stock=0
+# handling silently stopped working once the engine replaced the
+# legacy uploader as the active push path. Sparse emission (only when
+# set/nonzero) so items without WeClapp's ``item_height``/``width``/
+# ``length``/``abverkauf`` custom fields keep a stable hash.
+#
+# v9 (2026-08): ``basic.grundpreis_unit``/``grundpreis_reference_qty``/
+# ``grundpreis_purchase_qty`` added (sparse — only when WeClapp's
+# ``grundpreis_masseinheit`` is set) so Shopware's price-per-unit
+# ("Grundpreis", PAngV) display reaches the storefront for the items
+# that legally require it. Gated on the *unit* field specifically
+# (rather than the two decimal fields) because only a minority of
+# items need a Grundpreis at all — most items legitimately have all
+# three fields empty, and that emptiness must stay hash-stable.
+PAYLOAD_VERSION = 9
 
 # Float precision for hashing. 4 decimals is "1/100th of a cent" —
 # plenty for retail prices and stock floats; small enough to swallow
@@ -730,6 +749,37 @@ def _canonical_basic(item, sync) -> dict[str, Any]:
         restock_time = int(defaults.get("restock_time", 0) or 0)
     if restock_time > 0:
         out["restock_time"] = restock_time
+
+    # Weight (native ERPNext field, kg) and physical dimensions (WeClapp-
+    # origin custom fields — not declared by this plugin, read
+    # defensively). Shopware expects L/W/H in millimetres; ERPNext's
+    # legacy WeClapp fields store centimetres, hence the *10. Sparse:
+    # items without a weight/without the WeClapp fields keep a stable
+    # hash rather than hashing an implicit 0.
+    try:
+        weight = float(getattr(item, "weight_per_unit", 0) or 0)
+    except (TypeError, ValueError):
+        weight = 0.0
+    if weight > 0:
+        out["weight"] = _normalize_float(weight)
+    for canonical_key, fieldname in (
+        ("height", "item_height"),
+        ("width", "item_width"),
+        ("length", "item_length"),
+    ):
+        if hasattr(item, fieldname):
+            try:
+                dim_cm = float(getattr(item, fieldname, 0) or 0)
+            except (TypeError, ValueError):
+                dim_cm = 0.0
+            if dim_cm > 0:
+                out[canonical_key] = _normalize_float(dim_cm * 10)
+
+    # Closeout / Abverkauf — WeClapp-origin custom field, read
+    # defensively. Only hashed when truthy so items without the field
+    # (or with it unset) don't drift on every run.
+    if bool(getattr(item, "abverkauf", False)):
+        out["is_closeout"] = True
     return out
 
 
