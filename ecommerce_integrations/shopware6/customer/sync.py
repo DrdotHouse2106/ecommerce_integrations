@@ -33,7 +33,7 @@ from .core import (
     _acquire_customer_sync_lock,
 )
 from .mapping import create_customer_contact
-from .vat import _find_existing_customer_to_link
+from .vat import _find_existing_customer_to_link, _sync_customer_number_to_shopware
 
 
 def _build_customer_criteria(*, limit: int | None = None, ids: list[str] | None = None) -> Criteria:
@@ -423,10 +423,10 @@ def sync_customer_by_id(
             f"Customer {customer_id} has no email address - will use fallback naming"
         )
 
-    return create_customer_from_shopware_data(customer_data)
+    return create_customer_from_shopware_data(customer_data, client=client)
 
 
-def create_customer_from_shopware_data(customer_data: dict[str, Any]) -> str:
+def create_customer_from_shopware_data(customer_data: dict[str, Any], client=None) -> str:
     """
     Create ERPNext Customer from Shopware customer data.
 
@@ -478,6 +478,12 @@ def create_customer_from_shopware_data(customer_data: dict[str, Any]) -> str:
                         frappe.db.set_value(
                             "Customer", existing_customer, "shopware_customer_id", customer_id
                         )
+                        _sync_customer_number_to_shopware(
+                            client or get_shopware_client(),
+                            existing_customer,
+                            customer_id,
+                            customer_data.get("customerNumber"),
+                        )
                         if sales_channel_id:
                             frappe.db.set_value(
                                 "Customer",
@@ -504,6 +510,18 @@ def create_customer_from_shopware_data(customer_data: dict[str, Any]) -> str:
             else:
                 customer.update_existing_addresses(customer_data)
                 customer.create_customer_contact(customer_data)
+                # Self-healing: re-check number alignment on every update too,
+                # not just at initial link time, so a manual customerNumber
+                # edit in Shopware Admin gets corrected back automatically.
+                # Idempotent (see _sync_customer_number_to_shopware) — a
+                # no-op API call when already aligned, which is the common
+                # case for every webhook that isn't a manual number edit.
+                _sync_customer_number_to_shopware(
+                    client or get_shopware_client(),
+                    customer.get_customer_doc().name,
+                    customer_id,
+                    customer_data.get("customerNumber"),
+                )
 
             return customer.get_customer_doc().name
     except CustomerSyncInProgressError:

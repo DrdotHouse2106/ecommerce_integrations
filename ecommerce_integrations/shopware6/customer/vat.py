@@ -159,3 +159,37 @@ def _find_existing_customer_to_link(
             return existing
 
     return None
+
+
+def _sync_customer_number_to_shopware(
+    client, erp_customer_name: str, shopware_customer_id: str, current_shopware_number: str | None
+) -> None:
+    """Push ERPNext's ``Customer.name`` onto Shopware's ``customerNumber``
+    when they've drifted apart.
+
+    ERPNext is authoritative for customer numbers going forward — this runs
+    unconditionally whenever a Shopware customer gets linked to an ERPNext
+    one (regardless of whether that ERPNext customer's "Nach Shopware
+    übertragen" checkbox was ever ticked; that flag only gates the separate
+    *proactive* ERP-to-Shopware creation push in ``push.py``). Idempotent:
+    no-op when the numbers already match, so calling this on every webhook
+    is cheap.
+    """
+    if not shopware_customer_id or not erp_customer_name:
+        return
+    if erp_customer_name == (current_shopware_number or ""):
+        return
+    try:
+        client.request_patch(f"customer/{shopware_customer_id}", {"customerNumber": erp_customer_name})
+        frappe.logger("shopware6").info(
+            f"Unified customer number: Shopware customer {shopware_customer_id} "
+            f"customerNumber '{current_shopware_number}' -> '{erp_customer_name}' (ERPNext Customer.name)"
+        )
+    except Exception as e:
+        logger = get_logger("sync_customer_number_to_shopware")
+        logger.error(
+            f"Failed to push customer number '{erp_customer_name}' to Shopware customer "
+            f"{shopware_customer_id}",
+            exception=e,
+            persist=True,
+        )

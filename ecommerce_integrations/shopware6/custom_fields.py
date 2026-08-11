@@ -243,6 +243,14 @@ CUSTOM_FIELDS = {
             "insert_after": "leitweg_id",
             "description": "Tick when this customer is a public-sector entity. Influences einvoice_profile selection on Sales Invoice.",
         },
+        {
+            "fieldname": "push_to_shopware",
+            "label": "Nach Shopware übertragen",
+            "fieldtype": "Check",
+            "insert_after": "is_government_org",
+            "default": "0",
+            "description": "Erstellt beim Anlegen automatisch einen Kunden-Account in Shopware (ohne Passwort — Aktivierung über \"Passwort vergessen\" im Shop). Die Kundennummer wird dabei von ERPNext vergeben und ist ab diesem Zeitpunkt für diesen Kunden maßgeblich.",
+        },
     ],
     "Address": [
         {

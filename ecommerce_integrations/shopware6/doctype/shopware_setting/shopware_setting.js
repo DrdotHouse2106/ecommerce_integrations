@@ -190,6 +190,36 @@ frappe.ui.form.on('Shopware Setting', {
 			);
 		}, __('Sync öffnen'));
 
+		// One-time prerequisite for "Nach Shopware übertragen" (Kunden):
+		// seeds the plain-numeric Kundennummern-Zähler above the current
+		// max of both systems, then aligns every already-linked Kunde's
+		// Nummer auf Shopware. Hidden once done (customer_number_counter_seed
+		// gets set by the job) so it can't be accidentally re-run.
+		if (!frm.doc.customer_number_counter_seed) {
+			frm.add_custom_button(__('Kundennummern-Zähler initialisieren & bestehende Kunden abgleichen'), function() {
+				frappe.confirm(
+					__('Dies initialisiert einmalig den fortlaufenden Kundennummern-Zähler (Voraussetzung für "Nach Shopware übertragen" auf dem Kunden) und gleicht danach bei allen bereits mit Shopware verknüpften Kunden die Kundennummer an Shopware an. Läuft im Hintergrund. Fortfahren?'),
+					function() {
+						frappe.call({
+							method: 'ecommerce_integrations.shopware6.import_handlers.customer_number_migration.initialize_customer_number_counter_and_push',
+							callback: function(r) {
+								let s = r.message || {};
+								if (s.log) {
+									frappe.msgprint({
+										title: __('Kundennummern-Migration läuft'),
+										message: __('Die Migration wurde im Hintergrund eingereiht. Fortschritt und Ergebnis findet ihr im Ecommerce Integration Log {0}.', [
+											`<a href="/app/ecommerce-integration-log/${s.log}">${s.log}</a>`
+										]),
+										indicator: 'blue'
+									});
+								}
+							}
+						});
+					}
+				);
+			}, __('Sync öffnen'));
+		}
+
 		// Pull Sync öffnen — single source of truth for backend → ERP
 		// pulls (orders, customers, stock). The legacy "Orders" /
 		// "Customers" / "Stock" / "Properties" dialogs duplicated what

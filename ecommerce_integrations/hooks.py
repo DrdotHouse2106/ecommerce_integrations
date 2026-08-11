@@ -232,8 +232,13 @@ doc_events = {
 	# eu_einvoice XRechnung renderer picks up the Leitweg-ID without
 	# the operator having to maintain two parallel fields.
 	"Customer": {
+		"autoname": "ecommerce_integrations.shopware6.customer.numbering.autoname_customer_for_shopware_push",
 		"before_save": "ecommerce_integrations.shopware6.customer.sync.mirror_leitweg_into_electronic_address",
-		"after_insert": "ecommerce_integrations.shopware6.customer.sync.mirror_leitweg_into_electronic_address",
+		"after_insert": [
+			"ecommerce_integrations.shopware6.customer.sync.mirror_leitweg_into_electronic_address",
+			"ecommerce_integrations.shopware6.customer.push.queue_customer_for_sync",
+		],
+		"on_update": "ecommerce_integrations.shopware6.customer.push.queue_customer_for_sync",
 	},
 	"Delivery Note": {
 		"before_insert": "ecommerce_integrations.ecommerce_integrations.channel_propagation.propagate_to_delivery_note",

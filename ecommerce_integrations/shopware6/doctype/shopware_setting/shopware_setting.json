@@ -39,6 +39,13 @@
   "fallback_billing_first_name",
   "column_break_customer",
   "customer_group",
+  "customer_push_section",
+  "enable_customer_push",
+  "customer_number_counter_seed",
+  "column_break_customer_push",
+  "shopware_default_customer_group_name",
+  "shopware_default_payment_method_name",
+  "shopware_default_salutation_key",
   "catalog_mirror_section",
   "catalog_mirror_intro_html",
   "catalog_mirror_html",
@@ -439,6 +446,52 @@
    "label": "Kundengruppe",
    "mandatory_depends_on": "eval:doc.enable_shopware",
    "options": "Customer Group"
+  },
+  {
+   "fieldname": "customer_push_section",
+   "fieldtype": "Section Break",
+   "label": "Kunden nach Shopware übertragen",
+   "collapsible": 1,
+   "description": "Neu in ERPNext angelegte Kunden mit gesetztem Haken \"Nach Shopware übertragen\" automatisch als Kunden-Account in Shopware anlegen (ohne Passwort, Aktivierung über \"Passwort vergessen\" im Shop). Die Kundennummer wird dabei von ERPNext vergeben."
+  },
+  {
+   "fieldname": "enable_customer_push",
+   "fieldtype": "Check",
+   "label": "Kunden-Übertragung aktiv",
+   "default": "0",
+   "description": "Hauptschalter — wirkt zusätzlich zum Haken auf dem einzelnen Kunden. Vor der ersten Nutzung muss der Kundennummern-Zähler einmalig initialisiert werden (Button unten)."
+  },
+  {
+   "fieldname": "customer_number_counter_seed",
+   "fieldtype": "Data",
+   "label": "Kundennummern-Zähler gestartet bei",
+   "read_only": 1,
+   "description": "Wird einmalig von der Migration gesetzt. Solange leer, ist die Kunden-Übertragung noch nicht einsatzbereit."
+  },
+  {
+   "fieldname": "column_break_customer_push",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "shopware_default_customer_group_name",
+   "fieldtype": "Data",
+   "label": "Shopware-Kundengruppe (Name)",
+   "mandatory_depends_on": "eval:doc.enable_customer_push",
+   "description": "Anzeigename der Shopware-Kundengruppe, die neu übertragenen Kunden zugeordnet wird (z. B. \"Standard\")."
+  },
+  {
+   "fieldname": "shopware_default_payment_method_name",
+   "fieldtype": "Data",
+   "label": "Shopware-Zahlungsart (Name)",
+   "mandatory_depends_on": "eval:doc.enable_customer_push",
+   "description": "Anzeigename der Shopware-Zahlungsart, die als Standard-Zahlungsart neu übertragener Kunden gesetzt wird."
+  },
+  {
+   "fieldname": "shopware_default_salutation_key",
+   "fieldtype": "Data",
+   "label": "Shopware-Anrede (Schlüssel)",
+   "default": "not_specified",
+   "description": "salutationKey der Shopware-Anrede für neu übertragene Kunden. \"not_specified\" ist bei jeder Shopware-Installation vorhanden."
   },
   {
    "fieldname": "company_dependent_settings_section",

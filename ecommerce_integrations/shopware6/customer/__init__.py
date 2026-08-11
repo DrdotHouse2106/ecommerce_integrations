@@ -30,7 +30,17 @@ from .sync import (
     sync_customers_from_shopware,
     sync_old_customers,
 )
-from .vat import _find_existing_customer_to_link, trigger_vat_id_check
+from .vat import (
+    _find_existing_customer_to_link,
+    _sync_customer_number_to_shopware,
+    trigger_vat_id_check,
+)
+from .numbering import (
+    allocate_next_customer_number,
+    autoname_customer_for_shopware_push,
+    seed_customer_number_counter,
+)
+from .push import push_customer_to_shopware, queue_customer_for_sync
 
 __all__ = [
     "CustomerSyncInProgressError",
@@ -39,6 +49,9 @@ __all__ = [
     "_ensure_customer_contact",
     "_find_existing_customer_to_link",
     "_map_address_fields",
+    "_sync_customer_number_to_shopware",
+    "allocate_next_customer_number",
+    "autoname_customer_for_shopware_push",
     "create_customer_address",
     "create_customer_contact",
     "create_customer_from_shopware_data",
@@ -46,6 +59,9 @@ __all__ = [
     "ensure_customer_has_address",
     "get_customer_from_shopware_order",
     "map_shopware_salutation",
+    "push_customer_to_shopware",
+    "queue_customer_for_sync",
+    "seed_customer_number_counter",
     "sync_customer_by_id",
     "sync_customer_from_webhook",
     "sync_customers_from_shopware",
