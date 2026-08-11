@@ -226,6 +226,61 @@ def get_or_create_manufacturer(client, manufacturer_name: str) -> str | None:
         return None
 
 
+def get_or_create_unit(client, unit_name: str) -> str | None:
+    """
+    Get existing or create new (Grundpreis-)Unit in Shopware.
+
+    ``unit_name`` is WeClapp's free-form ``grundpreis_masseinheit`` value
+    (e.g. "m²", "L", "Stück") — we have no reliable separate shortCode,
+    so a newly-created unit uses the same string for both ``name`` and
+    ``shortCode``. Searches by ``name`` first, falls back to
+    ``shortCode`` (Shopware ships several default units under short
+    codes like "m²"/"l"/"kg" that WeClapp's values are likely to match).
+
+    Args:
+        client: Shopware API client
+        unit_name: Grundpreis unit label (e.g. "m²")
+
+    Returns:
+        Shopware unit ID
+    """
+    if not unit_name:
+        return None
+
+    cache = get_cache()
+    cached_id = cache.get("unit", unit_name)
+    if cached_id:
+        return cached_id
+
+    try:
+        response = client.request_post(
+            "search/unit",
+            {"filter": [{"type": "equals", "field": "name", "value": unit_name}], "limit": 1}
+        )
+        units = response.data or []
+
+        if not units:
+            response = client.request_post(
+                "search/unit",
+                {"filter": [{"type": "equals", "field": "shortCode", "value": unit_name}], "limit": 1}
+            )
+            units = response.data or []
+
+        if units:
+            unit_id = units[0]["id"]
+            cache.set("unit", unit_name, unit_id)
+            return unit_id
+
+        unit_id = generate_uuid(f"unit_{unit_name}")
+        client.request_post("unit", {"id": unit_id, "name": unit_name, "shortCode": unit_name})
+        cache.set("unit", unit_name, unit_id)
+        return unit_id
+
+    except Exception as e:
+        get_logger().error(f"Failed to get/create Unit {unit_name}: {e}", persist=True)
+        return None
+
+
 def get_cached_currency_id(client, currency_code: str = "EUR") -> str | None:
     """
     Get currency ID from cache or fetch from Shopware API.

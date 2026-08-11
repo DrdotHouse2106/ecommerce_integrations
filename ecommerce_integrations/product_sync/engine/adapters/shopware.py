@@ -138,6 +138,7 @@ class ShopwareProductAdapter(ProductAdapter):
 
         def _resolve_then_bulk(client):
             self._resolve_delivery_time_ids(client, prepared)
+            self._resolve_unit_ids(client, prepared)
             return self._bulk_upsert(client, prepared)
 
         return _with_client(_resolve_then_bulk)
@@ -1150,6 +1151,7 @@ class ShopwareProductAdapter(ProductAdapter):
             target_sales_channels=target_sales_channels,
         )
         self._resolve_delivery_time_ids(client, [prepared])
+        self._resolve_unit_ids(client, [prepared])
         results = self._bulk_upsert(client, [prepared])
         if not results:
             raise AdapterError(
@@ -1279,6 +1281,30 @@ class ShopwareProductAdapter(ProductAdapter):
                 cache[name] = dt_id
             if dt_id:
                 p["deliveryTimeId"] = dt_id
+
+    def _resolve_unit_ids(self, client, prepared: list[dict]) -> None:
+        """Substitute ``grundpreisUnit`` strings with ``unitId`` uuids
+        in-place across a batch of prepared payloads.
+
+        Same pattern as :meth:`_resolve_delivery_time_ids` — canonical
+        carries the free-form Grundpreis unit label ("m²" etc.) so it
+        stays I/O-free; this resolves each distinct label to its
+        Shopware ``unit`` uuid once per batch via ``get_or_create_unit``.
+        """
+        from ecommerce_integrations.shopware6.export.product_mapper import (
+            get_or_create_unit,
+        )
+        cache: dict[str, str] = {}
+        for p in prepared:
+            name = (p.pop("grundpreisUnit", None) or "").strip()
+            if not name:
+                continue
+            unit_id = cache.get(name)
+            if unit_id is None:
+                unit_id = get_or_create_unit(client, name) or ""
+                cache[name] = unit_id
+            if unit_id:
+                p["unitId"] = unit_id
 
     def _prepare_upsert_payload(
         self,

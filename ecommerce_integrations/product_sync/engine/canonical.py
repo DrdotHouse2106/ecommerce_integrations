@@ -780,6 +780,28 @@ def _canonical_basic(item, sync) -> dict[str, Any]:
     # (or with it unset) don't drift on every run.
     if bool(getattr(item, "abverkauf", False)):
         out["is_closeout"] = True
+
+    # Grundpreis / PAngV (price-per-unit display, e.g. "x € / m²") —
+    # three WeClapp-origin custom fields, read defensively. Only a
+    # minority of items are legally required to show a Grundpreis, so
+    # gate strictly on ``grundpreis_masseinheit`` being set: that's the
+    # operator's explicit "this item needs one" signal. The two
+    # quantities default to 1 (Shopware's own default) when unset so a
+    # unit-only item still gets a sane 1:1 Grundpreis instead of a
+    # payload with a zero reference/purchase quantity.
+    grundpreis_unit = _norm_str(getattr(item, "grundpreis_masseinheit", ""))
+    if grundpreis_unit:
+        out["grundpreis_unit"] = grundpreis_unit
+        try:
+            reference_qty = float(getattr(item, "grundeinheit", 0) or 0)
+        except (TypeError, ValueError):
+            reference_qty = 0.0
+        try:
+            purchase_qty = float(getattr(item, "verkaufseinheit", 0) or 0)
+        except (TypeError, ValueError):
+            purchase_qty = 0.0
+        out["grundpreis_reference_qty"] = _normalize_float(reference_qty or 1.0)
+        out["grundpreis_purchase_qty"] = _normalize_float(purchase_qty or 1.0)
     return out
 
 

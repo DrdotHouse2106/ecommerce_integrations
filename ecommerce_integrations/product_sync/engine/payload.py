@@ -179,7 +179,9 @@ def build_shopware_payload(
     section builders in :mod:`canonical`:
 
     - ``basic``      → name, productNumber, description, active,
-                       deliveryTime, restockTime, minPurchase/purchaseSteps
+                       deliveryTime, restockTime, minPurchase/purchaseSteps,
+                       weight/height/width/length, isCloseout,
+                       grundpreisUnit/referenceUnit/purchaseUnit
     - ``inventory``  → stock
     - ``pricing``    → price, taxId
     - ``categories`` → categories
@@ -371,6 +373,23 @@ def build_shopware_payload(
         # truthy would leave the stale value in Shopware forever.
         restock_time = basic.get("restock_time")
         payload["restockTime"] = int(restock_time) if restock_time else None
+
+        # Grundpreis / PAngV (price-per-unit display). ``purchaseUnit``/
+        # ``referenceUnit`` are plain floats on the product entity, pushed
+        # directly. The unit itself is a separate Shopware ``unit``
+        # entity — like ``deliveryTime`` above, canonical carries the
+        # free-form name string under a transient ``grundpreisUnit`` key
+        # and the adapter resolves it to ``unitId`` at apply-time via
+        # ``get_or_create_unit``. Sparse: only present when the operator
+        # set ``grundpreis_masseinheit`` (see the v9 canonical note) —
+        # absent here means "leave Shopware's existing Grundpreis
+        # config, if any, untouched" rather than clearing it, since most
+        # items legitimately never carry this data.
+        grundpreis_unit = (basic.get("grundpreis_unit") or "").strip()
+        if grundpreis_unit:
+            payload["grundpreisUnit"] = grundpreis_unit
+            payload["referenceUnit"] = basic.get("grundpreis_reference_qty") or 1.0
+            payload["purchaseUnit"] = basic.get("grundpreis_purchase_qty") or 1.0
 
         # AI customFields: surface short description, benefits,
         # SEO meta description and youtube video URL via the
