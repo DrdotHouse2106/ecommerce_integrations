@@ -3,7 +3,7 @@ from copy import deepcopy
 import frappe
 from frappe.utils import cint, cstr, getdate
 
-from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
+from erpnext.selling.doctype.sales_order.mapper import make_delivery_note
 
 from ecommerce_integrations.shopify.constants import (
 	FULLFILLMENT_ID_FIELD,

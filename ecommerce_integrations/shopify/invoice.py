@@ -1,7 +1,7 @@
 import frappe
 from frappe.utils import cint, cstr, getdate, nowdate
 
-from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
+from erpnext.selling.doctype.sales_order.mapper import make_sales_invoice
 
 from ecommerce_integrations.shopify.constants import (
 	ORDER_ID_FIELD,
