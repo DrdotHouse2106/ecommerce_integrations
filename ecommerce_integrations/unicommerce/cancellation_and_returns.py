@@ -3,10 +3,9 @@ from collections import defaultdict
 from datetime import date, datetime
 
 import frappe
+from erpnext.accounts.doctype.sales_invoice.mapper import make_sales_return
+from erpnext.accounts.services.child_item_update import update_child_qty_rate
 from frappe.utils import now_datetime
-
-from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_sales_return
-from erpnext.controllers.accounts_controller import update_child_qty_rate
 
 from ecommerce_integrations.unicommerce.api_client import UnicommerceAPIClient
 from ecommerce_integrations.unicommerce.constants import (
@@ -155,7 +154,7 @@ def create_credit_note(invoice_name):
 
 	for tax in credit_note.taxes:
 		tax.item_wise_tax_detail = json.loads(tax.item_wise_tax_detail)
-		for _, tax_distribution in tax.item_wise_tax_detail.items():
+		for _item, tax_distribution in tax.item_wise_tax_detail.items():
 			tax_distribution[1] *= -1
 		tax.item_wise_tax_detail = json.dumps(tax.item_wise_tax_detail)
 

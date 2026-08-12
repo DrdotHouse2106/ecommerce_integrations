@@ -1,15 +1,16 @@
 import base64
 from typing import Any
 
-import requests
-from pytz import timezone
-
 import frappe
-from frappe import _, _dict
+import requests
+from frappe import _
 from frappe.utils import cint, cstr, get_datetime
+from pytz import timezone
 
 from ecommerce_integrations.unicommerce.constants import SETTINGS_DOCTYPE
 from ecommerce_integrations.unicommerce.utils import create_unicommerce_log
+
+JsonDict = dict[str, Any]
 
 
 class UnicommerceAPIClient:
@@ -36,16 +37,34 @@ class UnicommerceAPIClient:
 
 		self._auth_headers = {"Authorization": f"Bearer {self.access_token}"}
 
+	def _refresh_auth(self):
+		"""Fetch a fresh access token after a 401 and rebuild the auth header."""
+		self.settings.update_tokens(grant_type="refresh_token")
+		self.access_token = self.settings.access_token
+		self._auth_headers = {"Authorization": f"Bearer {self.access_token}"}
+
+		# Persisting the token (to share it with other clients) is best-effort: a save
+		# failure must not block the retry, which already has the new token in-memory.
+		try:
+			# Background jobs lack write permission on Unicommerce Settings; bypass is
+			# intentional so token sharing works without a logged-in session user.
+			self.settings.flags.ignore_permissions = True
+			self.settings.flags.ignore_custom_fields = True
+			self.settings.save()
+		except Exception:
+			# Best-effort only — log so repeated failures are visible without blocking the retry.
+			frappe.log_error("Unicommerce: failed to persist refreshed access token")
+
 	def request(
 		self,
 		endpoint: str,
 		method: str = "POST",
-		headers: dict[str, Any] | None = None,
-		body: dict[str, Any] | None = None,
-		params: dict[str, Any] | None = None,
-		files: dict[str, Any] | None = None,
+		headers: JsonDict | None = None,
+		body: JsonDict | None = None,
+		params: JsonDict | None = None,
+		files: JsonDict | None = None,
 		log_error=True,
-	) -> tuple[_dict | bytes | None, bool]:
+	) -> tuple[JsonDict, bool]:
 		if headers is None:
 			headers = {}
 
@@ -57,6 +76,17 @@ class UnicommerceAPIClient:
 			response = requests.request(
 				url=url, method=method, headers=headers, json=body, params=params, files=files
 			)
+			# Token expired mid-run -> refresh once and retry the call.
+			# File uploads are NOT retried: `requests` has already streamed the file
+			# object into the first request's body, so the handle is at EOF and
+			# replaying it would silently send an empty body. Such calls fall through
+			# and fail loudly instead, so the upload can be re-run intact.
+			if response.status_code == 401 and not files:
+				self._refresh_auth()
+				headers.update(self._auth_headers)
+				response = requests.request(
+					url=url, method=method, headers=headers, json=body, params=params, files=files
+				)
 			# unicommerce gives useful info in response text, show it in error logs
 			response.reason = cstr(response.reason) + cstr(response.text)
 			response.raise_for_status()
@@ -83,7 +113,7 @@ class UnicommerceAPIClient:
 
 		return data, status
 
-	def get_unicommerce_item(self, sku: str, log_error=True) -> _dict | None:
+	def get_unicommerce_item(self, sku: str, log_error=True) -> JsonDict | None:
 		"""Get Unicommerce item data for specified SKU code.
 
 		ref: https://documentation.unicommerce.com/docs/itemtype-get.html
@@ -94,9 +124,7 @@ class UnicommerceAPIClient:
 		if status:
 			return item
 
-	def create_update_item(
-		self, item_dict: dict[str, Any], update=False
-	) -> tuple[_dict | bytes | None, bool]:
+	def create_update_item(self, item_dict: JsonDict, update=False) -> tuple[JsonDict, bool]:
 		"""Create/update item on unicommerce.
 
 		ref: https://documentation.unicommerce.com/docs/createoredit-itemtype.html
@@ -108,7 +136,7 @@ class UnicommerceAPIClient:
 			endpoint = "/services/rest/v1/catalog/itemType/edit"
 		return self.request(endpoint=endpoint, body={"itemType": item_dict})
 
-	def get_sales_order(self, order_code: str) -> _dict | None:
+	def get_sales_order(self, order_code: str) -> JsonDict | None:
 		"""Get details for a sales order.
 
 		ref: https://documentation.unicommerce.com/docs/saleorder-get.html
@@ -128,7 +156,7 @@ class UnicommerceAPIClient:
 		channel: str | None = None,
 		facility_codes: list[str] | None = None,
 		updated_since: int | None = None,
-	) -> list[dict[str, Any]] | None:
+	) -> list[JsonDict] | None:
 		"""Search sales order using specified parameters and return search results.
 
 		ref: https://documentation.unicommerce.com/docs/saleorder-search.html
@@ -149,10 +177,13 @@ class UnicommerceAPIClient:
 
 		if status and "elements" in search_results:
 			return search_results["elements"]
+		else:
+			frappe.log_error("Failed to search shipping packages:", search_results)
+			return []
 
 	def get_inventory_snapshot(
 		self, sku_codes: list[str], facility_code: str, updated_since: int = 1430
-	) -> _dict | None:
+	) -> JsonDict | None:
 		"""Get current inventory snapshot.
 
 		ref: https://documentation.unicommerce.com/docs/inventory-snapshot.html
@@ -222,7 +253,7 @@ class UnicommerceAPIClient:
 
 	def create_sales_invoice(
 		self, so_code: str, so_item_codes: list[str], facility_code: str
-	) -> _dict | None:
+	) -> JsonDict | None:
 		body = {"saleOrderCode": so_code, "saleOrderItemCodes": so_item_codes}
 		extra_headers = {"Facility": facility_code}
 
@@ -282,7 +313,7 @@ class UnicommerceAPIClient:
 
 	def get_sales_invoice(
 		self, shipping_package_code: str, facility_code: str, is_return: bool = False
-	) -> _dict | None:
+	) -> JsonDict | None:
 		"""Get invoice details
 
 		ref: https://documentation.unicommerce.com/docs/invoice-getdetails.html
@@ -336,7 +367,7 @@ class UnicommerceAPIClient:
 			headers=extra_headers,
 		)
 
-	def get_invoice_label(self, shipping_package_code: str, facility_code: str) -> bytes | None:
+	def get_invoice_label(self, shipping_package_code: str, facility_code: str) -> str | None:
 		"""Get the generated label for a given shipping package.
 
 		ref: undocumented.

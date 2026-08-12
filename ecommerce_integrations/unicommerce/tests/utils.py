@@ -1,8 +1,7 @@
 import copy
 import json
 import os
-import typing
-import unittest
+from typing import ClassVar
 
 import frappe
 from frappe.tests import IntegrationTestCase
@@ -13,8 +12,8 @@ from ecommerce_integrations.unicommerce.doctype.unicommerce_settings.unicommerce
 )
 
 
-class TestCase(unittest.TestCase):
-	config: typing.ClassVar[dict] = {
+class TestCase(IntegrationTestCase):
+	config: ClassVar = {
 		"is_enabled": 1,
 		"enable_inventory_sync": 1,
 		"use_stock_entry_for_grn": 1,
@@ -59,6 +58,11 @@ class TestCase(unittest.TestCase):
 		_setup_test_item_categories()
 		frappe.db.set_value("Stock Settings", None, "allow_negative_stock", 1)
 
+		# A new Item's item_defaults.default_warehouse is auto-filled from the frappe GLOBAL
+		# default warehouse, which the standard erpnext test companies set to a foreign company's
+		# warehouse -> item_defaults company/warehouse mismatch aborts item creation. Clear it.
+		frappe.db.set_default("default_warehouse", "")
+
 	@classmethod
 	def tearDownClass(cls):
 		# restore config
@@ -76,8 +80,9 @@ class TestCase(unittest.TestCase):
 		frappe.db.set_value("Stock Settings", None, "allow_negative_stock", 0)
 
 	def load_fixture(self, name):
-		fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", f"{name}.json")
-		return frappe.get_file_json(fixture_path)
+		with open(os.path.dirname(__file__) + f"/fixtures/{name}.json", "rb") as f:
+			data = f.read()
+		return json.loads(data)
 
 
 def _setup_test_item_categories():

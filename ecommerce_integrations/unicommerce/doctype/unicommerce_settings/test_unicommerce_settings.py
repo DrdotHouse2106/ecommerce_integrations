@@ -1,9 +1,8 @@
 # Copyright (c) 2021, Frappe and Contributors
 # See LICENSE
 
-import responses
-
 import frappe
+import responses
 from frappe.utils import now, now_datetime
 
 from ecommerce_integrations.unicommerce.constants import SETTINGS_DOCTYPE

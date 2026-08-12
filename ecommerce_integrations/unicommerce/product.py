@@ -1,14 +1,13 @@
-from typing import Any, NewType
-
-from stdnum.ean import is_valid as validate_barcode
+from typing import NewType
 
 import frappe
 from frappe import _
 from frappe.utils import get_url, now, to_markdown
 from frappe.utils.nestedset import get_root_of
+from stdnum.ean import is_valid as validate_barcode
 
 from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_item import ecommerce_item
-from ecommerce_integrations.unicommerce.api_client import UnicommerceAPIClient
+from ecommerce_integrations.unicommerce.api_client import JsonDict, UnicommerceAPIClient
 from ecommerce_integrations.unicommerce.constants import (
 	DEFAULT_WEIGHT_UOM,
 	ITEM_BATCH_GROUP_FIELD,
@@ -259,7 +258,7 @@ def upload_items_to_unicommerce(
 	return synced_items
 
 
-def _build_unicommerce_item(item_code: ItemCode) -> dict[str, Any]:
+def _build_unicommerce_item(item_code: ItemCode) -> JsonDict:
 	"""Build Unicommerce item JSON using an ERPNext item"""
 	item = frappe.get_doc("Item", item_code)
 

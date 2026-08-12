@@ -3,14 +3,12 @@ import json
 from collections import defaultdict
 from typing import Any, NewType
 
-import requests
-
 import frappe
-from frappe import _, _dict
+import requests
+from erpnext.selling.doctype.sales_order.mapper import make_sales_invoice
+from frappe import _
 from frappe.utils import cint, flt, nowdate
 from frappe.utils.file_manager import save_file
-
-from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
 
 from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_item import ecommerce_item
 from ecommerce_integrations.unicommerce.api_client import UnicommerceAPIClient
@@ -36,6 +34,7 @@ from ecommerce_integrations.unicommerce.utils import (
 	remove_non_alphanumeric_chars,
 )
 
+JsonDict = dict[str, Any]
 SOCode = NewType("SOCode", str)
 
 # TypedDict
@@ -52,9 +51,7 @@ INVOICED_STATE = ["PACKED", "READY_TO_SHIP", "DISPATCHED", "MANIFESTED", "SHIPPE
 
 
 @frappe.whitelist()
-def generate_unicommerce_invoices(
-	sales_orders: list[SOCode], warehouse_allocation: WHAllocation | None = None
-):
+def generate_unicommerce_invoices(sales_orders: Any, warehouse_allocation: Any = None):
 	"""Request generation of invoice to Unicommerce and sync that invoice.
 
 	1. Get shipping package details using get_sale_order
@@ -154,6 +151,9 @@ def bulk_generate_invoices(
 
 
 def _log_invoice_generation(sales_orders, failed_orders):
+	if not sales_orders:
+		return
+
 	failed_orders = set(failed_orders)
 	failed_orders.update(_get_orders_with_missing_invoice(sales_orders))
 	successful_orders = list(set(sales_orders) - set(failed_orders))
@@ -163,7 +163,7 @@ def _log_invoice_generation(sales_orders, failed_orders):
 	failure_message = "\n".join(
 		[
 			f"generate invoices: {percent_success:.3%} invoices successful\n",
-			f"Failred orders = {', '.join(failed_orders)}",
+			f"Failed orders = {', '.join(failed_orders)}",
 			f"Requested orders = {', '.join(sales_orders)}",
 		]
 	)
@@ -171,7 +171,8 @@ def _log_invoice_generation(sales_orders, failed_orders):
 	update_invoicing_status(failed_orders, "Failed")
 	update_invoicing_status(successful_orders, "Success")
 
-	status = {0.0: "Failure", 100.0: "Success"}.get(percent_success) or "Partial Success"
+	# percent_success is a fraction, so the all-succeeded key is 1.0.
+	status = {0.0: "Failure", 1.0: "Success"}.get(percent_success) or "Partial Success"
 	create_unicommerce_log(status=status, message=failure_message)
 
 
@@ -190,6 +191,9 @@ def _get_orders_with_missing_invoice(sales_orders):
 def update_invoicing_status(sales_orders: list[str], status: str) -> None:
 	if not sales_orders:
 		return
+
+	# `in %s` needs a list/tuple; a set renders as its Python repr and breaks the query.
+	sales_orders = list(sales_orders)
 
 	frappe.db.sql(
 		f"""update `tabSales Order`
@@ -302,14 +306,14 @@ def _fetch_and_sync_invoice(
 
 
 def create_sales_invoice(
-	si_data: _dict,
+	si_data: JsonDict,
 	so_code: str,
 	update_stock=0,
 	submit=True,
 	shipping_label=None,
 	warehouse_allocations=None,
 	invoice_response=None,
-	so_data: _dict | None = None,
+	so_data: JsonDict | None = None,
 ):
 	"""Create ERPNext Sales Invcoice using Unicommerce sales invoice data and related Sales order.
 
@@ -490,7 +494,7 @@ def _assign_wh_and_so_row(line_items, warehouse_allocation: list[ItemWHAlloc], s
 	line_items.sort(key=sort_key)
 
 	# update references
-	for item, wh_alloc in zip(line_items, warehouse_allocation, strict=True):
+	for item, wh_alloc in zip(line_items, warehouse_allocation, strict=False):
 		item["so_detail"] = wh_alloc["sales_order_row"]
 		item["warehouse"] = wh_alloc["warehouse"]
 		item["batch_no"] = wh_alloc.get("batch_no")
