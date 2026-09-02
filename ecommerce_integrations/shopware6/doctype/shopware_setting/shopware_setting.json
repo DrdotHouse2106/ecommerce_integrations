@@ -511,10 +511,9 @@
    "fieldname": "cash_bank_account",
    "fieldtype": "Link",
    "label": "Kassen-/Bankkonto",
-   "mandatory_depends_on": "eval:doc.enable_shopware",
    "options": "Account",
    "link_filters": "[[\"Account\",\"account_type\",\"in\",[\"Bank\",\"Cash\"]],[\"Account\",\"is_group\",\"=\",0]]",
-   "description": "Konto, auf das Zahlungen aus Shopware verbucht werden."
+   "description": "Optional. Nur relevant, wenn Shopware eine Bestellung als \"bezahlt\" meldet und automatisch eine Payment Entry gebucht werden soll (z. B. PayPal-Sofortzahlung). Leer lassen, wenn Zahlungen separat abgeglichen werden — ERPNext nutzt dann die Standardkonten der Zahlungsart/Firma. Für PayPal/Stripe/Klarna kann die Auto-Buchung zusätzlich über \"defer_psp_payment_booking\" komplett übersprungen werden."
   },
   {
    "fieldname": "column_break_company",
@@ -524,9 +523,8 @@
    "fieldname": "cost_center",
    "fieldtype": "Link",
    "label": "Kostenstelle",
-   "mandatory_depends_on": "eval:doc.enable_shopware",
    "options": "Cost Center",
-   "description": "Kostenstelle für Erlöse aus Shopware-Bestellungen."
+   "description": "Optional. Kostenstelle für Erlöse aus Shopware-Bestellungen. Leer lassen, um die Standard-Kostenstelle der Firma zu verwenden."
   },
   {
    "fieldname": "price_handling_section",
