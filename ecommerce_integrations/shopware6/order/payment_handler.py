@@ -105,12 +105,12 @@ def make_payment_entry_against_sales_invoice(
     from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
     try:
-        # Optional deferral to an external PSP reconciliation engine (off by
-        # default; opt-in via ``defer_psp_payment_booking`` on the Shopware
-        # Setting). A plain fork install keeps the standard booking below.
-        if getattr(setting, "defer_psp_payment_booking", 0) and (
-            frappe.db.get_value("Sales Order", sales_order_name, "psp_provider") or ""
-        ) in ("PayPal", "Stripe", "Klarna"):
+        # Operator opt-out (``skip_automatic_payment_entry`` on Shopware
+        # Setting) for shops that reconcile payments through a separate
+        # process (e.g. importing a PayPal account statement) — booking a
+        # Payment Entry here as well would double it up. Applies regardless
+        # of payment method; the Sales Invoice itself is still created.
+        if getattr(setting, "skip_automatic_payment_entry", 0):
             return None
 
         # Get the Mode of Payment from the Sales Order

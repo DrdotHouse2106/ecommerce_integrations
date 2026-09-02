@@ -34,6 +34,7 @@
   "cash_bank_account",
   "column_break_company",
   "cost_center",
+  "skip_automatic_payment_entry",
   "customer_settings_section",
   "default_customer",
   "fallback_billing_first_name",
@@ -513,7 +514,7 @@
    "label": "Kassen-/Bankkonto",
    "options": "Account",
    "link_filters": "[[\"Account\",\"account_type\",\"in\",[\"Bank\",\"Cash\"]],[\"Account\",\"is_group\",\"=\",0]]",
-   "description": "Optional. Nur relevant, wenn Shopware eine Bestellung als \"bezahlt\" meldet und automatisch eine Payment Entry gebucht werden soll (z. B. PayPal-Sofortzahlung). Leer lassen, wenn Zahlungen separat abgeglichen werden — ERPNext nutzt dann die Standardkonten der Zahlungsart/Firma. Für PayPal/Stripe/Klarna kann die Auto-Buchung zusätzlich über \"defer_psp_payment_booking\" komplett übersprungen werden."
+   "description": "Optional. Nur relevant, wenn automatisch eine Payment Entry gebucht werden soll (siehe \"Automatische Zahlungsbuchung überspringen\" unten). Leer lassen, wenn Zahlungen separat abgeglichen werden — ERPNext nutzt dann die Standardkonten der Zahlungsart/Firma."
   },
   {
    "fieldname": "column_break_company",
@@ -525,6 +526,13 @@
    "label": "Kostenstelle",
    "options": "Cost Center",
    "description": "Optional. Kostenstelle für Erlöse aus Shopware-Bestellungen. Leer lassen, um die Standard-Kostenstelle der Firma zu verwenden."
+  },
+  {
+   "fieldname": "skip_automatic_payment_entry",
+   "fieldtype": "Check",
+   "label": "Automatische Zahlungsbuchung überspringen",
+   "default": "0",
+   "description": "Wenn aktiviert, erstellt das Plugin bei als \"bezahlt\" gemeldeten Bestellungen keine Payment Entry mehr (unabhängig von der Zahlungsart) — nur die Sales Invoice wird wie gewohnt angelegt. Aktivieren, wenn Zahlungen bereits über einen anderen Weg abgeglichen werden (z. B. PayPal-Kontoauszug-Import), um doppelte Buchungen zu vermeiden."
   },
   {
    "fieldname": "price_handling_section",

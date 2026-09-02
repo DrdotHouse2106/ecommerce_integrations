@@ -320,18 +320,15 @@ def create_payment_entry_for_order(sales_order_name: str, transaction_id: str | 
     # Get Sales Order details
     so = frappe.get_doc("Sales Order", sales_order_name)
 
-    # Optional: defer fee-bearing PSPs (PayPal/Stripe/Klarna) to an external PSP
-    # reconciliation engine that books gross-onto-clearing + fee separately
-    # (German gross method). OFF by default — only when an operator enables
-    # ``defer_psp_payment_booking`` on the Shopware Setting AND has such an
-    # engine; otherwise the standard direct-to-bank booking below runs, so a
-    # plain fork install keeps recording payments normally.
-    if getattr(setting, "defer_psp_payment_booking", 0) and (
-        getattr(so, "psp_provider", None) or ""
-    ) in ("PayPal", "Stripe", "Klarna"):
+    # Operator opt-out (``skip_automatic_payment_entry`` on Shopware Setting)
+    # for shops that reconcile payments through a separate process (e.g.
+    # importing a PayPal account statement) — booking a Payment Entry here
+    # as well would double it up. Applies regardless of payment method; the
+    # Sales Invoice itself is still created.
+    if getattr(setting, "skip_automatic_payment_entry", 0):
         frappe.logger("shopware6").info(
-            f"{sales_order_name}: PSP provider {so.psp_provider} — deferred to external "
-            f"PSP reconciliation engine, skipping standard Payment Entry."
+            f"{sales_order_name}: skip_automatic_payment_entry is set — skipping "
+            f"standard Payment Entry, payments are reconciled separately."
         )
         return None
 
