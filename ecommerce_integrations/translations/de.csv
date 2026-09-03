@@ -19,6 +19,7 @@ Actions,Aktionen
 Actions,Aktionen
 active,Aktiv
 Active,Aktiv (am Cron-Sync teilnehmen)
+Active Product Syncs,Aktive Product Syncs
 Actually applied changes (JSON),Tatsächlich angewendete Änderungen (JSON)
 Actually hit channel,Tatsächlich getroffener Channel
 Add,Hinzufügen
@@ -63,7 +64,6 @@ API Username,API Username
 API Username,API-Benutzername
 Apply (Live),Anwenden (Live)
 Apply Live,Live anwenden
-Apply Live,Jetzt synchronisieren
 Apply running…,Apply läuft…
 Apply this mirror against the live backend now?,Diesen Spiegel jetzt gegen das Live-Backend anwenden?
 Apply this plan to {0}?,Diesen Plan auf {0} anwenden?
@@ -110,7 +110,7 @@ Cache cleared.,Cache geleert.
 Cap for AI generations per sync run. 0 = unlimited (caution: each generation costs Gemini tokens).,Obergrenze für die Pre-Pass-Generierung pro Sync-Lauf. 0 = unbegrenzt (Vorsicht: jeder Eintrag kostet Gemini-Tokens).
 Cash / Bank Account,Kassen-/Bankkonto
 Cash/Bank Account,Kassen-/Bankkonto
-Catalog Mirror,Katalog-Spiegel
+Catalog,Katalog
 Catalog Mirror,Kategorie-Sync (ERP → Shop)
 Catalog Mirror Dashboard,Katalog-Mirror Dashboard
 Catalog Mirror module not available — run bench migrate.,Katalog-Mirror-Modul nicht verfügbar – bench migrate ausführen.
@@ -143,6 +143,7 @@ Client Secret,Client Secret
 Client Secret (Secret Access Key),Client-Secret (Secret Access Key)
 Close,Schließen
 Collection,Smart Collection
+Collections,Kollektionen
 Combinator with next rule,Verknüpfung mit nächster Regel
 Company,Firma
 "Comparison operator: <strong>equals</strong>, <strong>not_equals</strong>, <strong>in</strong> = is one of (comma-separated), <strong>not_in</strong>, <strong>descends_from</strong> = is descended from (for the item-group tree), <strong>contains</strong>, <strong>regex</strong>, <strong>is_set</strong>, <strong>is_empty</strong>.","Vergleichsoperator: <strong>equals</strong> = ist genau, <strong>not_equals</strong> = ist nicht, <strong>in</strong> = ist einer aus (kommagetrennt), <strong>not_in</strong> = ist keiner aus, <strong>descends_from</strong> = ist untergeordnet von (für Artikelgruppen-Baum), <strong>contains</strong> = enthält, <strong>regex</strong> = passt auf regulären Ausdruck, <strong>is_set</strong> = ist gesetzt, <strong>is_empty</strong> = ist leer."
@@ -786,9 +787,12 @@ Sync New Items as Active,Neue Artikel direkt aktiv in Medusa veröffentlichen
 Sync new items as Active in Shopware,Neue Artikel direkt aktiv in Shopware veröffentlichen
 Sync Now,Jetzt synchronisieren
 Sync now,Jetzt synchronisieren
+Sync Operations,Sync-Vorgänge
 Sync Payment Status,Zahlungs-Status synchronisieren
 Sync running,Sync läuft
 Sync running since {0},Sync läuft seit {0}
+Sync Runs (Daily),Sync-Läufe (täglich)
+Sync Runs Today,Sync-Läufe heute
 Sync Status,Status
 Sync stock levels to Medusa,Lagerbestände zu Medusa synchronisieren
 Sync Stock Locations,Lagerorte aktualisieren
@@ -840,6 +844,7 @@ Unexpected error loading adapter: {0},Unerwarteter Fehler beim Adapter-Load: {0}
 Unknown backend: {0},Unbekanntes Backend: {0}
 Unknown error.,Unbekannter Fehler.
 Unlink from category,Verknüpfung aufheben
+Unresolved Sync Errors,Offene Sync-Fehler
 Unresolved root,Wurzel nicht aufgelöst
 Update,Aktualisieren
 UPDATE,AKTUALISIEREN
@@ -1056,3 +1061,8 @@ gross,brutto
 Draft: Shipment,Entwurf: Versand
 Your order at {0} has been received,Ihre Bestellung bei {0} ist eingegangen
 us,uns
+Ecommerce Sync Errors (24h),Sync-Fehler (24h)
+Ecommerce Queued Syncs,Wartende Syncs
+Ecommerce Successful Syncs (24h),Erfolgreiche Syncs (24h)
+Items Synced (Daily),Synchronisierte Artikel (täglich)
+AI Descriptions Generated (Daily),KI-Beschreibungen erzeugt (täglich)
