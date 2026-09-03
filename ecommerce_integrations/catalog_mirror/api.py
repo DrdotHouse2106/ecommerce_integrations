@@ -82,6 +82,61 @@ def apply_mirror_now(mirror: str) -> dict:
 
 
 @frappe.whitelist()
+def reset_mirror_mapping(mirror: str) -> dict:
+    """Clear the persisted ``<backend>_category_id`` / hash on every Item
+    Group in this mirror's subtree, plus the mirror's own
+    ``external_root_id``.
+
+    Needed when the operator deletes the mirrored tree directly in the
+    backend admin instead of through Catalog Mirror (e.g. to reset a
+    test shop) — the Item Groups still carry now-stale external ids
+    afterwards. The next apply then tries to parent new categories
+    under an id that no longer exists, which Shopware rejects with a
+    DB-level foreign-key error (and, since the differ never got to
+    persist a mapping for the failed node, every descendant is skipped
+    too — "only the top category synced" is the visible symptom).
+    Resetting forces the whole subtree back to fresh creates.
+    """
+    if not frappe.has_permission(_MIRROR_DOCTYPE, "write", doc=mirror):
+        frappe.throw(_("Not permitted to reset this Catalog Mirror's mapping"))
+    frappe.only_for("System Manager")
+
+    from ecommerce_integrations.catalog_mirror.tasks import _hash_field, _mapping_field
+    from ecommerce_integrations.catalog_mirror.walker import walk_erpnext_tree
+
+    doc = frappe.get_doc(_MIRROR_DOCTYPE, mirror)
+    mapping_field = _mapping_field(doc.backend)
+    hash_field = _hash_field(doc.backend)
+    if not mapping_field or not doc.root_item_group:
+        return {"cleared": 0, "message": _("Nothing to reset.")}
+
+    erp_tree = walk_erpnext_tree(doc.root_item_group, include_inactive_leaves=True)
+    ig_names = [n.name for n in erp_tree.iter_descendants()]
+    if ig_names:
+        placeholders = ", ".join(["%s"] * len(ig_names))
+        frappe.db.sql(
+            f"""UPDATE `tabItem Group`
+                SET `{mapping_field}` = NULL, `{hash_field}` = NULL
+                WHERE name IN ({placeholders})""",
+            tuple(ig_names),
+        )
+
+    frappe.db.set_value(
+        _MIRROR_DOCTYPE, mirror,
+        {"external_root_id": "", "sync_status": "pending", "last_error": ""},
+        update_modified=False,
+    )
+    frappe.db.commit()
+    return {
+        "cleared": len(ig_names),
+        "message": _(
+            "Mapping reset for {0} item group(s). The next sync will treat "
+            "the whole subtree as fresh creates."
+        ).format(len(ig_names)),
+    }
+
+
+@frappe.whitelist()
 def adopt_node(
     mirror: str,
     item_group: str,

@@ -166,6 +166,34 @@ function _render_header_buttons(frm) {
             ),
         );
     });
+    frm.add_custom_button(__('Reset Mapping'), function () {
+        frappe.confirm(
+            __(
+                'Clear the stored backend-category links for every item group in this ' +
+                'mirror\'s subtree? Use this after deleting the mirrored categories ' +
+                'directly in the backend admin (instead of through this mirror) — ' +
+                'otherwise the next sync tries to re-parent new categories under ids ' +
+                'that no longer exist and fails partway through. The next sync will ' +
+                'recreate everything from scratch.'
+            ),
+            () => _reset_mapping(frm),
+        );
+    }, __('Maintenance'));
+}
+
+
+function _reset_mapping(frm) {
+    frappe.call({
+        method: 'ecommerce_integrations.catalog_mirror.api.reset_mirror_mapping',
+        args: { mirror: frm.doc.name },
+        freeze: true,
+        freeze_message: __('Resetting mapping…'),
+        callback(r) {
+            if (!r.message) return;
+            frappe.show_alert({ message: r.message.message, indicator: 'green' });
+            frm.reload_doc();
+        },
+    });
 }
 
 

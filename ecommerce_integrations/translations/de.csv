@@ -141,6 +141,7 @@ Client ID,Client ID
 Client ID (Access Key ID),Client-ID (Access Key ID)
 Client Secret,Client Secret
 Client Secret (Secret Access Key),Client-Secret (Secret Access Key)
+"Clear the stored backend-category links for every item group in this mirror's subtree? Use this after deleting the mirrored categories directly in the backend admin (instead of through this mirror) — otherwise the next sync tries to re-parent new categories under ids that no longer exist and fails partway through. The next sync will recreate everything from scratch.","Gespeicherte Backend-Kategorie-Verknüpfungen für alle Artikelgruppen in diesem Mirror-Teilbaum löschen? Nutze das, nachdem die gespiegelten Kategorien direkt im Backend-Admin gelöscht wurden (statt über diesen Mirror) — sonst versucht der nächste Sync, neue Kategorien unter nicht mehr existierenden IDs einzuhängen, und bricht mittendrin ab. Der nächste Sync legt danach alles neu an."
 Close,Schließen
 Collection,Smart Collection
 Collections,Kollektionen
@@ -653,6 +654,8 @@ Reload,Neu laden
 Remove Orphaned Categories,Verwaiste Kategorien entfernen
 Remove Orphaned Products,Verwaiste Produkte entfernen
 "Rendered when the corresponding Item field is empty. Variables: {{ item }}, {{ sync }}, {{ brand }} (channel branding if available). Example: '{{ item.item_name }} | {{ brand.brand_name or item.brand or """" }}' for the meta title.","Wird gerendert, wenn das jeweilige Feld am Item leer ist. Variablen: {{ item }}, {{ sync }}, {{ brand }} (Channel-Branding falls vorhanden). Beispiele: '{{ item.item_name }} | {{ brand.brand_name or item.brand or """" }}' für Meta-Title."
+Reset Mapping,Mapping zurücksetzen
+Resetting mapping…,Mapping wird zurückgesetzt…
 report,Nur melden
 Resolution,Auflösung
 Resolver not yet available — run bench migrate,Resolver nicht verfügbar — bitte bench migrate ausführen
