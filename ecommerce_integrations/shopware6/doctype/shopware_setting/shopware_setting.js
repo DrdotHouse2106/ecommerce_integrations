@@ -270,5 +270,26 @@ frappe.ui.form.on('Shopware Setting', {
 				}
 			});
 		}, __('Wartung'));
+
+		// Repairs fields that a fresh install can end up missing (patches
+		// only run on `bench migrate`, not on install-app) — e.g. Item
+		// Group.shopware_category_id crashing the category importer with
+		// "Unknown column". Safe to click any time: every step upserts by
+		// fieldname, so nothing is lost or duplicated on an already-fine site.
+		frm.add_custom_button(__('Fehlende Custom Fields nachinstallieren'), function() {
+			frappe.call({
+				method: 'ecommerce_integrations.install.repair_custom_fields',
+				freeze: true,
+				freeze_message: __('Custom Fields werden geprüft...'),
+				callback: function(r) {
+					let res = r.message || {};
+					frappe.msgprint({
+						title: __('Custom Fields'),
+						message: res.message || __('Fertig.'),
+						indicator: res.status === 'success' ? 'green' : 'orange'
+					});
+				}
+			});
+		}, __('Wartung'));
 	}
 });

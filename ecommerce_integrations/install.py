@@ -51,9 +51,15 @@ again would be a harmless but pointless duplicate.
 """
 
 import frappe
+from frappe import _
 
 
-def after_install():
+def _all_custom_field_setups():
+    """Every "install my own custom fields" entry point across the app —
+    shared by :func:`after_install` (fresh installs) and
+    :func:`repair_custom_fields` (manual repair on a site that already
+    exists but is missing some of these, e.g. because it was itself
+    created as a fresh install before this list was comprehensive)."""
     from ecommerce_integrations.ai_description.custom_fields import (
         setup_custom_fields as setup_ai_description_custom_fields,
     )
@@ -92,10 +98,7 @@ def after_install():
         setup_custom_fields as setup_shopware_custom_fields,
     )
 
-    # Each call is independently best-effort — a failure installing one
-    # channel's fields (e.g. an unrelated doctype missing on a minimal
-    # install) must not block the others from installing theirs.
-    for setup in (
+    return (
         setup_shopware_custom_fields,
         setup_medusa_custom_fields,
         setup_ai_description_custom_fields,
@@ -109,7 +112,14 @@ def after_install():
         setup_price_list_tax_flag,
         setup_shopware_item_custom_field_mappings,
         setup_sync_visibilities_and_default_channel,
-    ):
+    )
+
+
+def after_install():
+    # Each call is independently best-effort — a failure installing one
+    # channel's fields (e.g. an unrelated doctype missing on a minimal
+    # install) must not block the others from installing theirs.
+    for setup in _all_custom_field_setups():
         try:
             setup()
         except Exception:
@@ -119,3 +129,40 @@ def after_install():
             )
 
     frappe.db.commit()
+
+
+@frappe.whitelist()
+def repair_custom_fields() -> dict:
+    """Manual re-run of every custom-field setup, for a site that already
+    exists (so ``after_install`` won't fire again) but is missing some of
+    these fields — e.g. it was created as a fresh install before a given
+    setup function was added to :func:`_all_custom_field_setups`, or a
+    ``bench migrate`` was interrupted partway. Same idempotent calls as
+    ``after_install``, just triggerable from the UI instead of needing
+    ``bench execute`` — useful when the operator has no shell/terminal
+    access to the bench (e.g. a managed hosting plan).
+    """
+    frappe.only_for("System Manager")
+
+    failures = []
+    for setup in _all_custom_field_setups():
+        try:
+            setup()
+        except Exception:
+            failures.append(setup.__module__)
+            frappe.log_error(
+                title=f"ecommerce_integrations repair_custom_fields: {setup.__module__} failed",
+                message=frappe.get_traceback(),
+            )
+
+    frappe.db.commit()
+
+    if failures:
+        return {
+            "status": "partial",
+            "message": _(
+                "Custom Fields aktualisiert, aber {0} Schritt(e) sind fehlgeschlagen: {1}. "
+                "Details im Error Log."
+            ).format(len(failures), ", ".join(failures)),
+        }
+    return {"status": "success", "message": _("Alle Custom Fields wurden geprüft/aktualisiert.")}
