@@ -127,7 +127,7 @@
   {
    "fieldname": "name_template",
    "label": "Name template",
-   "fieldtype": "Data",
+   "fieldtype": "Small Text",
    "default": "{{ item_group.item_group_name }}",
    "description": "Jinja template for the backend category name. Default <code>{{ item_group.item_group_name }}</code> uses the item-group name as-is. If your item-group names carry a disambiguation suffix (needed because the name must be globally unique in ERPNext, not just per parent), e.g. <code>Zubehör (SW/FranceTec/2CV6)</code>, strip it here instead of renaming the item groups: <code>{{ item_group.item_group_name.split(' (')[0] }}</code>."
   },
