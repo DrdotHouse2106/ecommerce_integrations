@@ -51,7 +51,7 @@ def prepare_delivery_note():
 
 def create_delivery_note(so, sales_invoice):
 	# Create the delivery note
-	from erpnext.selling.doctype.sales_order.mapper import make_delivery_note
+	from ecommerce_integrations.utils.erpnext_compat import make_delivery_note
 
 	res = make_delivery_note(source_name=so.name)
 	res.unicommerce_order_code = sales_invoice.unicommerce_order_code

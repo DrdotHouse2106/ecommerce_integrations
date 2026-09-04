@@ -3,8 +3,6 @@ from collections import defaultdict
 from datetime import date, datetime
 
 import frappe
-from erpnext.accounts.doctype.sales_invoice.mapper import make_sales_return
-from erpnext.accounts.services.child_item_update import update_child_qty_rate
 from frappe.utils import now_datetime
 
 from ecommerce_integrations.unicommerce.api_client import UnicommerceAPIClient
@@ -19,6 +17,7 @@ from ecommerce_integrations.unicommerce.constants import (
 	SHIPPING_PROVIDER_CODE,
 	TRACKING_CODE_FIELD,
 )
+from ecommerce_integrations.utils.erpnext_compat import make_sales_return, update_child_qty_rate
 
 
 def fully_cancel_orders(unicommerce_order_codes: list[str]) -> None:

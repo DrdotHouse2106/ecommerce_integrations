@@ -7,7 +7,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
-from erpnext.accounts.services.taxes import add_taxes_from_tax_template
+from ecommerce_integrations.utils.erpnext_compat import add_taxes_from_tax_template
 
 api_url = "https://api.zenoti.com/v1/"
 

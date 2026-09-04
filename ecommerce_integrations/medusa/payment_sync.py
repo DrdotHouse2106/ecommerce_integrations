@@ -142,7 +142,7 @@ def _create_sales_invoice(so_name: str, setting) -> str:
 	if existing_si:
 		return None
 
-	from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
+	from ecommerce_integrations.utils.erpnext_compat import make_sales_invoice
 
 	si = make_sales_invoice(so_name)
 	si.flags.ignore_mandatory = True

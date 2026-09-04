@@ -550,7 +550,7 @@ def _create_sales_invoice_for_order(
     Returns:
         Sales Invoice name if created, None otherwise
     """
-    from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
+    from ecommerce_integrations.utils.erpnext_compat import make_sales_invoice
 
     try:
         # Check if Sales Invoice already exists for this order

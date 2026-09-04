@@ -36,7 +36,7 @@ def create_delivery_note(
             return existing
 
         # Create Delivery Note from Sales Order
-        from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
+        from ecommerce_integrations.utils.erpnext_compat import make_delivery_note
 
         dn = make_delivery_note(sales_order)
         dn.naming_series = setting.delivery_note_series

@@ -56,7 +56,7 @@ def create_sales_invoice(
             return existing_si
 
         # Create Sales Invoice from Sales Order
-        from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
+        from ecommerce_integrations.utils.erpnext_compat import make_sales_invoice
 
         si = make_sales_invoice(sales_order)
         si.naming_series = setting.sales_invoice_series

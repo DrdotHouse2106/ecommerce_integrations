@@ -3,8 +3,6 @@ from copy import deepcopy
 import frappe
 from frappe.utils import cint, cstr, getdate
 
-from erpnext.selling.doctype.sales_order.mapper import make_delivery_note
-
 from ecommerce_integrations.shopify.constants import (
 	FULLFILLMENT_ID_FIELD,
 	ORDER_ID_FIELD,
@@ -13,6 +11,7 @@ from ecommerce_integrations.shopify.constants import (
 )
 from ecommerce_integrations.shopify.order import get_sales_order
 from ecommerce_integrations.shopify.utils import create_shopify_log
+from ecommerce_integrations.utils.erpnext_compat import make_delivery_note
 
 
 def prepare_delivery_note(payload, request_id=None):

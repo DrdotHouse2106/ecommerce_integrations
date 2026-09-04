@@ -5,7 +5,6 @@ from typing import Any, NewType
 
 import frappe
 import requests
-from erpnext.selling.doctype.sales_order.mapper import make_sales_invoice
 from frappe import _
 from frappe.utils import cint, flt, nowdate
 from frappe.utils.file_manager import save_file
@@ -27,6 +26,7 @@ from ecommerce_integrations.unicommerce.constants import (
 	SHIPPING_PROVIDER_CODE,
 	TRACKING_CODE_FIELD,
 )
+from ecommerce_integrations.utils.erpnext_compat import make_sales_invoice
 from ecommerce_integrations.unicommerce.order import get_taxes
 from ecommerce_integrations.unicommerce.utils import (
 	create_unicommerce_log,
