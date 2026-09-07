@@ -63,38 +63,6 @@ PRODUCT_CUSTOM_FIELDS_MAP = {
     "youtube_video_url": SHOPWARE_CUSTOM_FIELD_YOUTUBE_VIDEO_URL,
 }
 
-# Shopware Custom Field Set for Categories
-SHOPWARE_CATEGORY_CUSTOM_FIELD_SET_NAME = "erpnext_category_fields"
-
-# Category FAQ custom field names (in Shopware)
-SHOPWARE_CATEGORY_FAQ1_QUESTION = "erpnext_faq1_question"
-SHOPWARE_CATEGORY_FAQ1_ANSWER = "erpnext_faq1_answer"
-SHOPWARE_CATEGORY_FAQ2_QUESTION = "erpnext_faq2_question"
-SHOPWARE_CATEGORY_FAQ2_ANSWER = "erpnext_faq2_answer"
-SHOPWARE_CATEGORY_FAQ3_QUESTION = "erpnext_faq3_question"
-SHOPWARE_CATEGORY_FAQ3_ANSWER = "erpnext_faq3_answer"
-SHOPWARE_CATEGORY_FAQ4_QUESTION = "erpnext_faq4_question"
-SHOPWARE_CATEGORY_FAQ4_ANSWER = "erpnext_faq4_answer"
-SHOPWARE_CATEGORY_FAQ5_QUESTION = "erpnext_faq5_question"
-SHOPWARE_CATEGORY_FAQ5_ANSWER = "erpnext_faq5_answer"
-
-# Category Priority Custom Field (for frontend sorting)
-SHOPWARE_CATEGORY_PRIORITY = "erpnext_priority"
-
-# Mapping: ERPNext Item Group FAQ fields -> Shopware category custom fields
-CATEGORY_FAQ_FIELDS_MAP = {
-    "faq1_question": SHOPWARE_CATEGORY_FAQ1_QUESTION,
-    "faq1_answer": SHOPWARE_CATEGORY_FAQ1_ANSWER,
-    "faq2_question": SHOPWARE_CATEGORY_FAQ2_QUESTION,
-    "faq2_answer": SHOPWARE_CATEGORY_FAQ2_ANSWER,
-    "faq3_question": SHOPWARE_CATEGORY_FAQ3_QUESTION,
-    "faq3_answer": SHOPWARE_CATEGORY_FAQ3_ANSWER,
-    "faq4_question": SHOPWARE_CATEGORY_FAQ4_QUESTION,
-    "faq4_answer": SHOPWARE_CATEGORY_FAQ4_ANSWER,
-    "faq5_question": SHOPWARE_CATEGORY_FAQ5_QUESTION,
-    "faq5_answer": SHOPWARE_CATEGORY_FAQ5_ANSWER,
-}
-
 # Shopware variant attributes (max 3 in Shopware)
 SHOPWARE_VARIANTS_ATTR_LIST = ["option1", "option2", "option3"]
 
