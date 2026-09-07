@@ -565,7 +565,10 @@ OpenAI API Key not configured,OpenAI API-Key nicht konfiguriert
 Operator,Operator
 Optional description used in the shop and for SEO.,"Optionaler Beschreibungstext, der im Shop und für SEO verwendet wird."
 "Optional email template. Without a selection, a neutral default text is used.",Optionale E-Mail-Vorlage. Ohne Auswahl wird ein neutraler deutscher Standardtext verwendet.
+"Optional Jinja template for the backend category SEO meta-description (Shopware <code>metaDescription</code>). Defaults to <code>{{ item_group.seo_meta_description }}</code>. Clear the field if SEO meta-description shouldn't be managed by this mirror.","Optionale Jinja-Vorlage für die SEO-Meta-Description der Backend-Kategorie (Shopware <code>metaDescription</code>). Standardmäßig <code>{{ item_group.seo_meta_description }}</code>. Feld leeren, wenn die SEO-Meta-Description nicht von diesem Mirror verwaltet werden soll."
+"Optional Jinja template for the backend category SEO meta-title (Shopware <code>metaTitle</code>). Defaults to <code>{{ item_group.seo_title }}</code>. Clear the field if SEO meta-title shouldn't be managed by this mirror.","Optionale Jinja-Vorlage für den SEO-Meta-Title der Backend-Kategorie (Shopware <code>metaTitle</code>). Standardmäßig <code>{{ item_group.seo_title }}</code>. Feld leeren, wenn der SEO-Meta-Title nicht von diesem Mirror verwaltet werden soll."
 Optional Jinja template for the backend category description.,Optionale Jinja-Vorlage für die Backend-Kategorie-Beschreibung.
+"Optional Jinja template for the backend category description. Defaults to <code>{{ item_group.description }}</code>, pushing the item group's description field. Clear the field if description shouldn't be managed by this mirror.","Optionale Jinja-Vorlage für die Backend-Kategorie-Beschreibung. Standardmäßig <code>{{ item_group.description }}</code>, überträgt das Beschreibungsfeld der Artikelgruppe. Feld leeren, wenn die Beschreibung nicht von diesem Mirror verwaltet werden soll."
 Optional Jinja templates controlling how ERPNext item groups are named and described in the shop.,"Optionale Jinja-Vorlagen, die bestimmen, wie ERPNext-Artikelgruppen im Shop benannt und beschrieben werden."
 Optional text for storefront / SEO.,Optionaler Text für Storefront / SEO.
 "Optional: handle / SEO URL in the shop (e.g. Medusa category handle, Shopware seoUrl). When empty, the slug is used. Set this for a shorter URL in the shop.","Optional: Handle/SEO-URL im Shop (z.B. Medusa-Category-Handle, Shopware-seoUrl). Wenn leer, wird der Kurzname verwendet. Setzen Sie diesen Wert, wenn Sie im Shop eine kürzere URL möchten."
@@ -700,6 +703,8 @@ Scope contains {0}+ items.,Auswahl enthält {0}+ Artikel.
 Scope is empty — no item matches it.,Auswahl ist leer — kein Artikel passt zum Scope.
 Scope mode,Auswahl-Modus
 Scope resolution failed: {0},Scope-Auflösung fehlgeschlagen: {0}
+SEO meta-description template,SEO-Meta-Description-Vorlage
+SEO meta-title template,SEO-Meta-Title-Vorlage
 Secret,Secret
 Secret Access Key of the Shopware integration. Stored encrypted.,Geheimer Zugriffsschlüssel (Secret Access Key) der Shopware-Integration. Wird verschlüsselt gespeichert.
 Secret kopieren,Secret kopieren

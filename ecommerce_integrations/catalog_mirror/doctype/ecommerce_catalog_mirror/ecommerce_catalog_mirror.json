@@ -135,19 +135,22 @@
    "fieldname": "description_template",
    "label": "Description template",
    "fieldtype": "Small Text",
-   "description": "Optional Jinja template for the backend category description. Use <code>{{ item_group.description }}</code> to push the item group's description field. Empty = description not managed by this mirror."
+   "default": "{{ item_group.description }}",
+   "description": "Optional Jinja template for the backend category description. Defaults to <code>{{ item_group.description }}</code>, pushing the item group's description field. Clear the field if description shouldn't be managed by this mirror."
   },
   {
    "fieldname": "meta_title_template",
    "label": "SEO meta-title template",
    "fieldtype": "Data",
-   "description": "Optional Jinja template for the backend category SEO meta-title (Shopware <code>metaTitle</code>). Use <code>{{ item_group.seo_title }}</code>. Empty = not managed by this mirror."
+   "default": "{{ item_group.seo_title }}",
+   "description": "Optional Jinja template for the backend category SEO meta-title (Shopware <code>metaTitle</code>). Defaults to <code>{{ item_group.seo_title }}</code>. Clear the field if SEO meta-title shouldn't be managed by this mirror."
   },
   {
    "fieldname": "meta_description_template",
    "label": "SEO meta-description template",
    "fieldtype": "Small Text",
-   "description": "Optional Jinja template for the backend category SEO meta-description (Shopware <code>metaDescription</code>). Use <code>{{ item_group.seo_meta_description }}</code>. Empty = not managed by this mirror."
+   "default": "{{ item_group.seo_meta_description }}",
+   "description": "Optional Jinja template for the backend category SEO meta-description (Shopware <code>metaDescription</code>). Defaults to <code>{{ item_group.seo_meta_description }}</code>. Clear the field if SEO meta-description shouldn't be managed by this mirror."
   },
   {
    "fieldname": "overrides_section",
