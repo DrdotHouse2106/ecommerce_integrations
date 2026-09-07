@@ -190,16 +190,19 @@ doc_events = {
 			"ecommerce_integrations.unicommerce.product.validate_item",
 		],
 	},
-	# Shopware6: Sync Item Group changes (description, shopware_active, SEO) to Shopware categories
+	# Shopware6 category sync is Catalog Mirror's job (hourly cron / manual
+	# Preview+Apply on the Ecommerce Catalog Mirror doc) — NOT this
+	# per-save push. The legacy push matched Shopware categories by raw
+	# item_group_name and picked an arbitrary absolute-root category,
+	# both of which drift out of sync with a Catalog Mirror-managed tree
+	# (templated names, per-storefront root), so the two fighting over
+	# the same categories does more harm than the real-time push is worth.
 	"Item Group": {
 		"on_update": [
-			"ecommerce_integrations.shopware6.bulk_sync.queue_item_group_for_sync",
 			"ecommerce_integrations.medusa.product_export.sync_item_group_to_medusa",
 			# Smart Collections: re-resolves on next sync need a clean cache.
 			"ecommerce_integrations.smart_collections.hooks.invalidate_visibility_cache",
 		],
-		"after_rename": "ecommerce_integrations.shopware6.bulk_sync.queue_item_group_rename_for_sync",
-		"on_trash": "ecommerce_integrations.shopware6.bulk_sync.queue_item_group_delete_for_sync",
 	},
 	"Item Ecommerce Property": {
 		"after_insert": "ecommerce_integrations.smart_collections.hooks.invalidate_visibility_cache",
