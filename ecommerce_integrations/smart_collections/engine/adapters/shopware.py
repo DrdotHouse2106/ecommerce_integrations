@@ -2,9 +2,20 @@
 
 Uses the Shopware Admin API client (``Shopware6AdminAPIClientBase``).
 Categories are created/updated under a configurable parent (the storefront
-root navigation category). Channel visibility is set via the category's
-``salesChannels`` association so ``All (30)`` etc. become real-world
-visibility levels.
+root navigation category).
+
+Shopware has no category<->sales-channel relation and no
+``/api/category/{id}/sales-channels`` endpoint — a prior version of this
+adapter called it anyway on every upsert, and Shopware answered
+404/409 (harmless) but also logged an uncaught PHP exception
+server-side on every single call, enough under real sync volume to
+overload a small dev container. Channel visibility in Shopware is
+governed purely by the navigation tree (a category is visible in a
+channel iff it descends from that channel's ``navigationCategoryId``);
+this adapter does not yet place categories under a specific channel's
+root, so ``target.sales_channel``/``VISIBILITY_LEVELS`` are currently
+not enforced against Shopware — tracked as a follow-up, not silently
+worked around here.
 
 Item code → Shopware product id is read from ``tabEcommerce Item`` —
 the canonical cross-integration mapping table written by the Shopware
@@ -18,11 +29,7 @@ import frappe
 
 from ecommerce_integrations.shopware6.connection import temp_shopware_session
 from ecommerce_integrations.shopware6.constants import MODULE_NAME as SHOPWARE_MODULE
-from ecommerce_integrations.smart_collections.constants import (
-    BACKEND_SHOPWARE,
-    VISIBILITY_DEFAULT,
-    VISIBILITY_LEVELS,
-)
+from ecommerce_integrations.smart_collections.constants import BACKEND_SHOPWARE
 from ecommerce_integrations.smart_collections.engine.adapters.base import (
     AdapterError,
     CategoryAdapter,
@@ -68,11 +75,7 @@ class ShopwareCategoryAdapter(CategoryAdapter):
         # link my items". Pushing the collection's title/description as
         # a PATCH would rename a manually-curated Shopware category,
         # which is exactly the destruction operators wanted to avoid.
-        # Skip the metadata PATCH; only ensure the sales-channel
-        # association is set so the category remains visible on the
-        # operator's target storefront.
         if target.external_id and link_only:
-            self._set_sales_channel_assignments(client, target)
             return target.external_id
 
         payload = {
@@ -91,7 +94,6 @@ class ShopwareCategoryAdapter(CategoryAdapter):
                 client.request_patch(
                     f"category/{target.external_id}", payload=payload,
                 )
-                self._set_sales_channel_assignments(client, target)
                 return target.external_id
             except Exception as e:
                 if "404" not in str(e):
@@ -109,39 +111,7 @@ class ShopwareCategoryAdapter(CategoryAdapter):
                 f"Shopware category create returned no id: {response!r}"
             )
         target.external_id = external_id
-        self._set_sales_channel_assignments(client, target)
         return external_id
-
-    def _set_sales_channel_assignments(self, client, target) -> None:
-        # The category's ``salesChannels`` association is the visibility
-        # gate on the storefront. Linking the channel exposes the
-        # category; visibility level is implicit (Shopware doesn't have
-        # a per-category visibility level — we encode that on the items
-        # via the existing product visibility custom fields).
-        if not (target.external_id and target.sales_channel):
-            return
-        if VISIBILITY_LEVELS.get(target.visibility or VISIBILITY_DEFAULT, 30) == 0:
-            try:
-                client.request_delete(
-                    f"category/{target.external_id}/sales-channels/"
-                    f"{target.sales_channel}",
-                )
-            except Exception:
-                # Idempotent: missing assignment is fine.
-                pass
-            return
-        try:
-            client.request_post(
-                f"category/{target.external_id}/sales-channels",
-                payload={"id": target.sales_channel},
-            )
-        except Exception as e:
-            if "409" in str(e):
-                # Already assigned — fine.
-                return
-            raise AdapterError(
-                f"Shopware sales-channel assign failed: {e}"
-            ) from e
 
     def _link_impl(self, client, target, item_codes: list[str]) -> list[str]:
         if not target.external_id:
@@ -190,20 +160,10 @@ class ShopwareCategoryAdapter(CategoryAdapter):
         description = attrs.get("description")
         active = bool(attrs.get("active", True))
 
+        # No category<->sales-channel relation exists in Shopware to
+        # list — see the module docstring. Always empty until channel
+        # scoping is implemented via the navigation tree instead.
         sales_channel_ids: list[str] = []
-        try:
-            sc_resp = client.request_get(
-                f"category/{target.external_id}/sales-channels",
-            )
-            for row in (sc_resp.data if sc_resp else None) or []:
-                sc_id = row.get("id") or (row.get("attributes") or {}).get("id")
-                if sc_id:
-                    sales_channel_ids.append(sc_id)
-        except Exception:
-            # Listing sales-channels is best-effort — a missing association
-            # is the same outcome as an empty list for the preview, and
-            # the operator can still inspect the live state from the dialog.
-            pass
 
         linked_product_ids, total = _fetch_linked_product_ids(
             client, target.external_id,
@@ -227,20 +187,6 @@ class ShopwareCategoryAdapter(CategoryAdapter):
         if not candidates:
             return []
 
-        parent_id: str | None = None
-        if target.sales_channel:
-            try:
-                sc_resp = client.request_get(
-                    f"sales-channel/{target.sales_channel}",
-                )
-                data = (sc_resp.data if sc_resp else None) or {}
-                attrs = data.get("attributes") or data
-                parent_id = attrs.get("navigationCategoryId")
-            except Exception:
-                # Sales-channel lookup is advisory — without it we search
-                # across all categories and surface the matches anyway.
-                parent_id = None
-
         matches: list[CategoryMatch] = []
         seen_ids: set[str] = set()
 
@@ -249,9 +195,10 @@ class ShopwareCategoryAdapter(CategoryAdapter):
         # operators often have multiple categories with the same name
         # in different navigation trees (per sales channel, archive,
         # staging duplicates, etc.) and surfacing all of them lets the
-        # operator pick the right one. ``has_target_sales_channel``
-        # still flags whichever match is wired up to the target
-        # sales channel, so the JS can sort those to the top.
+        # operator pick the right one. ``has_target_sales_channel`` is
+        # currently always False (see module docstring — there's no
+        # working per-channel signal to check it against yet); matches
+        # sort by linked product count alone.
         for cand in candidates:
             criteria = {
                 "filter": [
@@ -277,43 +224,19 @@ class ShopwareCategoryAdapter(CategoryAdapter):
                 path = " / ".join(str(p) for p in breadcrumb)
                 linked = _fetch_category_product_count(client, ext_id)
 
+                # No category<->sales-channel relation exists in
+                # Shopware to check — see the module docstring. Always
+                # False until channel scoping is implemented via the
+                # navigation tree instead; matches sort by linked
+                # product count alone below.
                 has_channel = False
-                if target.sales_channel:
-                    try:
-                        sc_resp = client.request_get(
-                            f"category/{ext_id}/sales-channels",
-                        )
-                        for sc in (sc_resp.data if sc_resp else None) or []:
-                            sc_id = sc.get("id") or (sc.get("attributes") or {}).get("id")
-                            if sc_id == target.sales_channel:
-                                has_channel = True
-                                break
-                    except Exception:
-                        has_channel = False
-
-                # Categories under the target sales channel's
-                # navigation root are usually the intended targets
-                # (operators rarely want to adopt a category outside
-                # their channel tree). Use the parent_id we fetched
-                # earlier to detect this. Direct children of the nav
-                # root are clearly in-channel; descendants further down
-                # are likely in-channel too if the breadcrumb starts
-                # with the channel's root.
-                in_channel_tree = False
-                if parent_id and breadcrumb:
-                    # Walk the chain: a category is "in-channel" if its
-                    # breadcrumb's root id chain reaches parent_id.
-                    # Shopware's breadcrumb is a list of names not ids,
-                    # so we accept the looser signal "category has the
-                    # sales-channel association set".
-                    in_channel_tree = has_channel
 
                 matches.append(
                     CategoryMatch(
                         external_id=ext_id,
                         name=cat_name,
                         path=path,
-                        has_target_sales_channel=has_channel or in_channel_tree,
+                        has_target_sales_channel=has_channel,
                         linked_product_count=linked,
                     ),
                 )

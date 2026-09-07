@@ -11,8 +11,10 @@ Key differences vs the Shopware adapter:
 
 - Medusa product-categories have **no per-channel association**. The
   ``target_sales_channel`` argument is accepted for interface parity
-  but intentionally ignored — there is no Medusa-side equivalent of
-  Shopware's ``/category/{id}/sales-channels`` endpoint.
+  but intentionally ignored — same as the Shopware adapter, which
+  also has no such per-category channel mechanism to call (Shopware
+  categories gate visibility purely through the navigation tree, not
+  a category<->sales-channel relation).
 - Identity is by ``id`` but discovery is by ``handle`` (URL-safe slug).
   ``find_matching_nodes`` searches both ``name`` (via the ``q`` free-text
   parameter) and ``handle`` so an operator who renamed an item group can

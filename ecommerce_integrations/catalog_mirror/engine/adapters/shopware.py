@@ -410,44 +410,18 @@ class ShopwareCatalogAdapter(CatalogAdapter):
                 ) from e
             external_id = new_id
 
-        self._set_sales_channel_assignments(
-            client, external_id, target_sales_channel,
-        )
+        # No sales-channel assignment call here: Shopware has no
+        # category<->sales-channel relation and no
+        # /api/category/{id}/sales-channels endpoint — visibility is
+        # governed entirely by the navigation tree (a category is
+        # visible in a channel iff it descends from that channel's
+        # navigationCategoryId, which upsert_node already places it
+        # under via parentId). A prior version of this method called
+        # that nonexistent endpoint on every upsert; Shopware answered
+        # 404/409 (caught as a no-op) but also logged an uncaught PHP
+        # exception server-side on every single call, which overloaded
+        # a small dev container under real sync volume.
         return external_id
-
-    def _set_sales_channel_assignments(
-        self, client, external_id: str, target_sales_channel: str | None,
-    ) -> None:
-        # For Catalog Mirror the storefront visibility is inherited
-        # through the navigation tree (root category configured on the
-        # sales channel), so this assignment is a best-effort hint —
-        # not load-bearing. 409 = already linked; 404 = Shopware
-        # rejects the operation as nonsensical for a category whose
-        # visibility is already covered via the navigation root. Both
-        # are idempotent no-ops for our use case.
-        if not target_sales_channel:
-            return
-        try:
-            client.request_post(
-                f"category/{external_id}/sales-channels",
-                payload={"id": target_sales_channel},
-            )
-        except Exception as e:
-            msg = str(e)
-            if "409" in msg or "404" in msg:
-                return
-            # Don't raise: the category already exists in Shopware
-            # with the correct parent — failing here would prevent
-            # the local mapping from being persisted and leave us
-            # creating the same category on every run.
-            try:
-                import frappe as _f
-                _f.logger("catalog_mirror").warning(
-                    f"Shopware sales-channel assign skipped for "
-                    f"{external_id}: {msg[:200]}"
-                )
-            except Exception:  # noqa: BLE001
-                pass
 
     def _move_impl(
         self,
