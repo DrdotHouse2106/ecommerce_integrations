@@ -26,18 +26,10 @@ CUSTOM_FIELDS = {
             "description": "Wenn deaktiviert, wird diese Kategorie in Shopware auf inaktiv gesetzt (für Kunden unsichtbar). Betrifft nur die Sichtbarkeit in Shopware, nicht ERPNext.",
         },
         {
-            "fieldname": "shopware_priority",
-            "label": "Priorität (Shopware)",
-            "fieldtype": "Int",
-            "insert_after": "shopware_active",
-            "default": "0",
-            "description": "Sortierpriorität dieser Kategorie in Shopware. Niedrigere Zahlen erscheinen zuerst. Wird vom Frontend zur Sortierung verwendet.",
-        },
-        {
             "fieldname": "category_image",
             "label": "Kategoriebild (Shopware)",
             "fieldtype": "Attach Image",
-            "insert_after": "shopware_priority",
+            "insert_after": "shopware_active",
             "description": "Bild, das für diese Kategorie in Shopware angezeigt wird. Wenn leer, wird das Standard-Artikelgruppenbild verwendet.",
         },
         {
