@@ -9,6 +9,18 @@ also run the shipping-label app get the field automatically on their
 next migrate.
 
 Idempotent: ``create_custom_fields`` upserts by fieldname.
+
+Runs in patches.txt's ``[post_model_sync]`` section, not the default
+pre-model-sync section. ``create_custom_fields`` triggers a full
+``validate_fields_for_doctype`` pass on ``Ecommerce Channel Branding``
+as a side effect of saving the new Custom Field — on a site whose DB
+still has a stale invalid field definition from before it was fixed in
+this app's own doctype JSON (e.g. an ``Autocomplete`` field with
+``unique=1``, which Frappe rejects), that validation fails. Pre-model-
+sync patches run *before* this app's doctype JSON changes are synced
+into the DB, so the stale definition is still live at that point;
+post-model-sync patches run *after*, once the DB matches the current
+JSON.
 """
 
 import frappe
