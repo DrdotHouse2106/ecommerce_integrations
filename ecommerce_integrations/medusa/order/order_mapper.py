@@ -11,6 +11,7 @@ from ecommerce_integrations.medusa.payment_method_mapping import (
     resolve_mode_of_payment,
 )
 from ecommerce_integrations.medusa.utils import medusa_price_to_erpnext
+from ecommerce_integrations.utils.shipping_sender import resolve_channel_versandabsender
 
 
 def map_medusa_order_to_so(order: dict, setting) -> dict:
@@ -67,6 +68,16 @@ def map_medusa_order_to_so(order: dict, setting) -> dict:
         )
         if brand_language:
             so["language"] = brand_language
+
+    # Optional shipping-label app integration (see utils/shipping_sender.py):
+    # the shop channel takes priority over that app's own Customer-based
+    # default — setting it here, before insert, wins over the
+    # fetch_if_empty fallback. No-op when the app isn't installed or the
+    # channel has no Versandabsender configured.
+    if channel_name and frappe.get_meta("Sales Order").has_field("vi_versandabsender"):
+        versandabsender = resolve_channel_versandabsender(channel_name)
+        if versandabsender:
+            so["vi_versandabsender"] = versandabsender
 
     provider_id = extract_provider_id(order)
     if provider_id:

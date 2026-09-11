@@ -158,6 +158,14 @@ Automatische Generierung von Produktbeschreibungen, Kurzbeschreibungen, Vorteils
 - **Deutsche Druckformate**: Auftragsbestätigung, Bestellbestätigung, Rechnung, Versandbestätigung — generisch gehalten und je Betrieb anpassbar, gerendert über den in Frappe v16 integrierten Chrome-PDF-Generator
 - **E-Rechnung (XRechnung)**: Leitweg-ID wird automatisch in das Standardfeld für die elektronische Adresse gespiegelt
 
+### Versandetiketten-Integration (optional)
+
+Dieser Fork bringt selbst keine Versandetiketten-Erzeugung mit, spielt aber optional mit einer separat installierten Versand-App zusammen, die den Doctype `Versandabsender` (Absenderadresse, Retourenadresse, Carrier-Einstellungen) sowie das Feld `Sales Order.vi_versandabsender` bereitstellt.
+
+Ist diese App installiert, bekommt `Ecommerce Channel Branding` automatisch ein zusätzliches Feld **„Versandabsender"** — pro Verkaufskanal ein Link auf den passenden `Versandabsender`-Datensatz. Beim Bestellimport aus Shopware/Medusa wird dieser Kanal-Absender auf den neu angelegten Sales Order gesetzt und hat dabei Vorrang vor der kundenbasierten Standardbelegung der Versand-App — Bestellungen ohne konfigurierten Kanal-Absender fallen unverändert auf die App-eigene Kunden-Vorbelegung zurück.
+
+Ist die Versand-App nicht installiert, ist das komplett wirkungslos (kein zusätzliches Feld, kein Schreibversuch) — für Betriebe, die Versandetiketten mit wechselnden Absenderadressen pro Marke/Kanal erzeugen, lohnt sich aber die Kombination beider Apps. Reihenfolge der Installation ist egal: Wird die Versand-App nachträglich installiert, holt der „Fehlende Custom Fields nachinstallieren"-Button (Shopware Setting → Wartung) das Feld nach.
+
 ---
 
 ## Installation

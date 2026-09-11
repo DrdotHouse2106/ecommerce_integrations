@@ -67,6 +67,9 @@ def _all_custom_field_setups():
         setup_custom_fields as setup_medusa_custom_fields,
     )
     from ecommerce_integrations.patches.add_brand_sync_hash import execute as setup_brand_sync_hash
+    from ecommerce_integrations.patches.add_channel_versandabsender_field import (
+        execute as setup_channel_versandabsender_field,
+    )
     from ecommerce_integrations.patches.add_canonical_store_to_ecommerce_item import (
         execute as setup_canonical_store_field,
     )
@@ -105,6 +108,7 @@ def _all_custom_field_setups():
         setup_catalog_mirror_custom_fields,
         setup_product_sync_custom_fields,
         setup_brand_sync_hash,
+        setup_channel_versandabsender_field,
         setup_canonical_store_field,
         setup_image_map_field,
         setup_item_additional_groups_field,

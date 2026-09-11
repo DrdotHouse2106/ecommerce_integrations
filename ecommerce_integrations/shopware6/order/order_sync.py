@@ -43,6 +43,7 @@ from ecommerce_integrations.shopware6.utils import (
     get_logger,
     update_shopware_log,
 )
+from ecommerce_integrations.utils.shipping_sender import resolve_channel_versandabsender
 
 
 class ShopwareOrder:
@@ -351,6 +352,16 @@ def create_sales_order(order_data: dict[str, Any]) -> str:
     so.ecommerce_source = STOREFRONT_SHOPWARE
     so.ecommerce_sales_channel_id = sales_channel_id
     so.ecommerce_sales_channel_name = sales_channel_name
+
+    # Optional shipping-label app integration (see utils/shipping_sender.py):
+    # the shop channel takes priority over that app's own Customer-based
+    # default — setting it here, before insert, wins over the
+    # fetch_if_empty fallback. No-op when the app isn't installed or the
+    # channel has no Versandabsender configured.
+    if hasattr(so, "vi_versandabsender"):
+        versandabsender = resolve_channel_versandabsender(sales_channel_name)
+        if versandabsender:
+            so.vi_versandabsender = versandabsender
 
     # Extract and set payment method info
     payment_method_name, erpnext_mode, payment_status = get_payment_method_info(order_data, setting)
