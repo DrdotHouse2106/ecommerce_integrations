@@ -65,14 +65,6 @@ CUSTOM_FIELDS = {
         },
     ],
     "Item": [
-        {
-            "fieldname": "shopware_selling_rate",
-            "label": "Shopware Selling Rate",
-            "fieldtype": "Currency",
-            "insert_after": "standard_rate",
-            "read_only": 0,
-            "translatable": 0,
-        },
         # Note: SEO fields (seo_title, seo_meta_description, seo_keywords, delivery_time)
         # are expected to already exist in ERPNext Item doctype.
         # They are synced to Shopware via product_export.py
@@ -83,7 +75,7 @@ CUSTOM_FIELDS = {
             "fieldname": "shopware_topseller",
             "label": "Topseller (Shopware)",
             "fieldtype": "Check",
-            "insert_after": "shopware_selling_rate",
+            "insert_after": "standard_rate",
             "default": "0",
             "description": "Markiert dieses Produkt als Topseller im Shop (gelbes 'Tipp'-Badge)",
         },
@@ -121,7 +113,7 @@ CUSTOM_FIELDS = {
             "fieldname": "ecommerce_properties_section",
             "label": "Ecommerce-Eigenschaften",
             "fieldtype": "Section Break",
-            "insert_after": "shopware_selling_rate",
+            "insert_after": "restock_time",
             "collapsible": 0,
             "description": "Artikelspezifische Eigenschaftswerte (z. B. Farbe, Material) für alle Ecommerce-Integrationen (Shopware, Medusa, ...). Art, Filterbarkeit und Ziel-Backend jeder Eigenschaft werden zentral unter Artikel-Eigenschaftsgruppen (Ecommerce Property Group) gepflegt — hier wird nur noch der Wert pro Artikel eingetragen.",
         },
