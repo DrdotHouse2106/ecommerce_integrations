@@ -22,6 +22,7 @@ from ecommerce_integrations.shopware6.export.product_mapper import (
     get_product_visibilities,
     get_tax_id_by_rate,
     map_erpnext_item_to_shopware,
+    resolve_delivery_time_name,
 )
 from ecommerce_integrations.shopware6.export.property_handler import (
     clear_product_options,
@@ -164,7 +165,7 @@ def upload_variant_item_to_shopware(client, variant_item) -> str | None:
             product_payload["customFields"] = custom_fields
 
         # Delivery Time
-        delivery_time_str = getattr(variant_item, 'delivery_time', None)
+        delivery_time_str = resolve_delivery_time_name(variant_item)
         if delivery_time_str:
             delivery_time_id = get_or_create_delivery_time(client, delivery_time_str)
             if delivery_time_id:

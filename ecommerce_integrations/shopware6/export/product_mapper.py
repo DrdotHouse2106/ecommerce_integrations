@@ -118,6 +118,28 @@ def _parse_delivery_time(delivery_time_name: str) -> tuple:
     return min_val, max_val, unit
 
 
+def resolve_delivery_time_name(item) -> str | None:
+    """
+    Resolve the delivery-time name to push to Shopware for an Item.
+
+    Prefers the Shopware-owned free-text ``delivery_time`` field
+    (e.g. "3-5 Werktage"). Falls back to ``wc_average_delivery_time``
+    (a plain day count, e.g. 3) when that's absent and the WeClapp
+    sync app is installed — read-only fallback, never written by this
+    app, so there's no write race between the two syncs.
+    """
+    delivery_time_str = getattr(item, "delivery_time", None)
+    if delivery_time_str:
+        return delivery_time_str
+
+    if frappe.get_meta("Item").has_field("wc_average_delivery_time"):
+        wc_days = getattr(item, "wc_average_delivery_time", None)
+        if wc_days:
+            return f"{int(wc_days)} Tage"
+
+    return None
+
+
 def get_or_create_delivery_time(client, delivery_time_name: str) -> str | None:
     """
     Get existing or create new Delivery Time in Shopware.

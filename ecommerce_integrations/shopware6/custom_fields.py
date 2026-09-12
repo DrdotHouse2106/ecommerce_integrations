@@ -95,8 +95,10 @@ CUSTOM_FIELDS = {
             "description": (
                 "Freitext-Lieferzeit für Shopware, z. B. '3-5 Tage' oder '1-2 Wochen'. "
                 "Wird automatisch in eine Shopware-Lieferzeit-Entität umgewandelt. Leer = "
-                "keine Lieferzeit am Produkt gesetzt. Ist dieses Feld leer, greift beim Push "
-                "die Standard-Lieferzeit aus den Shopware-Einstellungen (falls dort gesetzt)."
+                "keine Lieferzeit am Produkt gesetzt. Ist dieses Feld leer, wird ersatzweise "
+                "'wc_average_delivery_time' verwendet, falls die WeClapp-Sync-App installiert "
+                "ist und dort ein Wert gepflegt ist; ansonsten greift beim Push die "
+                "Standard-Lieferzeit aus den Shopware-Einstellungen (falls dort gesetzt)."
             ),
         },
         {

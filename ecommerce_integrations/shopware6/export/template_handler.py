@@ -26,6 +26,7 @@ from ecommerce_integrations.shopware6.export.product_mapper import (
     get_product_visibilities,
     get_tax_id_by_rate,
     map_erpnext_item_to_shopware,
+    resolve_delivery_time_name,
 )
 from ecommerce_integrations.shopware6.export.property_handler import (
     clear_product_properties,
@@ -350,7 +351,7 @@ def upload_template_item_to_shopware(client, template_item) -> str | None:
                 product_payload["properties"] = property_ids
 
         # Delivery Time
-        delivery_time_str = getattr(template_item, 'delivery_time', None)
+        delivery_time_str = resolve_delivery_time_name(template_item)
         if delivery_time_str:
             delivery_time_id = get_or_create_delivery_time(client, delivery_time_str)
             if delivery_time_id:
