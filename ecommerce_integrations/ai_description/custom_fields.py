@@ -13,6 +13,11 @@ CUSTOM_FIELDS = {
             "fieldname": "ai_description_section",
             "label": "AI-Generated Description",
             "fieldtype": "Section Break",
+            # NOTE: this default anchor only matters for a from-scratch
+            # install's very first migrate run. The ensure_ecommerce_item_tab
+            # patch (runs later in patches.txt, on every install) always
+            # relocates this block into the shared "E-Commerce" tab
+            # afterwards, so its final position doesn't depend on this value.
             "insert_after": "description",
             "collapsible": 1,
             "collapsible_depends_on": "eval:!doc.ai_description_generated"

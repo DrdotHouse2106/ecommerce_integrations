@@ -65,6 +65,17 @@ CUSTOM_FIELDS = {
         },
     ],
     "Item": [
+        # Everything Shopware/Medusa/AI-description-related on Item lives
+        # under this one tab (see ensure_ecommerce_item_tab patch for how
+        # already-deployed sites get moved here) instead of scattered
+        # across Details/Accounting — it was hard to find and cluttered
+        # the main tabs before this.
+        {
+            "fieldname": "ecommerce_tab",
+            "label": "E-Commerce",
+            "fieldtype": "Tab Break",
+            "insert_after": "dashboard_tab",
+        },
         # Note: SEO fields (seo_title, seo_meta_description, seo_keywords, delivery_time)
         # are expected to already exist in ERPNext Item doctype.
         # They are synced to Shopware via product_export.py
@@ -75,7 +86,7 @@ CUSTOM_FIELDS = {
             "fieldname": "shopware_topseller",
             "label": "Topseller (Shopware)",
             "fieldtype": "Check",
-            "insert_after": "standard_rate",
+            "insert_after": "ecommerce_tab",
             "default": "0",
             "description": "Markiert dieses Produkt als Topseller im Shop (gelbes 'Tipp'-Badge)",
         },

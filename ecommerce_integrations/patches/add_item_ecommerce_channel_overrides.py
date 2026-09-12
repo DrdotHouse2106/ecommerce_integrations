@@ -30,9 +30,12 @@ def execute() -> None:
 
     insert_after = "item_group"
     if frappe.db.exists(
-        "Custom Field", {"dt": "Item", "fieldname": "shopware_channels_section"}
+        "Custom Field", {"dt": "Item", "fieldname": "shopware_channel_overrides"}
     ):
-        insert_after = "shopware_channels_section"
+        # Last field of the Shopware channel-visibility block — keeps this
+        # cross-backend table right next to the backend-specific overrides
+        # it takes priority over, inside the "E-Commerce" tab.
+        insert_after = "shopware_channel_overrides"
 
     create_custom_fields(
         {
