@@ -108,7 +108,15 @@ from typing import Any
 # (rather than the two decimal fields) because only a minority of
 # items need a Grundpreis at all — most items legitimately have all
 # three fields empty, and that emptiness must stay hash-stable.
-PAYLOAD_VERSION = 9
+#
+# v10 (2026-09): ``basic.delivery_time`` gains a second fallback layer
+# between the Item's own field and ``default_delivery_time``: WeClapp
+# sync's ``wc_average_delivery_time`` (a plain day count), when that
+# app is installed and populated. Priority is now Item.delivery_time →
+# wc_average_delivery_time → Shopware Setting default — the bump
+# ensures items that were previously falling straight through to the
+# global default re-hash once the WeClapp field starts winning instead.
+PAYLOAD_VERSION = 10
 
 # Float precision for hashing. 4 decimals is "1/100th of a cent" —
 # plenty for retail prices and stock floats; small enough to swallow
@@ -437,6 +445,37 @@ def _get_shopware_product_defaults() -> dict[str, Any]:
     return out
 
 
+def _has_wc_average_delivery_time_field() -> bool:
+    """Whether the WeClapp sync app's ``wc_average_delivery_time`` custom
+    field is installed on Item. Memoised per run on ``frappe.local`` — the
+    field can't appear or disappear mid-sync, so one meta lookup per run
+    is enough (``frappe.get_meta`` is itself cached, but this skips even
+    that repeated call).
+    """
+    import frappe
+    cache_key = "_psync_has_wc_average_delivery_time_field"
+    cached = getattr(frappe.local, cache_key, None)
+    if cached is not None:
+        return cached
+    result = frappe.get_meta("Item").has_field("wc_average_delivery_time")
+    setattr(frappe.local, cache_key, result)
+    return result
+
+
+def _wc_average_delivery_time_str(item) -> str:
+    """WeClapp's ``wc_average_delivery_time`` (plain day count) as a
+    Shopware-style delivery-time string, or ``""`` when the field isn't
+    installed or has no value.
+    """
+    if not _has_wc_average_delivery_time_field():
+        return ""
+    try:
+        days = int(getattr(item, "wc_average_delivery_time", 0) or 0)
+    except (TypeError, ValueError):
+        return ""
+    return f"{days} Tage" if days > 0 else ""
+
+
 def _coerce_dynamic_value(raw: Any, field_type: str) -> Any:
     """Coerce an Item field value to the operator-selected output
     type. ``Skip-If-Empty`` returns ``None`` to signal "omit this
@@ -699,11 +738,14 @@ def _canonical_basic(item, sync) -> dict[str, Any]:
         # Backend adapters resolve this to their native entity (Shopware's
         # ``delivery_time`` uuid) when pushing — hashing the source string
         # is enough to detect drift without coupling canonical to any
-        # backend's id space. Falls back to Shopware Setting's
-        # ``default_delivery_time`` when the Item's own field is empty —
-        # the Item value always wins when set.
+        # backend's id space. Resolution order: the Item's own field
+        # always wins when set; else WeClapp sync's
+        # ``wc_average_delivery_time`` (a plain day count) when that app
+        # is installed and populated; else Shopware Setting's
+        # ``default_delivery_time``.
         "delivery_time": (
             _norm_str(getattr(item, "delivery_time", ""))
+            or _norm_str(_wc_average_delivery_time_str(item))
             or _norm_str(defaults.get("delivery_time", ""))
         ),
         # AI-generated content that lives on Item custom fields.
