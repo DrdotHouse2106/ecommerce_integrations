@@ -1,21 +1,20 @@
 """
 Shopware 6 Product Export Module
 
-This file re-exports functions from the new modular structure under shopware6/export/.
+This file re-exports functions from the new modular structure under shopware6/export/,
+plus the whitelisted API entry points for the Item form's manual sync buttons.
 
 The actual implementation is now in:
-- export/product_uploader.py - ShopwareProductUploader class
-- export/product_mapper.py - Field mapping
-- export/template_handler.py - Template products
-- export/variant_handler.py - Variant products
+- export/product_mapper.py - Shared lookup/get-or-create helpers
 - export/category_handler.py - Category sync
 - export/image_handler.py - Image sync
 - export/price_handler.py - Price sync
 - export/property_handler.py - Properties and custom fields
 - export/utils.py - Utility functions
 
-For new code, import directly from the export module:
-    from ecommerce_integrations.shopware6.export import ShopwareProductUploader
+Product pushes themselves go through the delta product-sync engine
+(``product_sync/``, see ``sync_item_to_shopware`` below) — there is no
+standalone product uploader in this module anymore.
 """
 
 # Re-export everything from the new modules
@@ -43,13 +42,10 @@ from ecommerce_integrations.shopware6.export import (
     get_or_create_property_option,
     get_shopware_document_id,
     get_tax_id_by_rate,
-    # Mapper
-    map_erpnext_item_to_shopware,
     rename_category_in_shopware,
     sanitize_filename,
     # Categories
     sync_all_item_categories,
-    sync_all_variants,
     sync_bulk_prices,
     sync_category_hierarchy,
     sync_item_group_to_shopware,
@@ -59,8 +55,6 @@ from ecommerce_integrations.shopware6.export import (
     update_item_price_in_shopware,
     # Upload helpers
     upload_media_to_shopware,
-    upload_template_item_to_shopware,
-    upload_variant_item_to_shopware,
 )
 
 # Additional re-exports for bulk_sync.py compatibility
@@ -74,16 +68,26 @@ from ecommerce_integrations.shopware6.utils import require_item_write_permission
 # ============================================================================
 
 @frappe.whitelist()
-def sync_item_to_shopware(item_code: str) -> dict:
+def sync_item_to_shopware(item_code: str, include_variants: bool = False) -> dict:
     """
-    Sync a single ERPNext item to Shopware.
+    Force a full resync of a single ERPNext item — and optionally every
+    one of its variants — to Shopware, bypassing the normal delta-hash
+    gate. This is the manual "Komplett-Resync" button's entry point, so
+    it always pushes even when nothing changed (unlike the doc-event
+    dispatch, which stays delta-gated).
 
     Args:
         item_code: The ERPNext Item code to sync
+        include_variants: Also force-resync every variant of this
+            template in the same call. Meaningless (silently ignored)
+            when item_code isn't a template.
 
     Returns:
-        dict with success status and message
+        dict with success status, message, and (when include_variants
+        is set) a variants_synced count
     """
+    from frappe.utils import cint
+
     from ecommerce_integrations.shopware6.utils import get_logger
 
     require_item_write_permission(item_code)
@@ -91,70 +95,35 @@ def sync_item_to_shopware(item_code: str) -> dict:
     try:
         # Route through the delta product-sync engine (same canonical → hash →
         # diff → push pipeline as the cron / per-save dispatch), not the
-        # retired single-item uploader.
+        # retired template/variant uploader. force=True bypasses the delta
+        # gate since this is an explicit manual "resync now" action.
         from ecommerce_integrations.product_sync.constants import BACKEND_SHOPWARE
         from ecommerce_integrations.product_sync.tasks import dispatch_item_change
 
-        res = (dispatch_item_change(item_code, BACKEND_SHOPWARE) or {}).get(BACKEND_SHOPWARE)
+        include_variants = bool(cint(include_variants))
+        res = (
+            dispatch_item_change(
+                item_code,
+                BACKEND_SHOPWARE,
+                force=True,
+                include_variants=include_variants,
+            )
+            or {}
+        ).get(BACKEND_SHOPWARE)
         status = getattr(res, "status", None)
         if status and status != "ok":
             return {"success": False, "message": f"sync status: {status}"}
-        return {
+
+        result = {
             "success": True,
             "message": f"Item {item_code} synced to Shopware",
         }
+        if include_variants and res is not None:
+            pushed = (res.created or 0) + (res.updated or 0)
+            result["variants_synced"] = max(pushed - 1, 0)
+        return result
     except Exception as e:
         logger.error(f"Failed to sync item {item_code} to Shopware", exception=e)
-        return {
-            "success": False,
-            "message": str(e)
-        }
-
-
-@frappe.whitelist()
-def sync_template_with_variants_to_shopware(template_item_code: str) -> dict:
-    """
-    Sync a template item with all its variants to Shopware.
-
-    Args:
-        template_item_code: The ERPNext template Item code
-
-    Returns:
-        dict with success status and synced variants count
-    """
-    from ecommerce_integrations.shopware6.connection import get_shopware_client
-    from ecommerce_integrations.shopware6.utils import create_shopware_log, get_logger
-
-    require_item_write_permission(template_item_code)
-    logger = get_logger("sync_template_with_variants")
-    try:
-        # Get the template item document
-        template_item = frappe.get_doc("Item", template_item_code)
-
-        # Get Shopware client
-        client = get_shopware_client()
-
-        # First sync the template
-        template_result = upload_template_item_to_shopware(client, template_item)
-
-        # Then sync all variants
-        variants_synced = sync_all_variants(client, template_item_code)
-
-        return {
-            "success": True,
-            "template_id": template_result,
-            "variants_synced": variants_synced,
-            "message": f"Template {template_item_code} and variants synced"
-        }
-    except Exception as e:
-        logger.error(f"Failed to sync template {template_item_code}", exception=e)
-        create_shopware_log(
-            status="Error",
-            method="sync_template_with_variants",
-            message=f"Failed to sync template {template_item_code}",
-            exception=str(e),
-            make_new=True
-        )
         return {
             "success": False,
             "message": str(e)
@@ -229,12 +198,9 @@ __all__ = [
     "get_or_create_variant_option",
     "get_shopware_document_id",
     "get_tax_id_by_rate",
-    # Mapper
-    "map_erpnext_item_to_shopware",
     "rename_category_in_shopware",
     "sanitize_filename",
     "sync_all_item_categories",
-    "sync_all_variants",
     "sync_bulk_prices",
     # Categories
     "sync_category_hierarchy",
@@ -246,10 +212,7 @@ __all__ = [
     "sync_product_images_to_shopware",
     # Prices
     "sync_product_price",
-    "sync_template_with_variants_to_shopware",
     "update_item_price_in_shopware",
     # Upload helpers
     "upload_media_to_shopware",
-    "upload_template_item_to_shopware",
-    "upload_variant_item_to_shopware",
 ]

@@ -119,17 +119,9 @@ function sync_item_to_shopware(frm, is_template) {
 
             const include_variants = is_template && dialog.get_value('include_variants');
 
-            const method = include_variants
-                ? 'ecommerce_integrations.shopware6.product_export.sync_template_with_variants_to_shopware'
-                : 'ecommerce_integrations.shopware6.product_export.sync_item_to_shopware';
-
-            const args = include_variants
-                ? { template_item_code: item_code }
-                : { item_code: item_code };
-
             frappe.call({
-                method: method,
-                args: args,
+                method: 'ecommerce_integrations.shopware6.product_export.sync_item_to_shopware',
+                args: { item_code: item_code, include_variants: include_variants },
                 freeze: true,
                 freeze_message: include_variants
                     ? __('Vorlage und Varianten werden mit Shopware synchronisiert...')

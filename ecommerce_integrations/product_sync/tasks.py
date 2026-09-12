@@ -81,6 +81,9 @@ def _logger():
 def dispatch_item_change(
     item_code: str,
     backend: str | None = None,
+    *,
+    force: bool = False,
+    include_variants: bool = False,
 ) -> dict[str, Any]:
     """Save-triggered single-item sync entry point.
 
@@ -100,6 +103,18 @@ def dispatch_item_change(
     in scope. Per-channel ``queue_*_for_sync`` hooks pass their own
     backend name so they only fire jobs for their own channel.
 
+    ``force=True`` clears the stored hash/canonical for every item in
+    scope (via ``_force_full_resync``) before diffing, so an
+    already-in-sync item still gets a full re-push instead of the
+    normal delta-gated noop. Only the manual "Komplett-Resync" button
+    passes this — doc-event dispatches always leave the delta gate on.
+
+    ``include_variants=True`` additionally dispatches every variant of
+    ``item_code`` (``Item.variant_of == item_code``) in the same run,
+    so resyncing a template from the button covers its whole variant
+    family. Meaningless (silently ignored) when ``item_code`` isn't a
+    template — the variant filter simply matches nothing.
+
     Returns a short summary dict ``{"backend": ProductSyncRunResult}``
     for caller-side logging; an empty dict means no active sync
     matched (no work to do, not an error).
@@ -113,11 +128,23 @@ def dispatch_item_change(
     else:
         backends = [BACKEND_SHOPWARE, BACKEND_MEDUSA]
 
+    item_codes = [item_code]
+    if include_variants:
+        item_codes += frappe.get_all(
+            "Item", filters={"variant_of": item_code}, pluck="name",
+        )
+
     out: dict[str, Any] = {}
     for be in backends:
         sync_names = find_active_syncs_covering_item(item_code, be)
         if not sync_names:
             continue
+
+        if force:
+            integration_key = BACKEND_TO_INTEGRATION_KEY.get(be, be.lower())
+            for code in item_codes:
+                _force_full_resync(code, integration_key)
+
         # One Sync per backend is the supported topology — if two
         # active Syncs cover the same item, the resolver already
         # logged a conflict; pick the first to keep the per-save
@@ -127,7 +154,7 @@ def dispatch_item_change(
             sync_names[0],
             dry_run=False,
             fetch_live=False,
-            subset_item_codes=[item_code],
+            subset_item_codes=item_codes,
             mode="live",
             triggered_by=getattr(frappe.session, "user", None),
             trigger_type="dispatch",
@@ -1786,6 +1813,24 @@ def _reset_sync_state_by_external(
         "name",
     )
     _reset_sync_state(name, drop_mapping=drop_mapping)
+
+
+def _force_full_resync(item_code: str, integration: str) -> None:
+    """Clear stored hash/canonical so the next dispatch treats this item
+    as changed even though nothing in ERPNext actually moved.
+
+    Unlike :func:`_clear_mapping`, keeps the existing
+    ``integration_item_code`` (``drop_mapping=False``) — the backend
+    entity still exists, this is a forced full *update* push, not a
+    recreate. No-op (no mapping row yet) is fine: the differ treats a
+    missing mapping as a fresh create regardless.
+    """
+    name = frappe.db.get_value(
+        _ECOMMERCE_ITEM_DOCTYPE,
+        {"erpnext_item_code": item_code, "integration": integration},
+        "name",
+    )
+    _reset_sync_state(name, drop_mapping=False)
 
 
 def _clear_mapping(item_code: str, integration: str) -> None:
