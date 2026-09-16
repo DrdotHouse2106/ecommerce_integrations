@@ -16,16 +16,6 @@ MEDUSA_CUSTOM_FIELDS = {
             "insert_after": "numeric_values",
             "description": "Sync this attribute as a Medusa Product Option (creates variants)",
         },
-        {
-            "fieldname": "medusa_property_type",
-            "label": "Medusa Property Type",
-            "fieldtype": "Select",
-            "options": "\nOption\nMetadata",
-            "default": "Option",
-            "insert_after": "sync_to_medusa",
-            "depends_on": "eval:doc.sync_to_medusa",
-            "description": "Option = creates product variants (filterable). Metadata = stored as product metadata (not filterable).",
-        },
     ],
     "Customer": [
         {
