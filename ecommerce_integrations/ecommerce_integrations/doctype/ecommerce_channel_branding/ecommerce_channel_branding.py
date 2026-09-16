@@ -181,7 +181,6 @@ def _auto_greeting(lang: str, salutation: str, last_name: str, gender: str) -> s
 	return "Dear Sir or Madam"
 
 
-@frappe.whitelist()
 def _paid_via_from_payment_entries(invoice_name: str) -> str:
 	"""Best-effort label of *how* an invoice was settled, read from the most
 	recent submitted Payment Entry allocated against it. Empty string when no
@@ -349,7 +348,16 @@ def get_available_channels() -> list:
 
 @frappe.whitelist()
 def find_sample_doc(channel_name: str, doc_type: str = "Sales Order") -> str:
-	"""Find a recent doc with the given channel, falling back to any recent doc."""
+	"""Find a recent doc with the given channel, falling back to any recent doc.
+
+	Admin-only: this and the two preview renderers below expose a real
+	customer's most recent order (name, address, amounts) to whoever
+	calls them, so they gate on Branding read access rather than
+	relying on the calling form's own permissions — a whitelisted
+	method is reachable directly over the API regardless of who can
+	see the button that normally triggers it.
+	"""
+	frappe.has_permission("Ecommerce Channel Branding", "read", throw=True)
 	if doc_type == "Delivery Note":
 		result = frappe.db.sql(
 			"""
@@ -478,7 +486,11 @@ def _resolve_preview_doc(channel_name: str, doc_type: str):
 
 @frappe.whitelist()
 def render_email_preview(channel_name: str, kind: str = "acknowledgment") -> str:
-	"""Render the email body for a sample doc with the given channel's branding."""
+	"""Render the email body for a sample doc with the given channel's branding.
+
+	Admin-only — see find_sample_doc's docstring for why.
+	"""
+	frappe.has_permission("Ecommerce Channel Branding", "read", throw=True)
 	doc, _ = _resolve_preview_doc(channel_name, "Sales Order")
 	brand = get_branding(channel_name)
 	template = """{%- from "ecommerce_integrations/templates/includes/email_branding.html" import render_email with context -%}
@@ -491,7 +503,9 @@ def render_pdf_preview(channel_name: str, print_format: str, doc_type: str = "Sa
 	"""Render the Print Format HTML for a sample doc with the given channel's branding.
 
 	Uses frappe.get_print for real docs, falls back to direct Jinja rendering for dummies.
+	Admin-only — see find_sample_doc's docstring for why.
 	"""
+	frappe.has_permission("Ecommerce Channel Branding", "read", throw=True)
 	doc, is_dummy = _resolve_preview_doc(channel_name, doc_type)
 	if not is_dummy:
 		return frappe.get_print(
