@@ -7,8 +7,7 @@ plus the whitelisted API entry points for the Item form's manual sync buttons.
 The actual implementation is now in:
 - export/product_mapper.py - Shared lookup/get-or-create helpers
 - export/category_handler.py - Category sync
-- export/image_handler.py - Image sync
-- export/price_handler.py - Price sync
+- export/price_handler.py - Pricing helpers for the force-resync admin tools
 - export/property_handler.py - Properties and custom fields
 - export/utils.py - Utility functions
 
@@ -26,15 +25,12 @@ from ecommerce_integrations.shopware6.base.cache_manager import clear_shopware_c
 from ecommerce_integrations.shopware6.constants import ROOT_ITEM_GROUPS
 from ecommerce_integrations.shopware6.export import (
     delete_category_from_shopware,
-    ensure_shopware_custom_field_set,
     # Utils
     generate_uuid,
     get_cached_currency_id,
     get_cached_sales_channel_id,
     get_field_mappings,
-    get_item_custom_fields,
     get_item_price,
-    get_item_properties,
     get_or_create_category,
     get_or_create_manufacturer,
     # Properties
@@ -46,15 +42,8 @@ from ecommerce_integrations.shopware6.export import (
     sanitize_filename,
     # Categories
     sync_all_item_categories,
-    sync_bulk_prices,
     sync_category_hierarchy,
     sync_item_group_to_shopware,
-    sync_product_images_to_shopware,
-    # Prices
-    sync_product_price,
-    update_item_price_in_shopware,
-    # Upload helpers
-    upload_media_to_shopware,
 )
 
 # Additional re-exports for bulk_sync.py compatibility
@@ -181,15 +170,12 @@ __all__ = [
     # Cache
     "clear_shopware_cache",
     "delete_category_from_shopware",
-    "ensure_shopware_custom_field_set",
     # Utils
     "generate_uuid",
     "get_cached_currency_id",
     "get_cached_sales_channel_id",
     "get_field_mappings",
-    "get_item_custom_fields",
     "get_item_price",
-    "get_item_properties",
     "get_or_create_category",
     "get_or_create_manufacturer",
     # Properties
@@ -201,18 +187,10 @@ __all__ = [
     "rename_category_in_shopware",
     "sanitize_filename",
     "sync_all_item_categories",
-    "sync_bulk_prices",
     # Categories
     "sync_category_hierarchy",
     "sync_category_to_shopware",
     "sync_item_group_to_shopware",
     # Backwards-compatible wrappers
     "sync_item_to_shopware",
-    # Images
-    "sync_product_images_to_shopware",
-    # Prices
-    "sync_product_price",
-    "update_item_price_in_shopware",
-    # Upload helpers
-    "upload_media_to_shopware",
 ]

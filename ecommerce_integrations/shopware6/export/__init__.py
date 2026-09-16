@@ -6,15 +6,16 @@ and the Item-Group category sync:
 - utils: Utility functions (generate_uuid, sanitize_filename)
 - property_handler: Property group and option management
 - category_handler: Category hierarchy and sync
-- image_handler: Image upload and delta-sync
 - product_mapper: Shared lookup/get-or-create helpers (tax, delivery
   time, manufacturer, unit, currency, sales channel)
-- price_handler: Price synchronization
+- price_handler: Pricing helpers backing the whitelisted "force price
+  resync" admin tools (Ecommerce Item-driven, not doc-event-triggered)
 
 The legacy single-item uploader (``product_uploader``), the batch uploader,
-the full-reconciliation module, and the template/variant configurable-
-product uploader (``template_handler``/``variant_handler``) have all been
-removed — that path is the delta engine now.
+the full-reconciliation module, the template/variant configurable-
+product uploader (``template_handler``/``variant_handler``), and the
+per-save image/price push (``image_handler``, most of ``price_handler``)
+have all been removed — that path is the delta engine now.
 """
 
 # Category handling
@@ -27,18 +28,9 @@ from ecommerce_integrations.shopware6.export.category_handler import (
     sync_item_group_to_shopware,
 )
 
-# Image handling
-from ecommerce_integrations.shopware6.export.image_handler import (
-    sync_product_images_to_shopware,
-    upload_media_to_shopware,
-)
-
 # Price handling
 from ecommerce_integrations.shopware6.export.price_handler import (
     get_item_price,
-    sync_bulk_prices,
-    sync_product_price,
-    update_item_price_in_shopware,
 )
 
 # Product mapper
@@ -51,9 +43,6 @@ from ecommerce_integrations.shopware6.export.product_mapper import (
 
 # Property handling
 from ecommerce_integrations.shopware6.export.property_handler import (
-    ensure_shopware_custom_field_set,
-    get_item_custom_fields,
-    get_item_properties,
     get_or_create_property_group,
     get_or_create_property_option,
 )
@@ -68,15 +57,12 @@ from ecommerce_integrations.shopware6.export.utils import (
 
 __all__ = [
     "delete_category_from_shopware",
-    "ensure_shopware_custom_field_set",
     # Utils
     "generate_uuid",
     "get_cached_currency_id",
     "get_cached_sales_channel_id",
     "get_field_mappings",
-    "get_item_custom_fields",
     "get_item_price",
-    "get_item_properties",
     "get_or_create_category",
     "get_or_create_manufacturer",
     # Properties
@@ -87,15 +73,7 @@ __all__ = [
     "rename_category_in_shopware",
     "sanitize_filename",
     "sync_all_item_categories",
-    "sync_bulk_prices",
     # Categories
     "sync_category_hierarchy",
     "sync_item_group_to_shopware",
-    # Images
-    "sync_product_images_to_shopware",
-    # Prices
-    "sync_product_price",
-    "update_item_price_in_shopware",
-    # Upload helpers
-    "upload_media_to_shopware",
 ]
