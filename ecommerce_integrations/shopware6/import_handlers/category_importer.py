@@ -356,12 +356,12 @@ def _unique_item_group_name(base_name: str, breadcrumb: list[str], external_id: 
 
     Shopware categories are commonly duplicated by name across
     completely different trees (e.g. a "Bremsleitung" category under
-    both "francetec.de/2CV6" and some other domain/model) — a single
+    both "example.com/Modell-A" and some other domain/model) — a single
     immediate-parent name isn't reliably unique either, and a raw
     external_id is unreadable. Disambiguate with the full human-
     readable breadcrumb (Shopware's own category names, root tree down
     to the immediate parent) instead — e.g.
-    "Bremsleitung (SW/francetec.de/2CV6/Bremsanlage)" tells the
+    "Bremsleitung (SW/example.com/Modell-A/Bremsanlage)" tells the
     operator exactly where in which tree this lives without opening
     the tree view. Falls back to appending the external_id, then a
     numeric counter, only in the (very unlikely) case the full path

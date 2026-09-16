@@ -63,7 +63,7 @@ that's expected, not a failure.
 If your ERPNext Item Group names carry a disambiguation suffix (IG
 `name` must be globally unique across the whole tree, not just among
 siblings, so imports that hit collisions commonly append the
-breadcrumb, e.g. `"Zubehör (SW/FranceTec/2CV6)"`), pushing that
+breadcrumb, e.g. `"Zubehör (SW/example.com/Modell-A)"`), pushing that
 straight into the backend as the category name clutters a UI that
 already shows the tree via nesting. Strip it via `name_template`
 instead of renaming the IGs themselves:
