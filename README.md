@@ -166,6 +166,8 @@ Ist diese App installiert, bekommt `Ecommerce Channel Branding` automatisch ein 
 
 Ist die Versand-App nicht installiert, ist das komplett wirkungslos (kein zusätzliches Feld, kein Schreibversuch) — für Betriebe, die Versandetiketten mit wechselnden Absenderadressen pro Marke/Kanal erzeugen, lohnt sich aber die Kombination beider Apps. Reihenfolge der Installation ist egal: Wird die Versand-App nachträglich installiert, holt der „Fehlende Custom Fields nachinstallieren"-Button (Shopware Setting → Wartung) das Feld nach.
 
+Für markenbasiertes statt kanalbasiertes Sender-Routing steht der Versand-App das native ERPNext-Feld `Item.brand` (Link auf den `Brand`-Doctype, im UI „Marke") zur Verfügung — dieser Fork liest es selbst nur an vereinzelten Exportstellen (Shopware/Medusa-Produktdaten, AI-Beschreibung, RAG-Export) und trifft darüber keine Absender-Entscheidung; das bleibt Aufgabe der Versand-App.
+
 ---
 
 ## Installation
