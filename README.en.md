@@ -206,6 +206,22 @@ After installation, follow the documentation for each integration.
 This fork is maintained in my spare time. If it's useful to you, a small donation is appreciated:
 [paypal.me/DrdotHouse](https://paypal.me/DrdotHouse)
 
+### For companies: support further development
+
+You use this project in your business and would like to support its further development?
+Happy to do so **with an invoice** – one-off or **monthly**. On request I'll list you here under
+"Supporters" with company name and link.
+
+Please note: I'm not a professional developer – this project is a hobby. Your contribution
+therefore isn't a support contract; I can't offer support, response times or warranty. Feature requests
+and suggestions for improvement are always welcome, though.
+
+Contact: [info@francetec.de](mailto:info@francetec.de)
+
+#### Supporters
+
+*None yet – I'd be glad to see your name here.*
+
 ## License
 
 GNU GPL v3.0

@@ -216,6 +216,22 @@ Nach der Installation die Dokumentation der jeweiligen Integration befolgen.
 Dieser Fork wird in der Freizeit gepflegt. Wenn er dir weiterhilft, freue ich mich über eine kleine Spende:
 [paypal.me/DrdotHouse](https://paypal.me/DrdotHouse)
 
+### Für Unternehmen: Unterstützung für die Weiterentwicklung
+
+Ihr setzt das Projekt im Betrieb ein und möchtet die Weiterentwicklung unterstützen? Gern auch
+**mit Rechnung** – einmalig oder **monatlich**. Auf Wunsch nenne ich euch hier unter
+„Unterstützer“ mit Firmenname und Link.
+
+Bitte beachtet: Ich bin kein Profi-Entwickler, das Projekt ist mein Hobby. Eine Unterstützung
+ist deshalb kein Supportvertrag – Support, Reaktionszeiten oder Gewährleistung kann ich nicht
+anbieten. Wünsche und Verbesserungsvorschläge nehme ich aber gerne mit auf.
+
+Kontakt: [info@francetec.de](mailto:info@francetec.de)
+
+#### Unterstützer
+
+*Noch keine – über euren Namen hier würde ich mich freuen.*
+
 ## Lizenz
 
 GNU GPL v3.0
