@@ -8,6 +8,8 @@
 
 </div>
 
+<p align="center"><a href="https://paypal.me/DrdotHouse"><img alt="Spendier mir einen Kaffee" src="https://img.shields.io/badge/%E2%98%95_Spendier_mir_einen_Kaffee-PayPal-0070ba?style=for-the-badge&logo=paypal&logoColor=white"></a></p>
+
 > **Hinweis:** Dies ist ein erweiterter Fork von [`frappe/ecommerce_integrations`](https://github.com/frappe/ecommerce_integrations) mit vollwertiger **Shopware 6**- und **Medusa v2**-Integration, einer gemeinsamen Delta-Sync-Engine, Katalog-Kategorisierung, KI-gestützter Produktbeschreibung und Vektorsuche sowie deutschen Rechnungs-/Bestellprozessen. Zielplattform ist **Frappe / ERPNext v16**.
 
 ## Unterstützte Integrationen
