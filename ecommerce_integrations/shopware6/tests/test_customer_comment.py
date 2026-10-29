@@ -14,6 +14,10 @@ from ecommerce_integrations.ecommerce_integrations import customer_comment as cc
 from ecommerce_integrations.shopware6.order.order_mapper import extract_customer_comment
 from ecommerce_integrations.shopware6.tests.utils import ShopwareTestCase, create_sample_order_data
 
+WAREHOUSE_PRINT_FORMATS = {
+	"kommissionierliste": "Pick List",
+	"lieferschein_lager": "Delivery Note",
+}
 PICKUP_COMMENT = "ABHOLUNG: Oldtimertreffen Musterstadt, Musterstadt, 17.07.2027"
 
 
@@ -235,3 +239,33 @@ class TestDocumentHooks(ShopwareTestCase):
 			cc.propagate_to_delivery_note(dn)
 		get_all.assert_not_called()
 		self.assertFalse(dn.get(cc.COMMENT_FIELD))
+
+
+class TestFulfillmentPrintFormats(ShopwareTestCase):
+	"""The shipped warehouse print formats parse; the customer-facing one stays comment-free."""
+
+	def _load(self, folder):
+		import json
+		import os
+
+		path = frappe.get_app_path(
+			"ecommerce_integrations", "ecommerce_integrations", "print_format", folder, f"{folder}.json"
+		)
+		self.assertTrue(os.path.exists(path), path)
+		with open(path) as f:
+			return json.load(f)
+
+	def test_templates_parse_and_use_comment_macro(self):
+		from frappe.utils.jinja import get_jenv
+
+		for folder, doctype in WAREHOUSE_PRINT_FORMATS.items():
+			pf = self._load(folder)
+			self.assertEqual(pf["doc_type"], doctype)
+			self.assertEqual(pf["print_format_type"], "Jinja")
+			self.assertIn("customer_comment_block(doc", pf["html"])
+			get_jenv().parse(pf["html"])
+
+	def test_customer_facing_format_has_no_comment(self):
+		pf = self._load("versandbestaetigung")
+		self.assertNotIn("ecommerce_customer_comment", pf["html"])
+		self.assertNotIn("customer_comment_block", pf["html"])

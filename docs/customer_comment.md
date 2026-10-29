@@ -76,10 +76,19 @@ existing documents pick up the new rule on their next save.
 - **Forms** (Sales Order, Pick List, Delivery Note, Packing Slip): a banner at
   the top of the form. Yellow for a normal comment, red with larger text when
   highlighted.
-- **Print format "Versandbestätigung"** (Delivery Note, shipped with this app):
-  the comment is printed bold and large below the intro text, framed in red
-  when highlighted.
-- **Your own print formats** (e.g. a Pick List format for the warehouse):
+- **Print format "Kommissionierliste"** (Pick List, shipped with this app,
+  selectable — not set as default): header with pick list number, date,
+  order(s) and customer, then the comment bold and large (red frame when
+  highlighted), then the item table (item, description, warehouse, qty + UOM,
+  batch / serial no., tick box). ERPNext has no storage-bin field, so the
+  warehouse column is the finest location available. With several orders the
+  order name is shown under each item.
+- **Print format "Lieferschein Lager"** (Delivery Note, internal warehouse
+  copy, selectable — not default): same layout for Delivery Notes.
+- The customer-facing **"Versandbestätigung"** deliberately does *not* print
+  the comment: the Sales Order field can contain internal notes added by
+  staff.
+- **Your own print formats**:
   import the shared macro
 
   ```jinja
