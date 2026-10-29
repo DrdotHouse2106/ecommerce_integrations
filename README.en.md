@@ -159,6 +159,7 @@ Automatic generation of product descriptions, short copy, benefit lists and SEO 
 - **Channel-aware notifications**: email dispatch (sender address, CC routing, e-invoicing) follows the originating channel of the document
 - **German print formats**: Auftragsbestätigung (order confirmation), Bestellbestätigung, Rechnung (invoice), Versandbestätigung (shipping confirmation) — generic and customisable per operator, rendered via Frappe v16's built-in Chrome PDF generator
 - **E-invoicing (XRechnung)**: the Leitweg-ID is automatically mirrored into the standard electronic-address field
+- **Customer comment as fulfillment hint**: the storefront order comment (Shopware `customerComment`, Medusa via checkout-field mapping) is stored on the Sales Order and carried to Pick List, Delivery Note and Packing Slip — shown as a prominent banner in the form and in print; comments starting with a configurable prefix (default `ABHOLUNG:`) are highlighted in red. Details: [docs/customer_comment.md](docs/customer_comment.md)
 
 ---
 

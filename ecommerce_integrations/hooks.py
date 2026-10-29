@@ -37,7 +37,10 @@ doctype_js = {
 	"Sales Order": [
 		"public/js/unicommerce/sales_order.js",
 		"public/js/common/ecommerce_transactions.js",
+		"public/js/common/customer_comment.js",
 	],
+	"Delivery Note": "public/js/common/customer_comment.js",
+	"Packing Slip": "public/js/common/customer_comment.js",
 	"Sales Invoice": [
 		"public/js/unicommerce/sales_invoice.js",
 		"public/js/common/ecommerce_transactions.js",
@@ -52,7 +55,10 @@ doctype_js = {
 		"public/js/shopware6/item_group.js",
 	],
 	"Stock Entry": "public/js/unicommerce/stock_entry.js",
-	"Pick List": "public/js/unicommerce/pick_list.js",
+	"Pick List": [
+		"public/js/unicommerce/pick_list.js",
+		"public/js/common/customer_comment.js",
+	],
 	"Medusa Setting": [
 		"public/js/common/icon_helper.js",
 		"public/js/smart_collections/setting_widget.js",
@@ -222,6 +228,10 @@ doc_events = {
 		"on_trash": "ecommerce_integrations.ecommerce_integrations.image_sync.queue_parent_item_for_sync",
 	},
 	"Sales Order": {
+		# Customer comment: normalise + refresh the highlight flag (also for
+		# edits after submit — the field is allow_on_submit).
+		"validate": "ecommerce_integrations.ecommerce_integrations.customer_comment.sales_order_validate",
+		"before_update_after_submit": "ecommerce_integrations.ecommerce_integrations.customer_comment.sales_order_validate",
 		"on_submit": "ecommerce_integrations.shopware6.status_sync.on_sales_order_submit",
 		"on_update_after_submit": "ecommerce_integrations.unicommerce.order.update_shipping_info",
 		"on_cancel": [
@@ -245,7 +255,10 @@ doc_events = {
 	},
 	"Delivery Note": {
 		"before_insert": "ecommerce_integrations.ecommerce_integrations.channel_propagation.propagate_to_delivery_note",
-		"validate": "ecommerce_integrations.ecommerce_integrations.channel_propagation.propagate_to_delivery_note",
+		"validate": [
+			"ecommerce_integrations.ecommerce_integrations.channel_propagation.propagate_to_delivery_note",
+			"ecommerce_integrations.ecommerce_integrations.customer_comment.propagate_to_delivery_note",
+		],
 		"on_submit": [
 			"ecommerce_integrations.shopware6.status_sync.on_delivery_note_submit",
 			"ecommerce_integrations.medusa.status_sync.on_delivery_note_submit",
@@ -280,7 +293,15 @@ doc_events = {
 			"ecommerce_integrations.medusa.bulk_sync.queue_price_for_sync",
 		],
 	},
-	"Pick List": {"validate": "ecommerce_integrations.unicommerce.pick_list.validate"},
+	"Pick List": {
+		"validate": [
+			"ecommerce_integrations.unicommerce.pick_list.validate",
+			"ecommerce_integrations.ecommerce_integrations.customer_comment.propagate_to_pick_list",
+		],
+	},
+	"Packing Slip": {
+		"validate": "ecommerce_integrations.ecommerce_integrations.customer_comment.propagate_to_packing_slip",
+	},
 	"Sales Invoice": {
 		"before_insert": "ecommerce_integrations.ecommerce_integrations.channel_propagation.propagate_to_sales_invoice",
 		"validate": "ecommerce_integrations.ecommerce_integrations.channel_propagation.propagate_to_sales_invoice",
