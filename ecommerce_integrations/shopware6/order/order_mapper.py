@@ -144,6 +144,25 @@ def extract_checkout_field_value(order_data: dict, field_names: list) -> Any:
     return None
 
 
+def extract_customer_comment(order_data: dict) -> str:
+    """Return the buyer's order comment as normalised plain text.
+
+    Shopware stores it as ``order.customerComment``; some webhook payloads
+    wrap the order in ``payload.entity``. Normalisation (tag stripping,
+    trimming, length cap) is shared with the other channels.
+    """
+    from ecommerce_integrations.ecommerce_integrations.customer_comment import (
+        normalize_customer_comment,
+    )
+
+    if not order_data:
+        return ""
+    raw = order_data.get("customerComment")
+    if raw is None:
+        raw = ((order_data.get("payload") or {}).get("entity") or {}).get("customerComment")
+    return normalize_customer_comment(raw)
+
+
 def _normalize_payment_method(name: str) -> str:
     return (name or "").strip().lower().replace("-", "_").replace(" ", "_")
 

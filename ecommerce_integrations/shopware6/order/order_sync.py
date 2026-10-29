@@ -12,6 +12,10 @@ from frappe import _
 from frappe.utils import getdate, nowdate
 from lib_shopware6_api_base import Criteria, Shopware6AdminAPIClientBase
 
+from ecommerce_integrations.ecommerce_integrations.customer_comment import (
+    set_customer_comment,
+    update_sales_order_comment,
+)
 from ecommerce_integrations.ecommerce_integrations.ecommerce_custom_fields import STOREFRONT_SHOPWARE
 from ecommerce_integrations.shopware6.connection import temp_shopware_session
 from ecommerce_integrations.shopware6.constants import (
@@ -27,6 +31,7 @@ from ecommerce_integrations.shopware6.order.delivery_handler import create_deliv
 from ecommerce_integrations.shopware6.order.line_item_handler import add_order_item, add_shipping_costs
 from ecommerce_integrations.shopware6.order.order_mapper import (
     calculate_delivery_date,
+    extract_customer_comment,
     extract_order_currency,
     get_payment_method_info,
     get_tax_template,
@@ -380,6 +385,12 @@ def create_sales_order(order_data: dict[str, Any]) -> str:
         if hasattr(so, 'shopware_erpnext_mode_of_payment'):
             so.shopware_erpnext_mode_of_payment = erpnext_mode
 
+    # Buyer's order comment (e.g. a pickup instruction written by a storefront
+    # plugin) -> fulfillment hint, carried on to Pick List / Delivery Note.
+    # Set before the checkout-field mappings so an explicit mapping onto the
+    # same field still wins.
+    set_customer_comment(so, extract_customer_comment(order_data))
+
     # Process all configured checkout custom fields from Shopware Settings
     process_checkout_fields(so, setting, order_data, customer)
 
@@ -599,6 +610,7 @@ def sync_order_from_webhook(payload: dict[str, Any], request_id: str | None = No
             if existing_so and is_update:
                 # This is an update - update the custom fields on existing Sales Order
                 update_order_custom_fields(existing_so, order_id, webhook_custom_fields, request_id)
+                refresh_customer_comment(existing_so, order_id, payload)
             elif existing_so:
                 # Order already synced, skip
                 if request_id:
@@ -707,6 +719,83 @@ def update_order_custom_fields(
         get_logger().error(f"Failed to update custom fields for {sales_order_name}: {e}", persist=True)
         if request_id:
             update_shopware_log(request_id, status="Error", exception=str(e))
+
+
+def _comment_from_payload(payload: dict[str, Any]) -> tuple[bool, Any]:
+    """Look for ``customerComment`` in the payload shapes we receive.
+
+    Returns ``(found, raw_value)`` — ``found`` distinguishes "not sent" from
+    "sent as empty".
+    """
+    candidates = (
+        payload.get("data") or {},
+        (payload.get("payload") or {}).get("entity") or {},
+        payload,
+    )
+    for container in candidates:
+        if isinstance(container, dict) and "customerComment" in container:
+            return True, container.get("customerComment")
+    return False, None
+
+
+def _update_may_touch_comment(payload: Any, _depth: int = 0) -> bool:
+    """False only when the payload lists ``updatedFields`` without ``customerComment``.
+
+    Shopware's native ``order.written`` webhook names the changed fields but
+    not their values; skipping the API round-trip for unrelated writes
+    (state changes, custom fields) keeps update handling cheap.
+    """
+    found_lists = []
+
+    def walk(node, depth):
+        if depth > 6:
+            return
+        if isinstance(node, dict):
+            fields = node.get("updatedFields")
+            if isinstance(fields, list):
+                found_lists.append(fields)
+            for value in node.values():
+                walk(value, depth + 1)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value, depth + 1)
+
+    walk(payload, _depth)
+    if not found_lists:
+        return True
+    return any("customerComment" in fields for fields in found_lists)
+
+
+@temp_shopware_session
+def _fetch_customer_comment(client: Shopware6AdminAPIClientBase, order_id: str) -> Any:
+    response = client.request_post("search/order", Criteria(ids=[order_id]))
+    orders = response.data or []
+    return orders[0].get("customerComment") if orders else None
+
+
+def refresh_customer_comment(sales_order_name: str, order_id: str, payload: dict[str, Any]) -> bool:
+    """Bring the Sales Order's customer comment in line with Shopware after an order update.
+
+    Uses the value from the webhook payload when present, otherwise fetches
+    the order once. Never raises: a failed comment refresh must not fail the
+    rest of the update handling.
+    """
+    try:
+        found, raw = _comment_from_payload(payload or {})
+        if not found:
+            if not _update_may_touch_comment(payload or {}):
+                return False
+            raw = _fetch_customer_comment(order_id)
+        changed = update_sales_order_comment(sales_order_name, raw)
+        if changed:
+            frappe.db.commit()
+            frappe.logger("shopware6").info(f"Updated customer comment on {sales_order_name}")
+        return changed
+    except Exception as e:
+        get_logger().error(
+            f"Failed to refresh customer comment for {sales_order_name}: {e}", persist=True
+        )
+        return False
 
 
 def update_order_status(payload: dict[str, Any], request_id: str | None = None):
