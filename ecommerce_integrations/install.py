@@ -63,6 +63,9 @@ def _all_custom_field_setups():
     from ecommerce_integrations.ai_description.custom_fields import (
         setup_custom_fields as setup_ai_description_custom_fields,
     )
+    from ecommerce_integrations.ecommerce_integrations.customer_comment import (
+        setup_custom_fields as setup_customer_comment_fields,
+    )
     from ecommerce_integrations.medusa.custom_fields import (
         setup_custom_fields as setup_medusa_custom_fields,
     )
@@ -109,6 +112,7 @@ def _all_custom_field_setups():
         setup_product_sync_custom_fields,
         setup_brand_sync_hash,
         setup_channel_versandabsender_field,
+        setup_customer_comment_fields,
         setup_canonical_store_field,
         setup_image_map_field,
         setup_item_additional_groups_field,

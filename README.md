@@ -157,8 +157,9 @@ Automatische Generierung von Produktbeschreibungen, Kurzbeschreibungen, Vorteils
 - **Ecommerce Channel Branding**: Logo, Absenderadresse, IBAN/BIC, Impressum und Signatur je Verkaufskanal — Druckformate und E-Mails ziehen diese Daten zur Laufzeit
 - **Ecommerce Channel Override**: manuelle Sichtbarkeits-Ausnahmen je Artikel und Kanal
 - **Kanalbewusste Benachrichtigungen**: E-Mail-Versand (Absenderadresse, CC-Routing, E-Rechnung) richtet sich nach dem Herkunftskanal des Belegs
-- **Deutsche Druckformate**: Auftragsbestätigung, Bestellbestätigung, Rechnung, Versandbestätigung — generisch gehalten und je Betrieb anpassbar, gerendert über den in Frappe v16 integrierten Chrome-PDF-Generator
+- **Deutsche Druckformate**: Auftragsbestätigung, Bestellbestätigung, Rechnung, Versandbestätigung, dazu intern Kommissionierliste und Lieferschein Lager — generisch gehalten und je Betrieb anpassbar, gerendert über den in Frappe v16 integrierten Chrome-PDF-Generator
 - **E-Rechnung (XRechnung)**: Leitweg-ID wird automatisch in das Standardfeld für die elektronische Adresse gespiegelt
+- **Kundenkommentar als Versandhinweis**: der Bestellkommentar aus dem Shop (Shopware `customerComment`, Medusa per Checkout-Feld-Mapping) landet im Auftrag und wird an Kommissionierliste, Lieferschein und Packliste weitergegeben — mit auffälligem Hinweis im Formular und in den mitgelieferten internen Druckformaten „Kommissionierliste“ (Pick List) und „Lieferschein Lager“ (Delivery Note); Kommentare mit konfigurierbarem Präfix (Standard `ABHOLUNG:`) werden rot hervorgehoben. Details: [docs/customer_comment.md](docs/customer_comment.md)
 
 ### Versandetiketten-Integration (optional)
 
