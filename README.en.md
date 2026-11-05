@@ -222,6 +222,10 @@ Contact: [info@francetec.de](mailto:info@francetec.de)
 
 *None yet – I'd be glad to see your name here.*
 
+## How this fork was made
+
+The extensions in this fork (Shopware 6, Medusa, Catalog Mirror, Smart Collections, RAG, AI descriptions and the cross-channel features) were developed with the help of AI (Claude by Anthropic). The requirements come from running our own shops; the code was written and revised with AI and is tested in our own use. The modules taken from upstream (Shopify, Amazon, Unicommerce, Zenoti) come from Frappe and the upstream contributors. Use at your own risk and without warranty (see license).
+
 ## License
 
 GNU GPL v3.0

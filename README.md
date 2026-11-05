@@ -232,6 +232,10 @@ Kontakt: [info@francetec.de](mailto:info@francetec.de)
 
 *Noch keine – über euren Namen hier würde ich mich freuen.*
 
+## Entstehung
+
+Die Erweiterungen dieses Forks (Shopware 6, Medusa, Catalog Mirror, Smart Collections, RAG, KI-Beschreibungen und die kanalübergreifenden Funktionen) sind mit Unterstützung von KI entstanden (Claude von Anthropic). Die Anforderungen kommen aus dem eigenen Shop-Betrieb; der Code wurde mit KI geschrieben und überarbeitet und wird im eigenen Einsatz erprobt. Die aus Upstream übernommenen Module (Shopify, Amazon, Unicommerce, Zenoti) stammen von Frappe und den Upstream-Mitwirkenden. Nutzung auf eigene Verantwortung und ohne Garantie (siehe Lizenz).
+
 ## Lizenz
 
 GNU GPL v3.0
