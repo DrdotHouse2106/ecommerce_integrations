@@ -233,7 +233,7 @@ html, body { margin: 0; padding: 0; height: 100%; }
 {% set customer_doc = frappe.get_doc("Customer", doc.customer) %}
 {% set is_private = customer_doc.customer_type == "Individual" %}
 {% set is_tax_exempt = (not doc.taxes or doc.taxes|length == 0) and doc.total_taxes_and_charges == 0 %}
-{% set tax_rate = 0 if is_tax_exempt else (doc.taxes[0].rate if doc.taxes else 19) %}
+{% set tax_rate = 0 if is_tax_exempt else ((doc.taxes[0].rate or (doc.total_taxes_and_charges / doc.net_total * 100 if doc.net_total else 19)) if doc.taxes else 19) %}
 {% set tax_included = doc.taxes and doc.taxes|length > 0 and doc.taxes[0].included_in_print_rate %}
 {% set has_different_shipping = doc.shipping_address_name and doc.shipping_address_name != doc.customer_address %}
 {% set shipping_addr_doc = frappe.get_doc("Address", doc.shipping_address_name) if has_different_shipping else None %}
@@ -313,7 +313,7 @@ html, body { margin: 0; padding: 0; height: 100%; }
 
 </div>
 
-{{ footer }}
+{{ footer or "" }}
 {%- endmacro -%}
 
 
@@ -342,7 +342,7 @@ html, body { margin: 0; padding: 0; height: 100%; }
 {% set customer_doc = frappe.get_doc("Customer", doc.customer) %}
 {% set is_private = customer_doc.customer_type == "Individual" %}
 {% set is_tax_exempt = (not doc.taxes or doc.taxes|length == 0) and doc.total_taxes_and_charges == 0 %}
-{% set tax_rate = 0 if is_tax_exempt else (doc.taxes[0].rate if doc.taxes else 19) %}
+{% set tax_rate = 0 if is_tax_exempt else ((doc.taxes[0].rate or (doc.total_taxes_and_charges / doc.net_total * 100 if doc.net_total else 19)) if doc.taxes else 19) %}
 {% set tax_included = doc.taxes and doc.taxes|length > 0 and doc.taxes[0].included_in_print_rate %}
 {% set has_different_shipping = doc.shipping_address_name and doc.shipping_address_name != doc.customer_address %}
 {% set shipping_addr_doc = frappe.get_doc("Address", doc.shipping_address_name) if has_different_shipping else None %}
@@ -417,5 +417,5 @@ html, body { margin: 0; padding: 0; height: 100%; }
 
 </div>
 
-{{ footer }}
+{{ footer or "" }}
 {%- endmacro -%}

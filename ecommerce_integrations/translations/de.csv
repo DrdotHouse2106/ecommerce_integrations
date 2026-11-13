@@ -1076,3 +1076,67 @@ Ecommerce Queued Syncs,Wartende Syncs
 Ecommerce Successful Syncs (24h),Erfolgreiche Syncs (24h)
 Items Synced (Daily),Synchronisierte Artikel (täglich)
 AI Descriptions Generated (Daily),KI-Beschreibungen erzeugt (täglich)
+Account Holder,Kontoinhaber
+All prices excl. VAT,Alle Preise zzgl. MwSt.
+All prices excl. VAT (tax-exempt delivery),Alle Preise ohne MwSt. (steuerfreie Lieferung)
+All prices incl. VAT,Alle Preise inkl. MwSt.
+Already paid,Bereits bezahlt
+Batch / Serial No,Charge / Seriennr.
+Best regards,Mit freundlichen Grüßen
+Bill To,Rechnungsempfänger
+Billing Address,Rechnungsadresse
+Customer,Kunde
+Customer No.,Kundennr.
+Date,Datum
+Delivery Date,Lieferdatum
+Delivery Note Number,Lieferscheinnr.
+Due Date,Fälligkeitsdatum
+Email,E-Mail
+Grand Total,Gesamtbetrag
+Imprint,Impressum
+Invoice,Rechnung
+Invoice Date,Rechnungsdatum
+Invoice Details,Rechnungsdetails
+Invoice No.,Rechnungsnr.
+Item,Artikel
+Item No.,Artikelnr.
+Net Total,Nettobetrag
+Note,Hinweis
+Order Date,Bestelldatum
+Order Details,Bestelldetails
+Order Number,Bestellnummer
+Origin Declaration,Ursprungserklärung
+Outstanding Amount,Offener Betrag
+Paid,Bezahlt
+Payment Information,Zahlungsinformationen
+Payment Method,Zahlungsart
+Payment Received,Zahlung erhalten
+Phone,Telefon
+Pick List,Kommissionierliste
+Please transfer the amount by,Bitte überweisen Sie den Betrag bis zum
+Please transfer the amount to the following account,Bitte überweisen Sie den Betrag auf folgendes Konto
+Pos.,Pos.
+Prepayment,Vorkasse
+Privacy Policy,Datenschutzerklärung
+Purchase on Account,Kauf auf Rechnung
+Purpose,Verwendungszweck
+Qty,Menge
+Sales Order,Auftrag
+Scan QR code to pay,QR-Code scannen und bezahlen
+Shipping Address,Lieferadresse
+Shop Order No.,Shop-Bestellnr.
+Subtotal,Zwischensumme
+Terms and Conditions,AGB
+Thank you! The payment of {0} via {1} has been processed successfully.,Vielen Dank! Die Zahlung über {0} per {1} ist eingegangen.
+"The exporter of the products covered by this document declares that, except where otherwise clearly indicated, these products are of EEC preferential origin.","Der Ausführer der Waren, auf die sich dieses Handelspapier bezieht, erklärt, dass diese Waren, soweit nicht anders angegeben, präferenzbegünstigte EG-Ursprungswaren sind."
+Total,Summe
+Track your shipment,Sendung verfolgen
+Tracking number,Sendungsnummer
+Unit,Einheit
+Unit Price,Einzelpreis
+VAT,MwSt.
+VAT ID,USt-IdNr.
+You have selected purchase on account. You will receive the invoice with payment information after shipment of your order.,Sie haben Kauf auf Rechnung gewählt. Die Rechnung mit den Zahlungsinformationen erhalten Sie nach dem Versand Ihrer Bestellung.
+Your Order No.,Ihre Bestellnr.
+incl. VAT,inkl. MwSt.
+via,per
