@@ -57,3 +57,4 @@ ecommerce_integrations.patches.drop_medusa_property_type_field
 
 [post_model_sync]
 ecommerce_integrations.patches.add_channel_versandabsender_field
+ecommerce_integrations.patches.add_ecommerce_customer_comment_fields

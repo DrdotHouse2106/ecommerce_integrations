@@ -1,0 +1,25 @@
+{#
+    Customer order comment as a prominent block for fulfillment documents
+    (Pick List, Delivery Note, Packing Slip, Sales Order).
+
+    The value is plain text (see ecommerce_integrations/customer_comment.py)
+    and is HTML-escaped here; line breaks are kept via ``white-space: pre-line``.
+    Highlighted comments (prefix such as "ABHOLUNG:") get a red frame.
+
+    Usage in your own Jinja Print Format:
+        {%- from "ecommerce_integrations/templates/includes/customer_comment.html"
+            import customer_comment_block with context -%}
+        {{ customer_comment_block(doc) }}
+        Optional label: customer_comment_block(doc, label=_("Note"))
+#}
+
+{%- macro customer_comment_block(doc, label=None) -%}
+{%- set _comment = (doc.get("ecommerce_customer_comment") or "") | trim -%}
+{%- if _comment -%}
+{%- set _hl = doc.get("ecommerce_comment_highlight") -%}
+<div class="ecommerce-customer-comment" style="margin: 0 0 15px 0; padding: 8px 12px; border: {{ '3px solid #c0392b' if _hl else '2px solid #333' }}; page-break-inside: avoid;">
+  {%- if label %}<div style="font-size: 9pt; margin-bottom: 4px;">{{ label | e }}:</div>{% endif -%}
+  <div style="font-size: {{ '16pt' if _hl else '13pt' }}; font-weight: bold; line-height: 1.35; white-space: pre-line;">{{ _comment | e }}</div>
+</div>
+{%- endif -%}
+{%- endmacro -%}
