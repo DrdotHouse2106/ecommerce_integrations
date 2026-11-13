@@ -5,7 +5,7 @@ from frappe.model.document import Document
 
 
 BRANDING_FIELDS = [
-	"display_name", "shop_url", "support_email",
+	"display_name", "shop_url", "support_email", "bank_account_holder",
 	"primary_color", "dark_color", "logo", "logo_data_uri",
 	"outgoing_email_account", "outgoing_email_account_invoice",
 	"sender_name", "language", "reply_to_email", "bcc_email",
@@ -59,6 +59,7 @@ DEFAULTS = {
 	"email_shipment_greeting": "{{ auto_greeting }},",
 	"email_shipment_body": '<p>{{ _("good news – your order has been dispatched and is on its way to you.") }}</p>',
 	"signature_html": "",
+	"bank_account_holder": "",
 	"imprint_html": "",
 	"privacy_policy_url": "",
 	"terms_url": "",
