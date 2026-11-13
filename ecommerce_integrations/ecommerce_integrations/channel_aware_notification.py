@@ -53,21 +53,12 @@ SUBJECT_FIELD_BY_NOTIFICATION = {
 
 
 def _resolve_channel_name(doc) -> str:
-	"""Sales-channel for branding/sender routing. Most ecommerce docs carry
-	``ecommerce_sales_channel_name`` directly; drop-ship Purchase Orders /
-	Purchase Receipts / Delivery Notes do not, so fall back to the channel of
-	the linked Sales Order (via the item rows' ``sales_order`` /
-	``against_sales_order``). Keeps the brand sender + footer on those mails."""
-	name = (doc.get("ecommerce_sales_channel_name") or "") if hasattr(doc, "get") else ""
-	if name:
-		return name
-	for row in (doc.get("items") or []):
-		so = row.get("sales_order") or row.get("against_sales_order")
-		if so:
-			ch = frappe.db.get_value("Sales Order", so, "ecommerce_sales_channel_name")
-			if ch:
-				return ch
-	return ""
+	"""Branding name for sender routing, see ``resolve_branding_name``."""
+	from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_channel_branding.ecommerce_channel_branding import (
+		resolve_branding_name,
+	)
+
+	return resolve_branding_name(doc) if hasattr(doc, "get") else ""
 
 
 class ChannelAwareNotification(Notification):
@@ -148,7 +139,7 @@ class ChannelAwareNotification(Notification):
 		channel has E-Invoice enabled and the document is a Sales Invoice."""
 		attachments = super().get_attachment(doc) or []
 
-		channel_name = doc.get("ecommerce_sales_channel_name") if hasattr(doc, "get") else None
+		channel_name = _resolve_channel_name(doc)
 		if not channel_name or doc.doctype != "Sales Invoice":
 			return attachments
 

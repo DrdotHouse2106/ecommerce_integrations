@@ -100,9 +100,36 @@ def get_branding(channel_name: str = "") -> dict:
 	return result
 
 
+def resolve_branding_name(doc) -> str:
+	"""Branding record for a document.
+
+	Apps can decide the brand themselves via the ``ecommerce_branding_name`` hook
+	(dotted paths, each called with ``doc``; the first non-empty name wins), e.g. a
+	shipping app that keeps one sender profile per brand. Without such a hook the
+	document's sales channel is used, falling back to the linked Sales Order's
+	channel for documents that don't carry one (drop-ship POs, Delivery Notes).
+	"""
+	if not doc:
+		return ""
+	for path in frappe.get_hooks("ecommerce_branding_name"):
+		name = frappe.get_attr(path)(doc)
+		if name:
+			return name
+	name = doc.get("ecommerce_sales_channel_name") or ""
+	if name:
+		return name
+	for row in doc.get("items") or []:
+		so = row.get("sales_order") or row.get("against_sales_order")
+		if so:
+			ch = frappe.db.get_value("Sales Order", so, "ecommerce_sales_channel_name")
+			if ch:
+				return ch
+	return ""
+
+
 def get_branding_for_doc(doc) -> dict:
 	"""Resolve branding from a Sales Order / Delivery Note / Sales Invoice."""
-	return get_branding(doc.get("ecommerce_sales_channel_name") or "")
+	return get_branding(resolve_branding_name(doc))
 
 
 @frappe.whitelist()

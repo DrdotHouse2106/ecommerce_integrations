@@ -141,6 +141,8 @@ override_doctype_class = {
 jinja = {
 	"methods": [
 		"ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_channel_branding.ecommerce_channel_branding.get_branding",
+		"ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_channel_branding.ecommerce_channel_branding.get_branding_for_doc",
+		"frappe.utils.print_format_generator.get_qr_code",
 		"ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_channel_branding.ecommerce_channel_branding.build_greeting_context",
 		"ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_channel_branding.ecommerce_channel_branding.render_branding_text",
 		"ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_channel_branding.ecommerce_channel_branding.get_invoice_payment_context",
