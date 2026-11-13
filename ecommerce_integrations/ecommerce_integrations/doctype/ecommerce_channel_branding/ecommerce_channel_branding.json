@@ -54,6 +54,7 @@
   "email_shipment_body",
   "section_break_footer",
   "signature_html",
+  "bank_account_holder",
   "imprint_html",
   "column_break_legal",
   "privacy_policy_url",
@@ -358,6 +359,12 @@
    "label": "Email Signature HTML"
   },
   {
+   "fieldname": "bank_account_holder",
+   "fieldtype": "Data",
+   "label": "Bank Account Holder",
+   "description": "Name shown as account holder on invoices and in the GiroCode. Must match the name on the bank account. Defaults to the company name."
+  },
+  {
    "description": "Imprint / Impressum HTML — shown in email and PDF footers (e.g., company address, CEO, commercial register, VAT ID)",
    "fieldname": "imprint_html",
    "fieldtype": "Text Editor",
@@ -382,7 +389,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-05-05 13:00:00.000000",
+ "modified": "2026-11-13 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "ecommerce_integrations",
  "name": "Ecommerce Channel Branding",
