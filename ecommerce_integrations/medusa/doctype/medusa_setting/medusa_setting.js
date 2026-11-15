@@ -37,11 +37,12 @@ frappe.ui.form.on('Medusa Setting', {
 		}
 		if (window.medusa_setup_wizard && !frm.is_new()) {
 			const _i = window.ecom_icon || (() => '');
-			const wizard_label = _i('wand-sparkles', 'sm') + ' ' + __('Setup Wizard');
+			// v16 escapes button labels, so the icon is prepended as markup afterwards.
+			const wizard_label = __('Setup Wizard');
 			if (!frm.custom_buttons || !frm.custom_buttons[wizard_label]) {
 				frm.add_custom_button(wizard_label, function() {
 					window.medusa_setup_wizard.open(frm);
-				}).addClass('btn-primary');
+				}).addClass('btn-primary').prepend(_i('wand-sparkles', 'sm') + ' ');
 			}
 		}
 		if (frm.fields_dict.fetch_sales_channels_btn && frm.fields_dict.fetch_sales_channels_btn.$input) {
