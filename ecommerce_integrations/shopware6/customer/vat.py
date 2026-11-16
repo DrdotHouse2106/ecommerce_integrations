@@ -123,42 +123,46 @@ def _find_existing_customer_to_link(
     Rules:
     1. Only match customers that DON'T already have a shopware_customer_id
        (never overwrite existing links - that breaks data integrity)
-    2. For B2B (with company): Match by company name
-    3. For B2C: Match by customer_name
-    4. Email alone is NOT enough (same email can have multiple companies/persons)
+    2. The name must match (company for B2B, "first last" for B2C) AND the
+       Shopware email must be one of the customer's known email addresses.
+       A name alone is not proof of identity: anyone can register a shop
+       account under any name, and a wrong link books foreign orders onto
+       that customer. When in doubt a new customer is created instead; the
+       duplicates can be merged later.
     """
-    if not customer_name:
+    email = (email or "").strip().lower()
+    if not customer_name or not email:
         return None
 
-    filters = {
-        "customer_name": customer_name,
-        "shopware_customer_id": ["is", "not set"],
-    }
-    existing = frappe.db.get_value("Customer", filters, "name")
-
-    if existing:
-        frappe.logger("shopware6").info(
-            f"Found existing customer '{existing}' matching name '{customer_name}' "
-            f"(no shopware_customer_id set) - will link to Shopware ID {customer_id}"
-        )
-        return existing
-
-    # For B2B: Also try matching by company name with email as secondary check
-    if company and email:
-        filters_with_email = {
-            "customer_name": company,
-            "email_id": email,
-            "shopware_customer_id": ["is", "not set"],
-        }
-        existing = frappe.db.get_value("Customer", filters_with_email, "name")
-        if existing:
+    candidates = frappe.get_all(
+        "Customer",
+        filters={"customer_name": customer_name, "shopware_customer_id": ["is", "not set"]},
+        pluck="name",
+    )
+    for candidate in candidates:
+        if email in _known_customer_emails(candidate):
             frappe.logger("shopware6").info(
-                f"Found existing B2B customer '{existing}' matching company '{company}' + email "
+                f"Found existing customer '{candidate}' matching name '{customer_name}' + email "
                 f"(no shopware_customer_id set) - will link to Shopware ID {customer_id}"
             )
-            return existing
+            return candidate
 
     return None
+
+
+def _known_customer_emails(customer: str) -> set[str]:
+    """All email addresses on file for a customer (own field plus linked contacts), lowercased."""
+    emails = {frappe.db.get_value("Customer", customer, "email_id") or ""}
+    contacts = frappe.get_all(
+        "Dynamic Link",
+        filters={"link_doctype": "Customer", "link_name": customer, "parenttype": "Contact"},
+        pluck="parent",
+    )
+    if contacts:
+        emails.update(
+            frappe.get_all("Contact Email", filters={"parent": ["in", contacts]}, pluck="email_id")
+        )
+    return {e.strip().lower() for e in emails if e}
 
 
 def _sync_customer_number_to_shopware(
