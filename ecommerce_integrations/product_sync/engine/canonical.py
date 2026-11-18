@@ -1337,7 +1337,19 @@ def _file_slug(value: str) -> str:
     for a, b in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("Ä", "Ae"), ("Ö", "Oe"), ("Ü", "Ue"), ("ß", "ss")):
         s = s.replace(a, b)
     s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
-    return _slugify(s)[:120].strip("-")
+    words: list[str] = []
+    for w in _slugify(s).split("-"):
+        if w and w not in words:  # repeated words add length, not meaning
+            words.append(w)
+    out = ""
+    for w in words:  # cut at a word boundary
+        if out and len(out) + 1 + len(w) > _FILE_NAME_MAX:
+            break
+        out = f"{out}-{w}" if out else w
+    return out[:_FILE_NAME_MAX]
+
+
+_FILE_NAME_MAX = 80
 
 
 def _load_property_catalog() -> dict[str, dict[str, Any]]:

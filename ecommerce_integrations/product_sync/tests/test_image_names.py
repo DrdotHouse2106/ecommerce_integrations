@@ -34,6 +34,13 @@ class TestImageNames(unittest.TestCase):
         self.assertEqual(imgs[1]["file"], "kotfluegel-vorne-citroen-item-001-2")
         self.assertEqual(imgs[0]["alt"], "Kotflügel vorne Citroën")
 
+    def test_slug_dedupes_and_stays_short(self):
+        from ecommerce_integrations.product_sync.engine.canonical import _file_slug
+        self.assertEqual(_file_slug("Gummitüllen Grau Grau Grau ITEM-001"), "gummituellen-grau-item-001")
+        long = _file_slug(" ".join(f"wort{i}" for i in range(40)))
+        self.assertLessEqual(len(long), 80)
+        self.assertFalse(long.endswith("-"))
+
     def test_payload_carries_names(self):
         from ecommerce_integrations.product_sync.engine import payload
         with patch.object(payload, "_resolve_image_public_base", return_value="https://example.com"):
