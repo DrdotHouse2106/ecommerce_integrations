@@ -1018,10 +1018,9 @@ def _build_shopware_media(images: list[dict]) -> list[dict]:
             continue
         # Filename hint helps Shopware name the imported media nicely.
         filename = absolute.rsplit("/", 1)[-1] or "image"
-        out.append({
-            "media": {
-                "url": absolute,
-                "filename": filename,
-            },
-        })
+        media = {"url": absolute, "filename": filename}
+        for key in ("file", "alt"):
+            if img.get(key):
+                media[key] = img[key]
+        out.append({"media": media})
     return out

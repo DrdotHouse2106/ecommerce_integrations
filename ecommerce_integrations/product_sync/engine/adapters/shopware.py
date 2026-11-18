@@ -737,6 +737,7 @@ class ShopwareProductAdapter(ProductAdapter):
         self,
         external_id: str,
         image_urls: list[str],
+        names: dict | None = None,
     ) -> dict:
         """Two-step image upload — Shopware-specific.
 
@@ -764,6 +765,7 @@ class ShopwareProductAdapter(ProductAdapter):
             self._upload_images_impl,
             external_id=external_id,
             image_urls=list(image_urls or []),
+            names=dict(names or {}),
         )
 
     def push_variant_options(
@@ -1441,8 +1443,13 @@ class ShopwareProductAdapter(ProductAdapter):
         *,
         external_id: str,
         image_urls: list[str],
+        names: dict | None = None,
     ) -> dict:
         """Inner image-upload — runs under ``temp_shopware_session``.
+
+        ``names`` maps an image URL to ``{"file", "alt"}`` from the Sync's
+        image templates: new media are uploaded under that file name,
+        already pushed media are renamed in place.
 
         Returns ``{uploaded, failed, skipped, media_map}``. ``media_map``
         is ``{erp_basename: shopware_media_uuid}`` for successful uploads,
@@ -1500,7 +1507,7 @@ class ShopwareProductAdapter(ProductAdapter):
             _bn = (_tail.split("?", 1)[0]).lower()
             _stem = (_tail.rsplit(".", 1)[0] if "." in _tail else _tail) or "image"
             _det_id = _gen_uuid(f"psync_media_{_bn}")
-            _reused = None
+            _reused = _reused_name = None
             try:
                 _hit = client.request_post("search/media", payload={
                     "filter": [
@@ -1511,6 +1518,7 @@ class ShopwareProductAdapter(ProductAdapter):
                 })
                 _rows = _hit.data or []
                 _reused = _rows[0]["id"] if _rows else None
+                _reused_name = _rows[0].get("fileName") if _rows else None
             except Exception:  # noqa: BLE001
                 _reused = None
             if not _reused:
@@ -1535,9 +1543,13 @@ class ShopwareProductAdapter(ProductAdapter):
                     })
                     _rows = _hit.data or []
                     _reused = _rows[0]["id"] if _rows else None
+                    _reused_name = _stem
                 except Exception:  # noqa: BLE001
                     _reused = None
+            _want = (names or {}).get(url) or {}
             if _reused:
+                if _want:
+                    _apply_media_name(client, _reused, _reused_name, _want)
                 counters["uploaded"] += 1
                 new_media_ids.append(_reused)
                 if _bn:
@@ -1551,6 +1563,8 @@ class ShopwareProductAdapter(ProductAdapter):
             media_row: dict = {"id": media_id}
             if media_folder_id:
                 media_row["mediaFolderId"] = media_folder_id
+            if _want.get("alt"):
+                media_row["alt"] = media_row["title"] = _want["alt"]
             try:
                 client.request_post("_action/sync", payload={
                     "media": {
@@ -1572,6 +1586,7 @@ class ShopwareProductAdapter(ProductAdapter):
                 ext = ext.split("?")[0].lower() or "jpg"
             else:
                 stem, ext = tail or "image", "jpg"
+            stem = _want.get("file") or stem
             uploaded_ok = False
             try:
                 client.request_post(
@@ -2420,6 +2435,29 @@ class ShopwareProductAdapter(ProductAdapter):
 
 
 _PRODUCT_MEDIA_FOLDER_ID_CACHE: dict[str, str | None] = {}
+
+
+def _apply_media_name(client, media_id: str, current: str | None, want: dict) -> None:
+    """Rename an already pushed media file and set alt/title (best effort).
+
+    A rename changes the public media URL; Shopware keeps no redirect.
+    Duplicate names across products get the media id appended.
+    """
+    if want.get("alt"):
+        try:
+            client.request_patch(f"media/{media_id}", payload={"alt": want["alt"], "title": want["alt"]})
+        except Exception:  # noqa: BLE001
+            pass
+    name = want.get("file")
+    if not name or current in (name, f"{name}-{media_id[:8]}"):
+        return
+    for candidate in (name, f"{name}-{media_id[:8]}"):
+        try:
+            client.request_post(f"_action/media/{media_id}/rename", payload={"fileName": candidate})
+            return
+        except Exception as exc:  # noqa: BLE001
+            if "duplicat" not in str(exc).lower():
+                return
 
 
 def _resolve_product_media_folder_id(client) -> str | None:

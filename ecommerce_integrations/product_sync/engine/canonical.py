@@ -1288,7 +1288,56 @@ def _canonical_images(item, sync, ctx=None) -> list[dict[str, Any]]:
             continue
         seen.add(img["url"])
         deduped.append(img)
+    _name_images(deduped, item, sync)
     return deduped
+
+
+def _name_images(images: list[dict[str, Any]], item, sync) -> None:
+    """Attach SEO file name / alt text from the Sync's image templates.
+
+    Keys are only added when a template is set, so syncs without
+    templates keep their existing ``images`` hashes (no re-push).
+    Setting a template flips the hash once and the apply renames the
+    already pushed media in place.
+    """
+    file_tpl = (getattr(sync, "image_filename_template", "") or "").strip()
+    alt_tpl = (getattr(sync, "image_alt_template", "") or "").strip()
+    if not (file_tpl or alt_tpl):
+        return
+    import frappe
+
+    data = _template_item(item)
+    used: set[str] = set()
+    for n, img in enumerate(images, 1):
+        ctx = {"item": data, "n": n}
+        if file_tpl:
+            try:
+                name = _file_slug(frappe.render_template(file_tpl, ctx))
+            except Exception:  # noqa: BLE001 — broken template never blocks the sync
+                name = ""
+            if name in used:
+                name = f"{name}-{n}"
+            if name:
+                used.add(name)
+                img["file"] = name
+        if alt_tpl:
+            try:
+                alt = _norm_str(frappe.render_template(alt_tpl, ctx))
+            except Exception:  # noqa: BLE001
+                alt = ""
+            if alt:
+                img["alt"] = alt
+
+
+def _file_slug(value: str) -> str:
+    """ASCII file name: German umlauts transliterated, other accents dropped."""
+    import unicodedata
+
+    s = (value or "").strip()
+    for a, b in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("Ä", "Ae"), ("Ö", "Oe"), ("Ü", "Ue"), ("ß", "ss")):
+        s = s.replace(a, b)
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
+    return _slugify(s)[:120].strip("-")
 
 
 def _load_property_catalog() -> dict[str, dict[str, Any]]:

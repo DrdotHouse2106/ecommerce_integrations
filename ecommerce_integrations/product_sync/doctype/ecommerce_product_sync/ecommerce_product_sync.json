@@ -66,6 +66,8 @@
   "images_section",
   "image_strategy",
   "internal_host_patterns",
+  "image_filename_template",
+  "image_alt_template",
   "schedule_section",
   "cron_preset",
   "cron_schedule",
@@ -483,6 +485,18 @@
    "fieldtype": "Small Text",
    "depends_on": "eval:doc.image_strategy==='url_with_bytes_fallback'",
    "description": "One pattern per line, e.g. <code>*.internal</code>, <code>192.168.*</code>, <code>erp.local</code>. On match, the image is uploaded as a binary."
+  },
+  {
+   "fieldname": "image_filename_template",
+   "label": "Dateiname-Vorlage",
+   "fieldtype": "Small Text",
+   "description": "Jinja, z. B. <code>{{ item.item_name }}-{{ item.item_code }}-{{ n }}</code>. Leer = Dateiname aus ERPNext. Wird zu Kleinbuchstaben mit Bindestrichen; bestehende Bilder werden umbenannt (neue Bild-URL)."
+  },
+  {
+   "fieldname": "image_alt_template",
+   "label": "Alt-Text-Vorlage",
+   "fieldtype": "Small Text",
+   "description": "Jinja, z. B. <code>{{ item.item_name }}</code>. Setzt Alt-Text und Titel der Bilder. <code>n</code> = Bildnummer (1 = Hauptbild)."
   },
   {
    "fieldname": "schedule_section",

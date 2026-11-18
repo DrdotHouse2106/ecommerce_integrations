@@ -353,7 +353,7 @@ class MedusaProductAdapter(ProductAdapter):
                 v["id"] = live[v["sku"]]
 
     def upload_product_images(
-        self, product_id: str, urls: list[str],
+        self, product_id: str, urls: list[str], names: dict | None = None,
     ) -> dict:
         """Phase-C image push: set the product's gallery + thumbnail.
 

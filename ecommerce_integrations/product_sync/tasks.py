@@ -1093,6 +1093,14 @@ def _apply_batch(
                         m.get("media", {}).get("url")
                         for m in media if m.get("media", {}).get("url")
                     ]
+                    # SEO file name / alt text from the Sync templates.
+                    # Present → already pushed media still go through the
+                    # uploader, which renames them in place.
+                    image_names = {
+                        m["media"]["url"]: {k: m["media"][k] for k in ("file", "alt") if m["media"].get(k)}
+                        for m in media
+                        if m.get("media", {}).get("url") and (m["media"].get("file") or m["media"].get("alt"))
+                    }
                     # Canonical gallery order (basenames) — captured before
                     # the short-circuit below empties ``urls``. Drives the
                     # ordered keep-list for reconcile (positions + cover).
@@ -1131,7 +1139,11 @@ def _apply_batch(
                             (u.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]).lower()
                             for u in urls
                         }
-                        if needed_basenames and needed_basenames.issubset(existing_basenames):
+                        if (
+                            not image_names
+                            and needed_basenames
+                            and needed_basenames.issubset(existing_basenames)
+                        ):
                             urls = []  # all already pushed → nothing to do
                             # Exact-match check: if pushed_image_map's
                             # basenames equal the canonical set (not just a
@@ -1154,7 +1166,10 @@ def _apply_batch(
 
                     if urls:
                         try:
-                            upload_result = uploader(new_external_id, urls) or {}
+                            upload_result = (
+                                uploader(new_external_id, urls, names=image_names)
+                                if image_names else uploader(new_external_id, urls)
+                            ) or {}
                             # Persist ERP-basename → media-UUID map so the
                             # next preview's image-diff can short-circuit
                             # when the live Shopware media set matches.
