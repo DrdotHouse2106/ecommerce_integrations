@@ -12,6 +12,7 @@ import frappe
 from frappe import _
 from frappe.utils import nowdate
 
+from ecommerce_integrations.shopware6.connection import temp_shopware_session
 from ecommerce_integrations.shopware6.constants import (
     PAYMENT_STATE_MAP,
     SETTING_DOCTYPE,
@@ -136,6 +137,40 @@ def send_invoice_email(sales_invoice_name: str, setting) -> bool:
         return False
 
 
+@temp_shopware_session
+def fetch_transaction_state(client, *, order_id: str, transaction_id: str | None = None) -> dict | None:
+    """Current state of the order's transaction as Shopware reports it.
+
+    Uses ``transaction_id`` when given (and checks it belongs to
+    ``order_id``), otherwise the order's newest transaction. Returns
+    ``{"state", "transaction_id"}`` or None when nothing matches."""
+    flt = [{"type": "equals", "field": "orderId", "value": order_id}]
+    if transaction_id:
+        flt.append({"type": "equals", "field": "id", "value": transaction_id})
+    try:
+        resp = client.request_post("search/order-transaction", {
+            "filter": flt,
+            "associations": {"stateMachineState": {}},
+            "sort": [{"field": "createdAt", "order": "DESC"}],
+            "limit": 1,
+        })
+    except Exception as exc:  # noqa: BLE001
+        get_logger("fetch_transaction_state").error(
+            f"Could not read transaction for order {order_id}", exception=exc, persist=True
+        )
+        return None
+    rows = resp.data or []
+    if not rows:
+        return None
+    row = rows[0]
+    attrs = row.get("attributes") or {}
+    merged = {**attrs, **{k: v for k, v in row.items() if k != "attributes"}}
+    if merged.get("orderId") and merged.get("orderId") != order_id:
+        return None
+    state = ((merged.get("stateMachineState") or {}).get("technicalName")) or ""
+    return {"state": state, "transaction_id": merged.get("id")} if state else None
+
+
 def handle_transaction_state_change(payload: dict[str, Any], request_id: str | None = None, retry_count: int = 0):
     """
     Handle order transaction state change from Shopware webhook.
@@ -170,6 +205,27 @@ def handle_transaction_state_change(payload: dict[str, Any], request_id: str | N
             if request_id:
                 update_shopware_log(request_id, status="Error", message="No orderId in payload")
             return
+
+        # Never trust the state in the payload: read it back from Shopware.
+        # A forged or replayed webhook would otherwise create invoices and
+        # payment entries for orders nobody paid.
+        if retry_count == 0:
+            verified = fetch_transaction_state(order_id=order_id, transaction_id=transaction_id)
+            if not verified:
+                if request_id:
+                    update_shopware_log(
+                        request_id, status="Error",
+                        message=f"Payment state for order {order_id} could not be verified with Shopware",
+                    )
+                return
+            if verified["state"] != new_state:
+                frappe.logger("shopware6").warning(
+                    f"Webhook state {new_state!r} for order {order_id} differs from Shopware "
+                    f"({verified['state']!r}); using Shopware's"
+                )
+            new_state = verified["state"]
+            transaction_id = verified["transaction_id"]
+            payload = {**payload, "data": {**data, "state": new_state, "transactionId": transaction_id}}
 
         frappe.logger("shopware6").info(
             f"Transaction state change: Order {order_number}, "
