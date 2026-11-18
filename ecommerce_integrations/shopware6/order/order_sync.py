@@ -440,7 +440,7 @@ def create_sales_order(order_data: dict[str, Any]) -> str:
 
     # Determine and set tax template based on delivery country and B2B status
     # This is important for proper VAT classification in reporting
-    tax_template = get_tax_template(order_data, setting.company)
+    tax_template = get_tax_template(order_data, setting.company, setting)
     if tax_template:
         so.taxes_and_charges = tax_template
 
@@ -589,7 +589,13 @@ def _create_invoice_if_paid(
     else:
         # Create invoice for unpaid methods that require an invoice up-front
         _, erpnext_mode, _ = get_payment_method_info(order_data, setting)
-        unpaid_invoice_modes = {"Vorkasse", "Rechnung", "Nachnahme", "Bargeld"}
+        # German names plus the English defaults of PAYMENT_METHOD_MAP —
+        # the map yields "Prepayment"/"Invoice", so the German-only set
+        # never matched an unmapped standard method.
+        unpaid_invoice_modes = {
+            "Vorkasse", "Rechnung", "Nachnahme", "Bargeld",
+            "Prepayment", "Invoice", "Cash on Delivery", "Cash",
+        }
         if erpnext_mode in unpaid_invoice_modes:
             transaction = transactions[0] if transactions else {}
             create_sales_invoice(sales_order, transaction, setting)

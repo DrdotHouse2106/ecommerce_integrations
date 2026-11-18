@@ -66,3 +66,25 @@ class TestSkuVariants(unittest.TestCase):
              patch.object(product.frappe.db, "exists", side_effect=lambda dt, n: n == "956737.5"):
             code = product.get_item_code({"productId": "p", "payload": {"productNumber": "956737,5"}})
         self.assertEqual(code, "956737.5")
+
+
+class TestTaxTemplate(unittest.TestCase):
+    def _tpl(self, order, **kw):
+        from ecommerce_integrations.shopware6.order import order_mapper as m
+        setting = SimpleNamespace(**{"tax_template_domestic_gross": "Inland inkl - X",
+                                     "tax_template_domestic_net": "Inland zzgl - X",
+                                     "tax_template_eu_b2b": "EU B2B - X", **kw})
+        with patch.object(m, "get_delivery_country_code", return_value=order.pop("_country")), \
+             patch.object(m, "has_valid_vat_id", return_value=order.pop("_vat", False)), \
+             patch.object(m.frappe.db, "get_value", return_value="X"), \
+             patch.object(m.frappe.db, "exists", return_value=False):
+            return m.get_tax_template(order, "Test GmbH", setting)
+
+    def test_domestic_by_tax_status(self):
+        self.assertEqual(self._tpl({"_country": "DE", "taxStatus": "gross"}), "Inland inkl - X")
+        self.assertEqual(self._tpl({"_country": "DE", "taxStatus": "net"}), "Inland zzgl - X")
+        self.assertEqual(self._tpl({"_country": "DE", "price": {"taxStatus": "net"}}), "Inland zzgl - X")
+
+    def test_eu_and_unconfigured(self):
+        self.assertEqual(self._tpl({"_country": "AT", "_vat": True}), "EU B2B - X")
+        self.assertEqual(self._tpl({"_country": "US"}), "")  # not configured, built-in name missing
