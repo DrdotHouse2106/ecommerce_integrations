@@ -85,6 +85,13 @@ def add_order_item(
     unit_price = flt(line_item.get("unitPrice", 0))
 
     quantity = flt(line_item.get("quantity", 1))
+    decimal_qty = decimal_quantity(line_item, setting)
+    if decimal_qty:
+        # Plugin-managed decimal quantity (m², m …): Shopware keeps an
+        # integer quantity and prices the line as value × unit price.
+        line_total = flt(line_item.get("totalPrice")) or unit_price * quantity
+        quantity = decimal_qty * quantity
+        unit_price = line_total / quantity
 
     item_drop_ship = frappe.db.get_value("Item", item_code, "delivered_by_supplier")
     supplier = None
@@ -130,6 +137,24 @@ def add_order_item(
             "supplier": supplier,
         },
     )
+
+
+def decimal_quantity(line_item: dict[str, Any], setting) -> float:
+    """Value at ``decimal_quantity_payload_path`` in the line payload, or 0."""
+    path = (getattr(setting, "decimal_quantity_payload_path", None) or "").strip()
+    if not path:
+        return 0.0
+    value: Any = line_item.get("payload") or {}
+    for key in path.split("."):
+        if not isinstance(value, dict):
+            return 0.0
+        value = value.get(key)
+    if isinstance(value, str):
+        value = value.replace(",", ".")
+    try:
+        return max(float(value or 0), 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _ensure_sales_item(item_code: str, shopware_product_id: str | None = None) -> None:

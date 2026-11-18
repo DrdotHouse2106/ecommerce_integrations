@@ -124,6 +124,13 @@ def sync_order_by_id(
     Returns:
         ERPNext Sales Order name if created
     """
+    if not order_channel_allowed(order_data, setting):
+        frappe.logger("shopware6").info(
+            f"Skipping order {order_number} ({order_id}): sales channel "
+            f"{order_data.get('salesChannelId')} not marked for order import"
+        )
+        return None
+
     # Check if already synced
     existing = frappe.db.get_value("Sales Order", {"shopware_order_id": order_id}, "name")
     if existing:
@@ -259,6 +266,18 @@ def _insert_sales_order(so, desired_name: str) -> None:
         so.insert(ignore_permissions=True, set_name=f"{desired_name}-SW")
 
 
+def order_channel_allowed(order_data: dict[str, Any], setting) -> bool:
+    """With ``order_import_channel_filter`` on, only channels whose row in
+    ``sales_channels`` has ``import_orders`` ticked are imported."""
+    if not int(getattr(setting, "order_import_channel_filter", 0) or 0):
+        return True
+    channel_id = order_data.get("salesChannelId")
+    return any(
+        row.sales_channel_id == channel_id and int(getattr(row, "import_orders", 0) or 0)
+        for row in (setting.sales_channels or [])
+    )
+
+
 def create_sales_order(order_data: dict[str, Any]) -> str:
     """
     Create ERPNext Sales Order from Shopware order data.
@@ -278,6 +297,13 @@ def create_sales_order(order_data: dict[str, Any]) -> str:
     order_state = (order_data.get("stateMachineState") or {}).get("technicalName", "")
     if order_state == "cancelled":
         frappe.logger("shopware6").info(f"Skipping cancelled order {order_number} ({order_id})")
+        return None
+
+    if not order_channel_allowed(order_data, setting):
+        frappe.logger("shopware6").info(
+            f"Skipping order {order_number} ({order_id}): sales channel "
+            f"{order_data.get('salesChannelId')} not marked for order import"
+        )
         return None
 
     # Check if already synced

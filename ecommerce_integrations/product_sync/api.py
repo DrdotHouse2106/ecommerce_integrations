@@ -22,6 +22,7 @@ from collections.abc import Iterable
 import frappe
 from frappe import _
 
+from ecommerce_integrations.utils.sku import sku_variants as _sku_variants
 from ecommerce_integrations.product_sync.constants import (
     BACKEND_MEDUSA,
     BACKEND_SHOPWARE,
@@ -526,19 +527,6 @@ def auto_adopt_by_sku(
     if not frappe.has_permission(SYNC_DOCTYPE, "write", doc=sync):
         frappe.throw(_("Not permitted to adopt for this Product Sync"))
     return adopt_by_sku(frappe.get_doc(SYNC_DOCTYPE, sync), also_try_ean=also_try_ean)
-
-
-def _sku_variants(sku: str) -> list[str]:
-    """The SKU plus its other-decimal-separator spelling (``1.5`` ↔ ``1,5``).
-
-    Shops sometimes store a product number with a decimal comma while
-    the ERP item code uses a dot (or vice versa); both spellings are
-    tried so the existing product is adopted instead of duplicated."""
-    out = [sku]
-    for a, b in ((".", ","), (",", ".")):
-        if a in sku:
-            out.append(sku.replace(a, b))
-    return out
 
 
 def adopt_by_sku(doc, *, item_codes: list[str] | None = None, also_try_ean: bool = False) -> dict:

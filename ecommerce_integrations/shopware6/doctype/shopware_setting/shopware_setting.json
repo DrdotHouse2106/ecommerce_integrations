@@ -60,6 +60,8 @@
   "section_break_order",
   "order_sync_frequency",
   "last_order_sync",
+  "order_import_channel_filter",
+  "decimal_quantity_payload_path",
   "sales_order_series",
   "delivery_note_series",
   "sales_invoice_series",
@@ -1070,12 +1072,25 @@
    "label": "Custom-Field Sync-Sprachen",
    "default": "all",
    "description": "Sprachen, in die Produkt-Custom-Fields synchronisiert werden: 'all' (alle Shopware-Sprachen) oder Komma-Liste von Locales (z. B. 'de-DE,en-GB'). Leer = alle."
+  },
+  {
+   "fieldname": "order_import_channel_filter",
+   "fieldtype": "Check",
+   "default": "0",
+   "label": "Bestellungen nur aus markierten Verkaufskanälen",
+   "description": "An: Es werden nur Bestellungen aus Verkaufskanälen importiert, die in der Tabelle Verkaufskanäle mit „Bestellungen importieren“ markiert sind. Aus: alle Kanäle."
+  },
+  {
+   "fieldname": "decimal_quantity_payload_path",
+   "fieldtype": "Data",
+   "label": "Dezimalmenge aus Positions-Payload",
+   "description": "Optional. Pfad im Payload der Bestellposition (mit Punkten getrennt), unter dem ein Plugin die echte Dezimalmenge ablegt, z. B. „plugin.value“. Dann gilt: Menge = Wert × Shopware-Menge, Einzelpreis = Positionssumme ÷ Menge."
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-02-16 12:00:00.000000",
+ "modified": "2026-11-18 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "shopware6",
  "name": "Shopware Setting",
