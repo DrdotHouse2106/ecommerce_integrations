@@ -36,6 +36,7 @@
   "sync_taxes",
   "sync_categories",
   "reconcile_property_groups",
+  "auto_adopt_by_sku",
   "behavior_section",
   "name_template",
   "description_source",
@@ -274,6 +275,13 @@
    "default": "1",
    "depends_on": "sync_properties",
    "description": "An: Bei jedem vollen Lauf wird das Filter-H\u00e4kchen aller Eigenschaftsgruppen im Shop nach dem Eigenschaften-Katalog gesetzt und nicht genutzte Werte werden gel\u00f6scht. Aus, wenn Eigenschaften auch au\u00dferhalb von ERPNext gepflegt werden."
+  },
+  {
+   "fieldname": "auto_adopt_by_sku",
+   "label": "Vorhandene Shop-Artikel \u00fcber die Artikelnummer zuordnen",
+   "fieldtype": "Check",
+   "default": "0",
+   "description": "Vor jeder Vorschau und jedem Lauf werden Artikel ohne Zuordnung mit vorhandenen Shop-Artikeln gleicher Artikelnummer verkn\u00fcpft (auch 1.5 \u2194 1,5), statt sie neu anzulegen. Schreibt nur in ERPNext."
   },
   {
    "fieldname": "behavior_section",

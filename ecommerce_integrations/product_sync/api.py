@@ -525,12 +525,31 @@ def auto_adopt_by_sku(
     """
     if not frappe.has_permission(SYNC_DOCTYPE, "write", doc=sync):
         frappe.throw(_("Not permitted to adopt for this Product Sync"))
+    return adopt_by_sku(frappe.get_doc(SYNC_DOCTYPE, sync), also_try_ean=also_try_ean)
 
+
+def _sku_variants(sku: str) -> list[str]:
+    """The SKU plus its other-decimal-separator spelling (``1.5`` ↔ ``1,5``).
+
+    Shops sometimes store a product number with a decimal comma while
+    the ERP item code uses a dot (or vice versa); both spellings are
+    tried so the existing product is adopted instead of duplicated."""
+    out = [sku]
+    for a, b in ((".", ","), (",", ".")):
+        if a in sku:
+            out.append(sku.replace(a, b))
+    return out
+
+
+def adopt_by_sku(doc, *, item_codes: list[str] | None = None, also_try_ean: bool = False) -> dict:
+    """Core of :func:`auto_adopt_by_sku` without the permission check.
+
+    ``item_codes`` restricts the walk to those items (per-save subset
+    runs); default is the Sync's whole scope."""
     from ecommerce_integrations.product_sync.engine.adapters.base import AdapterError
     from ecommerce_integrations.product_sync.engine.registry import get_adapter
     from ecommerce_integrations.product_sync.walker import walk_items_for_sync
 
-    doc = frappe.get_doc(SYNC_DOCTYPE, sync)
     integration_key = BACKEND_TO_INTEGRATION_KEY.get(
         doc.backend or "", (doc.backend or "").lower(),
     )
@@ -548,7 +567,9 @@ def auto_adopt_by_sku(
     }
 
     # Pre-load existing mappings to skip already-mapped items in O(N).
-    item_codes_in_scope = [n.item_code for n in walk_items_for_sync(doc)]
+    item_codes_in_scope = list(item_codes) if item_codes else [
+        n.item_code for n in walk_items_for_sync(doc)
+    ]
     if not item_codes_in_scope:
         return counts
     existing = set(
@@ -583,7 +604,7 @@ def auto_adopt_by_sku(
         frappe.db.commit()  # noqa: SLF001
         return counts
 
-    sku_list = [sku for (_ic, sku, _e) in pending]
+    sku_list = [v for (_ic, sku, _e) in pending for v in _sku_variants(sku)]
     ean_list = [e for (_ic, _s, e) in pending if e]
 
     try:
@@ -597,7 +618,7 @@ def auto_adopt_by_sku(
         frappe.throw(_("Bulk match search failed: {0}").format(exc))
 
     for item_code, sku, ean in pending:
-        match = bulk_matches.get(sku)
+        match = next((bulk_matches[v] for v in _sku_variants(sku) if v in bulk_matches), None)
         if match is None and ean:
             match = bulk_matches.get(ean)
         if match is None:

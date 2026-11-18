@@ -232,6 +232,7 @@ def apply_sync(
         trigger_type: ``manual`` / ``cron`` / ``webhook`` / ``dispatch``.
     """
     doc = frappe.get_doc(SYNC_DOCTYPE, sync_name)
+    _auto_adopt(doc, subset_item_codes)
     if dry_run:
         return compute_product_diff(
             doc,
@@ -708,6 +709,25 @@ def _apply_live(
         result.status = STATUS_ERROR
         result.message = msg
         return result
+
+
+def _auto_adopt(sync_doc, subset_item_codes: list[str] | None) -> None:
+    """Map unmapped in-scope items to existing backend products by SKU
+    before diffing, so preview and apply update them instead of creating
+    duplicates. Opt-in via ``auto_adopt_by_sku``; writes only
+    ``Ecommerce Item`` rows in ERPNext."""
+    from ecommerce_integrations.product_sync.engine.canonical import _flag
+    if not _flag(sync_doc, "auto_adopt_by_sku", default=False):
+        return
+    try:
+        from ecommerce_integrations.product_sync.api import adopt_by_sku
+        counts = adopt_by_sku(sync_doc, item_codes=subset_item_codes)
+        if counts.get("adopted"):
+            _logger().info(f"auto-adopt sync={sync_doc.name}: {counts}")
+    except Exception as exc:  # noqa: BLE001 — never block the run on adoption
+        _logger().warning(
+            f"auto-adopt failed for sync={sync_doc.name}: {type(exc).__name__}: {exc}"
+        )
 
 
 def _visibility_strict(sync_doc) -> bool:
