@@ -12,6 +12,8 @@ Invoice Creation Policy (German Law Compliant):
 - This ensures correct VAT timing per § 31 Abs. 4 UStDV
 """
 
+import re
+
 import frappe
 
 from ecommerce_integrations.shopware6.connection import temp_shopware_session
@@ -63,9 +65,22 @@ def update_shopware_order_status(client, order_id: str, action: str) -> bool:
         return False
 
 
+def split_tracking_codes(value) -> list[str]:
+    """Tracking codes from a string (comma/semicolon/whitespace separated) or list."""
+    if not value:
+        return []
+    parts = value if isinstance(value, (list, tuple)) else re.split(r"[,;\s]+", str(value))
+    out: list[str] = []
+    for p in parts:
+        p = (p or "").strip()
+        if p and p not in out:
+            out.append(p)
+    return out
+
+
 @temp_shopware_session
 def update_shopware_delivery_status(
-    client, order_id: str, action: str, tracking_number: str | None = None
+    client, order_id: str, action: str | None, tracking_number: str | None = None
 ) -> bool:
     """
     Update Shopware delivery state machine, optionally writing a tracking number.
@@ -100,11 +115,17 @@ def update_shopware_delivery_status(
 
         delivery_id = deliveries[0].get("id")
 
-        if tracking_number:
+        new_codes = split_tracking_codes(tracking_number)
+        if new_codes:
             try:
-                client.request_patch(
-                    f"order-delivery/{delivery_id}", {"trackingCodes": [tracking_number]}
-                )
+                # Merge with codes already on the delivery (multi-parcel
+                # shipments, several delivery notes, codes added later).
+                current = deliveries[0].get("trackingCodes") or []
+                merged = split_tracking_codes(list(current) + new_codes)
+                if merged != list(current):
+                    client.request_patch(
+                        f"order-delivery/{delivery_id}", {"trackingCodes": merged}
+                    )
             except Exception as e:
                 # Don't let a tracking-write failure block the state
                 # transition — the shipment still happened.
@@ -112,6 +133,9 @@ def update_shopware_delivery_status(
                     f"Failed to write tracking code for Shopware order {order_id}: {e}",
                     persist=True
                 )
+
+        if not action:
+            return True
 
         # Update delivery state
         endpoint = f"_action/state-machine/order_delivery/{delivery_id}/state/{action}"
@@ -194,11 +218,14 @@ def on_delivery_note_submit(doc, method=None):
     if not shopware_order_id:
         return  # Not a Shopware order
 
-    # 1. Update Shopware delivery status (+ tracking number, if present)
+    # 1. Update Shopware delivery status (+ tracking number, if present).
+    # The Sales Order's per_delivered is already updated by the Delivery
+    # Note's own on_submit; anything below 100 % is a partial shipment.
+    per_delivered = frappe.db.get_value("Sales Order", sales_order_name, "per_delivered") or 0
     frappe.enqueue(
         update_shopware_delivery_status,
         order_id=shopware_order_id,
-        action="ship",
+        action="ship" if float(per_delivered) >= 100 else "ship_partially",
         tracking_number=doc.lr_no or None,
         queue="short",
         timeout=STATUS_SYNC_ENQUEUE_TIMEOUT,
@@ -222,6 +249,35 @@ def on_delivery_note_submit(doc, method=None):
             queue="short",
             timeout=INVOICE_CREATE_ENQUEUE_TIMEOUT,
         )
+
+
+def add_tracking_codes(delivery_note: str, codes) -> bool:
+    """Queue tracking codes for the Shopware order behind ``delivery_note``.
+
+    For shipping apps that create labels after the Delivery Note was
+    submitted: codes are merged into the Shopware delivery's
+    ``trackingCodes`` without changing its state. Returns False when the
+    note isn't linked to a Shopware order or no code was given."""
+    codes = split_tracking_codes(codes)
+    if not codes or not is_shopware_enabled():
+        return False
+    sales_order = frappe.db.get_value(
+        "Delivery Note Item", {"parent": delivery_note, "against_sales_order": ("is", "set")},
+        "against_sales_order",
+    )
+    order_id = sales_order and frappe.db.get_value("Sales Order", sales_order, ORDER_ID_FIELD)
+    if not order_id:
+        return False
+    frappe.enqueue(
+        update_shopware_delivery_status,
+        order_id=order_id,
+        action=None,
+        tracking_number=",".join(codes),
+        queue="short",
+        timeout=STATUS_SYNC_ENQUEUE_TIMEOUT,
+        enqueue_after_commit=True,
+    )
+    return True
 
 
 def create_invoice_from_delivery_note(
