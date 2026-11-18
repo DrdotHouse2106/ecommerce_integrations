@@ -229,7 +229,7 @@ def build_shopware_payload(
         # restockTime above) so un-ticking Abverkauf in the ERP clears
         # the flag on the live product too.
         payload["isCloseout"] = bool(basic.get("is_closeout", False))
-    if _wants("inventory"):
+    if _wants("inventory") and "inventory" in canonical:
         payload["stock"] = int(inventory.get("qty") or 0)
     if external_id:
         payload["id"] = external_id

@@ -29,6 +29,8 @@
   "sync_basic_fields",
   "sync_pricing",
   "sync_inventory",
+  "inventory_warehouse",
+  "inventory_item_flag",
   "column_break_fields",
   "sync_images",
   "sync_properties",
@@ -232,6 +234,21 @@
    "label": "Bestand",
    "fieldtype": "Check",
    "default": "1"
+  },
+  {
+   "fieldname": "inventory_warehouse",
+   "label": "Lager f\u00fcr Bestand",
+   "fieldtype": "Link",
+   "options": "Warehouse",
+   "depends_on": "sync_inventory",
+   "description": "Leer: Summe aller Lager. Sonst nur dieses Lager und die Lager darunter."
+  },
+  {
+   "fieldname": "inventory_item_flag",
+   "label": "Bestand nur f\u00fcr Artikel mit Feld",
+   "fieldtype": "Data",
+   "depends_on": "sync_inventory",
+   "description": "Feldname eines Ankreuzfelds am Artikel. Gesetzt: Bestand wird nur f\u00fcr Artikel mit Haken \u00fcbertragen, bei den anderen bleibt der Shop-Bestand unver\u00e4ndert."
   },
   {
    "fieldname": "column_break_fields",

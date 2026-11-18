@@ -204,7 +204,7 @@ def build_canonical_payload(item, sync, ctx=None) -> dict[str, Any]:
         payload["visibilities"] = _canonical_visibilities(item, sync)
     if _flag(sync, "sync_pricing", default=True):
         payload["pricing"] = _canonical_pricing(item, sync, ctx)
-    if _flag(sync, "sync_inventory", default=True):
+    if _flag(sync, "sync_inventory", default=True) and _inventory_enabled_for(item, sync):
         payload["inventory"] = _canonical_inventory(item, sync, ctx)
     if _flag(sync, "sync_images", default=True):
         payload["images"] = _canonical_images(item, sync, ctx)
@@ -1125,10 +1125,63 @@ def _lookup_item_price(item_code: str, price_list: str, currency: str) -> float 
     return None
 
 
+def _run_memo(key: str, loader):
+    """Once-per-job value cached on ``frappe.local``."""
+    import frappe
+    memo = getattr(frappe.local, "_product_sync_memo", None)
+    if memo is None:
+        memo = {}
+        frappe.local._product_sync_memo = memo
+    if key not in memo:
+        memo[key] = loader()
+    return memo[key]
+
+
+def _inventory_enabled_for(item, sync) -> bool:
+    """``inventory_item_flag`` names an Item check field; when set, stock is
+    only part of the canonical for items with that field ticked. Read from
+    the DB (bulk snapshots don't carry custom fields)."""
+    field = (getattr(sync, "inventory_item_flag", None) or "").strip()
+    if not field:
+        return True
+    import frappe
+
+    def load():
+        if not frappe.get_meta("Item").has_field(field):
+            return frozenset()
+        return frozenset(frappe.get_all("Item", filters={field: 1}, pluck="name", limit=0))
+
+    return (getattr(item, "item_code", None) or getattr(item, "name", None)) in _run_memo(
+        f"inventory_flag:{field}", load
+    )
+
+
+def _warehouse_stock(warehouse: str) -> dict[str, float]:
+    """Stock per item in ``warehouse`` and all warehouses below it."""
+    import frappe
+
+    def load():
+        rows = frappe.db.sql(
+            """SELECT b.item_code, COALESCE(SUM(b.actual_qty), 0)
+               FROM `tabBin` b
+               JOIN `tabWarehouse` w ON w.name = b.warehouse
+               JOIN `tabWarehouse` p ON p.name = %s
+               WHERE w.lft >= p.lft AND w.rgt <= p.rgt
+               GROUP BY b.item_code""",
+            (warehouse,),
+        )
+        return {code: float(qty or 0) for code, qty in rows}
+
+    return _run_memo(f"warehouse_stock:{warehouse}", load)
+
+
 def _canonical_inventory(item, sync, ctx=None) -> dict[str, Any]:
-    """Sum stock across warehouses. Uses ``ctx.stock_for`` for O(1)
-    when running over a bulk pre-load; falls back to per-item SQL
-    otherwise."""
+    """Sum stock across warehouses (or only ``inventory_warehouse`` and its
+    children when set). Uses ``ctx.stock_for`` for O(1) when running over
+    a bulk pre-load; falls back to per-item SQL otherwise."""
+    warehouse = (getattr(sync, "inventory_warehouse", None) or "").strip()
+    if warehouse:
+        return {"qty": _normalize_float(_warehouse_stock(warehouse).get(item.item_code, 0.0))}
     if ctx is not None:
         return {"qty": _normalize_float(ctx.stock_for(item.item_code))}
 
