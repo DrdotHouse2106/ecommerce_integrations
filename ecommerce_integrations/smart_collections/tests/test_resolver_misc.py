@@ -129,3 +129,17 @@ class TestResolverMisc(IntegrationTestCase):
         self.assertIn(self.with_mfr_a, result)
         self.assertIn(self.with_mfr_b, result)
         self.assertIn(self.no_mfr, result)
+
+
+class TestItemCustomFieldRule(IntegrationTestCase):
+    """Item custom fields may be used in Item Field rules (no DB writes)."""
+
+    def test_custom_field_allowed_standard_field_blocked(self):
+        from unittest.mock import patch
+
+        from ecommerce_integrations.smart_collections.engine import resolver as r
+        rule = {"rule_type": "Item Field", "field_key": "shop_active", "operator": "equals", "value": "1"}
+        with patch.object(r.frappe.db, "exists", return_value=True):
+            self.assertIn("item.`shop_active` =", r._build_item_field_clause(rule))
+        with patch.object(r.frappe.db, "exists", return_value=False), self.assertRaises(ValueError):
+            r._build_item_field_clause(dict(rule, field_key="description"))
