@@ -35,6 +35,7 @@
   "sync_seo_fields",
   "sync_taxes",
   "sync_categories",
+  "reconcile_property_groups",
   "behavior_section",
   "name_template",
   "description_source",
@@ -265,6 +266,14 @@
    "fieldtype": "Check",
    "default": "1",
    "description": "Aus: Der Sync schreibt keine Kategorie-Zuordnungen. F\u00fcr Shops, in denen ein anderes System die Kategorien pflegt."
+  },
+  {
+   "fieldname": "reconcile_property_groups",
+   "label": "Eigenschaftsgruppen im Shop abgleichen",
+   "fieldtype": "Check",
+   "default": "1",
+   "depends_on": "sync_properties",
+   "description": "An: Bei jedem vollen Lauf wird das Filter-H\u00e4kchen aller Eigenschaftsgruppen im Shop nach dem Eigenschaften-Katalog gesetzt und nicht genutzte Werte werden gel\u00f6scht. Aus, wenn Eigenschaften auch au\u00dferhalb von ERPNext gepflegt werden."
   },
   {
    "fieldname": "behavior_section",

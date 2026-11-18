@@ -443,6 +443,17 @@ def _apply_live(
         # the operator actually changed something on the ERPNext
         # side.
         if backend == BACKEND_SHOPWARE:
+            # Reuse property groups/options that already exist in
+            # Shopware under the same name instead of creating twins.
+            adopt = getattr(adapter, "adopt_existing_properties", None)
+            if callable(adopt) and int(getattr(sync_doc, "sync_properties", 0) or 0):
+                try:
+                    adopt()
+                except Exception as exc:  # noqa: BLE001
+                    _logger().warning(
+                        f"property adoption failed for sync={sync_doc.name} "
+                        f"run={run.name}: {type(exc).__name__}: {exc}"
+                    )
             try:
                 _ensure_brands_for_run(
                     sync_doc=sync_doc, plan=plan, adapter=adapter,
@@ -462,8 +473,10 @@ def _apply_live(
             # this batch. Idempotent — zero writes once converged. Skipped for
             # per-save subset dispatches (it scans ALL groups; running it on
             # every Item.save would be wasteful) — the cron's full run covers it.
+            from ecommerce_integrations.product_sync.engine.canonical import _flag as _pflag
+            reconcile_groups = _pflag(sync_doc, "reconcile_property_groups", default=True)
             recon = getattr(adapter, "reconcile_property_group_filterable", None)
-            if callable(recon) and not subset_item_codes:
+            if callable(recon) and not subset_item_codes and reconcile_groups:
                 try:
                     res = recon()
                     if res.get("updated"):
@@ -487,7 +500,7 @@ def _apply_live(
             # product references. Same gating as the filterable pass — full cron
             # run only, idempotent once converged.
             recon_opts = getattr(adapter, "reconcile_property_group_options", None)
-            if callable(recon_opts) and not subset_item_codes:
+            if callable(recon_opts) and not subset_item_codes and reconcile_groups:
                 try:
                     res = recon_opts()
                     if res.get("deleted"):

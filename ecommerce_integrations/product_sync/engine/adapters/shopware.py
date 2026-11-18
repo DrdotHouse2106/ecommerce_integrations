@@ -195,6 +195,12 @@ class ShopwareProductAdapter(ProductAdapter):
         rows = []
         result: dict[str, str] = {}
         for name, kind in groups:
+            adopted = _ADOPTED["groups"].get(_pkey(name))
+            if adopted:
+                # Existing group (possibly operator-managed): reuse it
+                # untouched — no name/position/filterable rewrite.
+                result[f"{kind}:{name}"] = adopted
+                continue
             gid = generate_uuid(f"property_group_{name}")
             cat_entry = catalog.get(name) or {}
             position = int(cat_entry.get("display_order") or property_priority(name))
@@ -218,6 +224,9 @@ class ShopwareProductAdapter(ProductAdapter):
             })
             result[f"{kind}:{name}"] = gid
 
+        if not rows:
+            return result
+
         def go(client):
             client.request_post("_action/sync", payload={
                 "groups": {
@@ -227,6 +236,30 @@ class ShopwareProductAdapter(ProductAdapter):
                 },
             })
             return result
+
+        return _with_client(go)
+
+    def adopt_existing_properties(self) -> dict:
+        """Load every Shopware property group + option once per run so
+        ``property_group_uuid`` / ``property_option_uuid`` reuse rows
+        that already exist under the same name."""
+        def go(client):
+            def fetch(entity: str, fields: list[str]) -> list[dict]:
+                rows, page = [], 1
+                while True:
+                    resp = client.request_post(f"search/{entity.replace('_', '-')}", payload={
+                        "includes": {entity: fields}, "limit": 500, "page": page,
+                    })
+                    data = resp.data or []
+                    rows.extend(data)
+                    if len(data) < 500:
+                        return rows
+                    page += 1
+
+            groups = fetch("property_group", ["id", "name"])
+            options = fetch("property_group_option", ["id", "name", "groupId"])
+            _remember_existing_properties(groups, options)
+            return {"groups": len(_ADOPTED["groups"]), "options": len(_ADOPTED["options"])}
 
         return _with_client(go)
 
@@ -546,9 +579,10 @@ class ShopwareProductAdapter(ProductAdapter):
         catalog = _load_property_catalog()
         rows = []
         for group_name, value, kind in options:
-            group_id = generate_uuid(f"property_group_{group_name}")
-            prefix = "variant_option" if kind == "variant" else "property_option"
-            opt_id = generate_uuid(f"{prefix}_{group_name}_{value}")
+            if _ADOPTED["options"].get(_pkey(group_name, value)):
+                continue
+            group_id = property_group_uuid(group_name)
+            opt_id = property_option_uuid(group_name, value, kind)
             # ``position`` mirrors the per-option ``display_order``
             # the operator set in the catalog. Storefront's filter
             # sidebar (and Shopware's "configurator" widget for
@@ -563,6 +597,9 @@ class ShopwareProductAdapter(ProductAdapter):
                 "name": value,
                 "position": position,
             })
+
+        if not rows:
+            return
 
         def go(client):
             # ``upsert`` semantics: existing rows are matched by id and
@@ -2506,17 +2543,70 @@ def _fetch_local_file_bytes(url: str) -> tuple[bytes | None, str | None]:
         return (None, None)
 
 
+# Existing Shopware property groups/options keyed by normalised name,
+# loaded once per run by ``adopt_existing_properties``. Lets the sync
+# reuse groups and options that were created outside ERPNext (by hand,
+# by another ERP, by an importer) instead of creating same-named twins
+# next to them — twins split storefront filters and break plugins that
+# look options up by group.
+_ADOPTED: dict[str, dict] = {"groups": {}, "options": {}}
+
+
+def _pkey(*parts: str) -> tuple[str, ...]:
+    return tuple((p or "").strip().casefold() for p in parts)
+
+
+def property_group_uuid(group_name: str) -> str:
+    """Existing Shopware group id for this name, else the deterministic UUID."""
+    adopted = _ADOPTED["groups"].get(_pkey(group_name))
+    if adopted:
+        return adopted
+    from ecommerce_integrations.shopware6.export.utils import generate_uuid
+    return generate_uuid(f"property_group_{group_name}")
+
+
 def property_option_uuid(group_name: str, value: str, kind: str = "property") -> str:
-    """Deterministic UUID for a Shopware ``property_group_option`` row,
-    matching the scheme that ``shopware6.export.property_handler``
-    used for in-place creation. ``kind="property"`` matches
-    ``get_or_create_property_option`` (filterable properties);
-    ``kind="variant"`` matches ``get_or_create_variant_option`` (variant
-    configurator). The two intentionally produce different UUIDs so the
-    same value can exist as both a property and a variant option."""
+    """UUID for a Shopware ``property_group_option`` row.
+
+    An option that already exists in Shopware under the same group and
+    value (case-insensitive) is reused. Otherwise the deterministic
+    scheme of ``shopware6.export.property_handler`` applies:
+    ``kind="property"`` matches ``get_or_create_property_option``
+    (filterable properties), ``kind="variant"`` matches
+    ``get_or_create_variant_option`` (variant configurator); the two
+    produce different UUIDs so the same value can exist as both."""
+    adopted = _ADOPTED["options"].get(_pkey(group_name, value))
+    if adopted:
+        return adopted
     from ecommerce_integrations.shopware6.export.utils import generate_uuid
     prefix = "variant_option" if kind == "variant" else "property_option"
     return generate_uuid(f"{prefix}_{group_name}_{value}")
+
+
+def _remember_existing_properties(groups: list[dict], options: list[dict]) -> None:
+    """Fill ``_ADOPTED`` from Shopware rows. When several groups share a
+    name, the one with the deterministic id wins (rows this sync created
+    earlier), otherwise the first one seen."""
+    from ecommerce_integrations.shopware6.export.utils import generate_uuid
+    by_name: dict[tuple, str] = {}
+    group_name: dict[str, str] = {}
+    for g in groups:
+        gid, name = g.get("id"), (g.get("name") or "").strip()
+        if not gid or not name:
+            continue
+        group_name[gid] = name
+        key = _pkey(name)
+        if key not in by_name or gid == generate_uuid(f"property_group_{name}"):
+            by_name[key] = gid
+    opts: dict[tuple, str] = {}
+    for o in options:
+        gid, value, oid = o.get("groupId"), (o.get("name") or "").strip(), o.get("id")
+        name = group_name.get(gid)
+        if not (oid and value and name) or by_name.get(_pkey(name)) != gid:
+            continue
+        opts.setdefault(_pkey(name, value), oid)
+    _ADOPTED["groups"] = by_name
+    _ADOPTED["options"] = opts
 
 
 # Process-local "ambient" Shopware client. When set, ``_with_client``
