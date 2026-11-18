@@ -87,10 +87,12 @@ def add_order_item(
     quantity = flt(line_item.get("quantity", 1))
     decimal_qty = decimal_quantity(line_item, setting)
     if decimal_qty:
-        # Plugin-managed decimal quantity (m², m …): Shopware keeps an
-        # integer quantity and prices the line as value × unit price.
+        # Plugin-managed decimal quantity (m², m …): the payload holds the
+        # line's total amount in the plugin unit (Shopware's own quantity
+        # may be 1 or a piece count); the rate is derived so the line
+        # total stays exactly Shopware's.
         line_total = flt(line_item.get("totalPrice")) or unit_price * quantity
-        quantity = decimal_qty * quantity
+        quantity = decimal_qty
         unit_price = line_total / quantity
 
     item_drop_ship = frappe.db.get_value("Item", item_code, "delivered_by_supplier")

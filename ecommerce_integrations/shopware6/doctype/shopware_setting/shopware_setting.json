@@ -1091,7 +1091,7 @@
    "fieldname": "decimal_quantity_payload_path",
    "fieldtype": "Data",
    "label": "Dezimalmenge aus Positions-Payload",
-   "description": "Optional. Pfad im Payload der Bestellposition (mit Punkten getrennt), unter dem ein Plugin die echte Dezimalmenge ablegt, z. B. „plugin.value“. Dann gilt: Menge = Wert × Shopware-Menge, Einzelpreis = Positionssumme ÷ Menge."
+   "description": "Optional. Pfad im Payload der Bestellposition (mit Punkten getrennt), unter dem ein Plugin die Gesamtmenge der Position in seiner Einheit ablegt, z. B. „plugin.total“. Dann gilt: Menge = dieser Wert, Einzelpreis = Positionssumme ÷ Menge."
   },
   {
    "fieldname": "tax_templates_section",

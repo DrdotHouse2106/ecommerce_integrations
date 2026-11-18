@@ -52,6 +52,21 @@ class TestDecimalQuantity(unittest.TestCase):
         self.assertEqual(row["qty"], 3)
         self.assertAlmostEqual(row["rate"], 39.90)
 
+    def test_piece_mode_uses_total_not_times_quantity(self):
+        # 4 boards of 0.5 m² each: Shopware quantity 4, payload total 2 m².
+        from ecommerce_integrations.shopware6.order import line_item_handler as h
+        so = MagicMock(delivery_date="2026-11-18")
+        line = {"type": "product", "quantity": 4, "unitPrice": 20.0, "totalPrice": 80.0,
+                "label": "Platte", "payload": {"plugin": {"value": 2}}}
+        with patch.object(h, "flt", lambda v, *a: float(v or 0)), \
+             patch.object(h, "get_item_code", return_value="ITEM-001"), \
+             patch.object(h, "_ensure_sales_item"), \
+             patch.object(h.frappe.db, "get_value", return_value=None):
+            h.add_order_item(so, line, _setting(decimal_quantity_payload_path="plugin.value"), "gross")
+        row = so.append.call_args.args[1]
+        self.assertEqual(row["qty"], 2)
+        self.assertAlmostEqual(row["rate"], 40.0)
+
 
 class TestSkuVariants(unittest.TestCase):
     def test_variants(self):
