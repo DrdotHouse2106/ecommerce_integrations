@@ -864,7 +864,7 @@ def _render_name(item, sync) -> str:
         return template
     try:
         import frappe
-        return frappe.render_template(template, {"item": item.as_dict()})
+        return frappe.render_template(template, {"item": _template_item(item)})
     except Exception:
         return item.item_name or item.item_code
 
@@ -896,7 +896,7 @@ def _render_description(item, sync) -> str:
             return template
         try:
             import frappe
-            return frappe.render_template(template, {"item": item.as_dict()})
+            return frappe.render_template(template, {"item": _template_item(item)})
         except Exception:
             return ""
     if source == "ai_generated":
@@ -920,7 +920,7 @@ def _render_description(item, sync) -> str:
             try:
                 import frappe
                 return frappe.render_template(
-                    tpl, {"item": item.as_dict(), "sync": sync},
+                    tpl, {"item": _template_item(item), "sync": sync},
                 ) or ""
             except Exception:  # noqa: BLE001
                 return ""
@@ -1123,6 +1123,24 @@ def _lookup_item_price(item_code: str, price_list: str, currency: str) -> float 
     if rows:
         return float(rows[0][0] or 0)
     return None
+
+
+def _template_item(item) -> dict:
+    """Item fields for name/description templates.
+
+    Bulk snapshots (preview) only carry a handful of standard fields, so a
+    template using a custom field rendered empty there but filled at apply
+    time — the hash never settled. Snapshots are therefore expanded with
+    the full Item; real Item docs are used as they are."""
+    data = item.as_dict()
+    if hasattr(item, "dynamic_field_values"):
+        import frappe
+        try:
+            full = frappe.get_cached_doc("Item", data.get("item_code") or data.get("name")).as_dict()
+            data = {**full, **data}
+        except Exception:  # noqa: BLE001 — fall back to the snapshot fields
+            pass
+    return data
 
 
 def _run_memo(key: str, loader):
