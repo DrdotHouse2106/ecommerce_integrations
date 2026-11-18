@@ -656,16 +656,21 @@ def _canonical_visibilities(item, sync) -> list[dict[str, Any]]:
         entries = channels_for_item(item_code, backend) or []
     except Exception:  # noqa: BLE001
         entries = []
+    strict = _flag(sync, "visibility_overrides_only", default=False)
     for e in entries:
         sc_id = _norm_str(getattr(e, "sales_channel", "") or "")
         if not sc_id:
+            continue
+        # Strict mode: the resolver's own default-channel fallback is
+        # not a placement either — only explicit layers count.
+        if strict and _norm_str(getattr(e, "source", "") or "").startswith("default"):
             continue
         out.append({
             "channel_id": sc_id,
             "visibility": int(getattr(e, "visibility", 0) or 0),
         })
 
-    if not out:
+    if not out and not strict:
         # Sync-aware fallback: linked-SC member → target_sales_channels,
         # else → default_sales_channel. Only kicks in when the resolver
         # produced no entries for this item.

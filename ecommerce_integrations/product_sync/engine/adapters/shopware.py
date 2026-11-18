@@ -668,6 +668,7 @@ class ShopwareProductAdapter(ProductAdapter):
         self,
         external_id: str,
         entries: list[dict],
+        allow_empty: bool = False,
     ) -> dict:
         """Align a product's ``product_visibility`` rows with the
         canonical ``visibilities`` section.
@@ -682,9 +683,9 @@ class ShopwareProductAdapter(ProductAdapter):
         no longer lists.
 
         ``entries`` is the canonical shape
-        (``[{channel_id, visibility}, …]``). Callers must NOT invoke
-        this with an empty list — an empty canonical means "no
-        opinion", not "unlink every channel".
+        (``[{channel_id, visibility}, …]``). An empty list is ignored
+        ("no opinion") unless ``allow_empty`` is set — strict
+        visibility mode uses that to unlink every channel.
 
         Returns ``{created, updated, deleted}``.
         """
@@ -692,6 +693,7 @@ class ShopwareProductAdapter(ProductAdapter):
             self._reconcile_visibilities_impl,
             external_id=external_id,
             entries=list(entries or []),
+            allow_empty=allow_empty,
         )
 
     def upload_product_images(
@@ -1882,9 +1884,10 @@ class ShopwareProductAdapter(ProductAdapter):
         *,
         external_id: str,
         entries: list[dict],
+        allow_empty: bool = False,
     ) -> dict:
         counters = {"created": 0, "updated": 0, "deleted": 0}
-        if not external_id or not entries:
+        if not external_id or (not entries and not allow_empty):
             return counters
 
         r = client.request_post("search/product", payload={

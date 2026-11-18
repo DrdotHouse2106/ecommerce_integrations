@@ -429,6 +429,10 @@ def _apply_live(
             for row in (sync_doc.target_sales_channels or [])
             if row.sales_channel_id
         ]
+        if _visibility_strict(sync_doc):
+            # Creates must carry only the canonical's own visibilities
+            # (possibly none = hidden), not every target channel.
+            target_channels = []
 
         # 2.5: ensure brand manufacturer rows ONCE per run (not per
         # batch). Brand data — logo + description + link — doesn't
@@ -691,6 +695,14 @@ def _apply_live(
         result.status = STATUS_ERROR
         result.message = msg
         return result
+
+
+def _visibility_strict(sync_doc) -> bool:
+    """``visibility_overrides_only`` only applies with ``sync_visibilities`` on."""
+    from ecommerce_integrations.product_sync.engine.canonical import _flag
+    return _flag(sync_doc, "sync_visibilities", default=False) and _flag(
+        sync_doc, "visibility_overrides_only", default=False
+    )
 
 
 def _sync_linked_smart_collection_categories(sync_doc, result: ProductSyncRunResult) -> None:
@@ -1329,9 +1341,13 @@ def _apply_batch(
                 )
                 vis_reconciler = getattr(adapter, "reconcile_product_visibilities", None)
                 canonical_vis = (meta.get("canonical") or {}).get("visibilities") or []
-                if callable(vis_reconciler) and not _vis_in_sync and canonical_vis:
+                strict = _visibility_strict(sync_doc)
+                if callable(vis_reconciler) and not _vis_in_sync and (canonical_vis or strict):
                     try:
-                        vis_reconciler(new_external_id, canonical_vis)
+                        if strict:
+                            vis_reconciler(new_external_id, canonical_vis, allow_empty=True)
+                        else:
+                            vis_reconciler(new_external_id, canonical_vis)
                     except Exception as exc:  # noqa: BLE001
                         result.errors.append(
                             f"{meta['item_code']}: visibility reconcile failed: {exc}",
