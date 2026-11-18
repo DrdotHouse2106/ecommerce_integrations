@@ -34,6 +34,7 @@
   "sync_properties",
   "sync_seo_fields",
   "sync_taxes",
+  "sync_categories",
   "behavior_section",
   "name_template",
   "description_source",
@@ -257,6 +258,13 @@
    "label": "Steuern",
    "fieldtype": "Check",
    "default": "1"
+  },
+  {
+   "fieldname": "sync_categories",
+   "label": "Kategorien",
+   "fieldtype": "Check",
+   "default": "1",
+   "description": "Aus: Der Sync schreibt keine Kategorie-Zuordnungen. F\u00fcr Shops, in denen ein anderes System die Kategorien pflegt."
   },
   {
    "fieldname": "behavior_section",
@@ -549,7 +557,7 @@
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-05-17 00:00:00.000000",
+ "modified": "2026-11-18 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Product Sync",
  "name": "Ecommerce Product Sync",

@@ -214,11 +214,13 @@ def build_canonical_payload(item, sync, ctx=None) -> dict[str, Any]:
         payload["seo"] = _canonical_seo(item, sync)
     if _flag(sync, "sync_taxes", default=True):
         payload["taxes"] = _canonical_taxes(item, sync)
-    # Category assignment isn't a sync_* toggle — products in
-    # Shopware/Medusa MUST belong to at least one category, so the
-    # mapping is always part of the payload. Drift here triggers a
-    # re-assignment push.
-    payload["categories"] = _canonical_categories(item, sync)
+    # On by default: the Item-Group → category mapping is part of the
+    # payload and drift triggers a re-assignment push. Off leaves
+    # category assignment to the backend (e.g. a shop-side rule
+    # plugin); the section is then absent so neither the hash, the
+    # differ nor the payload builder touch categories.
+    if _flag(sync, "sync_categories", default=True):
+        payload["categories"] = _canonical_categories(item, sync)
     return payload
 
 

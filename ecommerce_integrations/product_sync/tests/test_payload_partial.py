@@ -143,3 +143,38 @@ class TestBuildShopwarePayloadPartial(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCategoriesToggle(unittest.TestCase):
+    """``sync_categories=0`` drops the canonical ``categories`` section;
+    the payload builder must then never emit ``categories`` — not even
+    on a full create — so a shop-side category plugin keeps ownership."""
+
+    def _canonical(self, with_categories: bool) -> dict:
+        canonical = TestBuildShopwarePayloadPartial._canonical(None)
+        if not with_categories:
+            canonical.pop("categories")
+        return canonical
+
+    def _build(self, canonical, changed_sections=None):
+        from unittest.mock import patch
+
+        from ecommerce_integrations.product_sync.engine import payload as payload_mod
+        with patch.object(payload_mod, "_resolve_shopware_category_ids", return_value=["cat-1"]):
+            return payload_mod.build_shopware_payload(
+                _StubItem("ITEM-001"), _stub_sync(), canonical,
+                external_id="abc", changed_sections=changed_sections,
+            )
+
+    def test_categories_sent_when_section_present(self):
+        payload = self._build(self._canonical(True))
+        self.assertEqual(payload.get("categories"), [{"id": "cat-1"}])
+
+    def test_no_categories_when_section_absent(self):
+        self.assertNotIn("categories", self._build(self._canonical(False)))
+        self.assertNotIn("categories", self._build(self._canonical(False), {"categories"}))
+
+    def test_canonical_omits_categories_when_flag_off(self):
+        from ecommerce_integrations.product_sync.engine.canonical import _flag
+        self.assertFalse(_flag(_stub_sync(sync_categories=0), "sync_categories", default=True))
+        self.assertTrue(_flag(_stub_sync(), "sync_categories", default=True))

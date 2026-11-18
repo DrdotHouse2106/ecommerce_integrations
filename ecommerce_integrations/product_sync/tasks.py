@@ -656,7 +656,9 @@ def _apply_live(
         #    collections after products exist. This keeps Smart-Collection
         #    scoped Product Syncs category-complete without a second manual
         #    click.
-        _sync_linked_smart_collection_categories(sync_doc, result)
+        from ecommerce_integrations.product_sync.engine.canonical import _flag
+        if _flag(sync_doc, "sync_categories", default=True):
+            _sync_linked_smart_collection_categories(sync_doc, result)
 
         # 7. Final status.
         status = STATUS_OK if not result.errors else STATUS_PARTIAL

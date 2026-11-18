@@ -334,7 +334,7 @@ def build_shopware_payload(
     # missing we skip silently here — the pre-flight check warns the
     # operator up-front, so reaching this branch with no mapping means
     # they consciously chose to push without categories.
-    if _wants("categories"):
+    if _wants("categories") and "categories" in canonical:
         category_ids = _resolve_shopware_category_ids(item)
         if category_ids:
             payload["categories"] = [{"id": cid} for cid in category_ids]
@@ -722,7 +722,7 @@ def build_medusa_payload(
     # in Medusa's ``categories`` array. Missing mappings are silently
     # dropped because the pre-flight check has already warned the
     # operator about the unmapped IGs.
-    category_ids = _resolve_medusa_category_ids(item)
+    category_ids = _resolve_medusa_category_ids(item) if "categories" in canonical else []
     if category_ids:
         payload["categories"] = [{"id": cid} for cid in category_ids]
 
