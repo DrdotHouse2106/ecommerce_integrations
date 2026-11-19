@@ -9,6 +9,7 @@ from typing import Any
 import frappe
 from frappe.utils import flt
 
+from ecommerce_integrations.shopware6.order.tax_handler import item_tax_template_for_rate, rate_parts
 from ecommerce_integrations.shopware6.product import get_item_code
 from ecommerce_integrations.shopware6.utils import (
     get_logger,
@@ -137,8 +138,29 @@ def add_order_item(
             "description": line_item.get("label", ""),
             "delivered_by_supplier": item_drop_ship,
             "supplier": supplier,
+            "item_tax_template": _line_tax_template(so, setting, (line_item.get("price") or {}).get("calculatedTaxes")),
         },
     )
+
+
+def _line_tax_template(so, setting, calculated_taxes) -> str | None:
+    """Item Tax Template for a line taxed at exactly one Shopware rate."""
+    parts = rate_parts(calculated_taxes, 0)
+    if len(parts) != 1 or parts[0][0] is None:
+        return None
+    return item_tax_template_for_rate(parts[0][0], setting, so.get("taxes_and_charges"))
+
+
+def _append_by_rate(so, setting, row: dict, calculated_taxes, total: float) -> None:
+    """Append ``row`` once per tax rate of the Shopware line, rate = that part."""
+    for tax_rate, amount in rate_parts(calculated_taxes, total):
+        if not amount:
+            continue
+        template = (
+            item_tax_template_for_rate(tax_rate, setting, so.get("taxes_and_charges"))
+            if tax_rate is not None else None
+        )
+        so.append("items", {**row, "rate": amount, "item_tax_template": template})
 
 
 def decimal_quantity(line_item: dict[str, Any], setting) -> float:
@@ -207,15 +229,11 @@ def _add_shipping_item(
     shipping_price = flt(line_item.get("unitPrice", 0))
 
     if shipping_price > 0:
-        so.append(
-            "items",
-            {
-                "item_code": setting.shipping_item,
-                "qty": 1,
-                "rate": shipping_price,
-                "warehouse": setting.warehouse,
-                "delivery_date": so.delivery_date,
-            },
+        _append_by_rate(
+            so, setting,
+            {"item_code": setting.shipping_item, "qty": 1, "warehouse": setting.warehouse,
+             "delivery_date": so.delivery_date},
+            (line_item.get("price") or {}).get("calculatedTaxes"), shipping_price,
         )
 
 
@@ -265,12 +283,15 @@ def add_shipping_costs(
     # First try order-level shippingCosts
     shipping_costs = order_data.get("shippingCosts", {})
     shipping_total = flt(shipping_costs.get("totalPrice", 0))
+    shipping_taxes = list(shipping_costs.get("calculatedTaxes") or [])
 
     # If no order-level shipping, try deliveries
     if not shipping_total:
+        shipping_taxes = []
         for delivery in (order_data.get("deliveries") or []):
             delivery_shipping = delivery.get("shippingCosts", {})
             shipping_total += flt(delivery_shipping.get("totalPrice", 0))
+            shipping_taxes += delivery_shipping.get("calculatedTaxes") or []
 
     # Skip if no shipping costs
     if shipping_total <= 0:
@@ -280,18 +301,24 @@ def add_shipping_costs(
     # ERPNext handles the tax inclusion via included_in_print_rate flag set by tax_handler
     shipping_price = shipping_total
 
-    # Add shipping as line item
-    so.append(
-        "items",
-        {
-            "item_code": shipping_item,
-            "qty": 1,
-            "rate": shipping_price,
-            "warehouse": setting.warehouse,
-            "delivery_date": so.delivery_date,
-            "description": "Versandkosten / Shipping",
-        },
+    # Add shipping as line item (one per tax rate when Shopware split it)
+    _append_by_rate(
+        so, setting,
+        {"item_code": shipping_item, "qty": 1, "warehouse": setting.warehouse,
+         "delivery_date": so.delivery_date, "description": "Versandkosten / Shipping"},
+        _merge_rates(shipping_taxes), shipping_price,
     )
+
+
+def _merge_rates(calculated_taxes: list[dict]) -> list[dict]:
+    """Sum calculatedTaxes of several deliveries per rate."""
+    merged: dict[float, dict] = {}
+    for t in calculated_taxes:
+        rate = flt(t.get("taxRate"))
+        m = merged.setdefault(rate, {"taxRate": rate, "price": 0.0, "tax": 0.0})
+        m["price"] += flt(t.get("price"))
+        m["tax"] += flt(t.get("tax"))
+    return list(merged.values())
 
 
 def _add_discount_item(
@@ -341,14 +368,10 @@ def _add_discount_item(
     label = line_item.get("label", "") or line_item.get("description", "") or "Rabatt"
 
     if discount_price != 0:
-        so.append(
-            "items",
-            {
-                "item_code": discount_item,
-                "qty": 1,
-                "rate": discount_price,  # Negative value for discount
-                "warehouse": setting.warehouse,
-                "delivery_date": so.delivery_date,
-                "description": label,
-            },
+        # Negative line(s); a promotion spread over several rates becomes one line per rate
+        _append_by_rate(
+            so, setting,
+            {"item_code": discount_item, "qty": 1, "warehouse": setting.warehouse,
+             "delivery_date": so.delivery_date, "description": label},
+            (line_item.get("price") or {}).get("calculatedTaxes"), discount_price,
         )

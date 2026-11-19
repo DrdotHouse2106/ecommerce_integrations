@@ -430,6 +430,12 @@ def create_sales_order(order_data: dict[str, Any]) -> str:
         price_data = order_data.get("price", {})
         tax_status = price_data.get("taxStatus", "gross")
 
+    # Determine and set tax template based on delivery country and B2B status
+    # before the lines: each line's item tax template follows its accounts.
+    tax_template = get_tax_template(order_data, setting.company, setting, customer=so.customer)
+    if tax_template:
+        so.taxes_and_charges = tax_template
+
     # Add line items with correct price handling based on taxStatus
     for line_item in (order_data.get("lineItems") or []):
         add_order_item(so, line_item, setting, tax_status)
@@ -437,12 +443,6 @@ def create_sales_order(order_data: dict[str, Any]) -> str:
 
     # Add shipping costs as line item if configured
     add_shipping_costs(so, order_data, setting, tax_status)
-
-    # Determine and set tax template based on delivery country and B2B status
-    # This is important for proper VAT classification in reporting
-    tax_template = get_tax_template(order_data, setting.company, setting)
-    if tax_template:
-        so.taxes_and_charges = tax_template
 
     # Add taxes with correct included_in_print_rate based on taxStatus
     add_order_taxes(so, order_data, setting, tax_status)
