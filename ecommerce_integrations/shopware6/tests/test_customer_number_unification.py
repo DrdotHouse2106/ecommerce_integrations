@@ -75,7 +75,7 @@ class TestNumberUnificationIgnoresOptInFlag(ShopwareTestCase, IntegrationTestCas
         cls.territory = territories[0].name if territories else get_root_of("Territory")
         cls.customer_group = groups[0].name if groups else get_root_of("Customer Group")
 
-    def _make_customer(self, customer_name: str, push_to_shopware: bool) -> str:
+    def _make_customer(self, customer_name: str, push_to_shopware: bool, email: str = "") -> str:
         doc = frappe.get_doc(
             {
                 "doctype": "Customer",
@@ -84,6 +84,7 @@ class TestNumberUnificationIgnoresOptInFlag(ShopwareTestCase, IntegrationTestCas
                 "territory": self.territory,
                 "customer_type": "Individual",
                 "push_to_shopware": 1 if push_to_shopware else 0,
+                "email_id": email,
             }
         )
         doc.insert(ignore_permissions=True)
@@ -92,10 +93,12 @@ class TestNumberUnificationIgnoresOptInFlag(ShopwareTestCase, IntegrationTestCas
 
     def test_match_unifies_number_when_opt_in_off(self):
         erp_name = self._make_customer(
-            f"Test Unification OptOff {frappe.generate_hash(length=6)}", push_to_shopware=False
+            f"Test Unification OptOff {frappe.generate_hash(length=6)}",
+            push_to_shopware=False,
+            email="optoff@example.com",
         )
         matched = _find_existing_customer_to_link(
-            email="",
+            email="OptOff@example.com",
             company="",
             customer_name=frappe.db.get_value("Customer", erp_name, "customer_name"),
             customer_id="new-shopware-uuid",
@@ -110,10 +113,12 @@ class TestNumberUnificationIgnoresOptInFlag(ShopwareTestCase, IntegrationTestCas
 
     def test_match_unifies_number_when_opt_in_on(self):
         erp_name = self._make_customer(
-            f"Test Unification OptOn {frappe.generate_hash(length=6)}", push_to_shopware=True
+            f"Test Unification OptOn {frappe.generate_hash(length=6)}",
+            push_to_shopware=True,
+            email="opton@example.com",
         )
         matched = _find_existing_customer_to_link(
-            email="", company="", customer_name=frappe.db.get_value(
+            email="opton@example.com", company="", customer_name=frappe.db.get_value(
                 "Customer", erp_name, "customer_name"
             ), customer_id="new-shopware-uuid-2",
         )
@@ -124,3 +129,16 @@ class TestNumberUnificationIgnoresOptInFlag(ShopwareTestCase, IntegrationTestCas
         client.request_patch.assert_called_once_with(
             "customer/new-shopware-uuid-2", {"customerNumber": erp_name}
         )
+
+    def test_name_alone_does_not_link(self):
+        erp_name = self._make_customer(
+            f"Test Unification NameOnly {frappe.generate_hash(length=6)}",
+            push_to_shopware=False,
+            email="owner@example.com",
+        )
+        customer_name = frappe.db.get_value("Customer", erp_name, "customer_name")
+        for email in ("", "someone-else@example.com"):
+            matched = _find_existing_customer_to_link(
+                email=email, company="", customer_name=customer_name, customer_id="new-shopware-uuid-3"
+            )
+            self.assertIsNone(matched)
