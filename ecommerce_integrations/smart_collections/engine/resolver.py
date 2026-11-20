@@ -335,11 +335,17 @@ def resolve(collection, *, persist_stats: bool = True) -> set[str]:
     rules = [_normalize_rule(r) for r in (collection.rules or [])]
     rule_sql = _combine_groups(rules, getattr(collection, "rule_combinator", "AND"))
 
+    # ERPNext v16 dropped Item.published_in_website (moved to the webshop app).
+    website = (
+        "AND item.published_in_website = 1 "
+        if frappe.db.has_column("Item", "published_in_website")
+        else ""
+    )
     sql = (
         "SELECT item.name FROM `tabItem` item "
         "WHERE item.disabled = 0 "
         "AND item.is_sales_item = 1 "
-        "AND item.published_in_website = 1 "
+        f"{website}"
         f"AND ({rule_sql})"
     )
     rows = frappe.db.sql(sql, as_dict=False)
