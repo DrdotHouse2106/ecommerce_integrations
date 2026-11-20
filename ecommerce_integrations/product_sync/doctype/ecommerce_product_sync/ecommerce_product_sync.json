@@ -29,11 +29,16 @@
   "sync_basic_fields",
   "sync_pricing",
   "sync_inventory",
+  "inventory_warehouse",
+  "inventory_item_flag",
   "column_break_fields",
   "sync_images",
   "sync_properties",
   "sync_seo_fields",
   "sync_taxes",
+  "sync_categories",
+  "reconcile_property_groups",
+  "auto_adopt_by_sku",
   "behavior_section",
   "name_template",
   "description_source",
@@ -61,6 +66,8 @@
   "images_section",
   "image_strategy",
   "internal_host_patterns",
+  "image_filename_template",
+  "image_alt_template",
   "schedule_section",
   "cron_preset",
   "cron_schedule",
@@ -231,6 +238,21 @@
    "default": "1"
   },
   {
+   "fieldname": "inventory_warehouse",
+   "label": "Lager f\u00fcr Bestand",
+   "fieldtype": "Link",
+   "options": "Warehouse",
+   "depends_on": "sync_inventory",
+   "description": "Leer: Summe aller Lager. Sonst nur dieses Lager und die Lager darunter."
+  },
+  {
+   "fieldname": "inventory_item_flag",
+   "label": "Bestand nur f\u00fcr Artikel mit Feld",
+   "fieldtype": "Data",
+   "depends_on": "sync_inventory",
+   "description": "Feldname eines Ankreuzfelds am Artikel. Gesetzt: Bestand wird nur f\u00fcr Artikel mit Haken \u00fcbertragen, bei den anderen bleibt der Shop-Bestand unver\u00e4ndert."
+  },
+  {
    "fieldname": "column_break_fields",
    "fieldtype": "Column Break"
   },
@@ -257,6 +279,28 @@
    "label": "Steuern",
    "fieldtype": "Check",
    "default": "1"
+  },
+  {
+   "fieldname": "sync_categories",
+   "label": "Kategorien",
+   "fieldtype": "Check",
+   "default": "1",
+   "description": "Aus: Der Sync schreibt keine Kategorie-Zuordnungen. F\u00fcr Shops, in denen ein anderes System die Kategorien pflegt."
+  },
+  {
+   "fieldname": "reconcile_property_groups",
+   "label": "Eigenschaftsgruppen im Shop abgleichen",
+   "fieldtype": "Check",
+   "default": "1",
+   "depends_on": "sync_properties",
+   "description": "An: Bei jedem vollen Lauf wird das Filter-H\u00e4kchen aller Eigenschaftsgruppen im Shop nach dem Eigenschaften-Katalog gesetzt und nicht genutzte Werte werden gel\u00f6scht. Aus, wenn Eigenschaften auch au\u00dferhalb von ERPNext gepflegt werden."
+  },
+  {
+   "fieldname": "auto_adopt_by_sku",
+   "label": "Vorhandene Shop-Artikel \u00fcber die Artikelnummer zuordnen",
+   "fieldtype": "Check",
+   "default": "0",
+   "description": "Vor jeder Vorschau und jedem Lauf werden Artikel ohne Zuordnung mit vorhandenen Shop-Artikeln gleicher Artikelnummer verkn\u00fcpft (auch 1.5 \u2194 1,5), statt sie neu anzulegen. Schreibt nur in ERPNext."
   },
   {
    "fieldname": "behavior_section",
@@ -443,6 +487,18 @@
    "description": "One pattern per line, e.g. <code>*.internal</code>, <code>192.168.*</code>, <code>erp.local</code>. On match, the image is uploaded as a binary."
   },
   {
+   "fieldname": "image_filename_template",
+   "label": "Dateiname-Vorlage",
+   "fieldtype": "Small Text",
+   "description": "Jinja, z. B. <code>{{ item.item_name }}-{{ item.item_code }}-{{ n }}</code>. Leer = Dateiname aus ERPNext. Wird zu Kleinbuchstaben mit Bindestrichen; bestehende Bilder werden umbenannt (neue Bild-URL)."
+  },
+  {
+   "fieldname": "image_alt_template",
+   "label": "Alt-Text-Vorlage",
+   "fieldtype": "Small Text",
+   "description": "Jinja, z. B. <code>{{ item.item_name }}</code>. Setzt Alt-Text und Titel der Bilder. <code>n</code> = Bildnummer (1 = Hauptbild)."
+  },
+  {
    "fieldname": "schedule_section",
    "fieldtype": "Section Break",
    "label": "Schedule",
@@ -549,7 +605,7 @@
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-05-17 00:00:00.000000",
+ "modified": "2026-11-18 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Product Sync",
  "name": "Ecommerce Product Sync",

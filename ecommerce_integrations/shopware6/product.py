@@ -411,7 +411,12 @@ def _match_sku_and_link_item(
     if not sku or variant_of or has_variant:
         return False
 
-    item_name = frappe.db.get_value("Item", {"item_code": sku})
+    from ecommerce_integrations.utils.sku import sku_variants
+
+    item_name = next(
+        (n for n in (frappe.db.get_value("Item", {"item_code": v}) for v in sku_variants(sku)) if n),
+        None,
+    )
     if item_name:
         try:
             ecom_item = frappe.get_doc({
@@ -484,6 +489,13 @@ def get_item_code(shopware_item: dict[str, Any]) -> str | None:
 
     if item:
         return item.item_code
+    # Unmapped product: fall back to an Item whose code equals the product
+    # number, also with the other decimal separator (1,5 ↔ 1.5).
+    from ecommerce_integrations.utils.sku import sku_variants
+
+    for code in sku_variants(sku):
+        if frappe.db.exists("Item", code):
+            return code
     return None
 
 

@@ -356,7 +356,7 @@ def has_valid_vat_id(order_data: dict) -> bool:
     return False
 
 
-def get_tax_template(order_data: dict, company: str) -> str:
+def get_tax_template(order_data: dict, company: str, setting=None, customer: str | None = None) -> str:
     """
     Determine the correct ERPNext tax template based on delivery country and B2B status.
 
@@ -390,6 +390,26 @@ def get_tax_template(order_data: dict, company: str) -> str:
     else:
         template_key = "export"
 
+    # EU consumers above the distance-selling threshold are taxed in the
+    # destination country: a Tax Rule per country picks that country's template.
+    if template_key == "eu_b2c":
+        by_rule = _tax_rule_template(company, country_code, customer)
+        if by_rule:
+            return by_rule
+
+    # Configured template wins. Domestic orders pick gross/net by the
+    # order's taxStatus so price list and template always match.
+    if setting is not None:
+        if template_key == "domestic":
+            gross = (order_data.get("taxStatus") or (order_data.get("price") or {}).get("taxStatus") or "gross") == "gross"
+            fields = ("tax_template_domestic_gross",) if gross else ("tax_template_domestic_net",)
+        else:
+            fields = (f"tax_template_{template_key}",)
+        for field in fields:
+            configured = (getattr(setting, field, None) or "").strip()
+            if configured:
+                return configured
+
     # Get template name pattern
     template_pattern = TAX_TEMPLATE_MAP.get(template_key, "")
     if not template_pattern:
@@ -408,3 +428,20 @@ def get_tax_template(order_data: dict, company: str) -> str:
     )
 
     return ""
+
+
+def _tax_rule_template(company: str, country_code: str, customer: str | None = None) -> str | None:
+    """Sales template from ERPNext Tax Rules for the delivery country, if any rule matches."""
+    country = frappe.db.get_value("Country", {"code": (country_code or "").lower()}, "name")
+    if not country or not frappe.db.exists("Tax Rule", {"tax_type": "Sales", "shipping_country": country}):
+        return None
+    from erpnext.accounts.doctype.tax_rule.tax_rule import get_tax_template as rule_template
+
+    args = {"tax_type": "Sales", "company": company, "shipping_country": country}
+    if customer:
+        args["customer"] = customer
+        group = frappe.db.get_value("Customer", customer, "customer_group")
+        if group:
+            args["customer_group"] = group
+    return rule_template(frappe.utils.nowdate(), args) or None
+

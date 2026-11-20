@@ -177,12 +177,20 @@ _ITEM_FIELD_WHITELIST = frozenset(
 )
 
 
+def _is_item_custom_field(field: str | None) -> bool:
+    """Operator-added Item fields (e.g. a per-shop "active" checkbox) are
+    allowed too: they exist in the schema and are chosen deliberately."""
+    return bool(field) and bool(
+        frappe.db.exists("Custom Field", {"dt": "Item", "fieldname": field})
+    )
+
+
 def _build_item_field_clause(rule: dict) -> str:
     field = rule.get("field_key")
-    if field not in _ITEM_FIELD_WHITELIST:
+    if field not in _ITEM_FIELD_WHITELIST and not _is_item_custom_field(field):
         raise ValueError(
             f"Item Field {field!r} not in whitelist; allowed: "
-            f"{sorted(_ITEM_FIELD_WHITELIST)}"
+            f"{sorted(_ITEM_FIELD_WHITELIST)} or an Item custom field"
         )
     return _build_direct_column_clause(rule, field)
 

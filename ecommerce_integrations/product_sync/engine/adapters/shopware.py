@@ -195,6 +195,12 @@ class ShopwareProductAdapter(ProductAdapter):
         rows = []
         result: dict[str, str] = {}
         for name, kind in groups:
+            adopted = _ADOPTED["groups"].get(_pkey(name))
+            if adopted:
+                # Existing group (possibly operator-managed): reuse it
+                # untouched — no name/position/filterable rewrite.
+                result[f"{kind}:{name}"] = adopted
+                continue
             gid = generate_uuid(f"property_group_{name}")
             cat_entry = catalog.get(name) or {}
             position = int(cat_entry.get("display_order") or property_priority(name))
@@ -218,6 +224,9 @@ class ShopwareProductAdapter(ProductAdapter):
             })
             result[f"{kind}:{name}"] = gid
 
+        if not rows:
+            return result
+
         def go(client):
             client.request_post("_action/sync", payload={
                 "groups": {
@@ -227,6 +236,30 @@ class ShopwareProductAdapter(ProductAdapter):
                 },
             })
             return result
+
+        return _with_client(go)
+
+    def adopt_existing_properties(self) -> dict:
+        """Load every Shopware property group + option once per run so
+        ``property_group_uuid`` / ``property_option_uuid`` reuse rows
+        that already exist under the same name."""
+        def go(client):
+            def fetch(entity: str, fields: list[str]) -> list[dict]:
+                rows, page = [], 1
+                while True:
+                    resp = client.request_post(f"search/{entity.replace('_', '-')}", payload={
+                        "includes": {entity: fields}, "limit": 500, "page": page,
+                    })
+                    data = resp.data or []
+                    rows.extend(data)
+                    if len(data) < 500:
+                        return rows
+                    page += 1
+
+            groups = fetch("property_group", ["id", "name"])
+            options = fetch("property_group_option", ["id", "name", "groupId"])
+            _remember_existing_properties(groups, options)
+            return {"groups": len(_ADOPTED["groups"]), "options": len(_ADOPTED["options"])}
 
         return _with_client(go)
 
@@ -546,9 +579,10 @@ class ShopwareProductAdapter(ProductAdapter):
         catalog = _load_property_catalog()
         rows = []
         for group_name, value, kind in options:
-            group_id = generate_uuid(f"property_group_{group_name}")
-            prefix = "variant_option" if kind == "variant" else "property_option"
-            opt_id = generate_uuid(f"{prefix}_{group_name}_{value}")
+            if _ADOPTED["options"].get(_pkey(group_name, value)):
+                continue
+            group_id = property_group_uuid(group_name)
+            opt_id = property_option_uuid(group_name, value, kind)
             # ``position`` mirrors the per-option ``display_order``
             # the operator set in the catalog. Storefront's filter
             # sidebar (and Shopware's "configurator" widget for
@@ -563,6 +597,9 @@ class ShopwareProductAdapter(ProductAdapter):
                 "name": value,
                 "position": position,
             })
+
+        if not rows:
+            return
 
         def go(client):
             # ``upsert`` semantics: existing rows are matched by id and
@@ -668,6 +705,7 @@ class ShopwareProductAdapter(ProductAdapter):
         self,
         external_id: str,
         entries: list[dict],
+        allow_empty: bool = False,
     ) -> dict:
         """Align a product's ``product_visibility`` rows with the
         canonical ``visibilities`` section.
@@ -682,9 +720,9 @@ class ShopwareProductAdapter(ProductAdapter):
         no longer lists.
 
         ``entries`` is the canonical shape
-        (``[{channel_id, visibility}, …]``). Callers must NOT invoke
-        this with an empty list — an empty canonical means "no
-        opinion", not "unlink every channel".
+        (``[{channel_id, visibility}, …]``). An empty list is ignored
+        ("no opinion") unless ``allow_empty`` is set — strict
+        visibility mode uses that to unlink every channel.
 
         Returns ``{created, updated, deleted}``.
         """
@@ -692,12 +730,14 @@ class ShopwareProductAdapter(ProductAdapter):
             self._reconcile_visibilities_impl,
             external_id=external_id,
             entries=list(entries or []),
+            allow_empty=allow_empty,
         )
 
     def upload_product_images(
         self,
         external_id: str,
         image_urls: list[str],
+        names: dict | None = None,
     ) -> dict:
         """Two-step image upload — Shopware-specific.
 
@@ -725,6 +765,7 @@ class ShopwareProductAdapter(ProductAdapter):
             self._upload_images_impl,
             external_id=external_id,
             image_urls=list(image_urls or []),
+            names=dict(names or {}),
         )
 
     def push_variant_options(
@@ -1402,8 +1443,13 @@ class ShopwareProductAdapter(ProductAdapter):
         *,
         external_id: str,
         image_urls: list[str],
+        names: dict | None = None,
     ) -> dict:
         """Inner image-upload — runs under ``temp_shopware_session``.
+
+        ``names`` maps an image URL to ``{"file", "alt"}`` from the Sync's
+        image templates: new media are uploaded under that file name,
+        already pushed media are renamed in place.
 
         Returns ``{uploaded, failed, skipped, media_map}``. ``media_map``
         is ``{erp_basename: shopware_media_uuid}`` for successful uploads,
@@ -1461,7 +1507,7 @@ class ShopwareProductAdapter(ProductAdapter):
             _bn = (_tail.split("?", 1)[0]).lower()
             _stem = (_tail.rsplit(".", 1)[0] if "." in _tail else _tail) or "image"
             _det_id = _gen_uuid(f"psync_media_{_bn}")
-            _reused = None
+            _reused = _reused_name = None
             try:
                 _hit = client.request_post("search/media", payload={
                     "filter": [
@@ -1472,6 +1518,7 @@ class ShopwareProductAdapter(ProductAdapter):
                 })
                 _rows = _hit.data or []
                 _reused = _rows[0]["id"] if _rows else None
+                _reused_name = _rows[0].get("fileName") if _rows else None
             except Exception:  # noqa: BLE001
                 _reused = None
             if not _reused:
@@ -1496,9 +1543,13 @@ class ShopwareProductAdapter(ProductAdapter):
                     })
                     _rows = _hit.data or []
                     _reused = _rows[0]["id"] if _rows else None
+                    _reused_name = _stem
                 except Exception:  # noqa: BLE001
                     _reused = None
+            _want = (names or {}).get(url) or {}
             if _reused:
+                if _want:
+                    _apply_media_name(client, _reused, _reused_name, _want)
                 counters["uploaded"] += 1
                 new_media_ids.append(_reused)
                 if _bn:
@@ -1512,6 +1563,8 @@ class ShopwareProductAdapter(ProductAdapter):
             media_row: dict = {"id": media_id}
             if media_folder_id:
                 media_row["mediaFolderId"] = media_folder_id
+            if _want.get("alt"):
+                media_row["alt"] = media_row["title"] = _want["alt"]
             try:
                 client.request_post("_action/sync", payload={
                     "media": {
@@ -1533,6 +1586,7 @@ class ShopwareProductAdapter(ProductAdapter):
                 ext = ext.split("?")[0].lower() or "jpg"
             else:
                 stem, ext = tail or "image", "jpg"
+            stem = _want.get("file") or stem
             uploaded_ok = False
             try:
                 client.request_post(
@@ -1882,9 +1936,10 @@ class ShopwareProductAdapter(ProductAdapter):
         *,
         external_id: str,
         entries: list[dict],
+        allow_empty: bool = False,
     ) -> dict:
         counters = {"created": 0, "updated": 0, "deleted": 0}
-        if not external_id or not entries:
+        if not external_id or (not entries and not allow_empty):
             return counters
 
         r = client.request_post("search/product", payload={
@@ -2382,6 +2437,29 @@ class ShopwareProductAdapter(ProductAdapter):
 _PRODUCT_MEDIA_FOLDER_ID_CACHE: dict[str, str | None] = {}
 
 
+def _apply_media_name(client, media_id: str, current: str | None, want: dict) -> None:
+    """Rename an already pushed media file and set alt/title (best effort).
+
+    A rename changes the public media URL; Shopware keeps no redirect.
+    Duplicate names across products get the media id appended.
+    """
+    if want.get("alt"):
+        try:
+            client.request_patch(f"media/{media_id}", payload={"alt": want["alt"], "title": want["alt"]})
+        except Exception:  # noqa: BLE001
+            pass
+    name = want.get("file")
+    if not name or current in (name, f"{name}-{media_id[:8]}"):
+        return
+    for candidate in (name, f"{name}-{media_id[:8]}"):
+        try:
+            client.request_post(f"_action/media/{media_id}/rename", payload={"fileName": candidate})
+            return
+        except Exception as exc:  # noqa: BLE001
+            if "duplicat" not in str(exc).lower():
+                return
+
+
 def _resolve_product_media_folder_id(client) -> str | None:
     """Return the Shopware ``media_folder.id`` for the product-media bucket.
 
@@ -2503,17 +2581,70 @@ def _fetch_local_file_bytes(url: str) -> tuple[bytes | None, str | None]:
         return (None, None)
 
 
+# Existing Shopware property groups/options keyed by normalised name,
+# loaded once per run by ``adopt_existing_properties``. Lets the sync
+# reuse groups and options that were created outside ERPNext (by hand,
+# by another ERP, by an importer) instead of creating same-named twins
+# next to them — twins split storefront filters and break plugins that
+# look options up by group.
+_ADOPTED: dict[str, dict] = {"groups": {}, "options": {}}
+
+
+def _pkey(*parts: str) -> tuple[str, ...]:
+    return tuple((p or "").strip().casefold() for p in parts)
+
+
+def property_group_uuid(group_name: str) -> str:
+    """Existing Shopware group id for this name, else the deterministic UUID."""
+    adopted = _ADOPTED["groups"].get(_pkey(group_name))
+    if adopted:
+        return adopted
+    from ecommerce_integrations.shopware6.export.utils import generate_uuid
+    return generate_uuid(f"property_group_{group_name}")
+
+
 def property_option_uuid(group_name: str, value: str, kind: str = "property") -> str:
-    """Deterministic UUID for a Shopware ``property_group_option`` row,
-    matching the scheme that ``shopware6.export.property_handler``
-    used for in-place creation. ``kind="property"`` matches
-    ``get_or_create_property_option`` (filterable properties);
-    ``kind="variant"`` matches ``get_or_create_variant_option`` (variant
-    configurator). The two intentionally produce different UUIDs so the
-    same value can exist as both a property and a variant option."""
+    """UUID for a Shopware ``property_group_option`` row.
+
+    An option that already exists in Shopware under the same group and
+    value (case-insensitive) is reused. Otherwise the deterministic
+    scheme of ``shopware6.export.property_handler`` applies:
+    ``kind="property"`` matches ``get_or_create_property_option``
+    (filterable properties), ``kind="variant"`` matches
+    ``get_or_create_variant_option`` (variant configurator); the two
+    produce different UUIDs so the same value can exist as both."""
+    adopted = _ADOPTED["options"].get(_pkey(group_name, value))
+    if adopted:
+        return adopted
     from ecommerce_integrations.shopware6.export.utils import generate_uuid
     prefix = "variant_option" if kind == "variant" else "property_option"
     return generate_uuid(f"{prefix}_{group_name}_{value}")
+
+
+def _remember_existing_properties(groups: list[dict], options: list[dict]) -> None:
+    """Fill ``_ADOPTED`` from Shopware rows. When several groups share a
+    name, the one with the deterministic id wins (rows this sync created
+    earlier), otherwise the first one seen."""
+    from ecommerce_integrations.shopware6.export.utils import generate_uuid
+    by_name: dict[tuple, str] = {}
+    group_name: dict[str, str] = {}
+    for g in groups:
+        gid, name = g.get("id"), (g.get("name") or "").strip()
+        if not gid or not name:
+            continue
+        group_name[gid] = name
+        key = _pkey(name)
+        if key not in by_name or gid == generate_uuid(f"property_group_{name}"):
+            by_name[key] = gid
+    opts: dict[tuple, str] = {}
+    for o in options:
+        gid, value, oid = o.get("groupId"), (o.get("name") or "").strip(), o.get("id")
+        name = group_name.get(gid)
+        if not (oid and value and name) or by_name.get(_pkey(name)) != gid:
+            continue
+        opts.setdefault(_pkey(name, value), oid)
+    _ADOPTED["groups"] = by_name
+    _ADOPTED["options"] = opts
 
 
 # Process-local "ambient" Shopware client. When set, ``_with_client``

@@ -204,7 +204,7 @@ def build_canonical_payload(item, sync, ctx=None) -> dict[str, Any]:
         payload["visibilities"] = _canonical_visibilities(item, sync)
     if _flag(sync, "sync_pricing", default=True):
         payload["pricing"] = _canonical_pricing(item, sync, ctx)
-    if _flag(sync, "sync_inventory", default=True):
+    if _flag(sync, "sync_inventory", default=True) and _inventory_enabled_for(item, sync):
         payload["inventory"] = _canonical_inventory(item, sync, ctx)
     if _flag(sync, "sync_images", default=True):
         payload["images"] = _canonical_images(item, sync, ctx)
@@ -214,11 +214,13 @@ def build_canonical_payload(item, sync, ctx=None) -> dict[str, Any]:
         payload["seo"] = _canonical_seo(item, sync)
     if _flag(sync, "sync_taxes", default=True):
         payload["taxes"] = _canonical_taxes(item, sync)
-    # Category assignment isn't a sync_* toggle — products in
-    # Shopware/Medusa MUST belong to at least one category, so the
-    # mapping is always part of the payload. Drift here triggers a
-    # re-assignment push.
-    payload["categories"] = _canonical_categories(item, sync)
+    # On by default: the Item-Group → category mapping is part of the
+    # payload and drift triggers a re-assignment push. Off leaves
+    # category assignment to the backend (e.g. a shop-side rule
+    # plugin); the section is then absent so neither the hash, the
+    # differ nor the payload builder touch categories.
+    if _flag(sync, "sync_categories", default=True):
+        payload["categories"] = _canonical_categories(item, sync)
     return payload
 
 
@@ -654,16 +656,21 @@ def _canonical_visibilities(item, sync) -> list[dict[str, Any]]:
         entries = channels_for_item(item_code, backend) or []
     except Exception:  # noqa: BLE001
         entries = []
+    strict = _flag(sync, "visibility_overrides_only", default=False)
     for e in entries:
         sc_id = _norm_str(getattr(e, "sales_channel", "") or "")
         if not sc_id:
+            continue
+        # Strict mode: the resolver's own default-channel fallback is
+        # not a placement either — only explicit layers count.
+        if strict and _norm_str(getattr(e, "source", "") or "").startswith("default"):
             continue
         out.append({
             "channel_id": sc_id,
             "visibility": int(getattr(e, "visibility", 0) or 0),
         })
 
-    if not out:
+    if not out and not strict:
         # Sync-aware fallback: linked-SC member → target_sales_channels,
         # else → default_sales_channel. Only kicks in when the resolver
         # produced no entries for this item.
@@ -857,7 +864,7 @@ def _render_name(item, sync) -> str:
         return template
     try:
         import frappe
-        return frappe.render_template(template, {"item": item.as_dict()})
+        return frappe.render_template(template, {"item": _template_item(item)})
     except Exception:
         return item.item_name or item.item_code
 
@@ -889,7 +896,7 @@ def _render_description(item, sync) -> str:
             return template
         try:
             import frappe
-            return frappe.render_template(template, {"item": item.as_dict()})
+            return frappe.render_template(template, {"item": _template_item(item)})
         except Exception:
             return ""
     if source == "ai_generated":
@@ -913,7 +920,7 @@ def _render_description(item, sync) -> str:
             try:
                 import frappe
                 return frappe.render_template(
-                    tpl, {"item": item.as_dict(), "sync": sync},
+                    tpl, {"item": _template_item(item), "sync": sync},
                 ) or ""
             except Exception:  # noqa: BLE001
                 return ""
@@ -1118,10 +1125,81 @@ def _lookup_item_price(item_code: str, price_list: str, currency: str) -> float 
     return None
 
 
+def _template_item(item) -> dict:
+    """Item fields for name/description templates.
+
+    Bulk snapshots (preview) only carry a handful of standard fields, so a
+    template using a custom field rendered empty there but filled at apply
+    time — the hash never settled. Snapshots are therefore expanded with
+    the full Item; real Item docs are used as they are."""
+    data = item.as_dict()
+    if hasattr(item, "dynamic_field_values"):
+        import frappe
+        try:
+            full = frappe.get_cached_doc("Item", data.get("item_code") or data.get("name")).as_dict()
+            data = {**full, **data}
+        except Exception:  # noqa: BLE001 — fall back to the snapshot fields
+            pass
+    return data
+
+
+def _run_memo(key: str, loader):
+    """Once-per-job value cached on ``frappe.local``."""
+    import frappe
+    memo = getattr(frappe.local, "_product_sync_memo", None)
+    if memo is None:
+        memo = {}
+        frappe.local._product_sync_memo = memo
+    if key not in memo:
+        memo[key] = loader()
+    return memo[key]
+
+
+def _inventory_enabled_for(item, sync) -> bool:
+    """``inventory_item_flag`` names an Item check field; when set, stock is
+    only part of the canonical for items with that field ticked. Read from
+    the DB (bulk snapshots don't carry custom fields)."""
+    field = (getattr(sync, "inventory_item_flag", None) or "").strip()
+    if not field:
+        return True
+    import frappe
+
+    def load():
+        if not frappe.get_meta("Item").has_field(field):
+            return frozenset()
+        return frozenset(frappe.get_all("Item", filters={field: 1}, pluck="name", limit=0))
+
+    return (getattr(item, "item_code", None) or getattr(item, "name", None)) in _run_memo(
+        f"inventory_flag:{field}", load
+    )
+
+
+def _warehouse_stock(warehouse: str) -> dict[str, float]:
+    """Stock per item in ``warehouse`` and all warehouses below it."""
+    import frappe
+
+    def load():
+        rows = frappe.db.sql(
+            """SELECT b.item_code, COALESCE(SUM(b.actual_qty), 0)
+               FROM `tabBin` b
+               JOIN `tabWarehouse` w ON w.name = b.warehouse
+               JOIN `tabWarehouse` p ON p.name = %s
+               WHERE w.lft >= p.lft AND w.rgt <= p.rgt
+               GROUP BY b.item_code""",
+            (warehouse,),
+        )
+        return {code: float(qty or 0) for code, qty in rows}
+
+    return _run_memo(f"warehouse_stock:{warehouse}", load)
+
+
 def _canonical_inventory(item, sync, ctx=None) -> dict[str, Any]:
-    """Sum stock across warehouses. Uses ``ctx.stock_for`` for O(1)
-    when running over a bulk pre-load; falls back to per-item SQL
-    otherwise."""
+    """Sum stock across warehouses (or only ``inventory_warehouse`` and its
+    children when set). Uses ``ctx.stock_for`` for O(1) when running over
+    a bulk pre-load; falls back to per-item SQL otherwise."""
+    warehouse = (getattr(sync, "inventory_warehouse", None) or "").strip()
+    if warehouse:
+        return {"qty": _normalize_float(_warehouse_stock(warehouse).get(item.item_code, 0.0))}
     if ctx is not None:
         return {"qty": _normalize_float(ctx.stock_for(item.item_code))}
 
@@ -1210,7 +1288,68 @@ def _canonical_images(item, sync, ctx=None) -> list[dict[str, Any]]:
             continue
         seen.add(img["url"])
         deduped.append(img)
+    _name_images(deduped, item, sync)
     return deduped
+
+
+def _name_images(images: list[dict[str, Any]], item, sync) -> None:
+    """Attach SEO file name / alt text from the Sync's image templates.
+
+    Keys are only added when a template is set, so syncs without
+    templates keep their existing ``images`` hashes (no re-push).
+    Setting a template flips the hash once and the apply renames the
+    already pushed media in place.
+    """
+    file_tpl = (getattr(sync, "image_filename_template", "") or "").strip()
+    alt_tpl = (getattr(sync, "image_alt_template", "") or "").strip()
+    if not (file_tpl or alt_tpl):
+        return
+    import frappe
+
+    data = _template_item(item)
+    used: set[str] = set()
+    for n, img in enumerate(images, 1):
+        ctx = {"item": data, "n": n}
+        if file_tpl:
+            try:
+                name = _file_slug(frappe.render_template(file_tpl, ctx))
+            except Exception:  # noqa: BLE001 — broken template never blocks the sync
+                name = ""
+            if name in used:
+                name = f"{name}-{n}"
+            if name:
+                used.add(name)
+                img["file"] = name
+        if alt_tpl:
+            try:
+                alt = _norm_str(frappe.render_template(alt_tpl, ctx))
+            except Exception:  # noqa: BLE001
+                alt = ""
+            if alt:
+                img["alt"] = alt
+
+
+def _file_slug(value: str) -> str:
+    """ASCII file name: German umlauts transliterated, other accents dropped."""
+    import unicodedata
+
+    s = (value or "").strip()
+    for a, b in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("Ä", "Ae"), ("Ö", "Oe"), ("Ü", "Ue"), ("ß", "ss")):
+        s = s.replace(a, b)
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
+    words: list[str] = []
+    for w in _slugify(s).split("-"):
+        if w and w not in words:  # repeated words add length, not meaning
+            words.append(w)
+    out = ""
+    for w in words:  # cut at a word boundary
+        if out and len(out) + 1 + len(w) > _FILE_NAME_MAX:
+            break
+        out = f"{out}-{w}" if out else w
+    return out[:_FILE_NAME_MAX]
+
+
+_FILE_NAME_MAX = 80
 
 
 def _load_property_catalog() -> dict[str, dict[str, Any]]:

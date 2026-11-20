@@ -124,6 +124,13 @@ def sync_order_by_id(
     Returns:
         ERPNext Sales Order name if created
     """
+    if not order_channel_allowed(order_data, setting):
+        frappe.logger("shopware6").info(
+            f"Skipping order {order_number} ({order_id}): sales channel "
+            f"{order_data.get('salesChannelId')} not marked for order import"
+        )
+        return None
+
     # Check if already synced
     existing = frappe.db.get_value("Sales Order", {"shopware_order_id": order_id}, "name")
     if existing:
@@ -259,6 +266,18 @@ def _insert_sales_order(so, desired_name: str) -> None:
         so.insert(ignore_permissions=True, set_name=f"{desired_name}-SW")
 
 
+def order_channel_allowed(order_data: dict[str, Any], setting) -> bool:
+    """With ``order_import_channel_filter`` on, only channels whose row in
+    ``sales_channels`` has ``import_orders`` ticked are imported."""
+    if not int(getattr(setting, "order_import_channel_filter", 0) or 0):
+        return True
+    channel_id = order_data.get("salesChannelId")
+    return any(
+        row.sales_channel_id == channel_id and int(getattr(row, "import_orders", 0) or 0)
+        for row in (setting.sales_channels or [])
+    )
+
+
 def create_sales_order(order_data: dict[str, Any]) -> str:
     """
     Create ERPNext Sales Order from Shopware order data.
@@ -278,6 +297,13 @@ def create_sales_order(order_data: dict[str, Any]) -> str:
     order_state = (order_data.get("stateMachineState") or {}).get("technicalName", "")
     if order_state == "cancelled":
         frappe.logger("shopware6").info(f"Skipping cancelled order {order_number} ({order_id})")
+        return None
+
+    if not order_channel_allowed(order_data, setting):
+        frappe.logger("shopware6").info(
+            f"Skipping order {order_number} ({order_id}): sales channel "
+            f"{order_data.get('salesChannelId')} not marked for order import"
+        )
         return None
 
     # Check if already synced
@@ -404,6 +430,12 @@ def create_sales_order(order_data: dict[str, Any]) -> str:
         price_data = order_data.get("price", {})
         tax_status = price_data.get("taxStatus", "gross")
 
+    # Determine and set tax template based on delivery country and B2B status
+    # before the lines: each line's item tax template follows its accounts.
+    tax_template = get_tax_template(order_data, setting.company, setting, customer=so.customer)
+    if tax_template:
+        so.taxes_and_charges = tax_template
+
     # Add line items with correct price handling based on taxStatus
     for line_item in (order_data.get("lineItems") or []):
         add_order_item(so, line_item, setting, tax_status)
@@ -411,12 +443,6 @@ def create_sales_order(order_data: dict[str, Any]) -> str:
 
     # Add shipping costs as line item if configured
     add_shipping_costs(so, order_data, setting, tax_status)
-
-    # Determine and set tax template based on delivery country and B2B status
-    # This is important for proper VAT classification in reporting
-    tax_template = get_tax_template(order_data, setting.company)
-    if tax_template:
-        so.taxes_and_charges = tax_template
 
     # Add taxes with correct included_in_print_rate based on taxStatus
     add_order_taxes(so, order_data, setting, tax_status)
@@ -563,7 +589,13 @@ def _create_invoice_if_paid(
     else:
         # Create invoice for unpaid methods that require an invoice up-front
         _, erpnext_mode, _ = get_payment_method_info(order_data, setting)
-        unpaid_invoice_modes = {"Vorkasse", "Rechnung", "Nachnahme", "Bargeld"}
+        # German names plus the English defaults of PAYMENT_METHOD_MAP —
+        # the map yields "Prepayment"/"Invoice", so the German-only set
+        # never matched an unmapped standard method.
+        unpaid_invoice_modes = {
+            "Vorkasse", "Rechnung", "Nachnahme", "Bargeld",
+            "Prepayment", "Invoice", "Cash on Delivery", "Cash",
+        }
         if erpnext_mode in unpaid_invoice_modes:
             transaction = transactions[0] if transactions else {}
             create_sales_invoice(sales_order, transaction, setting)

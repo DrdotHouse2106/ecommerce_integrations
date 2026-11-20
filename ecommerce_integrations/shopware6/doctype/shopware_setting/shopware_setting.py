@@ -148,6 +148,9 @@ class ShopwareSetting(Document):
                     "price_list": getattr(sc, 'price_list', None),
                     "price_adjustment_percent": getattr(sc, 'price_adjustment_percent', 0),
                     "shopware_rule_id": getattr(sc, 'shopware_rule_id', None),
+                    "import_orders": getattr(sc, 'import_orders', 1),
+                    "price_list_includes_tax": getattr(sc, 'price_list_includes_tax', 0),
+                    "is_sandbox": getattr(sc, 'is_sandbox', 0),
                 }
 
             # Clear existing and populate with fresh data
@@ -170,6 +173,9 @@ class ShopwareSetting(Document):
                     "price_list": prev_config.get("price_list"),
                     "price_adjustment_percent": prev_config.get("price_adjustment_percent", 0),
                     "shopware_rule_id": prev_config.get("shopware_rule_id"),
+                    "import_orders": prev_config.get("import_orders", 1),
+                    "price_list_includes_tax": prev_config.get("price_list_includes_tax", 0),
+                    "is_sandbox": prev_config.get("is_sandbox", 0),
                 })
 
             # If no default was set, mark first active channel as default

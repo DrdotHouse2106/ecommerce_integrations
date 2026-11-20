@@ -60,6 +60,8 @@
   "section_break_order",
   "order_sync_frequency",
   "last_order_sync",
+  "order_import_channel_filter",
+  "decimal_quantity_payload_path",
   "sales_order_series",
   "delivery_note_series",
   "sales_invoice_series",
@@ -82,6 +84,13 @@
   "default_sales_tax_account",
   "column_break_default_tax",
   "default_shipping_charges_account",
+  "tax_templates_section",
+  "tax_template_domestic_gross",
+  "tax_template_domestic_net",
+  "column_break_tax_templates",
+  "tax_template_eu_b2b",
+  "tax_template_eu_b2c",
+  "tax_template_export",
   "price_handling_section",
   "default_selling_price_list",
   "default_price_list_includes_tax",
@@ -1070,12 +1079,68 @@
    "label": "Custom-Field Sync-Sprachen",
    "default": "all",
    "description": "Sprachen, in die Produkt-Custom-Fields synchronisiert werden: 'all' (alle Shopware-Sprachen) oder Komma-Liste von Locales (z. B. 'de-DE,en-GB'). Leer = alle."
+  },
+  {
+   "fieldname": "order_import_channel_filter",
+   "fieldtype": "Check",
+   "default": "0",
+   "label": "Bestellungen nur aus markierten Verkaufskanälen",
+   "description": "An: Es werden nur Bestellungen aus Verkaufskanälen importiert, die in der Tabelle Verkaufskanäle mit „Bestellungen importieren“ markiert sind. Aus: alle Kanäle."
+  },
+  {
+   "fieldname": "decimal_quantity_payload_path",
+   "fieldtype": "Data",
+   "label": "Dezimalmenge aus Positions-Payload",
+   "description": "Optional. Pfad im Payload der Bestellposition (mit Punkten getrennt), unter dem ein Plugin die Gesamtmenge der Position in seiner Einheit ablegt, z. B. „plugin.total“. Dann gilt: Menge = dieser Wert, Einzelpreis = Positionssumme ÷ Menge."
+  },
+  {
+   "fieldname": "tax_templates_section",
+   "fieldtype": "Section Break",
+   "label": "Steuervorlagen für Bestellungen",
+   "description": "Leer: Vorlage wird über die eingebauten Namen gesucht („Domestic Supply - Kürzel“ usw.).",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "tax_template_domestic_gross",
+   "fieldtype": "Link",
+   "label": "Inland, Preise inkl. MwSt.",
+   "options": "Sales Taxes and Charges Template",
+   "description": "Bestellungen mit Bruttopreisen (Shopware taxStatus „gross“), meist Privatkunden."
+  },
+  {
+   "fieldname": "tax_template_domestic_net",
+   "fieldtype": "Link",
+   "label": "Inland, Preise zzgl. MwSt.",
+   "options": "Sales Taxes and Charges Template",
+   "description": "Bestellungen mit Nettopreisen (taxStatus „net“), meist Firmenkunden."
+  },
+  {
+   "fieldname": "column_break_tax_templates",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "tax_template_eu_b2b",
+   "fieldtype": "Link",
+   "label": "EU-Firma mit USt-IdNr.",
+   "options": "Sales Taxes and Charges Template"
+  },
+  {
+   "fieldname": "tax_template_eu_b2c",
+   "fieldtype": "Link",
+   "label": "EU ohne USt-IdNr.",
+   "options": "Sales Taxes and Charges Template"
+  },
+  {
+   "fieldname": "tax_template_export",
+   "fieldtype": "Link",
+   "label": "Drittland",
+   "options": "Sales Taxes and Charges Template"
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-02-16 12:00:00.000000",
+ "modified": "2026-11-18 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "shopware6",
  "name": "Shopware Setting",

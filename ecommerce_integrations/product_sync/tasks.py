@@ -232,6 +232,7 @@ def apply_sync(
         trigger_type: ``manual`` / ``cron`` / ``webhook`` / ``dispatch``.
     """
     doc = frappe.get_doc(SYNC_DOCTYPE, sync_name)
+    _auto_adopt(doc, subset_item_codes)
     if dry_run:
         return compute_product_diff(
             doc,
@@ -429,6 +430,10 @@ def _apply_live(
             for row in (sync_doc.target_sales_channels or [])
             if row.sales_channel_id
         ]
+        if _visibility_strict(sync_doc):
+            # Creates must carry only the canonical's own visibilities
+            # (possibly none = hidden), not every target channel.
+            target_channels = []
 
         # 2.5: ensure brand manufacturer rows ONCE per run (not per
         # batch). Brand data — logo + description + link — doesn't
@@ -439,6 +444,17 @@ def _apply_live(
         # the operator actually changed something on the ERPNext
         # side.
         if backend == BACKEND_SHOPWARE:
+            # Reuse property groups/options that already exist in
+            # Shopware under the same name instead of creating twins.
+            adopt = getattr(adapter, "adopt_existing_properties", None)
+            if callable(adopt) and int(getattr(sync_doc, "sync_properties", 0) or 0):
+                try:
+                    adopt()
+                except Exception as exc:  # noqa: BLE001
+                    _logger().warning(
+                        f"property adoption failed for sync={sync_doc.name} "
+                        f"run={run.name}: {type(exc).__name__}: {exc}"
+                    )
             try:
                 _ensure_brands_for_run(
                     sync_doc=sync_doc, plan=plan, adapter=adapter,
@@ -458,8 +474,10 @@ def _apply_live(
             # this batch. Idempotent — zero writes once converged. Skipped for
             # per-save subset dispatches (it scans ALL groups; running it on
             # every Item.save would be wasteful) — the cron's full run covers it.
+            from ecommerce_integrations.product_sync.engine.canonical import _flag as _pflag
+            reconcile_groups = _pflag(sync_doc, "reconcile_property_groups", default=True)
             recon = getattr(adapter, "reconcile_property_group_filterable", None)
-            if callable(recon) and not subset_item_codes:
+            if callable(recon) and not subset_item_codes and reconcile_groups:
                 try:
                     res = recon()
                     if res.get("updated"):
@@ -483,7 +501,7 @@ def _apply_live(
             # product references. Same gating as the filterable pass — full cron
             # run only, idempotent once converged.
             recon_opts = getattr(adapter, "reconcile_property_group_options", None)
-            if callable(recon_opts) and not subset_item_codes:
+            if callable(recon_opts) and not subset_item_codes and reconcile_groups:
                 try:
                     res = recon_opts()
                     if res.get("deleted"):
@@ -656,7 +674,9 @@ def _apply_live(
         #    collections after products exist. This keeps Smart-Collection
         #    scoped Product Syncs category-complete without a second manual
         #    click.
-        _sync_linked_smart_collection_categories(sync_doc, result)
+        from ecommerce_integrations.product_sync.engine.canonical import _flag
+        if _flag(sync_doc, "sync_categories", default=True):
+            _sync_linked_smart_collection_categories(sync_doc, result)
 
         # 7. Final status.
         status = STATUS_OK if not result.errors else STATUS_PARTIAL
@@ -689,6 +709,33 @@ def _apply_live(
         result.status = STATUS_ERROR
         result.message = msg
         return result
+
+
+def _auto_adopt(sync_doc, subset_item_codes: list[str] | None) -> None:
+    """Map unmapped in-scope items to existing backend products by SKU
+    before diffing, so preview and apply update them instead of creating
+    duplicates. Opt-in via ``auto_adopt_by_sku``; writes only
+    ``Ecommerce Item`` rows in ERPNext."""
+    from ecommerce_integrations.product_sync.engine.canonical import _flag
+    if not _flag(sync_doc, "auto_adopt_by_sku", default=False):
+        return
+    try:
+        from ecommerce_integrations.product_sync.api import adopt_by_sku
+        counts = adopt_by_sku(sync_doc, item_codes=subset_item_codes)
+        if counts.get("adopted"):
+            _logger().info(f"auto-adopt sync={sync_doc.name}: {counts}")
+    except Exception as exc:  # noqa: BLE001 — never block the run on adoption
+        _logger().warning(
+            f"auto-adopt failed for sync={sync_doc.name}: {type(exc).__name__}: {exc}"
+        )
+
+
+def _visibility_strict(sync_doc) -> bool:
+    """``visibility_overrides_only`` only applies with ``sync_visibilities`` on."""
+    from ecommerce_integrations.product_sync.engine.canonical import _flag
+    return _flag(sync_doc, "sync_visibilities", default=False) and _flag(
+        sync_doc, "visibility_overrides_only", default=False
+    )
 
 
 def _sync_linked_smart_collection_categories(sync_doc, result: ProductSyncRunResult) -> None:
@@ -1046,6 +1093,14 @@ def _apply_batch(
                         m.get("media", {}).get("url")
                         for m in media if m.get("media", {}).get("url")
                     ]
+                    # SEO file name / alt text from the Sync templates.
+                    # Present → already pushed media still go through the
+                    # uploader, which renames them in place.
+                    image_names = {
+                        m["media"]["url"]: {k: m["media"][k] for k in ("file", "alt") if m["media"].get(k)}
+                        for m in media
+                        if m.get("media", {}).get("url") and (m["media"].get("file") or m["media"].get("alt"))
+                    }
                     # Canonical gallery order (basenames) — captured before
                     # the short-circuit below empties ``urls``. Drives the
                     # ordered keep-list for reconcile (positions + cover).
@@ -1084,7 +1139,11 @@ def _apply_batch(
                             (u.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]).lower()
                             for u in urls
                         }
-                        if needed_basenames and needed_basenames.issubset(existing_basenames):
+                        if (
+                            not image_names
+                            and needed_basenames
+                            and needed_basenames.issubset(existing_basenames)
+                        ):
                             urls = []  # all already pushed → nothing to do
                             # Exact-match check: if pushed_image_map's
                             # basenames equal the canonical set (not just a
@@ -1107,7 +1166,10 @@ def _apply_batch(
 
                     if urls:
                         try:
-                            upload_result = uploader(new_external_id, urls) or {}
+                            upload_result = (
+                                uploader(new_external_id, urls, names=image_names)
+                                if image_names else uploader(new_external_id, urls)
+                            ) or {}
                             # Persist ERP-basename → media-UUID map so the
                             # next preview's image-diff can short-circuit
                             # when the live Shopware media set matches.
@@ -1327,9 +1389,13 @@ def _apply_batch(
                 )
                 vis_reconciler = getattr(adapter, "reconcile_product_visibilities", None)
                 canonical_vis = (meta.get("canonical") or {}).get("visibilities") or []
-                if callable(vis_reconciler) and not _vis_in_sync and canonical_vis:
+                strict = _visibility_strict(sync_doc)
+                if callable(vis_reconciler) and not _vis_in_sync and (canonical_vis or strict):
                     try:
-                        vis_reconciler(new_external_id, canonical_vis)
+                        if strict:
+                            vis_reconciler(new_external_id, canonical_vis, allow_empty=True)
+                        else:
+                            vis_reconciler(new_external_id, canonical_vis)
                     except Exception as exc:  # noqa: BLE001
                         result.errors.append(
                             f"{meta['item_code']}: visibility reconcile failed: {exc}",
