@@ -17,7 +17,7 @@
    "fieldname": "rule_type",
    "label": "Rule type",
    "fieldtype": "Select",
-   "options": "Item Group\nEcommerce Property\nManufacturer\nItem Field\nStock\nBrand",
+   "options": "Item Group\nEcommerce Property\nManufacturer\nItem Field\nStock\nBrand\nChannel Override",
    "reqd": 1,
    "in_list_view": 1,
    "columns": 2,

@@ -143,3 +143,20 @@ class TestItemCustomFieldRule(IntegrationTestCase):
             self.assertIn("item.`shop_active` =", r._build_item_field_clause(rule))
         with patch.object(r.frappe.db, "exists", return_value=False), self.assertRaises(ValueError):
             r._build_item_field_clause(dict(rule, field_key="description"))
+
+
+class TestChannelOverrideRule(IntegrationTestCase):
+    """Channel Override rules build an EXISTS on the per-item channel table (no DB writes)."""
+
+    def test_clause(self):
+        from unittest.mock import patch
+
+        from ecommerce_integrations.smart_collections.engine import resolver as r
+        patch.object(r.frappe.db, "escape", side_effect=lambda v: f"'{v}'").start()
+        self.addCleanup(patch.stopall)
+        c = r._build_channel_override_clause({"operator": "equals", "value": "abc123"})
+        self.assertIn("`tabEcommerce Channel Override`", c)
+        self.assertIn("co.mode = 'include'", c)
+        self.assertTrue(r._build_channel_override_clause({"operator": "not_in", "value": "a,b"}).startswith("NOT "))
+        with self.assertRaises(ValueError):
+            r._build_channel_override_clause({"operator": "regex", "value": "x"})

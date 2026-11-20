@@ -248,7 +248,33 @@ def _build_manufacturer_clause(rule: dict) -> str:
     raise ValueError(f"Unsupported Manufacturer operator: {op}")
 
 
+def _build_channel_override_clause(rule: dict) -> str:
+    """Items with a per-item channel include (``Item.ecommerce_channel_overrides``).
+
+    ``value`` is a sales channel id (``in``/``not_in`` take a list). Lets a
+    collection follow the same per-item channel assignment the strict
+    visibility mode pushes, e.g. when an upstream system sets it.
+    """
+    op = rule["operator"]
+    vals = _split_csv(rule["value"] or "")
+    if op == "equals":
+        vals = vals[:1]
+    elif op not in ("in", "not_in", "is_set", "is_empty"):
+        raise ValueError(f"Unsupported Channel Override operator: {op}")
+    base = (
+        "EXISTS (SELECT 1 FROM `tabEcommerce Channel Override` co "
+        "WHERE co.parent = item.name AND co.parenttype = 'Item' AND co.mode = 'include'"
+    )
+    if op in ("is_set", "is_empty"):
+        return ("" if op == "is_set" else "NOT ") + base + ")"
+    if not vals:
+        return "1=0"
+    clause = base + f" AND co.sales_channel IN ({_quote_list(vals)}))"
+    return f"NOT {clause}" if op == "not_in" else clause
+
+
 _BUILDERS: dict = {
+    "Channel Override": _build_channel_override_clause,
     "Item Group": _build_item_group_clause,
     "Ecommerce Property": _build_property_clause,
     "Manufacturer": _build_manufacturer_clause,
