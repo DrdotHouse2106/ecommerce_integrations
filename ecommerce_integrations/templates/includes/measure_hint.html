@@ -1,0 +1,26 @@
+{#
+    Packing hint for fulfillment documents: asks the packer to weigh and/or
+    measure an item when its master data lacks weight or dimensions, with
+    blanks to write the values on. Prints nothing once the data is complete.
+    Dimensions are only asked for when the Item has the item_length /
+    item_width / item_height fields.
+
+    Usage:
+        {%- from "ecommerce_integrations/templates/includes/measure_hint.html"
+            import measure_hint with context -%}
+        {{ measure_hint(item.item_code) }}
+#}
+
+{%- macro measure_hint(item_code) -%}
+{%- if item_code -%}
+{%- set it = frappe.get_cached_doc("Item", item_code) -%}
+{%- set _weigh = not it.get("weight_per_unit") -%}
+{%- set _measure = "item_length" in it and not (it.get("item_length") and it.get("item_width") and it.get("item_height")) -%}
+{%- if _weigh or _measure -%}
+<div style="margin-top: 3px; font-size: 7.5pt; color: #444;">
+  {%- if _weigh %}<span style="margin-right: 12px;">&#9878; {{ _("Weigh") }}: ________ kg</span>{% endif -%}
+  {%- if _measure %}<span>&#8597; {{ _("Measure") }}: _____ &times; _____ &times; _____ cm</span>{% endif -%}
+</div>
+{%- endif -%}
+{%- endif -%}
+{%- endmacro -%}
