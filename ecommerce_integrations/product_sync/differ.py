@@ -586,6 +586,10 @@ def _diff_proposed_against_live(
     live_props = (live.properties or {}) if proposed_props is not None else {}
     proposed_props = proposed_props or {}
     for key in ("brand", "manufacturer") if proposed.get("properties") is not None else ():
+        # An empty brand is not pushed (payload omits ``manufacturer``),
+        # so the live value stays — no diff.
+        if not proposed_props.get(key):
+            continue
         _maybe_diff(
             diffs,
             f"properties.{key}",
@@ -595,6 +599,7 @@ def _diff_proposed_against_live(
     prop_attrs = {
         (a.get("name") or "", a.get("value") or "")
         for a in (proposed_props.get("attributes") or [])
+        + (proposed_props.get("ecommerce_properties") or [])
         if isinstance(a, dict)
     }
     live_attrs = {
