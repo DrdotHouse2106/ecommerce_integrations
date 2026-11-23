@@ -105,6 +105,17 @@ class ShopwareProductAdapter(ProductAdapter):
         # Iterator pattern: yield per-page, not all-at-once. A 50k
         # catalogue blown into memory is what crashed the legacy
         # exporter; this adapter must not repeat that mistake.
+        # _with_client returns the generator unconsumed, so a per-call
+        # temp session would be closed before the first request. Pin a
+        # session for the whole iteration instead.
+        if _AMBIENT_CLIENT[0] is None and not getattr(frappe.flags, "in_test", False):
+            with shared_shopware_session():
+                yield from self.fetch_products(
+                    sales_channel_ids=sales_channel_ids,
+                    category_ids=category_ids,
+                    external_ids=external_ids,
+                )
+            return
         yield from _with_client(
             self._fetch_products_impl,
             sales_channel_ids=sales_channel_ids,
