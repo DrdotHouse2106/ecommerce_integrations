@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -1288,8 +1289,35 @@ def _canonical_images(item, sync, ctx=None) -> list[dict[str, Any]]:
             continue
         seen.add(img["url"])
         deduped.append(img)
+    deduped = _prefer_webp(deduped)
     _name_images(deduped, item, sync)
     return deduped
+
+
+_FRAPPE_SUFFIX = re.compile(r"[0-9a-f]{6}$")
+
+
+def _prefer_webp(images: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop a JPG/PNG when the same picture is attached as WebP too.
+
+    Some sources keep every photo in two formats; pushing both doubles
+    the gallery. The stem ignores the 6-hex suffix Frappe appends to
+    clashing file names. The primary flag moves to the WebP twin."""
+    def stem(url: str) -> tuple[str, str]:
+        base, _, ext = url.rsplit("/", 1)[-1].partition(".")
+        return _FRAPPE_SUFFIX.sub("", base).lower(), ext.lower()
+
+    webp = {stem(i["url"])[0]: i for i in images if stem(i["url"])[1] == "webp"}
+    out = []
+    for img in images:
+        key, ext = stem(img["url"])
+        twin = webp.get(key)
+        if ext == "webp" or twin is None:
+            out.append(img)
+        elif img.get("primary"):
+            twin["primary"] = True
+    out.sort(key=lambda i: not i.get("primary"))
+    return out
 
 
 def _name_images(images: list[dict[str, Any]], item, sync) -> None:
