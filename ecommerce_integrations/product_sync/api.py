@@ -447,6 +447,8 @@ def _check_category_bridge(doc, _finding) -> None:
     fields. Smart-Collection scopes are different: category links are owned by
     the Smart Collection sync itself, so validate those targets instead.
     """
+    if not int(doc.get("sync_categories") or 0):
+        return  # categories are not pushed, so no bridge is needed
     if (doc.scope_mode or "") == "Smart Collection":
         _check_smart_collection_category_bridge(doc, _finding)
         return
