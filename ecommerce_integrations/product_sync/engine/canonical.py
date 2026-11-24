@@ -1304,7 +1304,7 @@ def _prefer_webp(images: list[dict[str, Any]]) -> list[dict[str, Any]]:
     the gallery. The stem ignores the 6-hex suffix Frappe appends to
     clashing file names. The primary flag moves to the WebP twin."""
     def stem(url: str) -> tuple[str, str]:
-        base, _, ext = url.rsplit("/", 1)[-1].partition(".")
+        base, _, ext = url.rsplit("/", 1)[-1].rpartition(".")
         return _FRAPPE_SUFFIX.sub("", base).lower(), ext.lower()
 
     webp = {stem(i["url"])[0]: i for i in images if stem(i["url"])[1] == "webp"}
