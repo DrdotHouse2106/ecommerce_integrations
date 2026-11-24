@@ -502,7 +502,7 @@ class ShopwareProductAdapter(ProductAdapter):
                 try:
                     client.request_post(
                         f"_action/media/{media_id}/upload",
-                        payload={"url": url},
+                        payload={"url": _quote_url(url)},
                         additional_query_params={
                             "fileName": stem,
                             "extension": ext,
@@ -1602,7 +1602,7 @@ class ShopwareProductAdapter(ProductAdapter):
             try:
                 client.request_post(
                     f"_action/media/{media_id}/upload",
-                    payload={"url": url},
+                    payload={"url": _quote_url(url)},
                     additional_query_params={
                         "fileName": stem,
                         "extension": ext,
@@ -1631,7 +1631,7 @@ class ShopwareProductAdapter(ProductAdapter):
                     try:
                         client.request_post(
                             f"_action/media/{media_id}/upload",
-                            payload={"url": url},
+                            payload={"url": _quote_url(url)},
                             additional_query_params={
                                 "fileName": f"{stem}-{media_id[:8]}",
                                 "extension": ext,
@@ -2703,6 +2703,13 @@ class shared_shopware_session:
                     session.close()
                 except Exception:  # noqa: BLE001
                     pass
+
+
+def _quote_url(url: str) -> str:
+    """Percent-encode spaces/umlauts so Shopware can fetch the file;
+    already-encoded sequences stay as they are."""
+    from urllib.parse import quote
+    return quote(url, safe=":/?&=%#+~")
 
 
 def _with_client(fn, *args, **kwargs):
