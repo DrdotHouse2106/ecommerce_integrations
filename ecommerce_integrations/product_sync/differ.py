@@ -598,27 +598,30 @@ def _diff_proposed_against_live(
         )
     # Case-insensitive: the apply reuses an existing backend option whose
     # spelling differs only in case, so that is not a pending change.
-    prop_attrs = {
-        ((a.get("name") or "").casefold(), (a.get("value") or "").casefold())
-        for a in (proposed_props.get("attributes") or [])
+    # Keys are casefolded, values keep the original spelling for display.
+    def _attr_map(rows):
+        return {
+            ((r.get("name") or "").casefold(), (r.get("value") or "").casefold()):
+            (r.get("name") or "", r.get("value") or "")
+            for r in rows if isinstance(r, dict)
+        }
+
+    prop_map = _attr_map(
+        (proposed_props.get("attributes") or [])
         + (proposed_props.get("ecommerce_properties") or [])
-        if isinstance(a, dict)
-    }
-    live_attrs = {
-        ((a.get("name") or "").casefold(), (a.get("value") or "").casefold())
-        for a in (live_props.get("attributes") or [])
-        if isinstance(a, dict)
-    }
+    )
+    live_map = _attr_map(live_props.get("attributes") or [])
+    prop_attrs, live_attrs = set(prop_map), set(live_map)
     if proposed.get("properties") is not None and prop_attrs != live_attrs:
-        added = sorted(prop_attrs - live_attrs)
-        removed = sorted(live_attrs - prop_attrs)
+        added = sorted(prop_map[k] for k in prop_attrs - live_attrs)
+        removed = sorted(live_map[k] for k in live_attrs - prop_attrs)
         diffs.append(
             FieldDiff(
                 field="properties.attributes",
                 current=f"{len(live_attrs)} Attribute",
                 proposed=f"{len(prop_attrs)} Attribute",
                 change_kind="modified",
-                preview_current=", ".join(f"{n}={v}" for n, v in list(live_attrs)[:3])[:200],
+                preview_current=", ".join(f"{n}={v}" for n, v in list(live_map.values())[:3])[:200],
                 preview_proposed=(
                     f"+{len(added)} hinzu, −{len(removed)} entf. | "
                     + "; ".join([f"+{n}={v}" for n, v in added] + [f"−{n}={v}" for n, v in removed])
