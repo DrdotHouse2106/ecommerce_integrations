@@ -137,6 +137,37 @@ def send_invoice_email(sales_invoice_name: str, setting) -> bool:
         return False
 
 
+_UNVERIFIED = "could not be verified with Shopware"
+_HANDLER = "ecommerce_integrations.shopware6.payment.handle_transaction_state_change"
+
+
+def retry_unverified_payments():
+    """Hourly: re-run payment webhooks whose state could not be read back
+    from Shopware (e.g. an outage), so the payment is not lost. Gives up
+    after 48 hours; the log stays on Error for manual follow-up."""
+    import json
+
+    from frappe.utils import add_to_date, now_datetime
+
+    logs = frappe.get_all(
+        "Ecommerce Integration Log",
+        filters={
+            "status": "Error",
+            "method": _HANDLER,
+            "message": ["like", f"%{_UNVERIFIED}%"],
+            "creation": [">", add_to_date(now_datetime(), hours=-48)],
+        },
+        fields=["name", "request_data"],
+    )
+    for log in logs:
+        frappe.db.set_value("Ecommerce Integration Log", log.name, "status", "Queued", update_modified=False)
+        frappe.enqueue(
+            _HANDLER, queue="short", timeout=300,
+            payload=json.loads(log.request_data or "{}"), request_id=log.name,
+            enqueue_after_commit=True,
+        )
+
+
 @temp_shopware_session
 def fetch_transaction_state(client, *, order_id: str, transaction_id: str | None = None) -> dict | None:
     """Current state of the order's transaction as Shopware reports it.
@@ -215,7 +246,7 @@ def handle_transaction_state_change(payload: dict[str, Any], request_id: str | N
                 if request_id:
                     update_shopware_log(
                         request_id, status="Error",
-                        message=f"Payment state for order {order_id} could not be verified with Shopware",
+                        message=f"Payment state for order {order_id} {_UNVERIFIED}",
                     )
                 return
             if verified["state"] != new_state:

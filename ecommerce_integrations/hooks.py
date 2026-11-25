@@ -336,6 +336,8 @@ scheduler_events = {
 		# Product Sync: re-flag apply-live runs stuck in 'running' past heartbeat
 		# (worker OOM/SIGKILL/restart leaves the parent sync's claim dangling).
 		"ecommerce_integrations.product_sync.tasks.recover_stale_product_syncs",
+		# Shopware: retry payment webhooks that could not be verified (outage)
+		"ecommerce_integrations.shopware6.payment.retry_unverified_payments",
 	],
 	"hourly_long": [
 		"ecommerce_integrations.zenoti.doctype.zenoti_settings.zenoti_settings.sync_invoices",
