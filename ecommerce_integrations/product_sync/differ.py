@@ -596,14 +596,16 @@ def _diff_proposed_against_live(
             live_props.get(key) or "",
             proposed_props.get(key) or "",
         )
+    # Case-insensitive: the apply reuses an existing backend option whose
+    # spelling differs only in case, so that is not a pending change.
     prop_attrs = {
-        (a.get("name") or "", a.get("value") or "")
+        ((a.get("name") or "").casefold(), (a.get("value") or "").casefold())
         for a in (proposed_props.get("attributes") or [])
         + (proposed_props.get("ecommerce_properties") or [])
         if isinstance(a, dict)
     }
     live_attrs = {
-        (a.get("name") or "", a.get("value") or "")
+        ((a.get("name") or "").casefold(), (a.get("value") or "").casefold())
         for a in (live_props.get("attributes") or [])
         if isinstance(a, dict)
     }
