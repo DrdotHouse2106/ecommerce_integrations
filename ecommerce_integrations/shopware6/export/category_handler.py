@@ -11,7 +11,6 @@ import time
 from typing import Any
 
 import frappe
-import requests
 from frappe.utils import get_files_path
 
 # CRITICAL: ShopwareAPIError inherits from BaseException, NOT Exception!
@@ -189,12 +188,13 @@ def get_image_content_and_filename(image_path: str) -> tuple:
         Tuple of (image_content, filename, extension) or (None, None, None) on error
     """
     try:
+        # Only this site's own public files: no arbitrary URL fetch
+        # (SSRF) and no reads outside the public files folder.
+        site = frappe.utils.get_url().rstrip("/")
+        if image_path.startswith(site + "/"):
+            image_path = image_path[len(site):].split("?")[0]
         if image_path.startswith("http"):
-            response = requests.get(image_path, timeout=30)
-            if response.status_code != 200:
-                return None, None, None
-            image_content = response.content
-            filename = image_path.split("/")[-1].split("?")[0]
+            return None, None, None
         elif image_path.startswith("/file/"):
             # External storage URL - load via Frappe File API
             # Path format: /file/{file_id}/{filename}
@@ -203,6 +203,8 @@ def get_image_content_and_filename(image_path: str) -> tuple:
                 file_id = parts[2]  # e.g. "392be7e0e5"
                 try:
                     file_doc = frappe.get_doc("File", file_id)
+                    if file_doc.is_private:
+                        return None, None, None
                     image_content = file_doc.get_content()
                     filename = parts[-1].split("?")[0]
                 except Exception:
@@ -210,14 +212,11 @@ def get_image_content_and_filename(image_path: str) -> tuple:
             else:
                 return None, None, None
         else:
-            if image_path.startswith("/files/"):
-                full_path = get_files_path() + image_path[6:]
-            elif image_path.startswith("/private/files/"):
-                full_path = get_files_path(is_private=True) + image_path[14:]
-            else:
-                full_path = image_path
-
-            if not os.path.exists(full_path):
+            if not image_path.startswith("/files/"):
+                return None, None, None
+            base = os.path.realpath(get_files_path())
+            full_path = os.path.realpath(os.path.join(base, image_path[7:]))
+            if not full_path.startswith(base + os.sep) or not os.path.exists(full_path):
                 return None, None, None
 
             with open(full_path, "rb") as f:
