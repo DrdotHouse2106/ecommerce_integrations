@@ -272,16 +272,18 @@ class BulkContext:
     def _load_prices(self, item_codes: list[str], price_lists: list[str]) -> None:
         if not price_lists:
             return
+        # Only prices valid today and not customer-specific; among those the
+        # latest valid_from wins. ORDER BY ascending so the last row written
+        # into the dict is the one that applies.
         rows = frappe.db.sql(
             """SELECT item_code, price_list, price_list_rate
-               FROM `tabItem Price` ip1
+               FROM `tabItem Price`
                WHERE item_code IN %(codes)s
                  AND price_list IN %(lists)s
-                 AND modified = (
-                     SELECT MAX(modified) FROM `tabItem Price` ip2
-                     WHERE ip2.item_code = ip1.item_code
-                       AND ip2.price_list = ip1.price_list
-                 )""",
+                 AND IFNULL(customer, '') = ''
+                 AND IFNULL(valid_from, '2000-01-01') <= CURDATE()
+                 AND IFNULL(valid_upto, '2999-12-31') >= CURDATE()
+               ORDER BY IFNULL(valid_from, '2000-01-01'), modified""",
             {
                 "codes": tuple(item_codes) or ("__none__",),
                 "lists": tuple(price_lists) or ("__none__",),

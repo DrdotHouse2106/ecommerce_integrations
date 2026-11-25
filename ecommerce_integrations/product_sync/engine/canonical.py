@@ -1042,8 +1042,10 @@ def _canonical_pricing(item, sync, ctx=None) -> dict[str, Any]:
         # (Medusa applies tax at display time via the configured
         # region tax_rate, which gives consistent tax-on-sum
         # rounding for multi-line orders).
-        "base_price": gross_price,
-        "base_net": net_price,
+        # No price in the list → None, so the apply leaves the live
+        # price alone instead of pushing 0.
+        "base_price": gross_price if base is not None else None,
+        "base_net": net_price if base is not None else None,
         "channel_prices": channel_prices,
         "tax_rate_pct": _normalize_float(tax_rate_pct),
     }
@@ -1118,7 +1120,10 @@ def _lookup_item_price(item_code: str, price_list: str, currency: str) -> float 
     rows = frappe.db.sql(
         """SELECT price_list_rate FROM `tabItem Price`
            WHERE item_code = %s AND price_list = %s
-           ORDER BY modified DESC LIMIT 1""",
+             AND IFNULL(customer, '') = ''
+             AND IFNULL(valid_from, '2000-01-01') <= CURDATE()
+             AND IFNULL(valid_upto, '2999-12-31') >= CURDATE()
+           ORDER BY IFNULL(valid_from, '2000-01-01') DESC, modified DESC LIMIT 1""",
         (item_code, price_list),
     )
     if rows:
