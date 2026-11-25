@@ -621,8 +621,8 @@ def _diff_proposed_against_live(
                 preview_current=", ".join(f"{n}={v}" for n, v in list(live_attrs)[:3])[:200],
                 preview_proposed=(
                     f"+{len(added)} hinzu, −{len(removed)} entf. | "
-                    + "; ".join([f"+{n}={v}" for n, v in added[:5]] + [f"−{n}={v}" for n, v in removed[:5]])
-                )[:400],
+                    + "; ".join([f"+{n}={v}" for n, v in added] + [f"−{n}={v}" for n, v in removed])
+                )[:4000],
             )
         )
 
