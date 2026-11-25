@@ -12,6 +12,7 @@ from frappe import _
 from frappe.utils import getdate, nowdate
 from lib_shopware6_api_base import Criteria, Shopware6AdminAPIClientBase
 
+from ecommerce_integrations.ecommerce_integrations.checkout_utils import clean_checkout_value
 from ecommerce_integrations.ecommerce_integrations.customer_comment import (
     set_customer_comment,
     update_sales_order_comment,
@@ -722,7 +723,7 @@ def update_order_custom_fields(
             value = None
             for name in field_names:
                 if name in webhook_custom_fields:
-                    value = webhook_custom_fields[name]
+                    value = clean_checkout_value(webhook_custom_fields[name])
                     break
 
             if value is None:

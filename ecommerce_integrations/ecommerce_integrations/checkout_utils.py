@@ -47,7 +47,7 @@ def process_checkout_fields(
             continue
 
         field_names = [n.strip() for n in (row.source_field_names or "").split(",") if n.strip()]
-        value = extract_value_fn(source_data, field_names)
+        value = clean_checkout_value(extract_value_fn(source_data, field_names))
 
         if row.mapping_type == MAPPING_SERVICE_ITEM and row.service_item:
             service_items[row.service_item] = row
@@ -100,6 +100,17 @@ def process_checkout_fields(
         frappe.db.set_value("Customer", customer, customer_updates, update_modified=False)
 
     return service_items
+
+
+def clean_checkout_value(value):
+    """Shop customers type these values; they are written with
+    ``db.set_value`` (no Frappe HTML filter) and printed in documents.
+    Strip markup and cap the length; non-strings pass through."""
+    if isinstance(value, str):
+        from frappe.utils import strip_html
+
+        return strip_html(value).strip()[:500]
+    return value
 
 
 def add_service_item(so, setting, item_code: str, override_price=None, is_doc=True):

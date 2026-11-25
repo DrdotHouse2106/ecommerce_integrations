@@ -104,7 +104,7 @@ html, body { margin: 0; padding: 0; height: 100%; }
   </div>
   <div class="header-right">
     <h1 class="doc-title">{{ title | upper }}</h1>
-    <p class="doc-number">{{ doc.name }}</p>
+    <p class="doc-number">{{ doc.name | e }}</p>
     <p class="price-info">{% if is_tax_exempt %}{{ _("All prices excl. VAT (tax-exempt delivery)") }}{% elif is_private %}{{ _("All prices incl. VAT") }}{% else %}{{ _("All prices excl. VAT") }}{% endif %}</p>
     {% if is_paid %}<div class="paid-badge"><svg width="11" height="11" viewBox="0 0 16 16" style="vertical-align:-1px;margin-right:3px" xmlns="http://www.w3.org/2000/svg"><path d="M13.5 4.5l-7 7-3.5-3.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>{{ _("Paid") }}{% if payment_mode %} {{ _("via") }} {{ payment_mode }}{% endif %}</div>{% endif %}
   </div>
@@ -117,7 +117,7 @@ html, body { margin: 0; padding: 0; height: 100%; }
 <div class="payment-box paid"><h4><svg width="11" height="11" viewBox="0 0 16 16" style="vertical-align:-1px;margin-right:3px" xmlns="http://www.w3.org/2000/svg"><path d="M13.5 4.5l-7 7-3.5-3.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>{{ _("Payment Received") }}</h4><p style="margin: 0;">{{ _("Thank you! The payment of {0} via {1} has been processed successfully.").format(doc.get_formatted("grand_total"), payment_mode) }}</p></div>
 {% elif payment_mode == "Vorkasse" %}
 {% set epc_data = "BCD\n002\n1\nSCT\n" ~ bic ~ "\n" ~ (brand.bank_account_holder or company_doc.company_name) ~ "\n" ~ default_bank.iban ~ "\nEUR" ~ ("%.2f"|format(doc.grand_total)) ~ "\n\n\n" ~ doc.name %}
-<div class="payment-box pending"><h4>{{ _("Payment Method") }}: {{ _("Prepayment") }}</h4><div class="payment-content"><div class="payment-details"><p style="margin-bottom: 10px;">{{ _("Please transfer the amount to the following account") }}:</p><div class="bank-grid"><div class="bank-row"><span class="bank-label">{{ _("Account Holder") }}:</span><span class="bank-value">{{ brand.bank_account_holder or company_doc.company_name }}</span></div><div class="bank-row"><span class="bank-label">IBAN:</span><span class="bank-value highlight">{{ default_bank.iban }}</span></div><div class="bank-row"><span class="bank-label">BIC:</span><span class="bank-value">{{ bic }}</span></div><div class="bank-row"><span class="bank-label">{{ _("Purpose") }}:</span><span class="bank-value highlight">{{ doc.name }}</span></div></div></div>{% if default_bank.iban %}<div class="payment-qr"><img src="{{ get_qr_code(epc_data) }}" alt="EPC QR-Code"><p>{{ _("Scan QR code to pay") }}</p></div>{% endif %}</div></div>
+<div class="payment-box pending"><h4>{{ _("Payment Method") }}: {{ _("Prepayment") }}</h4><div class="payment-content"><div class="payment-details"><p style="margin-bottom: 10px;">{{ _("Please transfer the amount to the following account") }}:</p><div class="bank-grid"><div class="bank-row"><span class="bank-label">{{ _("Account Holder") }}:</span><span class="bank-value">{{ brand.bank_account_holder or company_doc.company_name }}</span></div><div class="bank-row"><span class="bank-label">IBAN:</span><span class="bank-value highlight">{{ default_bank.iban }}</span></div><div class="bank-row"><span class="bank-label">BIC:</span><span class="bank-value">{{ bic }}</span></div><div class="bank-row"><span class="bank-label">{{ _("Purpose") }}:</span><span class="bank-value highlight">{{ doc.name | e }}</span></div></div></div>{% if default_bank.iban %}<div class="payment-qr"><img src="{{ get_qr_code(epc_data) }}" alt="EPC QR-Code"><p>{{ _("Scan QR code to pay") }}</p></div>{% endif %}</div></div>
 {% elif is_invoice %}
 <div class="payment-box invoice"><h4>{{ _("Payment Method") }}: {{ _("Purchase on Account") }}</h4><p style="margin: 0;">{{ _("You have selected purchase on account. You will receive the invoice with payment information after shipment of your order.") }}</p></div>
 {% endif %}
@@ -156,8 +156,8 @@ html, body { margin: 0; padding: 0; height: 100%; }
 {% for item in doc.items %}
 {% if is_private %}{% if tax_included %}{% set display_rate = item.rate %}{% set display_amount = item.amount %}{% else %}{% set display_rate = item.rate * (1 + tax_rate / 100) %}{% set display_amount = item.amount * (1 + tax_rate / 100) %}{% endif %}{% else %}{% set display_rate = item.net_rate if item.net_rate else item.rate %}{% set display_amount = item.net_amount if item.net_amount else item.amount %}{% endif %}
 <tr>
-  <td>{{ item.item_code }}</td>
-  <td><strong>{{ item.item_name }}</strong></td>
+  <td>{{ item.item_code | e }}</td>
+  <td><strong>{{ item.item_name | e }}</strong></td>
   <td class="text-center">{{ "%.0f"|format(item.qty) }} {{ _(item.uom) }}</td>
   <td class="text-right">{{ frappe.format_value(display_rate, {"fieldtype": "Currency", "options": doc.currency}) }}</td>
   <td class="text-right">{% if is_tax_exempt %}0%{% else %}{{ "%.0f"|format(tax_rate) }}%{% endif %}</td>
@@ -173,14 +173,14 @@ html, body { margin: 0; padding: 0; height: 100%; }
 <div class="address-block">
   <h4>{{ _("Invoice Details") }}</h4>
   <table class="info-table">
-    <tr><td>{{ _("Customer No.") }}:</td><td>{{ doc.customer }}</td></tr>
-    <tr><td>{{ _("Invoice No.") }}:</td><td><strong>{{ doc.name }}</strong></td></tr>
+    <tr><td>{{ _("Customer No.") }}:</td><td>{{ doc.customer | e }}</td></tr>
+    <tr><td>{{ _("Invoice No.") }}:</td><td><strong>{{ doc.name | e }}</strong></td></tr>
     <tr><td>{{ _("Invoice Date") }}:</td><td>{{ frappe.utils.formatdate(doc.posting_date, "long") }}</td></tr>
     {% if not is_paid and doc.due_date %}
     <tr class="highlight"><td>{{ _("Due Date") }}:</td><td><strong style="color: {{ brand.primary_color }};">{{ frappe.utils.formatdate(doc.due_date, "long") }}</strong></td></tr>
     {% endif %}
-    {% if doc.get("shopware_order_number") %}<tr><td>{{ _("Shop Order No.") }}:</td><td><strong>{{ doc.shopware_order_number }}</strong></td></tr>{% endif %}
-    {% if doc.po_no %}<tr><td>{{ _("Your Order No.") }}:</td><td><strong>{{ doc.po_no }}</strong></td></tr>{% endif %}
+    {% if doc.get("shopware_order_number") %}<tr><td>{{ _("Shop Order No.") }}:</td><td><strong>{{ doc.shopware_order_number | e }}</strong></td></tr>{% endif %}
+    {% if doc.po_no %}<tr><td>{{ _("Your Order No.") }}:</td><td><strong>{{ doc.po_no | e }}</strong></td></tr>{% endif %}
   </table>
 </div>
 {%- endmacro -%}
@@ -212,9 +212,9 @@ html, body { margin: 0; padding: 0; height: 100%; }
 {% if is_paid %}
 <div class="payment-box paid"><h4><svg width="11" height="11" viewBox="0 0 16 16" style="vertical-align:-1px;margin-right:3px" xmlns="http://www.w3.org/2000/svg"><path d="M13.5 4.5l-7 7-3.5-3.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>{{ _("Payment Received") }}</h4><p style="margin: 0;">{{ _("Thank you! The payment of {0} via {1} has been processed successfully.").format(doc.get_formatted("grand_total"), payment_mode) }}</p></div>
 {% elif payment_mode == "Vorkasse" %}
-<div class="payment-box pending"><h4>{{ _("Payment Method") }}: {{ _("Prepayment") }}</h4><div class="payment-content"><div class="payment-details"><p style="margin-bottom: 10px;">{{ _("Please transfer the amount to the following account") }}:</p><div class="bank-grid"><div class="bank-row"><span class="bank-label">{{ _("Account Holder") }}:</span><span class="bank-value">{{ brand.bank_account_holder or company_doc.company_name }}</span></div><div class="bank-row"><span class="bank-label">IBAN:</span><span class="bank-value highlight">{{ default_bank.iban }}</span></div><div class="bank-row"><span class="bank-label">BIC:</span><span class="bank-value">{{ bic }}</span></div><div class="bank-row"><span class="bank-label">{{ _("Purpose") }}:</span><span class="bank-value highlight">{{ doc.name }}</span></div></div></div>{{ epc_qr(doc, company_doc, default_bank, bic, brand) }}</div></div>
+<div class="payment-box pending"><h4>{{ _("Payment Method") }}: {{ _("Prepayment") }}</h4><div class="payment-content"><div class="payment-details"><p style="margin-bottom: 10px;">{{ _("Please transfer the amount to the following account") }}:</p><div class="bank-grid"><div class="bank-row"><span class="bank-label">{{ _("Account Holder") }}:</span><span class="bank-value">{{ brand.bank_account_holder or company_doc.company_name }}</span></div><div class="bank-row"><span class="bank-label">IBAN:</span><span class="bank-value highlight">{{ default_bank.iban }}</span></div><div class="bank-row"><span class="bank-label">BIC:</span><span class="bank-value">{{ bic }}</span></div><div class="bank-row"><span class="bank-label">{{ _("Purpose") }}:</span><span class="bank-value highlight">{{ doc.name | e }}</span></div></div></div>{{ epc_qr(doc, company_doc, default_bank, bic, brand) }}</div></div>
 {% else %}
-<div class="payment-box invoice"><h4>{{ _("Payment Information") }}</h4><div class="payment-content"><div class="payment-details"><p style="margin-bottom: 10px;">{% if doc.due_date %}{{ _("Please transfer the amount by") }} <strong style="color: {{ brand.primary_color }};">{{ frappe.utils.formatdate(doc.due_date, "long") }}</strong>{% else %}{{ _("Please transfer the amount to the following account") }}{% endif %}:</p><div class="bank-grid"><div class="bank-row"><span class="bank-label">{{ _("Account Holder") }}:</span><span class="bank-value">{{ brand.bank_account_holder or company_doc.company_name }}</span></div><div class="bank-row"><span class="bank-label">IBAN:</span><span class="bank-value highlight">{{ default_bank.iban }}</span></div><div class="bank-row"><span class="bank-label">BIC:</span><span class="bank-value">{{ bic }}</span></div><div class="bank-row"><span class="bank-label">{{ _("Purpose") }}:</span><span class="bank-value highlight">{{ doc.name }}</span></div></div></div>{{ epc_qr(doc, company_doc, default_bank, bic, brand) }}</div></div>
+<div class="payment-box invoice"><h4>{{ _("Payment Information") }}</h4><div class="payment-content"><div class="payment-details"><p style="margin-bottom: 10px;">{% if doc.due_date %}{{ _("Please transfer the amount by") }} <strong style="color: {{ brand.primary_color }};">{{ frappe.utils.formatdate(doc.due_date, "long") }}</strong>{% else %}{{ _("Please transfer the amount to the following account") }}{% endif %}:</p><div class="bank-grid"><div class="bank-row"><span class="bank-label">{{ _("Account Holder") }}:</span><span class="bank-value">{{ brand.bank_account_holder or company_doc.company_name }}</span></div><div class="bank-row"><span class="bank-label">IBAN:</span><span class="bank-value highlight">{{ default_bank.iban }}</span></div><div class="bank-row"><span class="bank-label">BIC:</span><span class="bank-value">{{ bic }}</span></div><div class="bank-row"><span class="bank-label">{{ _("Purpose") }}:</span><span class="bank-value highlight">{{ doc.name | e }}</span></div></div></div>{{ epc_qr(doc, company_doc, default_bank, bic, brand) }}</div></div>
 {% endif %}
 {%- endmacro -%}
 
@@ -248,11 +248,11 @@ html, body { margin: 0; padding: 0; height: 100%; }
   <div class="address-block">
     <h4>{{ _("Bill To") }}</h4>
     <p style="line-height: 1.6;">
-      <strong>{{ doc.customer_name }}</strong><br>
+      <strong>{{ doc.customer_name | e }}</strong><br>
       {% if doc.customer_address %}{{ translate_country(doc.address_display.replace('\n', '<br>'))|safe }}{% endif %}
-      {% if billing_addr and billing_addr.phone %}<br>{{ _("Phone") }}: {{ billing_addr.phone }}{% endif %}
-      {% if billing_addr and billing_addr.email_id %}<br>{{ _("Email") }}: {{ billing_addr.email_id }}{% elif doc.get("contact_email") %}<br>{{ _("Email") }}: {{ doc.contact_email }}{% endif %}
-      {% if doc.tax_id %}<br><strong>{{ _("VAT ID") }}:</strong> {{ doc.tax_id }}{% endif %}
+      {% if billing_addr and billing_addr.phone %}<br>{{ _("Phone") }}: {{ billing_addr.phone | e }}{% endif %}
+      {% if billing_addr and billing_addr.email_id %}<br>{{ _("Email") }}: {{ billing_addr.email_id | e }}{% elif doc.get("contact_email") %}<br>{{ _("Email") }}: {{ doc.contact_email | e }}{% endif %}
+      {% if doc.tax_id %}<br><strong>{{ _("VAT ID") }}:</strong> {{ doc.tax_id | e }}{% endif %}
     </p>
   </div>
   {{ invoice_details_block(doc, brand, is_paid) }}
@@ -262,12 +262,12 @@ html, body { margin: 0; padding: 0; height: 100%; }
 <div style="margin-bottom: 20px;">
   <h4 style="color: {{ brand.primary_color }}; font-size: 8pt; margin: 0 0 8px 0; border-bottom: 1px solid {{ brand.primary_color }}; padding-bottom: 4px; text-transform: uppercase; font-weight: 700; display: inline-block;">{{ _("Shipping Address") }}</h4>
   <p style="line-height: 1.6;">
-    {% if shipping_addr_doc.address_title %}<strong>{{ shipping_addr_doc.address_title }}</strong><br>{% endif %}
-    {% if shipping_addr_doc.address_line1 %}{{ shipping_addr_doc.address_line1 }}<br>{% endif %}
-    {% if shipping_addr_doc.address_line2 %}{{ shipping_addr_doc.address_line2 }}<br>{% endif %}
-    {{ shipping_addr_doc.pincode }} {{ shipping_addr_doc.city }}<br>
+    {% if shipping_addr_doc.address_title %}<strong>{{ shipping_addr_doc.address_title | e }}</strong><br>{% endif %}
+    {% if shipping_addr_doc.address_line1 %}{{ shipping_addr_doc.address_line1 | e }}<br>{% endif %}
+    {% if shipping_addr_doc.address_line2 %}{{ shipping_addr_doc.address_line2 | e }}<br>{% endif %}
+    {{ shipping_addr_doc.pincode | e }} {{ shipping_addr_doc.city | e }}<br>
     {{ translate_country(shipping_addr_doc.country) }}
-    {% if shipping_addr_doc.phone %}<br>{{ _("Phone") }}: {{ shipping_addr_doc.phone }}{% endif %}
+    {% if shipping_addr_doc.phone %}<br>{{ _("Phone") }}: {{ shipping_addr_doc.phone | e }}{% endif %}
   </p>
 </div>
 {% endif %}
@@ -359,20 +359,20 @@ html, body { margin: 0; padding: 0; height: 100%; }
   <div class="address-block">
     <h4>{{ _("Billing Address") }}</h4>
     <p style="line-height: 1.6;">
-      <strong>{{ doc.customer_name }}</strong><br>
+      <strong>{{ doc.customer_name | e }}</strong><br>
       {% if doc.customer_address %}{{ translate_country(doc.address_display.replace('\n', '<br>'))|safe }}{% endif %}
-      {% if billing_addr and billing_addr.phone %}<br>{{ _("Phone") }}: {{ billing_addr.phone }}{% endif %}
-      {% if billing_addr and billing_addr.email_id %}<br>{{ _("Email") }}: {{ billing_addr.email_id }}{% elif doc.get("contact_email") %}<br>{{ _("Email") }}: {{ doc.contact_email }}{% endif %}
-      {% if doc.tax_id %}<br><strong>{{ _("VAT ID") }}:</strong> {{ doc.tax_id }}{% endif %}
+      {% if billing_addr and billing_addr.phone %}<br>{{ _("Phone") }}: {{ billing_addr.phone | e }}{% endif %}
+      {% if billing_addr and billing_addr.email_id %}<br>{{ _("Email") }}: {{ billing_addr.email_id | e }}{% elif doc.get("contact_email") %}<br>{{ _("Email") }}: {{ doc.contact_email | e }}{% endif %}
+      {% if doc.tax_id %}<br><strong>{{ _("VAT ID") }}:</strong> {{ doc.tax_id | e }}{% endif %}
     </p>
   </div>
   <div class="address-block">
     <h4>{{ _("Order Details") }}</h4>
     <table class="info-table">
-      <tr><td>{{ _("Order Number") }}:</td><td><strong>{{ doc.name }}</strong></td></tr>
+      <tr><td>{{ _("Order Number") }}:</td><td><strong>{{ doc.name | e }}</strong></td></tr>
       <tr><td>{{ _("Order Date") }}:</td><td>{{ frappe.utils.formatdate(doc.transaction_date, "long") }}</td></tr>
-      {% if doc.get("shopware_order_number") %}<tr><td>{{ _("Shop Order No.") }}:</td><td><strong>{{ doc.shopware_order_number }}</strong></td></tr>{% endif %}
-      {% if doc.po_no %}<tr><td>{{ _("Your Order No.") }}:</td><td>{{ doc.po_no }}</td></tr>{% endif %}
+      {% if doc.get("shopware_order_number") %}<tr><td>{{ _("Shop Order No.") }}:</td><td><strong>{{ doc.shopware_order_number | e }}</strong></td></tr>{% endif %}
+      {% if doc.po_no %}<tr><td>{{ _("Your Order No.") }}:</td><td>{{ doc.po_no | e }}</td></tr>{% endif %}
       {% if doc.get("delivery_date") %}<tr><td>{{ _("Delivery Date") }}:</td><td>{{ frappe.utils.formatdate(doc.delivery_date, "long") }}</td></tr>{% endif %}
     </table>
   </div>
@@ -382,12 +382,12 @@ html, body { margin: 0; padding: 0; height: 100%; }
 <div style="margin-bottom: 20px;">
   <h4 style="color: {{ brand.primary_color }}; font-size: 8pt; margin: 0 0 8px 0; border-bottom: 1px solid {{ brand.primary_color }}; padding-bottom: 4px; text-transform: uppercase; font-weight: 700; display: inline-block;">{{ _("Shipping Address") }}</h4>
   <p style="line-height: 1.6;">
-    {% if shipping_addr_doc.address_title %}<strong>{{ shipping_addr_doc.address_title }}</strong><br>{% endif %}
-    {% if shipping_addr_doc.address_line1 %}{{ shipping_addr_doc.address_line1 }}<br>{% endif %}
-    {% if shipping_addr_doc.address_line2 %}{{ shipping_addr_doc.address_line2 }}<br>{% endif %}
-    {{ shipping_addr_doc.pincode }} {{ shipping_addr_doc.city }}<br>
+    {% if shipping_addr_doc.address_title %}<strong>{{ shipping_addr_doc.address_title | e }}</strong><br>{% endif %}
+    {% if shipping_addr_doc.address_line1 %}{{ shipping_addr_doc.address_line1 | e }}<br>{% endif %}
+    {% if shipping_addr_doc.address_line2 %}{{ shipping_addr_doc.address_line2 | e }}<br>{% endif %}
+    {{ shipping_addr_doc.pincode | e }} {{ shipping_addr_doc.city | e }}<br>
     {{ translate_country(shipping_addr_doc.country) }}
-    {% if shipping_addr_doc.phone %}<br>{{ _("Phone") }}: {{ shipping_addr_doc.phone }}{% endif %}
+    {% if shipping_addr_doc.phone %}<br>{{ _("Phone") }}: {{ shipping_addr_doc.phone | e }}{% endif %}
   </p>
 </div>
 {% endif %}
