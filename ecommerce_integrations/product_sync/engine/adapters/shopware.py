@@ -1527,7 +1527,9 @@ class ShopwareProductAdapter(ProductAdapter):
                     "includes": {"media": ["id", "fileName"]},
                     "limit": 1,
                 })
-                _rows = _hit.data or []
+                # A media entity without fileName has no file (an earlier
+                # upload failed) — re-upload into the same id instead.
+                _rows = [r for r in (_hit.data or []) if r.get("fileName")]
                 _reused = _rows[0]["id"] if _rows else None
                 _reused_name = _rows[0].get("fileName") if _rows else None
             except Exception:  # noqa: BLE001
