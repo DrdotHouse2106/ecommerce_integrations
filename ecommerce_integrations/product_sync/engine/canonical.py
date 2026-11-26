@@ -1236,8 +1236,8 @@ def _list_is_gross(price_list: str) -> bool:
 
 def _canonical_advanced_prices(item, sync, base_list, tax_rate_pct) -> list[dict[str, Any]]:
     """Quantity tiers of the base list plus group price lists, one row per
-    (rule, quantity start). A rule needs a price from quantity 1, otherwise
-    it is skipped; the base list under the tier rule only when it has tiers."""
+    (rule, quantity start). A group list may start above quantity 1 (tier
+    only); the base list under the tier rule only when it has tiers."""
     rows = _advanced_price_rows(sync, base_list)
     if not rows:
         return []
@@ -1248,16 +1248,20 @@ def _canonical_advanced_prices(item, sync, base_list, tax_rate_pct) -> list[dict
     for rule, pl in rows:
         base = prices.get((item.item_code, pl))
         steps = tiers.get((item.item_code, pl), [])
-        if not base or (pl == base_list and not steps):
-            continue
+        if pl == base_list and not steps:
+            continue  # the plain base price needs no advanced row
+        steps = ([(1.0, base)] if base else []) + sorted(steps)
         gross_list = _list_is_gross(pl)
-        for qty, rate in [(1.0, base)] + sorted(steps):
-            gross = rate if gross_list else rate * factor
+        for qty, rate in steps:
+            # Keep the list's own side exact; Shopware stores the other one
+            # with four decimals (net 121.64 → gross 144.7516).
+            gross = rate if gross_list else round(rate * factor, 4)
+            net = round(rate / factor, 4) if gross_list else rate
             out.append({
                 "rule": rule,
                 "qty": int(qty),
-                "gross": _normalize_float(round(gross, 2)),
-                "net": _normalize_float(round(gross / factor, 4)),
+                "gross": _normalize_float(gross),
+                "net": _normalize_float(net),
             })
     out.sort(key=lambda d: (d["rule"], d["qty"]))
     return out
