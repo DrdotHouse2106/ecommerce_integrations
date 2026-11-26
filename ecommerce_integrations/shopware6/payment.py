@@ -155,23 +155,30 @@ def retry_unverified_payments():
     from frappe.utils import add_to_date, now_datetime
 
     now = now_datetime()
+    fields = ["name", "status", "modified", "request_data", "creation"]
+    since = add_to_date(now, hours=-48)
     logs = frappe.get_all(
         "Ecommerce Integration Log",
-        filters={
-            "method": _HANDLER,
-            "message": ["like", f"%{_UNVERIFIED}%"],
-            "creation": [">", add_to_date(now, hours=-48)],
-            "status": ["in", ["Error", "Queued"]],
-        },
-        fields=["name", "status", "modified", "request_data"],
-        order_by="creation desc",
+        filters={"method": _HANDLER, "message": ["like", f"%{_UNVERIFIED}%"],
+                 "creation": [">", since], "status": "Error"},
+        fields=fields,
+    ) + frappe.get_all(
+        # Any log of this handler stuck in Queued/Pending (worker died or
+        # job timed out), whatever its message.
+        "Ecommerce Integration Log",
+        filters={"method": _HANDLER, "creation": [">", since],
+                 "status": ["in", ["Queued", "Pending"]],
+                 "modified": ["<", add_to_date(now, hours=-1)]},
+        fields=fields,
     )
+    logs.sort(key=lambda l: l.creation, reverse=True)
     seen: set[str] = set()
     for log in logs:
         try:
-            if log.status == "Queued" and log.modified > add_to_date(now, hours=-1):
-                continue  # still in flight
             payload = json.loads(log.request_data or "{}")
+            # Check the order's newest transaction, not the one of this
+            # (possibly superseded) event — the payment method may have changed.
+            (payload.get("data") or {}).pop("transactionId", None)
             order_id = (payload.get("data") or {}).get("orderId") or log.name
             if order_id in seen:
                 frappe.db.set_value(
@@ -218,14 +225,16 @@ def fetch_transaction_state(client, *, order_id: str, transaction_id: str | None
         return {"error": str(exc)}
     rows = resp.data or []
     if not rows:
-        return None
+        return {"missing": True}
     row = rows[0]
     attrs = row.get("attributes") or {}
     merged = {**attrs, **{k: v for k, v in row.items() if k != "attributes"}}
     if merged.get("orderId") and merged.get("orderId") != order_id:
-        return None
+        return {"missing": True}
     state = ((merged.get("stateMachineState") or {}).get("technicalName")) or ""
-    return {"state": state, "transaction_id": merged.get("id")} if state else None
+    if not state:
+        return {"error": "transaction without state"}
+    return {"state": state, "transaction_id": merged.get("id")}
 
 
 def handle_transaction_state_change(payload: dict[str, Any], request_id: str | None = None, retry_count: int = 0):
@@ -242,7 +251,7 @@ def handle_transaction_state_change(payload: dict[str, Any], request_id: str | N
                 cache = cache()
             lock = cache.lock(
                 f"{frappe.local.site}:shopware6_payment:{order_id}",
-                timeout=600, blocking_timeout=240,
+                timeout=600, blocking_timeout=60,
             )
             if not lock.acquire():
                 lock = None
@@ -308,7 +317,11 @@ def _handle_transaction_state_change(payload: dict[str, Any], request_id: str | 
                 verified = fetch_transaction_state(order_id=order_id, transaction_id=transaction_id)
             except Exception as exc:  # noqa: BLE001 — session/auth failure counts as unreachable
                 verified = {"error": str(exc)}
-            if not verified:
+            if verified is None:
+                # The session decorator returns None when the integration is
+                # disabled or not configured: temporary, retry later.
+                verified = {"error": "Shopware integration disabled or not configured"}
+            if verified.get("missing"):
                 # Shopware answered, but the order/transaction does not exist
                 # (forged or stale webhook): final, no retry.
                 if request_id:

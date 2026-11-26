@@ -454,12 +454,13 @@ def _diff_proposed_against_live(
     if basic:
         _maybe_diff(diffs, "basic.name", live.name or "", basic.get("name") or "")
         _maybe_diff(diffs, "basic.sku", live.sku or "", basic.get("sku") or "")
-        _maybe_diff_long(
-            diffs,
-            "basic.description",
-            live.description or "",
-            basic.get("description") or "",
-        )
+        if basic.get("description") is not None:  # None = template failed, live text kept
+            _maybe_diff_long(
+                diffs,
+                "basic.description",
+                live.description or "",
+                basic.get("description") or "",
+            )
         _maybe_diff(
             diffs,
             "basic.is_active",

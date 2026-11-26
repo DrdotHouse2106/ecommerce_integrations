@@ -636,12 +636,14 @@ def build_medusa_payload(
         "handle": _slugify(
             f"{basic.get('name') or item.item_code}-{item.item_code}"
         ),
-        "description": basic.get("description") or "",
         "status": "published" if basic.get("is_active") else "draft",
         # external_id is OUR upsert anchor — must always reflect the ERP code.
         "external_id": item.item_code,
         "metadata": metadata,
     }
+    # None = the description template failed → leave the live text.
+    if basic.get("description") is not None:
+        payload["description"] = basic.get("description") or ""
 
     # Single default variant covering the SKU + price + inventory.
     # Multi-variant products are Phase-7.1 territory.
@@ -897,8 +899,8 @@ def _resolve_shopware_tax_id(tax_rate_pct: float) -> str | None:
     Returns ``None`` on lookup failure — caller leaves ``taxId`` off
     the payload and Shopware uses the storefront's default tax.
     """
-    if tax_rate_pct is None or tax_rate_pct <= 0:
-        return None
+    if tax_rate_pct is None or tax_rate_pct < 0:
+        return None  # 0 % is a real (tax-free) rate and is looked up too
     cache_key = f"_psync_shopware_tax_id:{tax_rate_pct:.2f}"
     cached = frappe.cache().get_value(cache_key)
     if cached:

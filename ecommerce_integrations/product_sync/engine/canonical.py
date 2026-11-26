@@ -1234,7 +1234,7 @@ def _today_tier_rules() -> dict:
                JOIN `tabPricing Rule Item Code` pic ON pic.parent = pr.name
                WHERE pr.selling = 1 AND pr.disable = 0 AND pr.apply_on = 'Item Code'
                  AND pr.price_or_product_discount = 'Price' AND pr.rate_or_discount = 'Rate'
-                 AND pr.min_qty > 1 AND IFNULL(pr.for_price_list, '') != ''
+                 AND pr.min_qty > 1 AND pr.rate > 0 AND IFNULL(pr.for_price_list, '') != ''
                  AND IFNULL(pr.applicable_for, '') = ''
                  AND IFNULL(pr.coupon_code_based, 0) = 0
                  AND IFNULL(pr.`condition`, '') = ''
@@ -1919,10 +1919,16 @@ def _template_rate(template_name: str) -> float | None:
 def _item_tax_rate(item, sync) -> float | None:
     """Item-level rate: first ``Item.taxes`` template, else the Item Tax
     Template in the Sync's ``item_tax_template_field``. None = no item rate."""
-    for row in (getattr(item, "taxes", None) or []):
-        rate = _template_rate((getattr(row, "item_tax_template", "") or "").strip())
-        if rate is not None:
-            return rate
+    rates = [
+        r for r in (
+            _template_rate((getattr(row, "item_tax_template", "") or "").strip())
+            for row in (getattr(item, "taxes", None) or [])
+        ) if r is not None
+    ]
+    if rates:
+        # First non-zero rate (rows for export/EU at 0 % may come first);
+        # 0 % only when every template is tax-free.
+        return next((r for r in rates if r > 0), 0.0)
     field = _norm_str(getattr(sync, "item_tax_template_field", "")) if sync is not None else ""
     if not field:
         return None
@@ -1948,13 +1954,14 @@ def resolve_tax_rate(item, sync) -> float:
     if rate is None:
         rate = _template_rate((getattr(sync, "tax_template", "") or "").strip())
     if rate is None:
-        try:
-            import frappe
-            legacy = getattr(frappe.get_single("Shopware Setting"), "default_tax_rate", None)
-            if legacy is not None and float(legacy) > 0:
-                rate = float(legacy)
-        except Exception:  # noqa: BLE001
-            pass
+        def load():
+            try:
+                import frappe
+                legacy = getattr(frappe.get_single("Shopware Setting"), "default_tax_rate", None)
+                return float(legacy) if legacy is not None and float(legacy) > 0 else None
+            except Exception:  # noqa: BLE001
+                return None
+        rate = _run_memo("psync_legacy_tax_rate", load)
     return 19.0 if rate is None else rate
 
 

@@ -22,10 +22,15 @@ class TestPaymentWebhookVerify(unittest.TestCase):
         return log, setv, pe
 
     def test_not_found_is_skipped(self):
-        log, setv, pe = self._run(None)
+        log, setv, pe = self._run({"missing": True})
         setv.assert_not_called()
         pe.assert_not_called()
         self.assertEqual(log.call_args.kwargs["status"], "Skipped")
+
+    def test_disabled_integration_is_retryable_error(self):
+        log, setv, pe = self._run(None)
+        pe.assert_not_called()
+        self.assertEqual(log.call_args.kwargs["status"], "Error")
 
     def test_unreachable_is_retryable_error(self):
         from ecommerce_integrations.shopware6 import payment as p
@@ -47,7 +52,8 @@ class TestPaymentWebhookVerify(unittest.TestCase):
         from ecommerce_integrations.shopware6 import payment as p
         client = MagicMock()
         client.request_post.return_value = SimpleNamespace(data=[{"id": "t1", "orderId": "other", "stateMachineState": {"technicalName": "paid"}}])
-        self.assertIsNone(p.fetch_transaction_state.__wrapped__(client, order_id="o1", transaction_id="t1"))
+        self.assertEqual(p.fetch_transaction_state.__wrapped__(client, order_id="o1", transaction_id="t1"),
+                         {"missing": True})
         client.request_post.return_value = SimpleNamespace(data=[{"id": "t1", "orderId": "o1", "stateMachineState": {"technicalName": "paid"}}])
         self.assertEqual(p.fetch_transaction_state.__wrapped__(client, order_id="o1", transaction_id="t1"),
                          {"state": "paid", "transaction_id": "t1"})

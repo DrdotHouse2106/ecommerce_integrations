@@ -894,6 +894,19 @@ def _apply_batch(
             result.errors.append(f"{node.item_code}: unknown backend")
             continue
 
+        if (
+            backend == BACKEND_SHOPWARE and not external_id
+            and int(getattr(sync_doc, "sync_pricing", 0) or 0) and "price" not in payload
+        ):
+            # Shopware requires a price on create and /_action/sync is
+            # atomic — one item without a price would fail its whole batch.
+            applied_diffs.append({
+                "item_code": node.item_code, "action": action,
+                "status": "error", "error": "no price in the price list — not created",
+            })
+            result.errors.append(f"{node.item_code}: no price, not created")
+            continue
+
         prepared.append({
             "external_id": external_id,
             "payload": payload,
@@ -1179,6 +1192,16 @@ def _apply_batch(
                             # Persist ERP-basename → media-UUID map so the
                             # next preview's image-diff can short-circuit
                             # when the live Shopware media set matches.
+                            if upload_result.get("failed"):
+                                result.errors.append(
+                                    f"{meta['item_code']}: {upload_result['failed']} "
+                                    f"image(s) not uploaded/linked",
+                                )
+                                _invalidate_stored_canonical_section(
+                                    integration_key=integration_key,
+                                    item_code=meta["item_code"],
+                                    section="images",
+                                )
                             new_map = upload_result.get("media_map") or {}
                             if new_map and meta.get("ecom_row"):
                                 existing_raw = frappe.db.get_value(
@@ -1848,17 +1871,20 @@ def _invalidate_stored_canonical_section(
         raw = frappe.db.get_value(
             _ECOMMERCE_ITEM_DOCTYPE, row_name, "last_synced_canonical",
         ) or ""
-        if not raw:
-            return
-        stored = decode_canonical(raw)
-        if stored is None or stored.pop(section, None) is None:
-            return
+        values: dict = {
+            # The differ gates on the hash alone; without clearing it the
+            # item stays a noop and the section is never retried.
+            "last_synced_hash": "",
+        }
+        stored = decode_canonical(raw) if raw else None
+        if stored is not None and stored.pop(section, None) is not None:
+            values["last_synced_canonical"] = encode_canonical(stored)
+        if section == "images":
+            # Forget what was pushed so missing links are uploaded/linked
+            # again (deterministic media ids prevent duplicates).
+            values["pushed_image_map"] = ""
         frappe.db.set_value(
-            _ECOMMERCE_ITEM_DOCTYPE,
-            row_name,
-            "last_synced_canonical",
-            encode_canonical(stored),
-            update_modified=False,
+            _ECOMMERCE_ITEM_DOCTYPE, row_name, values, update_modified=False,
         )
     except Exception:  # noqa: BLE001
         pass
