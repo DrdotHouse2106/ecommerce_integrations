@@ -21,11 +21,19 @@ class TestPaymentWebhookVerify(unittest.TestCase):
             p.handle_transaction_state_change(payload, request_id="r1")
         return log, setv, pe
 
-    def test_unverifiable_does_nothing(self):
+    def test_not_found_is_skipped(self):
         log, setv, pe = self._run(None)
         setv.assert_not_called()
         pe.assert_not_called()
+        self.assertEqual(log.call_args.kwargs["status"], "Skipped")
+
+    def test_unreachable_is_retryable_error(self):
+        from ecommerce_integrations.shopware6 import payment as p
+        log, setv, pe = self._run({"error": "timeout"})
+        setv.assert_not_called()
+        pe.assert_not_called()
         self.assertEqual(log.call_args.kwargs["status"], "Error")
+        self.assertIn(p._UNVERIFIED, log.call_args.kwargs["message"])
 
     def test_shopware_state_wins(self):
         _log, _setv, pe = self._run({"state": "open", "transaction_id": "t1"})

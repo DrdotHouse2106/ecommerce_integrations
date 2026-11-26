@@ -177,9 +177,35 @@ def resolve_category_image_path(item_group_data: dict[str, Any]) -> str | None:
     return None
 
 
+def _own_site_path(image_path: str) -> str:
+    """Absolute URLs of this site (http/https, with or without www) → path."""
+    from urllib.parse import urlsplit
+
+    if not image_path.lower().startswith(("http://", "https://")):
+        return image_path
+    host = lambda u: (urlsplit(u).hostname or "").lower().removeprefix("www.")
+    if host(image_path) and host(image_path) == host(frappe.utils.get_url()):
+        return urlsplit(image_path).path
+    return image_path
+
+
+def _reject(image_path: str, reason: str):
+    get_logger().warning(f"Category image not used: {image_path} ({reason})", persist=True)
+    return None, None, None
+
+
+def _readable_file(file_doc) -> bool:
+    """Public files, or private files attached to an Item Group."""
+    return not file_doc.is_private or file_doc.attached_to_doctype == "Item Group"
+
+
 def get_image_content_and_filename(image_path: str) -> tuple:
     """
     Get image content and filename from a path (local or URL).
+
+    Only this site's files are read: public files, or private files attached
+    to an Item Group. No arbitrary URL fetch (SSRF), no reads outside the
+    files folders. Rejected paths are logged.
 
     Args:
         image_path: Local file path or URL (supports /file/... external storage URLs)
@@ -188,36 +214,37 @@ def get_image_content_and_filename(image_path: str) -> tuple:
         Tuple of (image_content, filename, extension) or (None, None, None) on error
     """
     try:
-        # Only this site's own public files: no arbitrary URL fetch
-        # (SSRF) and no reads outside the public files folder.
-        site = frappe.utils.get_url().rstrip("/")
-        if image_path.startswith(site + "/"):
-            image_path = image_path[len(site):].split("?")[0]
-        if image_path.startswith("http"):
-            return None, None, None
+        image_path = _own_site_path(image_path).split("?")[0]
+        if image_path.lower().startswith(("http:", "https:", "//")):
+            return _reject(image_path, "external URL")
         elif image_path.startswith("/file/"):
             # External storage URL - load via Frappe File API
             # Path format: /file/{file_id}/{filename}
             parts = image_path.split("/")
-            if len(parts) >= 3:
-                file_id = parts[2]  # e.g. "392be7e0e5"
-                try:
-                    file_doc = frappe.get_doc("File", file_id)
-                    if file_doc.is_private:
-                        return None, None, None
-                    image_content = file_doc.get_content()
-                    filename = parts[-1].split("?")[0]
-                except Exception:
-                    return None, None, None
-            else:
-                return None, None, None
+            if len(parts) < 3:
+                return _reject(image_path, "invalid /file/ path")
+            try:
+                file_doc = frappe.get_doc("File", parts[2])
+            except Exception:
+                return _reject(image_path, "File not found")
+            if not _readable_file(file_doc):
+                return _reject(image_path, "private file not attached to an Item Group")
+            image_content = file_doc.get_content()
+            filename = parts[-1]
+        elif image_path.startswith("/private/files/"):
+            name = frappe.db.get_value("File", {"file_url": image_path}, "name")
+            file_doc = frappe.get_doc("File", name) if name else None
+            if not file_doc or not _readable_file(file_doc):
+                return _reject(image_path, "private file not attached to an Item Group")
+            image_content = file_doc.get_content()
+            filename = sanitize_filename(os.path.basename(image_path))
         else:
             if not image_path.startswith("/files/"):
-                return None, None, None
+                return _reject(image_path, "not a /files/ path")
             base = os.path.realpath(get_files_path())
             full_path = os.path.realpath(os.path.join(base, image_path[7:]))
             if not full_path.startswith(base + os.sep) or not os.path.exists(full_path):
-                return None, None, None
+                return _reject(image_path, "outside the files folder or missing")
 
             with open(full_path, "rb") as f:
                 image_content = f.read()

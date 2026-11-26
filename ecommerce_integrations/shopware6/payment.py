@@ -144,28 +144,53 @@ _HANDLER = "ecommerce_integrations.shopware6.payment.handle_transaction_state_ch
 def retry_unverified_payments():
     """Hourly: re-run payment webhooks whose state could not be read back
     from Shopware (e.g. an outage), so the payment is not lost. Gives up
-    after 48 hours; the log stays on Error for manual follow-up."""
+    after 48 hours; the log stays on Error for manual follow-up.
+
+    Only the newest log per order is re-queued (older ones are marked
+    Skipped): the handler reads the current state from Shopware anyway,
+    and parallel runs for one order could otherwise book twice. Logs left
+    on Queued for over an hour (worker died) are picked up again."""
     import json
 
     from frappe.utils import add_to_date, now_datetime
 
+    now = now_datetime()
     logs = frappe.get_all(
         "Ecommerce Integration Log",
         filters={
-            "status": "Error",
             "method": _HANDLER,
             "message": ["like", f"%{_UNVERIFIED}%"],
-            "creation": [">", add_to_date(now_datetime(), hours=-48)],
+            "creation": [">", add_to_date(now, hours=-48)],
+            "status": ["in", ["Error", "Queued"]],
         },
-        fields=["name", "request_data"],
+        fields=["name", "status", "modified", "request_data"],
+        order_by="creation desc",
     )
+    seen: set[str] = set()
     for log in logs:
-        frappe.db.set_value("Ecommerce Integration Log", log.name, "status", "Queued", update_modified=False)
-        frappe.enqueue(
-            _HANDLER, queue="short", timeout=300,
-            payload=json.loads(log.request_data or "{}"), request_id=log.name,
-            enqueue_after_commit=True,
-        )
+        try:
+            if log.status == "Queued" and log.modified > add_to_date(now, hours=-1):
+                continue  # still in flight
+            payload = json.loads(log.request_data or "{}")
+            order_id = (payload.get("data") or {}).get("orderId") or log.name
+            if order_id in seen:
+                frappe.db.set_value(
+                    "Ecommerce Integration Log", log.name,
+                    {"status": "Skipped", "message": f"Superseded by a newer payment webhook for order {order_id}"},
+                    update_modified=False,
+                )
+                continue
+            seen.add(order_id)
+            frappe.db.set_value("Ecommerce Integration Log", log.name, "status", "Queued")
+            frappe.enqueue(
+                _HANDLER, queue="short", timeout=300,
+                payload=payload, request_id=log.name,
+                enqueue_after_commit=True,
+            )
+        except Exception as exc:  # noqa: BLE001 — one bad log must not stop the rest
+            get_logger("retry_unverified_payments").error(
+                f"Could not re-queue payment log {log.name}", exception=exc, persist=True
+            )
 
 
 @temp_shopware_session
@@ -174,7 +199,8 @@ def fetch_transaction_state(client, *, order_id: str, transaction_id: str | None
 
     Uses ``transaction_id`` when given (and checks it belongs to
     ``order_id``), otherwise the order's newest transaction. Returns
-    ``{"state", "transaction_id"}`` or None when nothing matches."""
+    ``{"state", "transaction_id"}``, ``{"error": …}`` when Shopware could
+    not be read (retryable), or None when nothing matches (final)."""
     flt = [{"type": "equals", "field": "orderId", "value": order_id}]
     if transaction_id:
         flt.append({"type": "equals", "field": "id", "value": transaction_id})
@@ -189,7 +215,7 @@ def fetch_transaction_state(client, *, order_id: str, transaction_id: str | None
         get_logger("fetch_transaction_state").error(
             f"Could not read transaction for order {order_id}", exception=exc, persist=True
         )
-        return None
+        return {"error": str(exc)}
     rows = resp.data or []
     if not rows:
         return None
@@ -203,6 +229,43 @@ def fetch_transaction_state(client, *, order_id: str, transaction_id: str | None
 
 
 def handle_transaction_state_change(payload: dict[str, Any], request_id: str | None = None, retry_count: int = 0):
+    """Entry point for the webhook / retry job. Serialises runs per order
+    with a short-lived Redis lock, so two jobs for the same order (several
+    events during an outage, or a retry next to a fresh webhook) cannot both
+    pass the "invoice / payment entry already exists" checks and book twice."""
+    order_id = ((payload or {}).get("data") or {}).get("orderId")
+    lock = None
+    if order_id:
+        try:
+            cache = frappe.cache
+            if not hasattr(cache, "lock"):
+                cache = cache()
+            lock = cache.lock(
+                f"{frappe.local.site}:shopware6_payment:{order_id}",
+                timeout=600, blocking_timeout=240,
+            )
+            if not lock.acquire():
+                lock = None
+                if request_id:
+                    update_shopware_log(
+                        request_id, status="Error",
+                        message=f"Payment state for order {order_id} {_UNVERIFIED} (order locked by another run)",
+                    )
+                return
+        except Exception as exc:  # noqa: BLE001 — no Redis lock available: run unlocked
+            lock = None
+            frappe.logger("shopware6").warning(f"Payment lock for order {order_id} unavailable: {exc}")
+    try:
+        return _handle_transaction_state_change(payload, request_id, retry_count)
+    finally:
+        if lock is not None:
+            try:
+                lock.release()
+            except Exception:  # noqa: BLE001 — lock expired meanwhile
+                pass
+
+
+def _handle_transaction_state_change(payload: dict[str, Any], request_id: str | None = None, retry_count: int = 0):
     """
     Handle order transaction state change from Shopware webhook.
 
@@ -241,8 +304,20 @@ def handle_transaction_state_change(payload: dict[str, Any], request_id: str | N
         # A forged or replayed webhook would otherwise create invoices and
         # payment entries for orders nobody paid.
         if retry_count == 0:
-            verified = fetch_transaction_state(order_id=order_id, transaction_id=transaction_id)
+            try:
+                verified = fetch_transaction_state(order_id=order_id, transaction_id=transaction_id)
+            except Exception as exc:  # noqa: BLE001 — session/auth failure counts as unreachable
+                verified = {"error": str(exc)}
             if not verified:
+                # Shopware answered, but the order/transaction does not exist
+                # (forged or stale webhook): final, no retry.
+                if request_id:
+                    update_shopware_log(
+                        request_id, status="Skipped",
+                        message=f"Payment webhook for order {order_id}: transaction not found in Shopware",
+                    )
+                return
+            if verified.get("error"):
                 if request_id:
                     update_shopware_log(
                         request_id, status="Error",
@@ -293,7 +368,7 @@ def handle_transaction_state_change(payload: dict[str, Any], request_id: str | N
                 time.sleep(delay)
 
                 # Retry by calling this function recursively
-                return handle_transaction_state_change(payload, request_id, retry_count + 1)
+                return _handle_transaction_state_change(payload, request_id, retry_count + 1)
             else:
                 # All retries exhausted
                 if request_id:

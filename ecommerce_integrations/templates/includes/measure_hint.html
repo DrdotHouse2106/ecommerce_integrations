@@ -3,7 +3,8 @@
     measure an item when its master data lacks weight or dimensions, with
     blanks to write the values on. Prints nothing once the data is complete.
     Dimensions are only asked for when the Item has the item_length /
-    item_width / item_height fields.
+    item_width / item_height fields. Works with a Document and with the
+    plain dict restricted rendering returns.
 
     Usage:
         {%- from "ecommerce_integrations/templates/includes/measure_hint.html"
@@ -15,7 +16,9 @@
 {%- if item_code -%}
 {%- set it = frappe.get_cached_doc("Item", item_code) -%}
 {%- set _weigh = not it.get("weight_per_unit") -%}
-{%- set _measure = frappe.get_meta("Item").has_field("item_length") and not (it.get("item_length") and it.get("item_width") and it.get("item_height")) -%}
+{#- Field check without get_meta (a dict under restricted rendering). -#}
+{%- set _fields = it.as_dict() if it.as_dict is defined and it.as_dict is callable else it -%}
+{%- set _measure = "item_length" in _fields and not (it.get("item_length") and it.get("item_width") and it.get("item_height")) -%}
 {%- if _weigh or _measure -%}
 <div style="margin-top: 3px; font-size: 7.5pt; color: #444;">
   {%- if _weigh %}<span style="margin-right: 12px;">&#9878; {{ _("Weigh") }}: ________ kg</span>{% endif -%}

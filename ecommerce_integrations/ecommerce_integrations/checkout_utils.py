@@ -105,11 +105,18 @@ def process_checkout_fields(
 def clean_checkout_value(value):
     """Shop customers type these values; they are written with
     ``db.set_value`` (no Frappe HTML filter) and printed in documents.
-    Strip markup and cap the length; non-strings pass through."""
+    Strip markup, drop any remaining ``<``/``>`` (unclosed tags), cap the
+    length; lists and dicts are cleaned element-wise."""
     if isinstance(value, str):
-        from frappe.utils import strip_html
+        import re
 
-        return strip_html(value).strip()[:500]
+        # Real tags start with a letter or "/"; "Breite < 2 m" stays readable.
+        value = re.sub(r"</?[A-Za-z][^<>]*>", "", value)
+        return value.replace("<", "").replace(">", "").strip()[:500]
+    if isinstance(value, list):
+        return [clean_checkout_value(v) for v in value]
+    if isinstance(value, dict):
+        return {k: clean_checkout_value(v) for k, v in value.items()}
     return value
 
 

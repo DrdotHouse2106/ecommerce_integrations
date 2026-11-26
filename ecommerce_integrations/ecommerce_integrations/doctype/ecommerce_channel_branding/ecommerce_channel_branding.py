@@ -165,6 +165,14 @@ def build_greeting_context(doc, lang: str = "") -> dict:
 	if not (first_name or last_name) and customer_name and " " in customer_name:
 		first_name, last_name = customer_name.split(" ", 1)
 
+	# Customer-entered values end up in HTML (print formats, mail bodies
+	# rendered with ``| safe``), so escape them once here.
+	from html import escape
+
+	first_name, last_name, customer_name, salutation = (
+		escape(v, quote=True) for v in (first_name, last_name, customer_name, salutation)
+	)
+
 	target_lang = (lang or frappe.local.lang or "").split("-")[0].lower()
 	auto_greeting = _auto_greeting(target_lang, salutation, last_name, gender)
 
