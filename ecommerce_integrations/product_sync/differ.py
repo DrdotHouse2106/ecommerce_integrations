@@ -569,7 +569,9 @@ def _diff_proposed_against_live(
     cat_section = proposed.get("categories") or {}
     prop_cat_ids = sorted(set(cat_section.get("ids") or []))
     live_cat_ids = sorted(set(live.category_ids or []))
-    if prop_cat_ids and prop_cat_ids != live_cat_ids:
+    # The apply only adds category links (m2m upsert), it never removes the
+    # live ones — so only a missing proposed category is a pending change.
+    if prop_cat_ids and not set(prop_cat_ids) <= set(live_cat_ids):
         diffs.append(
             FieldDiff(
                 field="categories",
