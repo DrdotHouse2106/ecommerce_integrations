@@ -1374,6 +1374,37 @@ def _apply_batch(
                         f"{meta['item_code']}: properties reconcile failed: {exc}",
                     )
 
+            # Phase-C advanced-price reconcile: the bulk upsert merges
+            # ``product.prices`` (never removes), so tiers or group prices
+            # dropped in ERPNext would linger. Only rows under the Sync's
+            # managed rules are touched; gated on the ``pricing`` delta.
+            price_reconciler = getattr(adapter, "reconcile_product_prices", None)
+            _pricing_in_sync = (
+                "pricing" not in _delta_sections and meta.get("ecom_row")
+                and bool(meta.get("ecom_row", {}).get("last_synced_canonical"))
+            )
+            if (
+                int(getattr(sync_doc, "sync_pricing", 0) or 0)
+                and not _pricing_in_sync
+                and callable(price_reconciler)
+                and new_external_id
+            ):
+                from ecommerce_integrations.product_sync.engine.canonical import managed_rule_ids
+                _rules = sorted(managed_rule_ids(sync_doc))
+                if _rules:
+                    try:
+                        from ecommerce_integrations.shopware6.export.utils import generate_uuid
+                        _adv = ((meta.get("canonical") or {}).get("pricing") or {}).get("advanced") or []
+                        _keep = [
+                            generate_uuid(f"psync_price_{meta['item_code']}_{a['rule']}_{a['qty']}")
+                            for a in _adv
+                        ]
+                        price_reconciler(new_external_id, _keep, _rules)
+                    except Exception as exc:  # noqa: BLE001
+                        result.errors.append(
+                            f"{meta['item_code']}: advanced price reconcile failed: {exc}",
+                        )
+
             # Phase-C visibility reconcile: the bulk upsert strips
             # ``visibilities`` on UPDATE (unique-key collision on
             # ``product_visibility`` aborts the whole /_action/sync batch),

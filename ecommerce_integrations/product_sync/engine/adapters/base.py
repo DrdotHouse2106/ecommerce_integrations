@@ -67,6 +67,8 @@ class LiveProductNode:
     image_ids: list[str] = field(default_factory=list)
     properties: dict = field(default_factory=dict)
     seo: dict = field(default_factory=dict)
+    # Advanced (rule/quantity) prices as ``(rule_id, quantity_start, gross)``.
+    advanced_prices: list = field(default_factory=list)
 
 
 @dataclass

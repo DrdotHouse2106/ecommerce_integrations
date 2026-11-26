@@ -470,6 +470,23 @@ def _diff_proposed_against_live(
                     )
                 )
 
+    # Advanced prices: compared only under the rules ERPNext proposes, so
+    # advanced prices of other rules (manual, other systems) don't show.
+    prop_adv = {(a["rule"], int(a["qty"]), round(float(a["gross"]), 2)) for a in pricing.get("advanced") or []}
+    if prop_adv:
+        rules = {r for r, _, _ in prop_adv}
+        live_adv = {a for a in (getattr(live, "advanced_prices", None) or []) if a[0] in rules}
+        if prop_adv != live_adv:
+            fmt = lambda s: "; ".join(f"ab {q}: {g:.2f}" for _, q, g in sorted(s))[:400]
+            diffs.append(
+                FieldDiff(
+                    field="pricing.advanced",
+                    current=fmt(live_adv) or None,
+                    proposed=fmt(prop_adv),
+                    change_kind="modified" if live_adv else "added",
+                )
+            )
+
     inventory = proposed.get("inventory") or {}
     if inventory:
         prop_qty = inventory.get("qty")

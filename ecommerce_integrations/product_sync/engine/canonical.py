@@ -950,6 +950,7 @@ def _canonical_pricing(item, sync, ctx=None) -> dict[str, Any]:
             return ctx.price_for(item.item_code, price_list)
         return _lookup_item_price(item.item_code, price_list, currency)
 
+    base_list = None
     if strategy == "item_standard_rate":
         base = standard_rate
         channel_prices = []
@@ -1049,6 +1050,11 @@ def _canonical_pricing(item, sync, ctx=None) -> dict[str, Any]:
         "channel_prices": channel_prices,
         "tax_rate_pct": _normalize_float(tax_rate_pct),
     }
+    # Sparse: only items with tiers / group prices carry the key, so the
+    # hash of every other item stays unchanged.
+    advanced = _canonical_advanced_prices(item, sync, base_list, tax_rate_pct)
+    if advanced:
+        out["advanced"] = advanced
 
     # UVP / Streichpreis (MSRP strike-through). Lookup is conditional
     # — only emitted into the canonical when UVP > sale price (gross,
@@ -1147,6 +1153,114 @@ def _template_item(item) -> dict:
         except Exception:  # noqa: BLE001 — fall back to the snapshot fields
             pass
     return data
+
+
+def _advanced_price_rows(sync, base_list) -> list[tuple[str, str]]:
+    """(rule_id, price_list) pairs the Sync pushes as advanced prices."""
+    rows = []
+    tier_rule = _norm_str(getattr(sync, "tier_rule_id", ""))
+    if tier_rule and base_list:
+        rows.append((tier_rule, base_list))
+    for r in getattr(sync, "advanced_prices", None) or []:
+        rule, pl = _norm_str(getattr(r, "rule_id", "")), getattr(r, "price_list", "")
+        if rule and pl:
+            rows.append((rule, pl))
+    return rows
+
+
+def managed_rule_ids(sync) -> set[str]:
+    """Backend rules whose live advanced prices the apply may replace."""
+    rows = _advanced_price_rows(sync, getattr(sync, "price_list_override", None))
+    return {rule for rule, _ in rows}
+
+
+def _today_list_prices(price_lists: tuple) -> dict:
+    """{(item_code, price_list): rate} valid today, not customer-specific."""
+    def load():
+        import frappe
+        rows = frappe.db.sql(
+            """SELECT item_code, price_list, price_list_rate FROM `tabItem Price`
+               WHERE price_list IN %(lists)s AND selling = 1
+                 AND IFNULL(customer, '') = ''
+                 AND IFNULL(valid_from, '2000-01-01') <= CURDATE()
+                 AND IFNULL(valid_upto, '2999-12-31') >= CURDATE()
+               ORDER BY IFNULL(valid_from, '2000-01-01'), modified""",
+            {"lists": price_lists}, as_dict=True,
+        )
+        return {(r.item_code, r.price_list): float(r.price_list_rate or 0) for r in rows}
+    return _run_memo(("psync_adv_prices",) + price_lists, load)
+
+
+def _today_tier_rules() -> dict:
+    """{(item_code, price_list): [(min_qty, rate), …]} from selling Pricing
+    Rules (Item Code, Rate, For Price List, Min Qty > 1) valid today."""
+    def load():
+        import frappe
+        rows = frappe.db.sql(
+            """SELECT pic.item_code, pr.for_price_list, pr.min_qty, pr.rate
+               FROM `tabPricing Rule` pr
+               JOIN `tabPricing Rule Item Code` pic ON pic.parent = pr.name
+               WHERE pr.selling = 1 AND pr.disable = 0 AND pr.apply_on = 'Item Code'
+                 AND pr.price_or_product_discount = 'Price' AND pr.rate_or_discount = 'Rate'
+                 AND pr.min_qty > 1 AND IFNULL(pr.for_price_list, '') != ''
+                 AND IFNULL(pr.applicable_for, '') = ''
+                 AND IFNULL(pr.valid_from, '2000-01-01') <= CURDATE()
+                 AND IFNULL(pr.valid_upto, '2999-12-31') >= CURDATE()""",
+            as_dict=True,
+        )
+        out: dict = {}
+        for r in rows:
+            out.setdefault((r.item_code, r.for_price_list), []).append(
+                (float(r.min_qty), float(r.rate or 0)),
+            )
+        return out
+    return _run_memo("psync_adv_tiers", load)
+
+
+def _list_is_gross(price_list: str) -> bool:
+    def load():
+        import frappe
+        flag = None
+        try:
+            flag = frappe.db.get_value("Price List", price_list, "custom_price_includes_tax")
+        except Exception:  # noqa: BLE001 — custom field not installed
+            pass
+        if flag is None:
+            try:
+                flag = frappe.get_single("Shopware Setting").default_price_list_includes_tax
+            except Exception:  # noqa: BLE001
+                flag = 0
+        return bool(int(flag or 0))
+    return _run_memo(("psync_pl_gross", price_list), load)
+
+
+def _canonical_advanced_prices(item, sync, base_list, tax_rate_pct) -> list[dict[str, Any]]:
+    """Quantity tiers of the base list plus group price lists, one row per
+    (rule, quantity start). A rule needs a price from quantity 1, otherwise
+    it is skipped; the base list under the tier rule only when it has tiers."""
+    rows = _advanced_price_rows(sync, base_list)
+    if not rows:
+        return []
+    prices = _today_list_prices(tuple(sorted({pl for _, pl in rows})))
+    tiers = _today_tier_rules()
+    factor = 1.0 + float(tax_rate_pct or 0) / 100.0
+    out: list[dict[str, Any]] = []
+    for rule, pl in rows:
+        base = prices.get((item.item_code, pl))
+        steps = tiers.get((item.item_code, pl), [])
+        if not base or (pl == base_list and not steps):
+            continue
+        gross_list = _list_is_gross(pl)
+        for qty, rate in [(1.0, base)] + sorted(steps):
+            gross = rate if gross_list else rate * factor
+            out.append({
+                "rule": rule,
+                "qty": int(qty),
+                "gross": _normalize_float(round(gross, 2)),
+                "net": _normalize_float(round(gross / factor, 4)),
+            })
+    out.sort(key=lambda d: (d["rule"], d["qty"]))
+    return out
 
 
 def _run_memo(key: str, loader):

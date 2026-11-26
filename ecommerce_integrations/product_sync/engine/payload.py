@@ -307,6 +307,9 @@ def build_shopware_payload(
                         "linked": True,
                     }
                 payload["price"] = [price_row]
+                advanced = advanced_price_rows(item, pricing.get("advanced"), currency_id)
+                if advanced:
+                    payload["prices"] = advanced
 
                 # Push the Shopware Tax UUID when we can resolve it
                 # from the Sync's tax_template. Without this Shopware
@@ -978,6 +981,37 @@ def _resolve_image_public_base() -> str:
     except Exception:  # noqa: BLE001
         pass
     return base
+
+
+def advanced_price_rows(item, advanced: list[dict] | None, currency_id: str) -> list[dict]:
+    """Canonical ``pricing.advanced`` → Shopware ``product.prices``.
+
+    Deterministic ids (item + rule + quantity start) so re-pushes upsert in
+    place; ``quantityEnd`` is the next tier's start minus one per rule. The
+    apply reconciles away live rows of the same rules that are not in here.
+    """
+    if not advanced or not currency_id:
+        return []
+    from ecommerce_integrations.shopware6.export.utils import generate_uuid
+
+    code = getattr(item, "item_code", None) or getattr(item, "name", "")
+    rows = []
+    for i, a in enumerate(advanced):
+        nxt = advanced[i + 1] if i + 1 < len(advanced) else None
+        end = nxt["qty"] - 1 if nxt and nxt["rule"] == a["rule"] else None
+        rows.append({
+            "id": generate_uuid(f"psync_price_{code}_{a['rule']}_{a['qty']}"),
+            "ruleId": a["rule"],
+            "quantityStart": a["qty"],
+            "quantityEnd": end,
+            "price": [{
+                "currencyId": currency_id,
+                "gross": a["gross"],
+                "net": a["net"],
+                "linked": False,
+            }],
+        })
+    return rows
 
 
 def _build_shopware_media(images: list[dict]) -> list[dict]:

@@ -1,0 +1,45 @@
+{
+ "actions": [],
+ "creation": "2026-11-26 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "price_list",
+  "rule_id"
+ ],
+ "fields": [
+  {
+   "fieldname": "price_list",
+   "label": "Price List",
+   "fieldtype": "Link",
+   "options": "Price List",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 4,
+   "description": "Prices (and quantity tiers from Pricing Rules with this list as 'For Price List') pushed as advanced prices."
+  },
+  {
+   "fieldname": "rule_id",
+   "label": "Backend rule ID",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 6,
+   "description": "Shopware rule UUID (Settings → Rule Builder), e.g. a rule matching a customer group."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-11-26 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Product Sync",
+ "name": "Ecommerce Product Sync Advanced Price",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 0
+}

@@ -681,6 +681,48 @@ class ShopwareProductAdapter(ProductAdapter):
             keep_media_ids=list(keep_media_ids or ()),
         )
 
+    def reconcile_product_prices(
+        self,
+        external_id: str,
+        keep_ids: list[str],
+        rule_ids: list[str],
+    ) -> dict:
+        """Delete live advanced prices of the managed ``rule_ids`` whose id
+        is not in ``keep_ids``. Advanced prices under other rules (set by
+        hand or another system) are left alone."""
+        return _with_client(
+            self._reconcile_prices_impl,
+            external_id=external_id,
+            keep_ids=set(keep_ids or []),
+            rule_ids=list(rule_ids or []),
+        )
+
+    def _reconcile_prices_impl(self, client, *, external_id, keep_ids, rule_ids) -> dict:
+        counters = {"deleted": 0, "kept": 0}
+        if not external_id or not rule_ids:
+            return counters
+        r = client.request_post("search/product-price", payload={
+            "filter": [
+                {"type": "equals", "field": "productId", "value": external_id},
+                {"type": "equalsAny", "field": "ruleId", "value": rule_ids},
+            ],
+            "includes": {"product_price": ["id"]},
+            "limit": 500,
+        })
+        live = [row.get("id") for row in (r.data or []) if row.get("id")]
+        stale = [pid for pid in live if pid not in keep_ids]
+        counters["kept"] = len(live) - len(stale)
+        if stale:
+            client.request_post("_action/sync", payload={
+                "del": {
+                    "entity": "product_price",
+                    "action": "delete",
+                    "payload": [{"id": pid} for pid in stale],
+                },
+            })
+            counters["deleted"] = len(stale)
+        return counters
+
     def reconcile_product_properties(
         self,
         external_id: str,
@@ -1187,6 +1229,15 @@ class ShopwareProductAdapter(ProductAdapter):
             image_ids=image_ids,
             properties=properties_dict,
             seo=seo_dict,
+            advanced_prices=[
+                (
+                    pr.get("ruleId"),
+                    int(pr.get("quantityStart") or 1),
+                    round(float(((pr.get("price") or [{}])[0] or {}).get("gross") or 0), 2),
+                )
+                for pr in (merged.get("prices") or [])
+                if isinstance(pr, dict) and pr.get("ruleId")
+            ],
         )
 
     def _upsert_product_impl(

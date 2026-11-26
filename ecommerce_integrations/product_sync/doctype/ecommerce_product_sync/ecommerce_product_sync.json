@@ -55,6 +55,8 @@
   "price_strategy",
   "price_list_override",
   "markup_percent",
+  "tier_rule_id",
+  "advanced_prices",
   "tax_template",
   "default_sandbox_channel",
   "lifecycle_section",
@@ -418,6 +420,21 @@
    "description": "+10 = 10% Aufschlag, -5 = 5% Rabatt."
   },
   {
+   "fieldname": "tier_rule_id",
+   "label": "Staffelpreise: Regel-ID",
+   "fieldtype": "Data",
+   "depends_on": "eval:doc.price_strategy=='channel_price_list'",
+   "description": "Backend rule (Shopware rule UUID, e.g. 'Always valid') under which quantity tiers of the base price list are pushed. Tiers come from selling Pricing Rules (Rate, For Price List, Min Qty > 1). Empty = no tiers."
+  },
+  {
+   "fieldname": "advanced_prices",
+   "label": "Erweiterte Preise (Preisliste → Regel)",
+   "fieldtype": "Table",
+   "options": "Ecommerce Product Sync Advanced Price",
+   "depends_on": "eval:doc.price_strategy=='channel_price_list'",
+   "description": "Additional price lists pushed as advanced prices under a backend rule (e.g. customer-group prices). Live advanced prices with these rules are replaced; others are left alone."
+  },
+  {
    "fieldname": "tax_template",
    "label": "Tax template (optional)",
    "fieldtype": "Link",
@@ -605,7 +622,7 @@
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-11-18 00:00:00.000000",
+ "modified": "2026-11-26 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Product Sync",
  "name": "Ecommerce Product Sync",
