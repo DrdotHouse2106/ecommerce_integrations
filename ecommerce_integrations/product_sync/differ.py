@@ -476,7 +476,14 @@ def _diff_proposed_against_live(
     if prop_adv:
         rules = {r for r, _, _ in prop_adv}
         live_adv = {a for a in (getattr(live, "advanced_prices", None) or []) if a[0] in rules}
-        if prop_adv != live_adv:
+        # 1-cent tolerance: the gross side of net lists is derived, and the
+        # backend may have rounded it differently from the same net price.
+        def _same(a, b):
+            a, b = sorted(a), sorted(b)
+            return len(a) == len(b) and all(
+                x[:2] == y[:2] and abs(x[2] - y[2]) <= 0.011 for x, y in zip(a, b)
+            )
+        if not _same(prop_adv, live_adv):
             fmt = lambda s: "; ".join(f"ab {q}: {g:.2f}" for _, q, g in sorted(s))[:400]
             diffs.append(
                 FieldDiff(
