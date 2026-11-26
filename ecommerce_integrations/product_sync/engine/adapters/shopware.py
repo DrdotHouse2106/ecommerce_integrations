@@ -727,6 +727,7 @@ class ShopwareProductAdapter(ProductAdapter):
         self,
         external_id: str,
         keep_option_ids: list[str],
+        managed_groups: set[str] | None = None,
     ) -> dict:
         """Delete stale ``product_property`` m2m rows so the product's
         property assignments match ``keep_option_ids`` verbatim.
@@ -746,12 +747,17 @@ class ShopwareProductAdapter(ProductAdapter):
         ``ecommerce_properties`` will resolve to after the upsert).
         Anything live that isn't in the keep list gets removed.
 
+        Only options whose group name (casefolded) is in ``managed_groups``
+        are removed; groups maintained in the shop only stay untouched.
+        An empty/None ``managed_groups`` removes nothing.
+
         Returns ``{deleted, kept, failed}``.
         """
         return _with_client(
             self._reconcile_properties_impl,
             external_id=external_id,
             keep_option_ids=set(keep_option_ids or ()),
+            managed_groups=set(managed_groups or ()),
         )
 
     def reconcile_product_visibilities(
@@ -1573,7 +1579,11 @@ class ShopwareProductAdapter(ProductAdapter):
             _tail = url.rsplit("/", 1)[-1]
             _bn = (_tail.split("?", 1)[0]).lower()
             _stem = (_tail.rsplit(".", 1)[0] if "." in _tail else _tail) or "image"
-            _det_id = _gen_uuid(f"psync_media_{_bn}")
+            # Basenames are unique only under Frappe's /files/ folder; other
+            # URLs (/file/<doc>/x.jpg, external hosts) key on the full URL so
+            # two items' "main.jpg" never share one media entity.
+            _key = _bn if "/files/" in url and "/file/" not in url else url.split("?", 1)[0].lower()
+            _det_id = _gen_uuid(f"psync_media_{_key}")
             _reused = _reused_name = None
             try:
                 _hit = client.request_post("search/media", payload={
@@ -1774,9 +1784,13 @@ class ShopwareProductAdapter(ProductAdapter):
                     },
                 })
             except Exception:  # noqa: BLE001
-                # Best-effort link — media still exist and can be linked
-                # manually by the operator if this fails.
+                # Not linked → report as failed and drop the map, so the
+                # caller neither reconciles (which would unlink the live
+                # gallery) nor records these images as pushed.
                 pm_rows = []
+                counters["failed"] += len(new_media_ids)
+                counters["uploaded"] = 0
+                counters["media_map"] = {}
 
             # 4. Set the first product_media as cover if the product
             #    doesn't already have one. Without ``coverId`` set, the
@@ -1871,6 +1885,12 @@ class ShopwareProductAdapter(ProductAdapter):
 
         counters["kept"] = len(kept_pm)
 
+        # Only unlink when every wanted media is really on the product;
+        # otherwise a failed link/upload would leave an empty gallery.
+        if keep_media_ids - set(pm_by_media):
+            counters["failed"] = len(keep_media_ids - set(pm_by_media))
+            return counters
+
         if to_delete:
             try:
                 client.request_post("_action/sync", payload={
@@ -1952,9 +1972,10 @@ class ShopwareProductAdapter(ProductAdapter):
         *,
         external_id: str,
         keep_option_ids: set[str],
+        managed_groups: set[str] | None = None,
     ) -> dict:
         counters = {"deleted": 0, "kept": 0, "failed": 0}
-        if not external_id:
+        if not external_id or not managed_groups:
             return counters
 
         # Read live product.properties — each entry is a
@@ -1965,17 +1986,27 @@ class ShopwareProductAdapter(ProductAdapter):
             "search/product",
             payload={
                 "filter": [{"type": "equals", "field": "id", "value": external_id}],
-                "associations": {"properties": {}},
+                "associations": {"properties": {"associations": {"group": {}}}},
                 "includes": {
                     "product": ["id", "properties"],
-                    "property_group_option": ["id"],
+                    "property_group_option": ["id", "group"],
+                    "property_group": ["name"],
                 },
                 "limit": 1,
             },
         )
         product = (r.data or [None])[0] or {}
-        live_options = [p.get("id") for p in (product.get("properties") or []) if p.get("id")]
-        to_delete = [oid for oid in live_options if oid not in keep_option_ids]
+        live = [p for p in (product.get("properties") or []) if p.get("id")]
+        live_options = [p["id"] for p in live]
+
+        def _group(p):
+            g = p.get("group") or {}
+            return ((g.get("name") or (g.get("translated") or {}).get("name") or "")).strip().casefold()
+
+        to_delete = [
+            p["id"] for p in live
+            if p["id"] not in keep_option_ids and _group(p) in managed_groups
+        ]
         counters["kept"] = len(live_options) - len(to_delete)
 
         if to_delete:

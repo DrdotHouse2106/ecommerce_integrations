@@ -285,9 +285,19 @@ def compute_product_diff(
                 _("Unexpected error loading adapter: {0}").format(exc),
             )
 
+    from ecommerce_integrations.product_sync.engine.canonical import (
+        managed_property_groups,
+        managed_rule_ids,
+    )
+    _managed_groups = managed_property_groups(sync_doc)
+    _managed_rules = managed_rule_ids(sync_doc)
+
     def _emit_update(item, proposed, proposed_name, external_id, live, mapping):
         diffs = (
-            _diff_proposed_against_live(proposed, live, mapping=mapping)
+            _diff_proposed_against_live(
+                proposed, live, mapping=mapping, managed_groups=_managed_groups,
+                managed_rules=_managed_rules,
+            )
             if live else []
         )
         _apply_risk_flags(diffs)
@@ -417,6 +427,8 @@ def _bump_progress(on_progress, current: int, total: int) -> None:
 
 def _diff_proposed_against_live(
     proposed: dict, live: LiveProductNode, *, mapping: dict | None = None,
+    managed_groups: set[str] | None = None,
+    managed_rules: set[str] | None = None,
 ) -> list[FieldDiff]:
     """Field-by-field comparison: proposed canonical vs live snapshot.
 
@@ -473,8 +485,8 @@ def _diff_proposed_against_live(
     # Advanced prices: compared only under the rules ERPNext proposes, so
     # advanced prices of other rules (manual, other systems) don't show.
     prop_adv = {(a["rule"], int(a["qty"]), round(float(a["gross"]), 2)) for a in pricing.get("advanced") or []}
-    if prop_adv:
-        rules = {r for r, _, _ in prop_adv}
+    rules = {r for r, _, _ in prop_adv} | set(managed_rules or ())
+    if rules and pricing.get("base_price") is not None:
         live_adv = {a for a in (getattr(live, "advanced_prices", None) or []) if a[0] in rules}
         # 1-cent tolerance: the gross side of net lists is derived, and the
         # backend may have rounded it differently from the same net price.
@@ -489,8 +501,10 @@ def _diff_proposed_against_live(
                 FieldDiff(
                     field="pricing.advanced",
                     current=fmt(live_adv) or None,
-                    proposed=fmt(prop_adv),
-                    change_kind="modified" if live_adv else "added",
+                    proposed=fmt(prop_adv) or None,
+                    change_kind=(
+                        "removed" if not prop_adv else "modified" if live_adv else "added"
+                    ),
                 )
             )
 
@@ -644,11 +658,14 @@ def _diff_proposed_against_live(
             for r in rows if isinstance(r, dict)
         }
 
-    prop_map = _attr_map(
-        (proposed_props.get("attributes") or [])
-        + (proposed_props.get("ecommerce_properties") or [])
-    )
-    live_map = _attr_map(live_props.get("attributes") or [])
+    # Same sets as the apply: it keeps ``ecommerce_properties`` and only
+    # removes live options of managed groups; shop-only groups stay.
+    prop_map = _attr_map(proposed_props.get("ecommerce_properties") or [])
+    live_map = {
+        k: v for k, v in _attr_map(live_props.get("attributes") or []).items()
+        if managed_groups is None or k[0] in managed_groups
+        or k[0] in {pk[0] for pk in prop_map}
+    }
     prop_attrs, live_attrs = set(prop_map), set(live_map)
     if proposed.get("properties") is not None and prop_attrs != live_attrs:
         added = sorted(prop_map[k] for k in prop_attrs - live_attrs)

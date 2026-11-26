@@ -34,6 +34,7 @@
   "column_break_fields",
   "sync_images",
   "sync_properties",
+  "managed_property_groups",
   "sync_seo_fields",
   "sync_taxes",
   "sync_categories",
@@ -270,6 +271,13 @@
    "label": "Eigenschaften / Marken",
    "fieldtype": "Check",
    "default": "1"
+  },
+  {
+   "fieldname": "managed_property_groups",
+   "label": "Zus\u00e4tzlich verwaltete Eigenschaftsgruppen",
+   "fieldtype": "Small Text",
+   "depends_on": "sync_properties",
+   "description": "One group name per line. Live values of these groups are removed even if no Item carries the group any more. Groups used on Items or in the property catalog are managed anyway; all other shop groups are never touched."
   },
   {
    "fieldname": "sync_seo_fields",
@@ -629,7 +637,7 @@
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-11-26 00:00:00.000000",
+ "modified": "2026-11-26 01:00:00.000000",
  "modified_by": "Administrator",
  "module": "Product Sync",
  "name": "Ecommerce Product Sync",

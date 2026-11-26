@@ -736,7 +736,7 @@ def _canonical_basic(item, sync) -> dict[str, Any]:
     out = {
         "name": _norm_str(_render_name(item, sync)),
         "sku": _norm_str(item.item_code),
-        "description": _norm_str(_render_description(item, sync)),
+        "description": (lambda d: None if d is None else _norm_str(d))(_render_description(item, sync)),
         "ean": _norm_str(
             getattr(item, "ean", "") or _from_barcodes(item),
         ),
@@ -870,7 +870,7 @@ def _render_name(item, sync) -> str:
         return item.item_name or item.item_code
 
 
-def _render_description(item, sync) -> str:
+def _render_description(item, sync) -> str | None:
     """Resolve the outbound product description from the Sync's source.
 
     Three modes:
@@ -898,8 +898,8 @@ def _render_description(item, sync) -> str:
         try:
             import frappe
             return frappe.render_template(template, {"item": _template_item(item)})
-        except Exception:
-            return ""
+        except Exception:  # noqa: BLE001 — keep the live text, don't blank it
+            return None
     if source == "ai_generated":
         ai_long = (getattr(item, "ai_long_description", "") or "").strip()
         if ai_long:
@@ -923,8 +923,8 @@ def _render_description(item, sync) -> str:
                 return frappe.render_template(
                     tpl, {"item": _template_item(item), "sync": sync},
                 ) or ""
-            except Exception:  # noqa: BLE001
-                return ""
+            except Exception:  # noqa: BLE001 — keep the live text
+                return None
         # ``item_description`` (default) — same legacy chain.
         return getattr(item, "description", "") or ""
     return getattr(item, "description", "") or ""
@@ -977,11 +977,9 @@ def _canonical_pricing(item, sync, ctx=None) -> dict[str, Any]:
     # Tax rate resolution mirrors ``_canonical_taxes`` so the pricing
     # gross/net derivation lines up exactly with what we hash under
     # ``taxes``. 19 % fallback matches ``payload.py``.
-    tax_rate_pct = _item_tax_rate(item, sync)
-    if not tax_rate_pct:
-        tax_rate_pct = _max_tax_rate_from_template(getattr(sync, "tax_template", ""))
-    if not tax_rate_pct:
-        tax_rate_pct = 19.0  # German default — same as payload builder
+    if base is not None and float(base) <= 0:
+        base = None  # never push 0 — the apply leaves the live price alone
+    tax_rate_pct = resolve_tax_rate(item, sync)
 
     # Normalise to gross so canonical + live hash on the same basis.
     # Tax-mode is per-Price-List in real installs (one B2B net list +
@@ -1125,12 +1123,12 @@ def _lookup_item_price(item_code: str, price_list: str, currency: str) -> float 
 
     rows = frappe.db.sql(
         """SELECT price_list_rate FROM `tabItem Price`
-           WHERE item_code = %s AND price_list = %s
+           WHERE item_code = %s AND price_list = %s AND selling = 1
              AND IFNULL(customer, '') = ''
-             AND IFNULL(valid_from, '2000-01-01') <= CURDATE()
-             AND IFNULL(valid_upto, '2999-12-31') >= CURDATE()
+             AND IFNULL(valid_from, '2000-01-01') <= %s
+             AND IFNULL(valid_upto, '2999-12-31') >= %s
            ORDER BY IFNULL(valid_from, '2000-01-01') DESC, modified DESC LIMIT 1""",
-        (item_code, price_list),
+        (item_code, price_list, _today(), _today()),
     )
     if rows:
         return float(rows[0][0] or 0)
@@ -1155,6 +1153,12 @@ def _template_item(item) -> dict:
     return data
 
 
+def _today() -> str:
+    """Site-local date (not the DB server's UTC ``CURDATE()``)."""
+    import frappe.utils
+    return frappe.utils.today()
+
+
 def _advanced_price_rows(sync, base_list) -> list[tuple[str, str]]:
     """(rule_id, price_list) pairs the Sync pushes as advanced prices."""
     rows = []
@@ -1168,10 +1172,38 @@ def _advanced_price_rows(sync, base_list) -> list[tuple[str, str]]:
     return rows
 
 
+def managed_property_groups(sync) -> set[str]:
+    """Casefolded property group names the Sync may clean up in the backend:
+    every group used on any Item (flagged for Shopware), the property
+    catalog, and the Sync's ``managed_property_groups`` (one per line) for
+    groups that should be cleared although no Item carries them any more.
+    Live groups outside this set (maintained in the shop only) are kept."""
+    def load():
+        import frappe
+        names = set(frappe.db.sql_list(
+            """SELECT DISTINCT property_name FROM `tabItem Ecommerce Property`
+               WHERE parenttype = 'Item' AND sync_to_shopware = 1"""
+        ))
+        try:
+            names |= set(frappe.db.sql_list(
+                "SELECT name FROM `tabEcommerce Property Group` WHERE sync_to_shopware = 1"
+            ))
+        except Exception:  # noqa: BLE001 — catalog doctype not installed
+            pass
+        return {n.strip().casefold() for n in names if n}
+    extra = {
+        line.strip().casefold()
+        for line in (getattr(sync, "managed_property_groups", "") or "").splitlines()
+        if line.strip()
+    }
+    return _run_memo("psync_managed_prop_groups", load) | extra
+
+
 def managed_rule_ids(sync) -> set[str]:
     """Backend rules whose live advanced prices the apply may replace."""
-    rows = _advanced_price_rows(sync, getattr(sync, "price_list_override", None))
-    return {rule for rule, _ in rows}
+    strategy = getattr(sync, "price_strategy", "channel_price_list") or "channel_price_list"
+    base_list = getattr(sync, "price_list_override", None) if strategy == "channel_price_list" else None
+    return {rule for rule, _ in _advanced_price_rows(sync, base_list)}
 
 
 def _today_list_prices(price_lists: tuple) -> dict:
@@ -1182,10 +1214,10 @@ def _today_list_prices(price_lists: tuple) -> dict:
             """SELECT item_code, price_list, price_list_rate FROM `tabItem Price`
                WHERE price_list IN %(lists)s AND selling = 1
                  AND IFNULL(customer, '') = ''
-                 AND IFNULL(valid_from, '2000-01-01') <= CURDATE()
-                 AND IFNULL(valid_upto, '2999-12-31') >= CURDATE()
+                 AND IFNULL(valid_from, '2000-01-01') <= %(today)s
+                 AND IFNULL(valid_upto, '2999-12-31') >= %(today)s
                ORDER BY IFNULL(valid_from, '2000-01-01'), modified""",
-            {"lists": price_lists}, as_dict=True,
+            {"lists": price_lists, "today": _today()}, as_dict=True,
         )
         return {(r.item_code, r.price_list): float(r.price_list_rate or 0) for r in rows}
     return _run_memo(("psync_adv_prices",) + price_lists, load)
@@ -1204,15 +1236,21 @@ def _today_tier_rules() -> dict:
                  AND pr.price_or_product_discount = 'Price' AND pr.rate_or_discount = 'Rate'
                  AND pr.min_qty > 1 AND IFNULL(pr.for_price_list, '') != ''
                  AND IFNULL(pr.applicable_for, '') = ''
-                 AND IFNULL(pr.valid_from, '2000-01-01') <= CURDATE()
-                 AND IFNULL(pr.valid_upto, '2999-12-31') >= CURDATE()""",
-            as_dict=True,
+                 AND IFNULL(pr.coupon_code_based, 0) = 0
+                 AND IFNULL(pr.`condition`, '') = ''
+                 AND IFNULL(pr.valid_from, '2000-01-01') <= %(today)s
+                 AND IFNULL(pr.valid_upto, '2999-12-31') >= %(today)s
+               ORDER BY CAST(pr.priority AS UNSIGNED), pr.valid_from, pr.name""",
+            {"today": _today()}, as_dict=True,
         )
-        out: dict = {}
+        # One rule per (item, list, quantity): the last row wins = highest
+        # priority, then latest valid_from — mirrors ERPNext's own choice.
+        best: dict = {}
         for r in rows:
-            out.setdefault((r.item_code, r.for_price_list), []).append(
-                (float(r.min_qty), float(r.rate or 0)),
-            )
+            best[(r.item_code, r.for_price_list, int(r.min_qty))] = float(r.rate or 0)
+        out: dict = {}
+        for (code, pl, qty), rate in sorted(best.items()):
+            out.setdefault((code, pl), []).append((float(qty), rate))
         return out
     return _run_memo("psync_adv_tiers", load)
 
@@ -1241,7 +1279,8 @@ def _canonical_advanced_prices(item, sync, base_list, tax_rate_pct) -> list[dict
     rows = _advanced_price_rows(sync, base_list)
     if not rows:
         return []
-    prices = _today_list_prices(tuple(sorted({pl for _, pl in rows})))
+    lists = {pl for _, pl in rows} | ({base_list} if base_list else set())
+    prices = _today_list_prices(tuple(sorted(lists)))
     tiers = _today_tier_rules()
     factor = 1.0 + float(tax_rate_pct or 0) / 100.0
     out: list[dict[str, Any]] = []
@@ -1250,8 +1289,19 @@ def _canonical_advanced_prices(item, sync, base_list, tax_rate_pct) -> list[dict
         steps = tiers.get((item.item_code, pl), [])
         if pl == base_list and not steps:
             continue  # the plain base price needs no advanced row
-        steps = ([(1.0, base)] if base else []) + sorted(steps)
         gross_list = _list_is_gross(pl)
+        steps = ([(1.0, base)] if base else []) + sorted(steps)
+        if steps and steps[0][0] > 1:
+            # A rule's first row applies from quantity 1 in the backend, so
+            # below the first tier the customer pays the normal price.
+            normal = prices.get((item.item_code, base_list)) if base_list else None
+            if not normal:
+                continue
+            gross_list = _list_is_gross(base_list)
+            steps = [(1.0, normal)] + [
+                (q, r if gross_list == _list_is_gross(pl) else (r * factor if gross_list else r / factor))
+                for q, r in steps
+            ]
         for qty, rate in steps:
             # Keep the list's own side exact; Shopware stores the other one
             # with four decimals (net 121.64 → gross 144.7516).
@@ -1417,7 +1467,9 @@ def _canonical_images(item, sync, ctx=None) -> list[dict[str, Any]]:
     return deduped
 
 
-_FRAPPE_SUFFIX = re.compile(r"[0-9a-f]{6}$")
+# Frappe's clash suffix is 6 random hex chars; requiring a letter keeps
+# image numbers like "-100001" / "_123456" from being mistaken for it.
+_FRAPPE_SUFFIX = re.compile(r"(?=[0-9]*[a-f])[0-9a-f]{6}$")
 
 
 def _prefer_webp(images: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1846,33 +1898,64 @@ def _canonical_taxes(item, sync) -> dict[str, Any]:
     drift if hashed, so we resolve it to the rate first using the
     same item-then-sync chain ``_resolve_tax_rate_pct`` uses.
     """
-    rate_pct = _item_tax_rate(item, sync)
-    if not rate_pct:
-        rate_pct = _max_tax_rate_from_template(getattr(sync, "tax_template", ""))
-    return {"rate_pct": _normalize_float(rate_pct)}
+    return {"rate_pct": _normalize_float(resolve_tax_rate(item, sync))}
 
 
-def _item_tax_rate(item, sync) -> float:
-    """Item tax rate: ``Item.taxes`` first, then the Item Tax Template held
-    in the Sync's ``item_tax_template_field`` (for installs that keep
-    ``Item.taxes`` empty, e.g. while another system feeds the documents)."""
-    rate = _max_tax_rate_from_item(item)
-    if rate:
-        return rate
+def _template_rate(template_name: str) -> float | None:
+    """Rate of an existing template (may be 0.0 = tax-free); None if unset/missing."""
+    if not template_name:
+        return None
+    def load():
+        try:
+            import frappe
+            if not frappe.db.exists("Item Tax Template", template_name):
+                return None
+        except Exception:  # noqa: BLE001
+            return None
+        return _max_tax_rate_from_template(template_name)
+    return _run_memo(("psync_tax_tpl", template_name), load)
+
+
+def _item_tax_rate(item, sync) -> float | None:
+    """Item-level rate: first ``Item.taxes`` template, else the Item Tax
+    Template in the Sync's ``item_tax_template_field``. None = no item rate."""
+    for row in (getattr(item, "taxes", None) or []):
+        rate = _template_rate((getattr(row, "item_tax_template", "") or "").strip())
+        if rate is not None:
+            return rate
     field = _norm_str(getattr(sync, "item_tax_template_field", "")) if sync is not None else ""
     if not field:
-        return 0.0
+        return None
     tpl = getattr(item, field, None)
     if tpl is None:
         def load():
             import frappe
             if not frappe.get_meta("Item").has_field(field):
                 return {}
-            return dict(frappe.db.sql(
-                f"SELECT name, `{field}` FROM `tabItem` WHERE IFNULL(`{field}`, '') != ''",
-            ))
+            return {
+                r.name: r.get(field)
+                for r in frappe.get_all("Item", filters={field: ["is", "set"]}, fields=["name", field])
+            }
         tpl = _run_memo(("psync_item_tax_field", field), load).get(getattr(item, "item_code", ""))
-    return _max_tax_rate_from_template(tpl or "")
+    return _template_rate(tpl or "")
+
+
+def resolve_tax_rate(item, sync) -> float:
+    """The one tax-rate chain used for prices, the tax section, the payload
+    and the preview: item → Sync template → Shopware Setting → 19 %. A
+    template with 0 % stays 0 % (tax-free), it does not fall through."""
+    rate = _item_tax_rate(item, sync) if item is not None else None
+    if rate is None:
+        rate = _template_rate((getattr(sync, "tax_template", "") or "").strip())
+    if rate is None:
+        try:
+            import frappe
+            legacy = getattr(frappe.get_single("Shopware Setting"), "default_tax_rate", None)
+            if legacy is not None and float(legacy) > 0:
+                rate = float(legacy)
+        except Exception:  # noqa: BLE001
+            pass
+    return 19.0 if rate is None else rate
 
 
 def _max_tax_rate_from_item(item) -> float:

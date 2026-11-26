@@ -451,10 +451,16 @@ def _apply_live(
                 try:
                     adopt()
                 except Exception as exc:  # noqa: BLE001
+                    # Without the adopted ids the run would create twin
+                    # groups/options and relink every product to them —
+                    # abort instead and let the next run retry.
                     _logger().warning(
                         f"property adoption failed for sync={sync_doc.name} "
                         f"run={run.name}: {type(exc).__name__}: {exc}"
                     )
+                    raise RuntimeError(
+                        f"Property adoption failed, run aborted: {exc}"
+                    ) from exc
             try:
                 _ensure_brands_for_run(
                     sync_doc=sync_doc, plan=plan, adapter=adapter,
@@ -1261,7 +1267,17 @@ def _apply_batch(
                                 if bn in final_map
                             ]
                             if keep_ids and len(keep_ids) == len(_canonical_basenames):
-                                reconciler(new_external_id, keep_ids)
+                                _rc = reconciler(new_external_id, keep_ids) or {}
+                                if _rc.get("failed"):
+                                    result.errors.append(
+                                        f"{meta['item_code']}: media reconcile incomplete "
+                                        f"({_rc['failed']} not linked or not removed)",
+                                    )
+                                    _invalidate_stored_canonical_section(
+                                        integration_key=integration_key,
+                                        item_code=meta["item_code"],
+                                        section="images",
+                                    )
                             elif _canonical_basenames:
                                 result.errors.append(
                                     f"{meta['item_code']}: media reconcile "
@@ -1368,10 +1384,22 @@ def _apply_batch(
                         for p in ecom_props_canon
                         if p.get("name") and p.get("value")
                     ]
-                    prop_reconciler(new_external_id, keep_ids)
+                    from ecommerce_integrations.product_sync.engine.canonical import (
+                        managed_property_groups,
+                    )
+                    _rc = prop_reconciler(
+                        new_external_id, keep_ids, managed_property_groups(sync_doc),
+                    ) or {}
+                    if _rc.get("failed"):
+                        raise RuntimeError(f"{_rc['failed']} stale links not removed")
                 except Exception as exc:  # noqa: BLE001
                     result.errors.append(
                         f"{meta['item_code']}: properties reconcile failed: {exc}",
+                    )
+                    _invalidate_stored_canonical_section(
+                        integration_key=integration_key,
+                        item_code=meta["item_code"],
+                        section="properties",
                     )
 
             # Phase-C advanced-price reconcile: the bulk upsert merges
@@ -1389,9 +1417,23 @@ def _apply_batch(
                 and callable(price_reconciler)
                 and new_external_id
             ):
-                from ecommerce_integrations.product_sync.engine.canonical import managed_rule_ids
-                _rules = sorted(managed_rule_ids(sync_doc))
-                if _rules:
+                from ecommerce_integrations.product_sync.engine.canonical import (
+                    decode_canonical,
+                    managed_rule_ids,
+                )
+                _pricing = (meta.get("canonical") or {}).get("pricing") or {}
+                # Rules pushed last time count too, so removing a rule from
+                # the Sync also removes its live rows.
+                _stored = decode_canonical(
+                    (meta.get("ecom_row") or {}).get("last_synced_canonical") or ""
+                ) or {}
+                _rules = sorted(
+                    managed_rule_ids(sync_doc)
+                    | {a.get("rule") for a in ((_stored.get("pricing") or {}).get("advanced") or []) if a.get("rule")}
+                )
+                # Only when this run sent prices (a base price exists);
+                # otherwise the old rows would go without replacement.
+                if _rules and _pricing.get("base_price") is not None:
                     try:
                         from ecommerce_integrations.shopware6.export.utils import generate_uuid
                         _adv = ((meta.get("canonical") or {}).get("pricing") or {}).get("advanced") or []
@@ -1403,6 +1445,11 @@ def _apply_batch(
                     except Exception as exc:  # noqa: BLE001
                         result.errors.append(
                             f"{meta['item_code']}: advanced price reconcile failed: {exc}",
+                        )
+                        _invalidate_stored_canonical_section(
+                            integration_key=integration_key,
+                            item_code=meta["item_code"],
+                            section="pricing",
                         )
 
             # Phase-C visibility reconcile: the bulk upsert strips

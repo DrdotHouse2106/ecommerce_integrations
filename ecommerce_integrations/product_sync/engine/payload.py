@@ -201,7 +201,9 @@ def build_shopware_payload(
     if _wants("basic"):
         payload["name"] = basic.get("name") or item.item_code
         payload["productNumber"] = basic.get("sku") or item.item_code
-        payload["description"] = basic.get("description") or ""
+        # ``None`` = the description template failed → leave the live text.
+        if basic.get("description") is not None:
+            payload["description"] = basic.get("description") or ""
         payload["active"] = bool(basic.get("is_active", True))
         # Minimum order quantity (carton-based ordering). Always emit
         # when the basic section is pushed so clearing the ERP field
@@ -307,7 +309,9 @@ def build_shopware_payload(
                         "linked": True,
                     }
                 payload["price"] = [price_row]
-                advanced = advanced_price_rows(item, pricing.get("advanced"), currency_id)
+                advanced = advanced_price_rows(
+                    item, pricing.get("advanced"), currency_id, price_row.get("listPrice"),
+                )
                 if advanced:
                     payload["prices"] = advanced
 
@@ -859,31 +863,8 @@ def _resolve_tax_rate_pct(sync, item=None) -> float:
     """
     # Lazy import — the canonical module's helpers are the source of
     # truth so the two callsites can't drift.
-    from ecommerce_integrations.product_sync.engine.canonical import (
-        _item_tax_rate,
-        _max_tax_rate_from_template,
-    )
-    if item is not None:
-        rate = _item_tax_rate(item, sync)
-        if rate:
-            return rate
-
-    rate = _max_tax_rate_from_template(
-        (getattr(sync, "tax_template", "") or "").strip(),
-    )
-    if rate:
-        return rate
-
-    # Setting-level legacy fallback.
-    try:
-        setting = frappe.get_single("Shopware Setting")
-        legacy = getattr(setting, "default_tax_rate", None)
-        if legacy is not None and float(legacy) > 0:
-            return float(legacy)
-    except Exception:  # noqa: BLE001
-        pass
-
-    return 19.0
+    from ecommerce_integrations.product_sync.engine.canonical import resolve_tax_rate
+    return resolve_tax_rate(item, sync)
 
 
 
@@ -983,7 +964,9 @@ def _resolve_image_public_base() -> str:
     return base
 
 
-def advanced_price_rows(item, advanced: list[dict] | None, currency_id: str) -> list[dict]:
+def advanced_price_rows(
+    item, advanced: list[dict] | None, currency_id: str, list_price: dict | None = None,
+) -> list[dict]:
     """Canonical ``pricing.advanced`` → Shopware ``product.prices``.
 
     Deterministic ids (item + rule + quantity start) so re-pushes upsert in
@@ -1004,11 +987,14 @@ def advanced_price_rows(item, advanced: list[dict] | None, currency_id: str) -> 
             "ruleId": a["rule"],
             "quantityStart": a["qty"],
             "quantityEnd": end,
+            # Shopware shows the strike-through price of the matching row,
+            # so every row carries the list price (UVP) too.
             "price": [{
                 "currencyId": currency_id,
                 "gross": a["gross"],
                 "net": a["net"],
                 "linked": False,
+                **({"listPrice": list_price} if list_price else {}),
             }],
         })
     return rows

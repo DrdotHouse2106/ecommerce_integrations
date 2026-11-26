@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import frappe
+import frappe.utils
 
 
 @dataclass
@@ -279,14 +280,15 @@ class BulkContext:
             """SELECT item_code, price_list, price_list_rate
                FROM `tabItem Price`
                WHERE item_code IN %(codes)s
-                 AND price_list IN %(lists)s
+                 AND price_list IN %(lists)s AND selling = 1
                  AND IFNULL(customer, '') = ''
-                 AND IFNULL(valid_from, '2000-01-01') <= CURDATE()
-                 AND IFNULL(valid_upto, '2999-12-31') >= CURDATE()
+                 AND IFNULL(valid_from, '2000-01-01') <= %(today)s
+                 AND IFNULL(valid_upto, '2999-12-31') >= %(today)s
                ORDER BY IFNULL(valid_from, '2000-01-01'), modified""",
             {
                 "codes": tuple(item_codes) or ("__none__",),
                 "lists": tuple(price_lists) or ("__none__",),
+                "today": frappe.utils.today(),
             },
             as_dict=True,
         )
