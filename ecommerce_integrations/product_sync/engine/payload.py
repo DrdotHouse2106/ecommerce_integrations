@@ -823,8 +823,8 @@ def _resolve_shopware_currency_id(code: str) -> str | None:
             return None
 
         value = _lookup()
-        if value:
-            frappe.cache().set_value(cache_key, value, expires_in_sec=3600)
+        # A miss is cached too ("-") so tax-free items don't each re-query.
+        frappe.cache().set_value(cache_key, value or "-", expires_in_sec=3600)
         return value
     except Exception:
         return None
@@ -904,7 +904,7 @@ def _resolve_shopware_tax_id(tax_rate_pct: float) -> str | None:
     cache_key = f"_psync_shopware_tax_id:{tax_rate_pct:.2f}"
     cached = frappe.cache().get_value(cache_key)
     if cached:
-        return cached or None
+        return None if cached == "-" else cached
     try:
         from ecommerce_integrations.shopware6.connection import temp_shopware_session
 

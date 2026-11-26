@@ -897,6 +897,7 @@ def _apply_batch(
         if (
             backend == BACKEND_SHOPWARE and not external_id
             and int(getattr(sync_doc, "sync_pricing", 0) or 0) and "price" not in payload
+            and "parentId" not in payload  # variants inherit the parent price
         ):
             # Shopware requires a price on create and /_action/sync is
             # atomic — one item without a price would fail its whole batch.
