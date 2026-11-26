@@ -58,6 +58,7 @@
   "tier_rule_id",
   "advanced_prices",
   "tax_template",
+  "item_tax_template_field",
   "default_sandbox_channel",
   "lifecycle_section",
   "orphan_policy",
@@ -439,6 +440,12 @@
    "label": "Tax template (optional)",
    "fieldtype": "Link",
    "options": "Item Tax Template"
+  },
+  {
+   "fieldname": "item_tax_template_field",
+   "label": "Steuervorlage aus Artikelfeld",
+   "fieldtype": "Data",
+   "description": "Optional: fieldname of a Link (Item Tax Template) field on Item. Used for the item's tax rate when Item.taxes is empty, before falling back to the Sync's tax template."
   },
   {
    "fieldname": "lifecycle_section",

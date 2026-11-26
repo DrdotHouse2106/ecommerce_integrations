@@ -977,7 +977,7 @@ def _canonical_pricing(item, sync, ctx=None) -> dict[str, Any]:
     # Tax rate resolution mirrors ``_canonical_taxes`` so the pricing
     # gross/net derivation lines up exactly with what we hash under
     # ``taxes``. 19 % fallback matches ``payload.py``.
-    tax_rate_pct = _max_tax_rate_from_item(item)
+    tax_rate_pct = _item_tax_rate(item, sync)
     if not tax_rate_pct:
         tax_rate_pct = _max_tax_rate_from_template(getattr(sync, "tax_template", ""))
     if not tax_rate_pct:
@@ -1846,10 +1846,33 @@ def _canonical_taxes(item, sync) -> dict[str, Any]:
     drift if hashed, so we resolve it to the rate first using the
     same item-then-sync chain ``_resolve_tax_rate_pct`` uses.
     """
-    rate_pct = _max_tax_rate_from_item(item)
+    rate_pct = _item_tax_rate(item, sync)
     if not rate_pct:
         rate_pct = _max_tax_rate_from_template(getattr(sync, "tax_template", ""))
     return {"rate_pct": _normalize_float(rate_pct)}
+
+
+def _item_tax_rate(item, sync) -> float:
+    """Item tax rate: ``Item.taxes`` first, then the Item Tax Template held
+    in the Sync's ``item_tax_template_field`` (for installs that keep
+    ``Item.taxes`` empty, e.g. while another system feeds the documents)."""
+    rate = _max_tax_rate_from_item(item)
+    if rate:
+        return rate
+    field = _norm_str(getattr(sync, "item_tax_template_field", "")) if sync is not None else ""
+    if not field:
+        return 0.0
+    tpl = getattr(item, field, None)
+    if tpl is None:
+        def load():
+            import frappe
+            if not frappe.get_meta("Item").has_field(field):
+                return {}
+            return dict(frappe.db.sql(
+                f"SELECT name, `{field}` FROM `tabItem` WHERE IFNULL(`{field}`, '') != ''",
+            ))
+        tpl = _run_memo(("psync_item_tax_field", field), load).get(getattr(item, "item_code", ""))
+    return _max_tax_rate_from_template(tpl or "")
 
 
 def _max_tax_rate_from_item(item) -> float:

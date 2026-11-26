@@ -860,11 +860,11 @@ def _resolve_tax_rate_pct(sync, item=None) -> float:
     # Lazy import — the canonical module's helpers are the source of
     # truth so the two callsites can't drift.
     from ecommerce_integrations.product_sync.engine.canonical import (
-        _max_tax_rate_from_item,
+        _item_tax_rate,
         _max_tax_rate_from_template,
     )
     if item is not None:
-        rate = _max_tax_rate_from_item(item)
+        rate = _item_tax_rate(item, sync)
         if rate:
             return rate
 
