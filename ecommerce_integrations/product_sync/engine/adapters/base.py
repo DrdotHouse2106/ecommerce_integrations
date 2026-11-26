@@ -69,6 +69,7 @@ class LiveProductNode:
     seo: dict = field(default_factory=dict)
     # Advanced (rule/quantity) prices as ``(rule_id, quantity_start, gross)``.
     advanced_prices: list = field(default_factory=list)
+    tax_rate: float | None = None
 
 
 @dataclass

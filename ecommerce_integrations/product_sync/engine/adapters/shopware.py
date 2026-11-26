@@ -1229,6 +1229,11 @@ class ShopwareProductAdapter(ProductAdapter):
             image_ids=image_ids,
             properties=properties_dict,
             seo=seo_dict,
+            tax_rate=(
+                float((merged.get("tax") or {}).get("taxRate"))
+                if isinstance(merged.get("tax"), dict) and (merged.get("tax") or {}).get("taxRate") is not None
+                else None
+            ),
             advanced_prices=[
                 (
                     pr.get("ruleId"),

@@ -494,6 +494,18 @@ def _diff_proposed_against_live(
                 )
             )
 
+    prop_tax = (proposed.get("taxes") or {}).get("rate_pct")
+    live_tax = getattr(live, "tax_rate", None)
+    if prop_tax is not None and live_tax is not None and abs(float(prop_tax) - float(live_tax)) > 0.001:
+        diffs.append(
+            FieldDiff(
+                field="taxes.rate",
+                current=f"{float(live_tax):g} %",
+                proposed=f"{float(prop_tax):g} %",
+                change_kind="modified",
+            )
+        )
+
     inventory = proposed.get("inventory") or {}
     if inventory:
         prop_qty = inventory.get("qty")
