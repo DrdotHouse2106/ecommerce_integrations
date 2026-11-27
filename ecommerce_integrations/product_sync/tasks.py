@@ -932,9 +932,6 @@ def _apply_batch(
             # is not in the set). On CREATE the set is irrelevant
             # because we send the full payload.
             "delta_sections": delta_sections,
-            # Variant pushed before its template had a backend id.
-            "parent_missing": backend == BACKEND_SHOPWARE
-            and bool(getattr(item, "variant_of", None)) and "parentId" not in payload,
         })
 
     if not prepared:
@@ -966,15 +963,19 @@ def _apply_batch(
                     if name and value:
                         groups_set.add((name, "property"))
                         options_set.add((name, value, "property"))
-                # Variant attributes belong to the variant items only.
+                # Variant attributes belong to the variant items only; a
+                # template's configurator needs every variant's option,
+                # including variants in later batches.
                 item_doc = meta.get("item_doc")
                 if item_doc and getattr(item_doc, "variant_of", None):
-                    for a in (props_canonical.get("attributes") or []):
-                        name = (a.get("name") or "").strip()
-                        value = (a.get("value") or "").strip()
-                        if name and value:
-                            groups_set.add((name, "variant"))
-                            options_set.add((name, value, "variant"))
+                    pairs = [(a.get("name"), a.get("value")) for a in (props_canonical.get("attributes") or [])]
+                else:
+                    pairs = list(props_canonical.get("variant_options") or [])
+                for name, value in pairs:
+                    name, value = (name or "").strip(), (value or "").strip()
+                    if name and value:
+                        groups_set.add((name, "variant"))
+                        options_set.add((name, value, "variant"))
             if groups_set:
                 adapter.ensure_property_entities_bulk(sorted(groups_set))
             if options_set:
@@ -1536,13 +1537,6 @@ def _apply_batch(
                     variant_of = getattr(item_doc, "variant_of", None) or ""
                     has_variants = bool(int(getattr(item_doc, "has_variants", 0) or 0))
                     attrs = getattr(item_doc, "attributes", []) or []
-
-                    if meta.get("parent_missing"):
-                        # No parentId yet: retry next run.
-                        _invalidate_stored_canonical_section(
-                            integration_key=integration_key,
-                            item_code=meta["item_code"], section="properties",
-                        )
 
                     if variant_of and attrs and not _properties_handled_in_bulk:
                         # Variant: set its option ids on the live product.

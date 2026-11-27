@@ -2182,13 +2182,30 @@ class ShopwareProductAdapter(ProductAdapter):
             for oid in option_ids
         ]
         try:
-            client.request_post("_action/sync", payload={
-                "cs": {
-                    "entity": "product_configurator_setting",
-                    "action": "upsert",
-                    "payload": rows,
-                },
+            # Settings of removed variants would stay as dead options.
+            existing = client.request_post("search/product-configurator-setting", payload={
+                "filter": [{"type": "equals", "field": "productId", "value": external_id}],
+                "includes": {"product_configurator_setting": ["id"]},
             })
+            keep = {r["id"] for r in rows}
+            stale = [
+                {"id": r["id"]} for r in ((existing.data if existing else None) or [])
+                if r.get("id") not in keep
+            ]
+            ops = {"cs": {
+                "entity": "product_configurator_setting",
+                "action": "upsert",
+                "payload": rows,
+            }}
+            if stale:
+                # Delete first: a row with another id may hold the same
+                # (product, option) pair and block the upsert.
+                ops = {"cs_del": {
+                    "entity": "product_configurator_setting",
+                    "action": "delete",
+                    "payload": stale,
+                }, **ops}
+            client.request_post("_action/sync", payload=ops)
             counters["set"] = len(rows)
         except Exception:  # noqa: BLE001
             counters["failed"] = len(rows)

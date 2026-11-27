@@ -509,8 +509,9 @@ def build_shopware_payload(
     # back). Skip silently when the template hasn't been pushed yet
     # — the next sync round will pick it up once the template lands
     # an external_id.
-    if getattr(item, "has_variants", 0):
-        # List the template once, under its own name, not each variant.
+    if getattr(item, "has_variants", 0) and not external_id:
+        # List a new template once, under its own name; later edits of the
+        # listing setting in the backend are left alone.
         payload["variantListingConfig"] = {"displayParent": True}
     variant_of = getattr(item, "variant_of", None) or ""
     if variant_of:
@@ -829,8 +830,8 @@ def _resolve_shopware_currency_id(code: str) -> str | None:
             return None
 
         value = _lookup()
-        # A miss is cached too ("-") so tax-free items don't each re-query.
-        frappe.cache().set_value(cache_key, value or "-", expires_in_sec=3600)
+        if value:
+            frappe.cache().set_value(cache_key, value, expires_in_sec=3600)
         return value
     except Exception:
         return None
@@ -933,8 +934,8 @@ def _resolve_shopware_tax_id(tax_rate_pct: float) -> str | None:
             return None
 
         value = _lookup()
-        if value:
-            frappe.cache().set_value(cache_key, value, expires_in_sec=3600)
+        # A miss is cached too ("-") so tax-free items don't each re-query.
+        frappe.cache().set_value(cache_key, value or "-", expires_in_sec=3600)
         return value
     except Exception:  # noqa: BLE001
         return None

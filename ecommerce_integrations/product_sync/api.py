@@ -1122,9 +1122,11 @@ def _check_smart_collection_category_bridge(doc, _finding) -> None:
 
     missing_external = []
     not_ok = []
+    without_target = []
     for name in sorted(sc_names):
         targets = by_parent.get(name) or []
         if not targets:
+            without_target.append(name)
             continue
         if not any((t.get("external_id") or "").strip() for t in targets):
             missing_external.append(name)
@@ -1152,6 +1154,15 @@ def _check_smart_collection_category_bridge(doc, _finding) -> None:
             count=len(not_ok),
             sample=not_ok[:5],
             fix_hint=_("Open Smart Collections and resolve target errors before Product Sync."),
+        )
+    if without_target:
+        _finding(
+            "warn", "smart_collection_without_target",
+            _("{0} linked Smart Collections have no enabled {1} target; categories come from the Item Groups only.").format(
+                len(without_target), backend,
+            ),
+            count=len(without_target),
+            sample=without_target[:5],
         )
     if by_parent and not (missing_external or not_ok):
         _finding(

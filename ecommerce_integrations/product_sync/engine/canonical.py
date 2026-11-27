@@ -930,6 +930,73 @@ def _render_description(item, sync) -> str | None:
     return getattr(item, "description", "") or ""
 
 
+def _variant_family() -> dict:
+    """Templates, their variants, variant attributes and the Item files of
+    that family — loaded once per job instead of per Item."""
+    import frappe
+
+    fam = getattr(frappe.local, "_psync_variant_family", None)
+    if fam is not None:
+        return fam
+    variants: dict[str, list[str]] = {}
+    for r in frappe.get_all(
+        "Item", filters={"variant_of": ["is", "set"], "disabled": 0}, fields=["name", "variant_of"],
+    ):
+        variants.setdefault(r.variant_of, []).append(r.name)
+    attrs: dict[str, list[tuple[str, str]]] = {}
+    for r in frappe.db.sql(
+        """SELECT a.parent, a.attribute, a.attribute_value
+           FROM `tabItem Variant Attribute` a JOIN `tabItem` i ON i.name = a.parent
+           WHERE a.parenttype = 'Item' AND i.variant_of IS NOT NULL AND i.disabled = 0""",
+        as_dict=True,
+    ):
+        if r.attribute and r.attribute_value:
+            attrs.setdefault(r.parent, []).append((_norm_str(r.attribute), _norm_str(r.attribute_value)))
+    files: dict[str, set[str]] = {}
+    for r in frappe.db.sql(
+        """SELECT f.file_url, f.attached_to_name FROM `tabFile` f
+           JOIN `tabItem` i ON i.name = f.attached_to_name
+           WHERE f.attached_to_doctype = 'Item'
+             AND (i.variant_of IS NOT NULL OR i.has_variants = 1)""",
+        as_dict=True,
+    ):
+        files.setdefault(r.file_url, set()).add(r.attached_to_name)
+    images = dict(frappe.get_all(
+        "Item", filters={"has_variants": 1}, fields=["name", "image"], as_list=True,
+    ))
+    fam = {"variants": variants, "attrs": attrs, "files": files, "images": images}
+    frappe.local._psync_variant_family = fam
+    return fam
+
+
+def _template_synced(template: str, sync) -> bool:
+    """Whether the template already has a backend id (then variants carry
+    ``parentId``). Hashed on the variant so it is re-pushed exactly once
+    when the template lands — and never while it doesn't."""
+    import frappe
+    from ecommerce_integrations.product_sync.constants import BACKEND_TO_INTEGRATION_KEY
+
+    key = BACKEND_TO_INTEGRATION_KEY.get((getattr(sync, "backend", "") or "").strip())
+    if not key:
+        return False
+    memo = getattr(frappe.local, "_psync_synced_templates", None)
+    if memo is None:
+        memo = frappe.local._psync_synced_templates = {}
+    synced = memo.get(key)
+    if synced is None:
+        synced = memo[key] = set(frappe.db.sql_list(
+            """SELECT e.erpnext_item_code FROM `tabEcommerce Item` e
+               JOIN `tabItem` i ON i.name = e.erpnext_item_code AND i.has_variants = 1
+               WHERE e.integration = %s AND IFNULL(e.integration_item_code, '') != ''""",
+            key,
+        ))
+    if template not in synced and frappe.db.get_value(
+        "Ecommerce Item", {"erpnext_item_code": template, "integration": key}, "integration_item_code",
+    ):
+        synced.add(template)  # created earlier in this run
+    return template in synced
+
+
 def _canonical_pricing(item, sync, ctx=None) -> dict[str, Any]:
     """Resolve price per channel based on the sync's strategy.
 
@@ -957,11 +1024,11 @@ def _canonical_pricing(item, sync, ctx=None) -> dict[str, Any]:
             # on the parent: use the lowest variant price.
             prices = [
                 p for p in (
-                    # Variants may sit in another batch of the bulk context.
-                    _own_price(v, price_list) or _lookup_item_price(v, price_list, currency)
-                    for v in frappe.get_all(
-                        "Item", {"variant_of": item.item_code, "disabled": 0}, pluck="name",
-                    )
+                    # Apply contexts hold one batch only: ask the DB for
+                    # variants the context doesn't know.
+                    _own_price(v, price_list) if ctx is None or ctx.item(v)
+                    else _lookup_item_price(v, price_list, currency)
+                    for v in _variant_family()["variants"].get(item.item_code, [])
                 ) if p
             ]
             price = min(prices) if prices else None
@@ -1527,25 +1594,29 @@ def _name_images(images: list[dict[str, Any]], item, sync) -> None:
     import frappe
 
     data = _template_item(item)
-    shared: set[str] = set()
+    shared: list[str] = []
     parent_data = None
-    if getattr(item, "variant_of", None):
-        # Pictures shared with the template or other variants are one media
-        # entity in the backend: name them after the template, not after
+    parent = getattr(item, "variant_of", None)
+    if parent:
+        # Pictures shared with the template or sibling variants are one
+        # media entity in the backend: name them after the template (and
+        # number them identically for every variant) instead of after
         # whichever variant was pushed last.
-        urls = [img["url"] for img in images]
-        shared = set(frappe.get_all("File", pluck="file_url", filters={
-            "attached_to_doctype": "Item",
-            "attached_to_name": ["!=", item.item_code],
-            "file_url": ["in", urls or ["__none__"]],
-        }))
-        parent = frappe.get_cached_doc("Item", item.variant_of)
-        if parent.image in urls:
-            shared.add(parent.image)
-        parent_data = _template_item(parent) if shared else None
+        fam = _variant_family()
+        family = set(fam["variants"].get(parent, [])) | {parent}
+        family.discard(item.item_code)
+        shared = sorted(
+            img["url"] for img in images
+            if fam["files"].get(img["url"], set()) & family or img["url"] == fam["images"].get(parent)
+        )
+        if shared:
+            parent_data = _template_item(frappe.get_cached_doc("Item", parent))
     used: set[str] = set()
     for n, img in enumerate(images, 1):
-        ctx = {"item": parent_data if img["url"] in shared else data, "n": n}
+        if img["url"] in shared:
+            ctx = {"item": parent_data, "n": shared.index(img["url"]) + 1}
+        else:
+            ctx = {"item": data, "n": n}
         if file_tpl:
             try:
                 name = _file_slug(frappe.render_template(file_tpl, ctx))
@@ -1689,16 +1760,15 @@ def _canonical_properties(item, sync) -> dict[str, Any]:
     if getattr(item, "has_variants", 0):
         # The template's configurator lists every variant option; hashing
         # them re-pushes it when variants are added or removed.
+        fam = _variant_family()
         out["variant_options"] = sorted({
-            (_norm_str(r.attribute), _norm_str(r.attribute_value))
-            for r in frappe.get_all(
-                "Item Variant Attribute",
-                filters={"parenttype": "Item", "parent": ("in", frappe.get_all(
-                    "Item", {"variant_of": item.item_code, "disabled": 0}, pluck="name",
-                ) or ["__none__"])},
-                fields=["attribute", "attribute_value"],
-            ) if r.attribute and r.attribute_value
+            av for v in fam["variants"].get(item.item_code, []) for av in fam["attrs"].get(v, [])
         })
+    variant_of = getattr(item, "variant_of", None)
+    if variant_of and _template_synced(variant_of, sync):
+        # Only present once true, so variants of unsynced templates keep
+        # their hash; flips once when the template gets its backend id.
+        out["parent_synced"] = True
 
     # Include ecommerce_properties flagged for THIS sync's backend.
     # Rows with ``property_type = "Custom Field"`` go through
