@@ -2184,6 +2184,7 @@ class ShopwareProductAdapter(ProductAdapter):
         try:
             # Settings of removed variants would stay as dead options.
             existing = client.request_post("search/product-configurator-setting", payload={
+                "limit": 500,
                 "filter": [{"type": "equals", "field": "productId", "value": external_id}],
                 "includes": {"product_configurator_setting": ["id"]},
             })

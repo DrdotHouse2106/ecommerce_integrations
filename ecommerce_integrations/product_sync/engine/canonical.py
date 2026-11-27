@@ -145,6 +145,11 @@ def build_canonical_payload(item, sync, ctx=None) -> dict[str, Any]:
         # variant Item to look like permanent drift. The is_variant
         # boolean is enough for hash parity.
     }
+    if getattr(item, "variant_of", None) and _template_synced(item.variant_of, sync):
+        # Only present once true, so variants of unsynced templates keep
+        # their hash; flips once (with an empty delta, the payload always
+        # carries parentId) when the template gets its backend id.
+        payload["parent_synced"] = True
     if _flag(sync, "sync_basic_fields", default=True):
         payload["basic"] = _canonical_basic(item, sync)
         # Dynamic Item→Shopware customField mappings configured by
@@ -940,14 +945,14 @@ def _variant_family() -> dict:
         return fam
     variants: dict[str, list[str]] = {}
     for r in frappe.get_all(
-        "Item", filters={"variant_of": ["is", "set"], "disabled": 0}, fields=["name", "variant_of"],
+        "Item", filters={"variant_of": ["!=", ""], "disabled": 0}, fields=["name", "variant_of"],
     ):
         variants.setdefault(r.variant_of, []).append(r.name)
     attrs: dict[str, list[tuple[str, str]]] = {}
     for r in frappe.db.sql(
         """SELECT a.parent, a.attribute, a.attribute_value
            FROM `tabItem Variant Attribute` a JOIN `tabItem` i ON i.name = a.parent
-           WHERE a.parenttype = 'Item' AND i.variant_of IS NOT NULL AND i.disabled = 0""",
+           WHERE a.parenttype = 'Item' AND IFNULL(i.variant_of, '') != '' AND i.disabled = 0""",
         as_dict=True,
     ):
         if r.attribute and r.attribute_value:
@@ -957,14 +962,31 @@ def _variant_family() -> dict:
         """SELECT f.file_url, f.attached_to_name FROM `tabFile` f
            JOIN `tabItem` i ON i.name = f.attached_to_name
            WHERE f.attached_to_doctype = 'Item'
-             AND (i.variant_of IS NOT NULL OR i.has_variants = 1)""",
+             AND (IFNULL(i.variant_of, '') != '' OR i.has_variants = 1)""",
         as_dict=True,
     ):
         files.setdefault(r.file_url, set()).add(r.attached_to_name)
     images = dict(frappe.get_all(
         "Item", filters={"has_variants": 1}, fields=["name", "image"], as_list=True,
     ))
-    fam = {"variants": variants, "attrs": attrs, "files": files, "images": images}
+    item_images = dict(frappe.get_all(
+        "Item", filters={"variant_of": ["!=", ""], "disabled": 0}, fields=["name", "image"], as_list=True,
+    ))
+    # Per template: URLs used by at least two family members, in one fixed
+    # order, so every member names a shared picture the same way.
+    shared: dict[str, list[str]] = {}
+    for tpl, members in variants.items():
+        family = set(members) | {tpl}
+        users: dict[str, set[str]] = {}
+        for url, owners in files.items():
+            if owners & family:
+                users.setdefault(url, set()).update(owners & family)
+        for code in family:
+            img = images.get(code) if code == tpl else item_images.get(code)
+            if img:
+                users.setdefault(img, set()).add(code)
+        shared[tpl] = sorted(u for u, owners in users.items() if len(owners) > 1)
+    fam = {"variants": variants, "attrs": attrs, "files": files, "images": images, "shared": shared}
     frappe.local._psync_variant_family = fam
     return fam
 
@@ -990,11 +1012,17 @@ def _template_synced(template: str, sync) -> bool:
                WHERE e.integration = %s AND IFNULL(e.integration_item_code, '') != ''""",
             key,
         ))
-    if template not in synced and frappe.db.get_value(
-        "Ecommerce Item", {"erpnext_item_code": template, "integration": key}, "integration_item_code",
-    ):
-        synced.add(template)  # created earlier in this run
     return template in synced
+
+
+def mark_template_synced(item_code: str, integration_key: str) -> None:
+    """Called by the apply for every pushed item, so variants later in the
+    same run see a template created earlier (non-templates are harmless)."""
+    import frappe
+
+    memo = getattr(frappe.local, "_psync_synced_templates", None)
+    if memo is not None and integration_key in memo:
+        memo[integration_key].add(item_code)
 
 
 def _canonical_pricing(item, sync, ctx=None) -> dict[str, Any]:
@@ -1594,23 +1622,18 @@ def _name_images(images: list[dict[str, Any]], item, sync) -> None:
     import frappe
 
     data = _template_item(item)
-    shared: list[str] = []
+    template = getattr(item, "variant_of", None) or (
+        item.item_code if getattr(item, "has_variants", 0) else None
+    )
+    # Pictures shared within a template family are one media entity in the
+    # backend: template and variants name them alike, after the template,
+    # instead of after whichever member was pushed last.
+    shared = _variant_family()["shared"].get(template, []) if template else []
     parent_data = None
-    parent = getattr(item, "variant_of", None)
-    if parent:
-        # Pictures shared with the template or sibling variants are one
-        # media entity in the backend: name them after the template (and
-        # number them identically for every variant) instead of after
-        # whichever variant was pushed last.
-        fam = _variant_family()
-        family = set(fam["variants"].get(parent, [])) | {parent}
-        family.discard(item.item_code)
-        shared = sorted(
-            img["url"] for img in images
-            if fam["files"].get(img["url"], set()) & family or img["url"] == fam["images"].get(parent)
+    if any(img["url"] in shared for img in images):
+        parent_data = data if template == item.item_code else _template_item(
+            frappe.get_cached_doc("Item", template),
         )
-        if shared:
-            parent_data = _template_item(frappe.get_cached_doc("Item", parent))
     used: set[str] = set()
     for n, img in enumerate(images, 1):
         if img["url"] in shared:
@@ -1764,11 +1787,6 @@ def _canonical_properties(item, sync) -> dict[str, Any]:
         out["variant_options"] = sorted({
             av for v in fam["variants"].get(item.item_code, []) for av in fam["attrs"].get(v, [])
         })
-    variant_of = getattr(item, "variant_of", None)
-    if variant_of and _template_synced(variant_of, sync):
-        # Only present once true, so variants of unsynced templates keep
-        # their hash; flips once when the template gets its backend id.
-        out["parent_synced"] = True
 
     # Include ecommerce_properties flagged for THIS sync's backend.
     # Rows with ``property_type = "Custom Field"`` go through

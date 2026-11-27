@@ -1573,32 +1573,12 @@ def _apply_batch(
                             from ecommerce_integrations.product_sync.engine.adapters.shopware import (
                                 property_option_uuid as _opt_uuid,
                             )
-                            variant_attr_rows = frappe.get_all(
-                                "Item Variant Attribute",
-                                filters={
-                                    "parenttype": "Item",
-                                    "parent": ("in", frappe.get_all(
-                                        "Item",
-                                        filters={
-                                            "variant_of": meta["item_code"],
-                                            "disabled": 0,
-                                        },
-                                        pluck="name",
-                                    ) or ["__none__"]),
-                                },
-                                fields=["attribute", "attribute_value"],
-                            )
-                            option_ids = []
-                            seen_opts = set()
-                            for r in variant_attr_rows:
-                                a = (r.get("attribute") or "").strip()
-                                v = (r.get("attribute_value") or "").strip()
-                                if not a or not v:
-                                    continue
-                                oid = _opt_uuid(a, v, kind="variant")
-                                if oid not in seen_opts:
-                                    seen_opts.add(oid)
-                                    option_ids.append(oid)
+                            # Same normalisation as the Phase-A.5 option pre-create.
+                            option_ids = list(dict.fromkeys(
+                                _opt_uuid(a, v, kind="variant")
+                                for a, v in ((meta.get("canonical") or {}).get("properties") or {}).get("variant_options") or []
+                                if a and v
+                            ))
                             if option_ids:
                                 try:
                                     _cfg = cfg_pusher(new_external_id, option_ids) or {}
@@ -1928,7 +1908,10 @@ def _persist_item_success(
     """
     from ecommerce_integrations.product_sync.engine.canonical import (
         encode_canonical,
+        mark_template_synced,
     )
+    if external_id:
+        mark_template_synced(item_code, integration)
     now = now_datetime()
     encoded_canonical = encode_canonical(canonical) if canonical else None
     fields = {
