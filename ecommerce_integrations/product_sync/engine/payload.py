@@ -233,6 +233,9 @@ def build_shopware_payload(
         payload["isCloseout"] = bool(basic.get("is_closeout", False))
     if _wants("inventory") and "inventory" in canonical:
         payload["stock"] = int(inventory.get("qty") or 0)
+    elif not external_id:
+        # Shopware requires stock on create, even when inventory sync is off.
+        payload["stock"] = int(inventory.get("qty") or 0)
     if external_id:
         payload["id"] = external_id
 
