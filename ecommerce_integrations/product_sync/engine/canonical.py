@@ -943,12 +943,29 @@ def _canonical_pricing(item, sync, ctx=None) -> dict[str, Any]:
     standard_rate = _normalize_float(getattr(item, "standard_rate", 0) or 0)
     currency = getattr(item, "currency", "") or frappe.db.get_default("currency") or "EUR"
 
+    def _own_price(code: str, price_list: str) -> float | None:
+        if ctx is not None:
+            return ctx.price_for(code, price_list)
+        return _lookup_item_price(code, price_list, currency)
+
     def _price(price_list: str) -> float | None:
         if not price_list:
             return None
-        if ctx is not None:
-            return ctx.price_for(item.item_code, price_list)
-        return _lookup_item_price(item.item_code, price_list, currency)
+        price = _own_price(item.item_code, price_list)
+        if price is None and getattr(item, "has_variants", 0):
+            # ERPNext forbids Item Prices on templates, Shopware needs one
+            # on the parent: use the lowest variant price.
+            prices = [
+                p for p in (
+                    # Variants may sit in another batch of the bulk context.
+                    _own_price(v, price_list) or _lookup_item_price(v, price_list, currency)
+                    for v in frappe.get_all(
+                        "Item", {"variant_of": item.item_code, "disabled": 0}, pluck="name",
+                    )
+                ) if p
+            ]
+            price = min(prices) if prices else None
+        return price
 
     base_list = None
     if strategy == "item_standard_rate":
