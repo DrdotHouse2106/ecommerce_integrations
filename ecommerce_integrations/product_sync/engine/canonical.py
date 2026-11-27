@@ -1527,9 +1527,25 @@ def _name_images(images: list[dict[str, Any]], item, sync) -> None:
     import frappe
 
     data = _template_item(item)
+    shared: set[str] = set()
+    parent_data = None
+    if getattr(item, "variant_of", None):
+        # Pictures shared with the template or other variants are one media
+        # entity in the backend: name them after the template, not after
+        # whichever variant was pushed last.
+        urls = [img["url"] for img in images]
+        shared = set(frappe.get_all("File", pluck="file_url", filters={
+            "attached_to_doctype": "Item",
+            "attached_to_name": ["!=", item.item_code],
+            "file_url": ["in", urls or ["__none__"]],
+        }))
+        parent = frappe.get_cached_doc("Item", item.variant_of)
+        if parent.image in urls:
+            shared.add(parent.image)
+        parent_data = _template_item(parent) if shared else None
     used: set[str] = set()
     for n, img in enumerate(images, 1):
-        ctx = {"item": data, "n": n}
+        ctx = {"item": parent_data if img["url"] in shared else data, "n": n}
         if file_tpl:
             try:
                 name = _file_slug(frappe.render_template(file_tpl, ctx))

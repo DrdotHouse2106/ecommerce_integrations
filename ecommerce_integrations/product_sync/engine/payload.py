@@ -509,6 +509,9 @@ def build_shopware_payload(
     # back). Skip silently when the template hasn't been pushed yet
     # — the next sync round will pick it up once the template lands
     # an external_id.
+    if getattr(item, "has_variants", 0):
+        # List the template once, under its own name, not each variant.
+        payload["variantListingConfig"] = {"displayParent": True}
     variant_of = getattr(item, "variant_of", None) or ""
     if variant_of:
         parent_ext = frappe.db.get_value(
