@@ -1670,6 +1670,19 @@ def _canonical_properties(item, sync) -> dict[str, Any]:
             attrs.append({"name": name, "value": value})
     attrs.sort(key=lambda d: (d["name"], d["value"]))
     out["attributes"] = attrs
+    if getattr(item, "has_variants", 0):
+        # The template's configurator lists every variant option; hashing
+        # them re-pushes it when variants are added or removed.
+        out["variant_options"] = sorted({
+            (_norm_str(r.attribute), _norm_str(r.attribute_value))
+            for r in frappe.get_all(
+                "Item Variant Attribute",
+                filters={"parenttype": "Item", "parent": ("in", frappe.get_all(
+                    "Item", {"variant_of": item.item_code, "disabled": 0}, pluck="name",
+                ) or ["__none__"])},
+                fields=["attribute", "attribute_value"],
+            ) if r.attribute and r.attribute_value
+        })
 
     # Include ecommerce_properties flagged for THIS sync's backend.
     # Rows with ``property_type = "Custom Field"`` go through

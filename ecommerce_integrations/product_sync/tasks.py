@@ -932,6 +932,9 @@ def _apply_batch(
             # is not in the set). On CREATE the set is irrelevant
             # because we send the full payload.
             "delta_sections": delta_sections,
+            # Variant pushed before its template had a backend id.
+            "parent_missing": backend == BACKEND_SHOPWARE
+            and bool(getattr(item, "variant_of", None)) and "parentId" not in payload,
         })
 
     if not prepared:
@@ -1534,6 +1537,13 @@ def _apply_batch(
                     has_variants = bool(int(getattr(item_doc, "has_variants", 0) or 0))
                     attrs = getattr(item_doc, "attributes", []) or []
 
+                    if meta.get("parent_missing"):
+                        # No parentId yet: retry next run.
+                        _invalidate_stored_canonical_section(
+                            integration_key=integration_key,
+                            item_code=meta["item_code"], section="properties",
+                        )
+
                     if variant_of and attrs and not _properties_handled_in_bulk:
                         # Variant: set its option ids on the live product.
                         # When the bulk path coalesced ``options`` into the
@@ -1597,10 +1607,16 @@ def _apply_batch(
                                     option_ids.append(oid)
                             if option_ids:
                                 try:
-                                    cfg_pusher(new_external_id, option_ids)
+                                    _cfg = cfg_pusher(new_external_id, option_ids) or {}
+                                    if _cfg.get("failed"):
+                                        raise RuntimeError(f"{_cfg['failed']} settings not written")
                                 except Exception as exc:  # noqa: BLE001
                                     result.errors.append(
                                         f"{meta['item_code']}: template configurator push failed: {exc}"
+                                    )
+                                    _invalidate_stored_canonical_section(
+                                        integration_key=integration_key,
+                                        item_code=meta["item_code"], section="properties",
                                     )
                         else:
                             # Legacy path: walk variant docs and call the
@@ -1644,10 +1660,16 @@ def _apply_batch(
                                         option_ids.append(oid)
                             if option_ids:
                                 try:
-                                    cfg_pusher(new_external_id, option_ids)
+                                    _cfg = cfg_pusher(new_external_id, option_ids) or {}
+                                    if _cfg.get("failed"):
+                                        raise RuntimeError(f"{_cfg['failed']} settings not written")
                                 except Exception as exc:  # noqa: BLE001
                                     result.errors.append(
                                         f"{meta['item_code']}: template configurator push failed: {exc}"
+                                    )
+                                    _invalidate_stored_canonical_section(
+                                        integration_key=integration_key,
+                                        item_code=meta["item_code"], section="properties",
                                     )
 
             applied_diffs.append({
