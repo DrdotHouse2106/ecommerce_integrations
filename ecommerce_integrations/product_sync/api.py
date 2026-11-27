@@ -450,8 +450,9 @@ def _check_category_bridge(doc, _finding) -> None:
     if not int(doc.get("sync_categories") or 0):
         return  # categories are not pushed, so no bridge is needed
     if (doc.scope_mode or "") == "Smart Collection":
+        # Targets are optional: without one the apply links the Item
+        # Group categories below, which still need their mapping.
         _check_smart_collection_category_bridge(doc, _finding)
-        return
 
     from ecommerce_integrations.product_sync.walker import walk_items_for_sync
 
@@ -1119,13 +1120,11 @@ def _check_smart_collection_category_bridge(doc, _finding) -> None:
             continue
         by_parent.setdefault(row.parent, []).append(row)
 
-    missing_target = []
     missing_external = []
     not_ok = []
     for name in sorted(sc_names):
         targets = by_parent.get(name) or []
         if not targets:
-            missing_target.append(name)
             continue
         if not any((t.get("external_id") or "").strip() for t in targets):
             missing_external.append(name)
@@ -1133,17 +1132,6 @@ def _check_smart_collection_category_bridge(doc, _finding) -> None:
         if bad:
             not_ok.append(name)
 
-    if missing_target:
-        _finding(
-            "block", "smart_collection_target_missing",
-            _(
-                "{0} linked Smart Collections have no enabled {1} target "
-                "for this storefront."
-            ).format(len(missing_target), backend),
-            count=len(missing_target),
-            sample=missing_target[:5],
-            fix_hint=_("Add/enable the matching Smart Collection target first."),
-        )
     if missing_external:
         _finding(
             "warn", "smart_collection_category_not_synced",
@@ -1165,7 +1153,7 @@ def _check_smart_collection_category_bridge(doc, _finding) -> None:
             sample=not_ok[:5],
             fix_hint=_("Open Smart Collections and resolve target errors before Product Sync."),
         )
-    if not (missing_target or missing_external or not_ok):
+    if by_parent and not (missing_external or not_ok):
         _finding(
             "ok", "smart_collection_categories_ready",
             _("Linked Smart Collection categories are synced for this backend/storefront."),
