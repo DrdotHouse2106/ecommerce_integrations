@@ -31,6 +31,13 @@ import frappe
 import frappe.utils
 
 
+_OPTIONAL_ITEM_FIELDS = (
+    "weight_per_unit", "item_height", "item_width", "item_length",
+    "abverkauf", "grundpreis_masseinheit", "grundeinheit", "verkaufseinheit",
+    "wc_average_delivery_time",
+)
+
+
 @dataclass
 class ItemSnapshot:
     """Duck-typed Item replacement passed to canonical builders.
@@ -220,6 +227,12 @@ class BulkContext:
         ):
             if cf in present:
                 wanted.append(cf)
+        # Optional (custom) fields the canonical reads with getattr/hasattr.
+        # Without them the preview hashed weight/dimensions/delivery time as
+        # missing while the apply saw the values, so those items looked
+        # changed on every tick and were re-pushed each time.
+        extra = [f for f in _OPTIONAL_ITEM_FIELDS if f in present]
+        wanted.extend(extra)
         rows = frappe.get_all(
             "Item",
             filters={"name": ("in", item_codes)},
@@ -256,6 +269,8 @@ class BulkContext:
                 restock_time=int(r.get("restock_time") or 0),
                 min_order_qty=float(r.get("min_order_qty") or 0),
             )
+            for f in extra:
+                snap.dynamic_field_values[f] = r.get(f)
             self._items[snap.item_code] = snap
 
     def _load_stock(self, item_codes: list[str]) -> None:
